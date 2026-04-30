@@ -81,6 +81,32 @@ class GithubClient:
             return UnableToVerify(reason=f"http_{response.status_code}")
         return UnableToVerify(reason=f"http_{response.status_code}")
 
+    async def list_collaborators(
+        self, owner: str, repo: str
+    ) -> list[dict[str, Any]] | UnableToVerify:
+        """``GET /repos/{owner}/{repo}/collaborators``.
+
+        Returns the User objects with ``permissions`` and ``role_name``.
+        Note: GitHub does NOT include ``last_active`` on these objects —
+        :func:`check_stale_collaborators` derives activity from
+        :meth:`get_user_last_event` instead.
+        """
+        url = f"{GITHUB_API}/repos/{owner}/{repo}/collaborators"
+        params = {"affiliation": "direct", "per_page": "100"}
+        try:
+            response = await self._http.get(
+                url, headers=self._headers(), params=params, timeout=self._timeout
+            )
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            return UnableToVerify(reason=f"network: {exc.__class__.__name__}")
+
+        if response.status_code == 200:
+            body = response.json()
+            return body if isinstance(body, list) else []
+        if response.status_code in (401, 403, 404, 429):
+            return UnableToVerify(reason=f"http_{response.status_code}")
+        return UnableToVerify(reason=f"http_{response.status_code}")
+
     async def get_user_last_event(self, login: str) -> str | None | UnableToVerify:
         """Return the ISO timestamp of the user's most recent **public** event,
         or ``None`` if they have no public events at all.
