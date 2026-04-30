@@ -150,17 +150,19 @@ def check_trusted_action_sources(repo_path: Path) -> PostureCheckResult:
 
 
 def check_workflow_trigger_scope(repo_path: Path) -> PostureCheckResult:
-    """Advisory: surfaces workflows that combine `pull_request_target` with
+    """Surfaces workflows that combine `pull_request_target` with
     `actions/checkout` of the PR ref — the canonical pwn-request pattern.
 
-    We always emit `advisory` (never fail), per PRD-0003: this check is meant
-    to nudge a maintainer review, not gate the badge.
+    Per PRD-0003 this is an advisory-class check (never fails), but when there
+    is nothing to advise on we emit ``pass`` so the row doesn't perpetually
+    pollute the Issues page. The mapper still tags ``grade_impact='advisory'``
+    based on the check name, so the grade math is unchanged either way.
     """
     files = _iter_workflow_files(repo_path)
     if not files:
         return PostureCheckResult(
             check_name="workflow_trigger_scope",
-            status="advisory",
+            status="pass",
             detail={"reason": "no_workflows"},
         )
 
@@ -178,6 +180,6 @@ def check_workflow_trigger_scope(repo_path: Path) -> PostureCheckResult:
                 break
     return PostureCheckResult(
         check_name="workflow_trigger_scope",
-        status="advisory",
+        status="advisory" if flagged else "pass",
         detail={"flagged_count": len(flagged), "flagged": flagged[:20]},
     )

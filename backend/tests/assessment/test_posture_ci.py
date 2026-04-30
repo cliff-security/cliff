@@ -105,12 +105,14 @@ jobs:
     assert result.detail["flagged_count"] >= 1
 
 
-def test_workflow_trigger_scope_is_advisory_when_clean(tmp_path: Path) -> None:
+def test_workflow_trigger_scope_passes_when_clean(tmp_path: Path) -> None:
+    """Advisory by design, but pass-when-clean so a workflow with nothing to
+    advise on doesn't generate a perpetually-open Issues row."""
     _write_workflow(
         tmp_path,
         "ci.yml",
         "name: CI\non: push\njobs: {}\n",
     )
     result = check_workflow_trigger_scope(tmp_path)
-    assert result.status == "advisory"
+    assert result.status == "pass"
     assert result.detail["flagged_count"] == 0

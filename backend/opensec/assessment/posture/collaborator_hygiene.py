@@ -174,7 +174,10 @@ async def check_broad_team_permissions(
     ]
     return PostureCheckResult(
         check_name="broad_team_permissions",
-        status="advisory",
+        # Advisory by design (never fails), but emit ``pass`` when nothing is
+        # flagged so the Issues page doesn't carry a perpetually-open row.
+        # Mapper still tags grade_impact='advisory' from the check name.
+        status="advisory" if flagged else "pass",
         detail={"flagged_count": len(flagged), "flagged": flagged[:10]},
     )
 

@@ -154,6 +154,25 @@ async def test_broad_team_permissions_advisory_when_supported() -> None:
 
 
 @pytest.mark.asyncio
+async def test_broad_team_permissions_pass_when_no_teams_flagged() -> None:
+    """No write-access teams over the threshold → emit pass, not advisory.
+
+    Without this, the row sat perpetually open on the Issues page even though
+    nothing was actionable.
+    """
+    client = _StubClient(
+        list_repo_teams=[
+            {"slug": "viewers", "permission": "pull", "members_count": 100},
+        ]
+    )
+    result = await check_broad_team_permissions(
+        client, RepoCoords(owner="o", repo="r")
+    )
+    assert result.status == "pass"
+    assert result.detail["flagged_count"] == 0
+
+
+@pytest.mark.asyncio
 async def test_default_branch_permissions_pass_when_protected() -> None:
     client = _StubClient(
         get_repo_info={"default_branch": "main"},
