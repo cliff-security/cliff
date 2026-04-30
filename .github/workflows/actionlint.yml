@@ -1,0 +1,14 @@
+name: Actionlint
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Run actionlint
+        uses: rhysd/actionlint@f9d1e0b9b0b8c3c6d8c2e6a6a2c3d5e7f8a9b0c1
