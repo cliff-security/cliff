@@ -168,7 +168,18 @@ export const assessmentRunningPayload: DashboardPayload = {
 
 const _snapshotC = {
   ..._emptySnapshot,
+  // PRD-0003 v0.2: grade C requires 6–7 of the 10 grade-counting criteria
+  // met. Set six explicit True values so the dashboard's criteria meter
+  // and the GradeRing's "X of 10" display agree with the headline grade.
+  // (Pre-PR, this snapshot only set ``no_critical_vulns`` and relied on
+  // the legacy 5-bucket counter to inflate the displayed count to 3 — see
+  // the dogfooding bug log entry on the dashboard count mismatch.)
   no_critical_vulns: true,
+  no_high_vulns: true,
+  security_md_present: true,
+  dependabot_present: true,
+  no_secrets_detected: true,
+  code_owners_exists: true,
   posture_checks_passing: 7,
   posture_checks_total: 7,
 }

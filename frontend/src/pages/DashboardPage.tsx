@@ -333,10 +333,14 @@ function ReportCard({ data }: { data: DashboardPayload }) {
   >({})
 
   const repoName = repoNameFromUrl(data.assessment?.repo_url)
-  // v0.2 dashboard: data.criteria is the labeled list per ADR-0032; the boolean
-  // record we inspect for legacy synth/render paths lives at criteria_snapshot.
-  const criteria = data.criteria_snapshot
-  const criteriaMet = countCriteriaMet(criteria)
+  // v0.2 dashboard: data.criteria is the labeled list per ADR-0032 — count
+  // ``met`` entries directly. The legacy ``countCriteriaMet`` over
+  // ``criteria_snapshot`` returns at most 5 (the PRD-0002 shape) but the UI
+  // displays it against ``CRITERIA_TOTAL = 10``, producing the misleading
+  // "4 of 10" the user reported. Match the AssessmentSummaryGate path
+  // which uses the labeled list as the v0.2 source of truth.
+  const criteriaMet =
+    (data.criteria ?? []).filter((c) => c.met).length
   const remaining = Math.max(0, CRITERIA_TOTAL - criteriaMet)
 
   const heroCopy = buildHeroCopy(data.grade, remaining)
@@ -1238,31 +1242,6 @@ function statusCopy(status: PostureCheckStatus): string {
     default:
       return 'Needs attention'
   }
-}
-
-/**
- * Counts how many of the five completion criteria are met.
- *
- * The five criteria, in order of the pill meter:
- *   1. SECURITY.md is committed
- *   2. Dependabot is configured
- *   3. No critical vulnerabilities remain open
- *   4. At least 80% of posture checks pass (health threshold)
- *   5. 100% of posture checks pass (completion threshold)
- *
- * Criteria 4 and 5 are intentionally overlapping: hitting 100% implies 80%,
- * so perfect posture counts for both. A repo at 80–99% earns only criterion 4.
- */
-function countCriteriaMet(c: DashboardPayload['criteria_snapshot']): number {
-  return [
-    c.security_md_present,
-    c.dependabot_present,
-    c.no_critical_vulns,
-    c.posture_checks_total > 0 &&
-      c.posture_checks_passing >= Math.ceil(c.posture_checks_total * 0.8),
-    c.posture_checks_total > 0 &&
-      c.posture_checks_passing === c.posture_checks_total,
-  ].filter(Boolean).length
 }
 
 function GradeExplainer({

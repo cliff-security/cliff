@@ -43,12 +43,15 @@ describe('<DashboardPage />', () => {
     ).not.toBeInTheDocument()
     expect(screen.getByText('Vulnerabilities')).toBeInTheDocument()
     expect(screen.getByText('Repo posture')).toBeInTheDocument()
-    // PR-B (PRD-0003 v0.2): the grade now uses 10 criteria, not 5. The
-    // grade-C fixture meets 3 criteria → 7 remaining out of 10.
+    // PRD-0003 v0.2: count comes from ``data.criteria.filter(c => c.met)`` —
+    // the labeled v0.2 list. Grade-C fixture has 6 of the 10 criteria true,
+    // so the meter reads "6 criteria met · 4 remaining" and the ring shows
+    // "6 of 10". (Pre-fix, the dashboard called a legacy 5-bucket counter
+    // that returned 3 and then displayed it against /10 — meaningless math.)
     expect(
-      screen.getByText(/3 criteria met · 7 remaining/i),
+      screen.getByText(/6 criteria met · 4 remaining/i),
     ).toBeInTheDocument()
-    expect(screen.getByText(/3 of 10/i)).toBeInTheDocument()
+    expect(screen.getByText(/6 of 10/i)).toBeInTheDocument()
   })
 
   it('renders grade A hero when grade-A-completion-holding fixture is active', async () => {

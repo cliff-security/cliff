@@ -172,6 +172,13 @@ Each entry:
 - **What:** Preflight only checked `opensec status` (which doesn't reveal whether the GitHub Integration exists, since the GH-PAT lives in the encrypted vault, not env). Users with an AI key but no GitHub integration would scan, see ✗ on every GitHub-side criterion, and never know the integration was the missing piece.
 - **Status:** fixed in `fix/secure-repo-cli-bugs`. New step `1a` walks through verifying both an AI provider key (env or DB) and a GitHub Integration (with PAT in the vault). Provides exact `curl` recipes to provision each via API. Skill version bumped to 0.1.2.
 
+### 19. Dashboard "criteria met" count is wrong on the ReportCard view
+- **Severity:** **bug** — user reported the screenshot: grade B at the top, then "4 of 10" in the GradeRing and "4 criteria met · 6 remaining" in the Completion Progress row, while the API correctly reports 9/10.
+- **Where:** `frontend/src/pages/DashboardPage.tsx` (`ReportCard` lines 336-340 + a now-removed `countCriteriaMet` helper around line 1260).
+- **What:** The page has two render paths. `AssessmentSummaryGate` (the pre-summary-seen view) counts via `data.criteria.filter(c => c.met).length` — the v0.2 labeled list — which produces the right number (9). `ReportCard` (the post-summary-seen view, which is what the user sees by default) called `countCriteriaMet(criteria_snapshot)` instead — a legacy PRD-0002 counter that maxes out at 5 (SECURITY.md, Dependabot, no-criticals, ≥80% posture, =100% posture). Its result was then displayed against the hard-coded `CRITERIA_TOTAL = 10`, producing meaningless arithmetic like "4 of 10".
+- **Why it matters:** the headline grade and the criteria fraction visibly disagreed. The user couldn't tell which one to believe.
+- **Status:** fixed in `fix/secure-repo-cli-bugs`. `ReportCard` now uses the same v0.2 path as `AssessmentSummaryGate` (`data.criteria.filter(c => c.met).length`). Removed the legacy `countCriteriaMet` helper. The grade-C dashboard fixture was updated from 1 truly-met criterion (relying on the legacy 5-bucket inflation to display as 3) to 6 truly-met criteria — the snapshot now matches its headline grade. Tests updated.
+
 ### 7. `/api/settings/providers` returns ~3 MB of JSON
 - **Severity:** improvement
 - **Where:** `GET /api/settings/providers`
