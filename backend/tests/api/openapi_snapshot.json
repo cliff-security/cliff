@@ -4515,7 +4515,7 @@
     },
     "/api/findings": {
       "get": {
-        "description": "List findings.\n\nWhen ``scope=current`` the list is scoped to the latest assessment via\n``assessment_id``. All finding types are included \u2014 including posture\nrows \u2014 so the Issues page surfaces every actionable item from the\nmost recent scan. The dashboard's posture card filters by\n``type=posture`` if it wants only those.",
+        "description": "List findings.\n\nWhen ``scope=current`` the list is scoped to the latest assessment via\n``assessment_id``. All finding types are included \u2014 including posture\nrows \u2014 so the Issues page surfaces every actionable item from the\nmost recent scan. The dashboard's posture card filters by\n``type=posture`` if it wants only those.\n\nBaseline-passing posture rows (``type='posture'`` + ``status='passed'`` +\nno ``pr_url``) are suppressed under ``scope=current``: they were never\nactionable issues, so they should not appear in the Issues page.\nPosture rows that *became* passing via a workspace PR (``pr_url`` is\nset) are still surfaced so the Done section reflects the user's work.",
         "operationId": "list_findings_endpoint_api_findings_get",
         "parameters": [
           {

@@ -2,7 +2,7 @@
 name: "Secure Repo"
 description: |
   Run OpenSec end-to-end on the user's repo from inside Claude Code — install if needed, scan, plan, approve, PR, close. Trigger when the user says "secure this repo", "vibe security", "scan with OpenSec", or asks Claude to drive a remediation flow on a local checkout. Uses the `opensec` CLI (bundled with the OpenSec installer) and `gh` for the PR review/merge step. Hard rule: never auto-approve plans or auto-merge PRs — those are user gates.
-version: "0.1.1"
+version: "0.1.2"
 category: "security"
 tags: [opensec, security, remediation, vibe-security, agent-cli]
 ---
@@ -36,16 +36,61 @@ Every command emits one JSON object on stdout (or stderr for errors) and exits w
 
 ## Workflow
 
-### 1. Preflight — is OpenSec running?
+### 1. Preflight — is OpenSec running and configured?
 
 ```
 opensec status
 ```
 
-- Exit 0 + `ready: true` → continue to scan.
-- Exit 0 + `ready: false` → list `blockers` to the user (e.g. `no_llm_model_configured`) and stop. The user fixes config; don't try to fix it from the skill.
-- Exit 3 (daemon down) or "command not found" → install path (next section).
+- Exit 0 + `ready: true` → continue to **provider keys** (next).
+- Exit 0 + `ready: false` → list `blockers` to the user (e.g. `no_llm_model_configured`) and walk them through the configure step below.
+- Exit 3 (daemon down) or "command not found" → install path.
 - Exit 4 → ask user to re-run installer.
+
+### 1a. Provider keys — AI model and GitHub PAT
+
+OpenSec needs **two** credentials to drive the full loop:
+
+- **AI provider key** (e.g. `OPENAI_API_KEY`) — read by the daemon at boot from env, or stored via `PUT /api/settings/api-keys/{provider}`. The model itself is set via `opensec model set <provider>/<id>` (defaults to `openai/gpt-5-nano`).
+- **GitHub PAT** — stored as an **Integration** (the daemon does NOT read `GITHUB_TOKEN` env). Without it, every GitHub-API posture check (`branch_protection_enabled`, `secret_scanning_enabled`, `no_stale_collaborators`, …) returns `unknown` and the grade caps at C.
+
+Verify both:
+
+```bash
+# AI provider — env-sourced or db-sourced is fine
+curl -s http://localhost:8000/api/settings/api-keys
+
+# GitHub Integration — must have one with adapter_type=github
+curl -s http://localhost:8000/api/settings/integrations | jq '.[] | select(.adapter_type=="github")'
+```
+
+If the AI key is missing, ask the user for one and store it:
+
+```bash
+curl -X PUT http://localhost:8000/api/settings/api-keys/openai \
+  -H "Content-Type: application/json" \
+  -d '{"provider":"openai","key":"<paste>"}'
+```
+
+If the GitHub Integration is missing, **first** confirm with the user, **then** create it and store the PAT:
+
+```bash
+# Create the integration
+INT_ID=$(curl -s -X POST http://localhost:8000/api/settings/integrations \
+  -H "Content-Type: application/json" \
+  -d '{"adapter_type":"github","provider_name":"GitHub","enabled":true,
+       "config":{"repo_url":"<repo_url>"},"action_tier":1}' | jq -r .id)
+
+# Store the PAT in the encrypted vault
+PAT="$(gh auth token)"   # or ask the user for one
+curl -X POST "http://localhost:8000/api/settings/integrations/$INT_ID/credentials" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -nc --arg v "$PAT" '{key_name:"github_personal_access_token", value:$v}')"
+```
+
+Required PAT scopes for the posture probes: `repo` (or fine-grained: Contents read, Metadata read, Administration read, Code scanning alerts read, Pull requests read+write for remediation).
+
+After both are present, re-run `opensec status` — `ready: true` → continue to scan.
 
 ### 2. Install path (only when status fails preflight)
 

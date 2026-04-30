@@ -113,6 +113,12 @@ async def list_findings_endpoint(
     rows — so the Issues page surfaces every actionable item from the
     most recent scan. The dashboard's posture card filters by
     ``type=posture`` if it wants only those.
+
+    Baseline-passing posture rows (``type='posture'`` + ``status='passed'`` +
+    no ``pr_url``) are suppressed under ``scope=current``: they were never
+    actionable issues, so they should not appear in the Issues page.
+    Posture rows that *became* passing via a workspace PR (``pr_url`` is
+    set) are still surfaced so the Done section reflects the user's work.
     """
     assessment_id: str | None = None
     if scope == "current":
@@ -123,7 +129,7 @@ async def list_findings_endpoint(
             return []
         assessment_id = latest.id
 
-    return await list_findings(
+    rows = await list_findings(
         db,
         status=status,
         has_workspace=has_workspace,
@@ -131,6 +137,15 @@ async def list_findings_endpoint(
         limit=limit,
         offset=offset,
     )
+
+    if scope == "current":
+        rows = [
+            r
+            for r in rows
+            if not (r.type == "posture" and r.status == "passed" and not r.pr_url)
+        ]
+
+    return rows
 
 
 @router.get("/findings/{finding_id}", response_model=Finding)

@@ -153,6 +153,25 @@ Each entry:
 - **Why it matters:** Any project that runs Trivy, Cosign, or uv from CI fails this check. The check isn't grade-counting (it's not in `CriteriaSnapshot`), so it doesn't block Grade A — but it does generate persistent "new" findings that users can't easily fix.
 - **Suggested fix:** either (a) expand the trusted list to include verified Marketplace publishers in the security-tooling space, (b) downgrade the check to advisory-only, or (c) bypass the trust check when an action is fully SHA-pinned (since SHA-pinning is the dominant supply-chain control).
 
+### 16. **Issues page count != Dashboard posture count** — passing checks rendered as Done rows
+- **Severity:** **bug** / UX (user reported: "in the dashboard I see only 2 opens, but in the issues page I see 13, that most of them are closed").
+- **Where:** `backend/opensec/api/routes/findings.py` `list_findings_endpoint`
+- **What:** Posture findings persist for every check the scanner ran (pass + fail), so the Issues page showed all 13 — 9 baseline-passing checks + 4 failures. The dashboard counts only the open ones (matching the failing criteria), so the two counts visibly diverged. The user expectation: "if a posture check is valid on the start then no need to create an issue for that".
+- **Status:** fixed in `fix/secure-repo-cli-bugs`. Under `scope=current`, posture rows with `status=passed` AND no `pr_url` are now suppressed at the response layer — those were never actionable issues. Posture rows that became passing via a workspace PR (`pr_url` is set) still surface so the Done section reflects work the user actually drove.
+
+### 17. **`stale_collaborators` always reports stale** — GitHub API doesn't return `last_active`
+- **Severity:** **bug** — caps Grade A on every repo unless the user knows the check is broken.
+- **Where:** `backend/opensec/assessment/posture/collaborator_hygiene.py` `check_stale_collaborators`
+- **What:** The check reads `last_active` / `last_activity_at` off each entry in `GET /repos/{owner}/{repo}/collaborators`. **Those fields don't exist on the User object returned by that endpoint** — verified by hitting the API directly with a fully-scoped PAT. So `last_active_str` is always empty, `last_active` is None, and the previous logic appended every collaborator with permissions to the `stale` list. Every repo with one or more push/admin collaborator failed this check (the user noticed: "I can't find them in the UI").
+- **Why it matters:** the user couldn't reach Grade A even with everything fixed because this check produced a phantom failure.
+- **Status:** fixed in `fix/secure-repo-cli-bugs`. The check now degrades to `status=unknown` (with `reason="no_last_active_field"`) when the API returns no last-active data. Combined with bug #12's tri-state, that surfaces as `null` (`?` in the UI) — an honest "we couldn't check" instead of a false ✗. The proper long-term fix is to derive last-active from a separate endpoint (events / commit activity); that's noted in the check's docstring as TODO. Repos with zero push/admin collaborators (read-only outside contributors only) still pass cleanly. New regression test `test_stale_collaborators_unknown_when_api_omits_last_active`.
+
+### 18. Skill didn't help users provision PAT or AI provider keys
+- **Severity:** UX
+- **Where:** `plugins/secure-repo/skills/secure-repo/SKILL.md`
+- **What:** Preflight only checked `opensec status` (which doesn't reveal whether the GitHub Integration exists, since the GH-PAT lives in the encrypted vault, not env). Users with an AI key but no GitHub integration would scan, see ✗ on every GitHub-side criterion, and never know the integration was the missing piece.
+- **Status:** fixed in `fix/secure-repo-cli-bugs`. New step `1a` walks through verifying both an AI provider key (env or DB) and a GitHub Integration (with PAT in the vault). Provides exact `curl` recipes to provision each via API. Skill version bumped to 0.1.2.
+
 ### 7. `/api/settings/providers` returns ~3 MB of JSON
 - **Severity:** improvement
 - **Where:** `GET /api/settings/providers`

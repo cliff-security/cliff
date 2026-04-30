@@ -105,6 +105,30 @@ async def test_stale_collaborators_unknown_on_pat_failure() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stale_collaborators_unknown_when_api_omits_last_active() -> None:
+    """Real GitHub /collaborators responses don't include last_active.
+
+    Regression for the dogfooding bug: previously every collaborator without
+    a last_active field was bucketed as "stale", producing a hard fail on
+    every repo. The check must degrade to ``unknown`` so the tri-state
+    criteria render as ``?`` rather than a phantom ✗.
+    """
+    client = _StubClient(
+        list_collaborators=[
+            {
+                "login": "galanko",
+                "permissions": {"admin": True, "push": True},
+                # No last_active / last_activity_at — mirrors the real API.
+            }
+        ]
+    )
+    result = await check_stale_collaborators(client, RepoCoords(owner="o", repo="r"))
+    assert result.status == "unknown"
+    assert result.detail["reason"] == "no_last_active_field"
+    assert result.detail["checked"] == 1
+
+
+@pytest.mark.asyncio
 async def test_broad_team_permissions_advisory_with_no_method_available() -> None:
     """When the client doesn't support list_repo_teams, degrade to unknown."""
     client = _StubClient()

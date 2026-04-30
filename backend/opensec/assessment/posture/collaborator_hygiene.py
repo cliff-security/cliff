@@ -62,18 +62,60 @@ async def check_stale_collaborators(
             status="unknown",
             detail={"reason": "unexpected_body"},
         )
+    # GitHub's GET /repos/{owner}/{repo}/collaborators does NOT return a
+    # ``last_active`` / ``last_activity_at`` field on the User object — those
+    # keys are not part of the REST API. Without per-user activity data we
+    # cannot make a real stale-vs-active determination. Earlier versions of
+    # this check treated the missing field as evidence of staleness and
+    # marked every collaborator as stale, producing a false fail on every
+    # repo. Degrade to ``unknown`` instead so the dashboard renders the
+    # tri-state ``?`` and the user sees an honest "we couldn't check" rather
+    # than a phantom failure.
     cutoff = _now()
+    eligible = [
+        entry
+        for entry in collabs
+        if isinstance(entry, dict)
+        and (
+            (entry.get("permissions") or {}).get("push")
+            or (entry.get("permissions") or {}).get("admin")
+        )
+    ]
+    # No push/admin collaborators → nothing to be stale; treat as pass so
+    # repos with read-only outside contributors don't grade-down on this.
+    if not eligible:
+        return PostureCheckResult(
+            check_name="stale_collaborators",
+            status="pass",
+            detail={"checked": len(collabs), "threshold_days": STALE_DAYS},
+        )
+    has_last_active = any(
+        entry.get("last_active") or entry.get("last_activity_at") for entry in eligible
+    )
+    if not has_last_active:
+        return PostureCheckResult(
+            check_name="stale_collaborators",
+            status="unknown",
+            detail={
+                "reason": "no_last_active_field",
+                "checked": len(collabs),
+                "threshold_days": STALE_DAYS,
+                "note": (
+                    "GitHub's collaborators endpoint doesn't return last-active "
+                    "data; per-user activity must be derived from a separate "
+                    "endpoint we don't query here. Treat as unverified."
+                ),
+            },
+        )
     stale: list[dict[str, Any]] = []
-    for entry in collabs:
-        perms = (entry.get("permissions") or {}) if isinstance(entry, dict) else {}
-        if not (perms.get("push") or perms.get("admin")):
-            continue
+    for entry in eligible:
         last_active_str = entry.get("last_active") or entry.get("last_activity_at") or ""
         last_active = _parse_iso(last_active_str) if last_active_str else None
         if last_active is None:
-            stale.append(
-                {"login": entry.get("login"), "last_active": None}
-            )
+            # Keep the collaborator out of the stale list when we lack data
+            # for them specifically — this avoids the all-or-nothing trap of
+            # the previous implementation while still surfacing collaborators
+            # whose last-active timestamp is genuinely past the cutoff.
             continue
         days = (cutoff - last_active).days
         if days >= STALE_DAYS:
