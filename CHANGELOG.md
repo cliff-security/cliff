@@ -7,6 +7,100 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4-alpha] - 2026-04-30
+
+Dogfooding `/secure-repo` against the OpenSec repo itself surfaced a
+cluster of bugs across the CLI, scanner, posture checks, dashboard,
+and skill — all fixed in this release. The full session log lives in
+`docs/dogfooding/secure-repo-session-bugs.md`. Net effect: the CLI ↔
+backend contract now actually works end to end, the scanner stops
+inventing CVEs out of test fixtures, and posture rendering matches
+the underlying state instead of approximating it.
+
+### Fixed — CLI & API
+
+- **`opensec fix` ↔ backend plan-schema mismatch.** CLI looked for
+  `plan.steps` / `plan.summary`; backend writes `plan.plan_steps` and
+  puts DoD at top-level `definition_of_done.items`. Predicate never
+  fired, every fix ran to its 900 s timeout, and `TimeoutError` fell
+  through as a raw Python traceback.
+- **`poll()` retries on transient 404.** The sidebar row is created
+  lazily by the first agent write; the first poll used to die with
+  "Sidebar state not found".
+- **`_with_client` catches `TimeoutError`** and emits a JSON `code:
+  timeout` error per the documented exit-code contract.
+- **`opensec approve` reads `pull_request.branch_name`** (was looking
+  for the never-written `branch`).
+- **CLI bumped to 0.1.1** for the schema fixes; `min_cli` stays at 0.1.0
+  (changes are additive).
+
+### Added — CLI
+
+- **`opensec model get / set / list`** — view, change, and list LLM
+  models from the terminal. `model list` projects the provider catalog
+  locally so the agent driving the CLI never sees the 3 MB blob.
+
+### Fixed — assessment & posture
+
+- **Trivy `--skip-dirs` / Semgrep `--exclude` honor `_fs.SKIP_DIRS`**
+  with `**/<name>` glob patterns so test fixtures (`backend/tests/
+  fixtures/lockfiles/...`) stop generating phantom CVEs. Self-scan
+  dropped from 47 false-positive findings to 0.
+- **`CriteriaSnapshot` is tri-state.** Each grade-counting field is
+  `True` (verified pass) / `False` (verified fail) / `None` (unknown,
+  e.g. no GitHub PAT to query). Frontend can render the third state
+  as `?` instead of a misleading ✗. `met_count()` only counts `True`,
+  so grading stays conservative.
+- **`stale_collaborators` actually works now.** Old code read
+  `last_active` off `/repos/.../collaborators` (a field GitHub doesn't
+  return) and flagged every collaborator as stale. Now falls back to
+  `/users/{login}/events` for per-user activity, with private-only
+  contributors recorded as unverifiable instead of auto-flagged. Also
+  added the missing `GithubClient.list_collaborators` method (the
+  attribute lookup had been returning `None` since the check was
+  written).
+- **Advisory checks pass-when-clean.** `workflow_trigger_scope` and
+  `broad_team_permissions` were perpetually `advisory`; now emit
+  `pass` when nothing's flagged so the row leaves the Issues page.
+- **`from_posture` honors scanner verdict for advisory.** A passing
+  advisory check is persisted with `status='passed'` instead of always
+  `status='new'`.
+- **`PUT /api/settings/model`** accepts either `{model_full_id}` or
+  the GET-shape `{provider, model_id}`.
+- **`GET /api/settings/api-keys` surfaces env-sourced keys** with
+  `source: "env"`, alongside DB-stored entries (`source: "db"`).
+
+### Fixed — UI
+
+- **Issues page surfaces posture findings.** `/api/findings?scope=current`
+  used to filter out `type=posture`; the dashboard knew about failing
+  checks but the Issues page didn't. Now includes them, with a
+  category-aware `IssuePostureBadge` (Repo config / Code integrity /
+  CI/CD / Access) and metadata that hides CVE-only fields.
+- **Issues page count matches the dashboard.** Baseline-passing
+  posture rows (`status='passed'` + no `pr_url`) are suppressed under
+  `scope=current` — they were never actionable issues.
+- **Dashboard grade ring shows the right fraction.** `ReportCard`
+  was calling a legacy 5-bucket counter and rendering its result
+  against `CRITERIA_TOTAL = 10` (so a grade-B repo could read "4 of 10"
+  while the API said 9/10). Now uses the v0.2 labeled list.
+- **CI workflows pinned to SHAs** (`backend.yml`, `cli.yml`,
+  `frontend.yml`). `release.yml` was already pinned. `actions_pinned_to_sha`
+  posture criterion now passes.
+
+### Added — `/secure-repo` skill (v0.1.2)
+
+- **Provider-key onboarding step.** Verifies an AI provider key
+  (env or DB-sourced) and a GitHub Integration with a PAT in the
+  encrypted vault before scanning. Without the integration, every
+  GitHub-API posture check returns `unknown` and the grade caps at C
+  — the skill makes that visible up front with curl recipes to
+  provision either piece via API.
+- **Re-assess step.** After the fix loop, the skill re-runs the scan,
+  reads `/api/assessment/latest`, and reports the new grade. Calls
+  out the GitHub-side criteria the daemon can't change (branch
+  protection, secret scanning, stale collaborators).
+
 ## [0.1.2-alpha] - 2026-04-30
 
 Adds an agent-shaped surface so Claude Code (and other coding agents)
