@@ -536,32 +536,129 @@ function ActiveWorkspace({ workspaceId }: { workspaceId: string }) {
       <div className="flex flex-1 overflow-hidden">
         {/* Center: chat */}
         <section className="flex-1 overflow-y-auto px-8 py-8 bg-surface-container-low flex flex-col gap-6 scroll-smooth">
-          {/* Finding summary card */}
-          {finding?.description && (
-            <div className="max-w-3xl">
-              <div className="bg-white rounded-2xl p-6 shadow-md border border-surface-container/80">
-                <div className="flex items-start gap-4">
-                  <div className="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center flex-shrink-0">
-                    <span className="material-symbols-outlined text-primary">auto_awesome</span>
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-bold mb-2">Finding summary</h3>
-                    <p className="text-on-surface-variant text-sm leading-relaxed mb-4">
-                      {finding.description}
-                    </p>
-                    {finding.why_this_matters && (
-                      <div className="p-3 bg-surface-container-low rounded-lg">
-                        <p className="text-[10px] text-on-surface-variant uppercase font-bold tracking-widest mb-1">
-                          Why this matters
+          {/* Finding summary card.
+              Sources, in order of preference:
+                1. sidebar.summary.description — enricher's prose narrative
+                   (populated for every finding type once the enricher runs).
+                2. finding.plain_description — plain-language gloss, written
+                   on ingest for vulnerability rows.
+                3. finding.description — raw scanner-emitted description,
+                   typically populated for CVE rows but null for posture.
+              When all three are missing we still render the card with the
+              finding title so the workspace isn't blank while the enricher
+              is in flight. */}
+          {finding && (() => {
+            const sidebarSummary = sidebar?.summary as
+              | { title?: string; description?: string; cve_ids?: string[] | null; cvss_score?: number | null }
+              | undefined
+            const headline =
+              sidebarSummary?.title || finding.title || 'Finding'
+            const body =
+              sidebarSummary?.description
+              || finding.plain_description
+              || finding.description
+              || null
+            const cves = sidebarSummary?.cve_ids ?? []
+            const cvss = sidebarSummary?.cvss_score ?? null
+
+            // Posture detail extraction. Each posture check writes its own
+            // shape under raw_payload.detail; we surface whichever finding-
+            // list key is present so users can see the exact rows to fix.
+            const isPosture = finding.type === 'posture'
+            const postureDetail = isPosture
+              ? ((finding.raw_payload?.detail as Record<string, unknown> | undefined) ?? {})
+              : {}
+            type PostureItem = Record<string, string | number | null | undefined>
+            const postureItems: PostureItem[] = (() => {
+              for (const k of ['untrusted', 'unpinned', 'flagged', 'stale', 'matches', 'items']) {
+                const v = postureDetail[k]
+                if (Array.isArray(v) && v.length > 0) {
+                  return v.filter((x): x is PostureItem => x !== null && typeof x === 'object') as PostureItem[]
+                }
+              }
+              return []
+            })()
+
+            return (
+              <div className="max-w-3xl">
+                <div className="bg-white rounded-2xl p-6 shadow-md border border-surface-container/80">
+                  <div className="flex items-start gap-4">
+                    <div className="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center flex-shrink-0">
+                      <span className="material-symbols-outlined text-primary">auto_awesome</span>
+                    </div>
+                    <div className="min-w-0 w-full">
+                      <h3 className="text-lg font-bold mb-1">{headline}</h3>
+                      {(cves.length > 0 || cvss != null) && (
+                        <div className="flex items-center gap-2 mb-3 text-xs text-on-surface-variant">
+                          {cves.map(id => (
+                            <span key={id} className="font-mono">{id}</span>
+                          ))}
+                          {cvss != null && <span>CVSS {cvss}</span>}
+                        </div>
+                      )}
+                      {body ? (
+                        <p className="text-on-surface-variant text-sm leading-relaxed mb-4">
+                          {body}
                         </p>
-                        <p className="text-sm font-medium">{finding.why_this_matters}</p>
-                      </div>
-                    )}
+                      ) : (
+                        <p className="text-on-surface-variant text-sm italic mb-4">
+                          Enriching this finding — the AI summary will appear here in a few seconds.
+                        </p>
+                      )}
+                      {finding.why_this_matters && (
+                        <div className="p-3 bg-surface-container-low rounded-lg mb-4">
+                          <p className="text-[10px] text-on-surface-variant uppercase font-bold tracking-widest mb-1">
+                            Why this matters
+                          </p>
+                          <p className="text-sm font-medium">{finding.why_this_matters}</p>
+                        </div>
+                      )}
+
+                      {isPosture && postureItems.length > 0 && (
+                        <div className="mt-4">
+                          <p className="text-[10px] text-on-surface-variant uppercase font-bold tracking-widest mb-2">
+                            What the scanner flagged ({postureItems.length})
+                          </p>
+                          <ul className="space-y-1.5 text-xs font-mono bg-surface-container-low rounded-lg p-3">
+                            {postureItems.slice(0, 12).map((it, i) => {
+                              const file = it.file as string | undefined
+                              const line = it.line as string | number | undefined
+                              const action = it.action as string | undefined
+                              const version = it.version as string | undefined
+                              const owner = it.owner as string | undefined
+                              const login = it.login as string | undefined
+                              const reason = it.reason as string | undefined
+                              const left = file
+                                ? `${file}${line != null ? `:${line}` : ''}`
+                                : login || owner || reason || ''
+                              const right = action
+                                ? `${action}${version ? `@${version}` : ''}`
+                                : owner && file ? owner : ''
+                              return (
+                                <li key={i} className="flex items-center gap-2 text-on-surface-variant">
+                                  <span className="text-outline">·</span>
+                                  <span className="truncate">{left}</span>
+                                  {right && (
+                                    <>
+                                      <span className="text-outline">→</span>
+                                      <span className="truncate">{right}</span>
+                                    </>
+                                  )}
+                                </li>
+                              )
+                            })}
+                            {postureItems.length > 12 && (
+                              <li className="text-outline italic">…and {postureItems.length - 12} more</li>
+                            )}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          )}
+            )
+          })()}
 
           {/* Action chips */}
           {!isResolved && (

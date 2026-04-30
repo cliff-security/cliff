@@ -179,6 +179,13 @@ Each entry:
 - **Why it matters:** the headline grade and the criteria fraction visibly disagreed. The user couldn't tell which one to believe.
 - **Status:** fixed in `fix/secure-repo-cli-bugs`. `ReportCard` now uses the same v0.2 path as `AssessmentSummaryGate` (`data.criteria.filter(c => c.met).length`). Removed the legacy `countCriteriaMet` helper. The grade-C dashboard fixture was updated from 1 truly-met criterion (relying on the legacy 5-bucket inflation to display as 3) to 6 truly-met criteria — the snapshot now matches its headline grade. Tests updated.
 
+### 20. Workspace page is empty when opened from a posture finding
+- **Severity:** **bug** / UX (user reported: "the page was empty when I opened it ... the posture issues are not detailed like vulnerability").
+- **Where:** `frontend/src/pages/WorkspacePage.tsx` (the "Finding summary" card around line 540).
+- **What:** The whole summary card was gated on `finding?.description &&`. CVE-shaped findings have a scanner-emitted `description`; posture findings don't (the scanner emits a structured payload under `raw_payload.detail` instead, and the prose explanation lands in `sidebar.summary.description` after the enricher runs). With `finding.description = null`, the card never rendered → posture workspaces opened to a blank center column with no context whatsoever.
+- **Why it matters:** posture remediation is the *whole reason* most users open a workspace post-Grade-A. They land on it, see nothing, and have no idea what the agent is even working on.
+- **Status:** fixed in `fix/workspace-page-posture-empty`. Summary card now renders unconditionally when a finding is loaded, falling back through three description sources: `sidebar.summary.description` (enricher narrative) → `finding.plain_description` → `finding.description` → an in-flight placeholder. Title comes from `sidebar.summary.title` first (a human-readable name like "Unrestricted third-party CI action execution") and only falls back to the raw check name. Below the summary, posture findings render a "What the scanner flagged" list pulled from `raw_payload.detail.{untrusted,unpinned,flagged,stale,matches,items}` so users see the exact files/actions/items needing attention.
+
 ### 7. `/api/settings/providers` returns ~3 MB of JSON
 - **Severity:** improvement
 - **Where:** `GET /api/settings/providers`
