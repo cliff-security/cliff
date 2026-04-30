@@ -179,6 +179,36 @@ Each entry:
 - **Why it matters:** the headline grade and the criteria fraction visibly disagreed. The user couldn't tell which one to believe.
 - **Status:** fixed in `fix/secure-repo-cli-bugs`. `ReportCard` now uses the same v0.2 path as `AssessmentSummaryGate` (`data.criteria.filter(c => c.met).length`). Removed the legacy `countCriteriaMet` helper. The grade-C dashboard fixture was updated from 1 truly-met criterion (relying on the legacy 5-bucket inflation to display as 3) to 6 truly-met criteria — the snapshot now matches its headline grade. Tests updated.
 
+### 20. Workspace page is empty when opened from a posture finding
+- **Severity:** **bug** / UX (user reported: "the page was empty when I opened it ... the posture issues are not detailed like vulnerability").
+- **Where:** `frontend/src/pages/WorkspacePage.tsx` (the "Finding summary" card around line 540).
+- **What:** The whole summary card was gated on `finding?.description &&`. CVE-shaped findings have a scanner-emitted `description`; posture findings don't (the scanner emits a structured payload under `raw_payload.detail` instead, and the prose explanation lands in `sidebar.summary.description` after the enricher runs). With `finding.description = null`, the card never rendered → posture workspaces opened to a blank center column with no context whatsoever.
+- **Why it matters:** posture remediation is the *whole reason* most users open a workspace post-Grade-A. They land on it, see nothing, and have no idea what the agent is even working on.
+- **Status:** fixed in `fix/workspace-page-posture-empty`. Summary card now renders unconditionally when a finding is loaded, falling back through three description sources: `sidebar.summary.description` (enricher narrative) → `finding.plain_description` → `finding.description` → an in-flight placeholder. Title comes from `sidebar.summary.title` first (a human-readable name like "Unrestricted third-party CI action execution") and only falls back to the raw check name. Below the summary, posture findings render a "What the scanner flagged" list pulled from `raw_payload.detail.{untrusted,unpinned,flagged,stale,matches,items}` so users see the exact files/actions/items needing attention.
+
+### 21. Executor agent confabulated PR #111 — three independent failure modes
+- **Severity:** **bug** / agent quality (caught by GitHub Advanced Security review on the agent's own PR).
+- **Where:** `backend/opensec/agents/templates/remediation_executor.md.j2` (and `remediation_planner.md.j2` upstream).
+- **What happened:** The executor agent ran on the `trusted_action_sources` posture finding (9 cited untrusted-publisher action uses) and opened PR #111. The PR:
+  1. **Did not address any of the 9 cited rows.** Instead added a new `actionlint.yml` workflow.
+  2. **Hallucinated a SHA.** Wrote `uses: rhysd/actionlint@f9d1e0b9b0b8c3c6d8c2e6a6a2c3d5e7f8a9b0c1`. That SHA does not exist on `rhysd/actionlint` (GitHub API: HTTP 422). The pattern (very even/sequential hex) gave it away.
+  3. **Pointed at a non-action repo.** `rhysd/actionlint` has no `action.yml` at root (HTTP 404) — it's a Go CLI binary, not a GitHub Action. The `uses:` would fail at runtime even with a real SHA.
+  4. **Wrote a workflow without `permissions:` block** → GHAS flagged `Workflow does not contain permissions` (CodeQL alert #19).
+  5. **Self-own:** the new `rhysd/actionlint` reference would itself fail `trusted_action_sources` next scan (rhysd is a personal publisher, not on the trusted list). Adding a posture failure while "fixing" one.
+  6. **Lied about the diff.** PR body claimed "Verified all workflows already pin actions to commit SHAs" — that's the `actions_pinned_to_sha` check, not the one being remediated, and no verification actually ran.
+- **Root cause:** the executor's prompt only surfaced `finding.title` and `finding.description` — for posture findings the latter is null, so the agent saw only the bare check name and reasoned its way to a generic "harden CI" fix uncoupled from the actual cited rows. With no concrete list to address and no rules against fabricating SHAs / referencing non-existent actions, every degree of freedom was filled in by hallucination.
+- **Status:** fixed in `fix/executor-template-hardening`.
+  - **Posture detail surface.** Both planner and executor templates now render `finding.raw_payload.detail` (the structured `untrusted` / `unpinned` / `flagged` / `stale` / `matches` array) directly in the prompt when `finding.type == 'posture'`. Agents see the cited rows verbatim.
+  - **Hard rules in the executor.** Six explicit guardrails covering each of PR #111's failure modes:
+    1. "Never invent a SHA" — must come from a `gh api repos/.../commits/<ref>` call run *in this session*.
+    2. "Verify the action exists" — must check `action.yml` (or `action.yaml`) at the repo root for the chosen ref.
+    3. "New workflows must include a `permissions:` block" — default `contents: read`, widen per-job only.
+    4. "New workflows must SHA-pin every `uses:`" — applies recursively to anything the agent adds.
+    5. "Address the cited rows" — the scanner-detail block is authoritative; substituting a generic linter / policy workflow for fixing cited items is forbidden. If genuinely unfixable, set `status: needs_approval`.
+    6. "Never claim to have done what you didn't" — the PR body and `changes_summary` must describe the actual diff.
+  - **Planner addendum.** Plans for posture findings must propose a concrete move per cited row; "tighten CI policy" with no per-row steps is rejected.
+  - 4 new tests in `test_agent_template_engine.py` lock the surface and the rule presence in.
+
 ### 7. `/api/settings/providers` returns ~3 MB of JSON
 - **Severity:** improvement
 - **Where:** `GET /api/settings/providers`

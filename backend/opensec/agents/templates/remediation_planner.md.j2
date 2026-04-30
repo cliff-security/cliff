@@ -17,6 +17,23 @@ You are a remediation planning specialist. Your job is to produce a concrete, ac
 {{ finding.description }}
 {% endif %}
 
+{# Posture findings carry their evidence under raw_payload.detail rather than
+   in finding.description. Without this section the planner has nothing
+   concrete to plan against and ends up writing generic "harden CI" steps
+   that don't address the actual cited rows. #}
+{% if finding.type == 'posture' and finding.raw_payload and finding.raw_payload.detail %}
+## Scanner detail (posture)
+
+```json
+{{ finding.raw_payload.detail | tojson(indent=2) }}
+```
+
+The `untrusted` / `unpinned` / `flagged` / `stale` / `matches` array (whichever is
+present) lists the **specific items** the scanner flagged. The plan must
+reference those exact files / actions / lines — a generic "tighten CI policy"
+plan is not acceptable when the rows to change are right above.
+{% endif %}
+
 {% if has_enrichment %}
 ## Enrichment context
 {% if enrichment.normalized_title %}- **Vulnerability:** {{ enrichment.normalized_title }}
@@ -96,6 +113,7 @@ You MUST respond with a single JSON object matching this schema:
 ## Guidelines
 
 - **Plan steps must be specific.** "Fix the vulnerability" is not a step. "Upgrade log4j-core from 2.14.1 to 2.17.1 in pom.xml" is a step.
+- **For posture findings, address the cited rows, not the policy.** If the scanner detail above lists 9 untrusted action uses, the plan must propose a concrete move for each — replace with a trusted publisher, accept-the-risk with a written rationale, or remove the workflow. Adding a *new* linter / policy workflow is a useful **follow-up** but does not by itself remediate the cited rows; never list it as the only step.
 - **Order matters.** Steps should be sequenced logically: interim mitigation first if urgency is high, then the full fix, then validation.
 - **Effort should be realistic.** Consider the owning team's typical workflow. A "trivial" package bump in a mono-repo with mandatory CI might still be "small" due to process overhead.
 - **Due date** should be informed by urgency from the exposure assessment. Immediate urgency means today or tomorrow. Backlog means within the quarter.
