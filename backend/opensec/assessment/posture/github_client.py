@@ -81,6 +81,40 @@ class GithubClient:
             return UnableToVerify(reason=f"http_{response.status_code}")
         return UnableToVerify(reason=f"http_{response.status_code}")
 
+    async def get_user_last_event(self, login: str) -> str | None | UnableToVerify:
+        """Return the ISO timestamp of the user's most recent **public** event,
+        or ``None`` if they have no public events at all.
+
+        GitHub's ``GET /repos/{owner}/{repo}/collaborators`` does not expose a
+        last-active timestamp; this is the fallback signal for the
+        ``stale_collaborators`` check. Only public events are visible to a
+        token that isn't the user's own — so a collaborator who is active
+        only in private repos will appear inactive here. That trade-off is
+        documented in the check's docstring.
+        """
+        url = f"{GITHUB_API}/users/{login}/events"
+        params = {"per_page": "1"}
+        try:
+            response = await self._http.get(
+                url, headers=self._headers(), params=params, timeout=self._timeout
+            )
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            return UnableToVerify(reason=f"network: {exc.__class__.__name__}")
+
+        if response.status_code == 200:
+            body = response.json()
+            if isinstance(body, list) and body:
+                first = body[0]
+                if isinstance(first, dict):
+                    created = first.get("created_at")
+                    return created if isinstance(created, str) else None
+            return None
+        if response.status_code == 404:
+            return None  # User exists but has no public events visible.
+        if response.status_code in (401, 403, 429):
+            return UnableToVerify(reason=f"http_{response.status_code}")
+        return UnableToVerify(reason=f"http_{response.status_code}")
+
     async def list_recent_commits(
         self, owner: str, repo: str, branch: str, *, limit: int = 20
     ) -> list[dict[str, Any]] | UnableToVerify:

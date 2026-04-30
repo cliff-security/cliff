@@ -105,13 +105,10 @@ async def test_stale_collaborators_unknown_on_pat_failure() -> None:
 
 
 @pytest.mark.asyncio
-async def test_stale_collaborators_unknown_when_api_omits_last_active() -> None:
-    """Real GitHub /collaborators responses don't include last_active.
-
-    Regression for the dogfooding bug: previously every collaborator without
-    a last_active field was bucketed as "stale", producing a hard fail on
-    every repo. The check must degrade to ``unknown`` so the tri-state
-    criteria render as ``?`` rather than a phantom ✗.
+async def test_stale_collaborators_uses_user_events_fallback() -> None:
+    """When /collaborators omits last_active (the real GitHub shape), the check
+    falls back to /users/{login}/events for each push/admin collaborator and
+    uses the most recent public event as the activity signal.
     """
     client = _StubClient(
         list_collaborators=[
@@ -120,12 +117,52 @@ async def test_stale_collaborators_unknown_when_api_omits_last_active() -> None:
                 "permissions": {"admin": True, "push": True},
                 # No last_active / last_activity_at — mirrors the real API.
             }
-        ]
+        ],
+        get_user_last_event=_iso(days_ago=3),
     )
     result = await check_stale_collaborators(client, RepoCoords(owner="o", repo="r"))
-    assert result.status == "unknown"
-    assert result.detail["reason"] == "no_last_active_field"
-    assert result.detail["checked"] == 1
+    assert result.status == "pass"
+    assert result.detail["eligible"] == 1
+    assert "stale" not in result.detail
+
+
+@pytest.mark.asyncio
+async def test_stale_collaborators_fail_via_events_fallback() -> None:
+    """If /users/{login}/events returns a timestamp older than the cutoff,
+    the collaborator is correctly flagged as stale via the fallback path."""
+    client = _StubClient(
+        list_collaborators=[
+            {
+                "login": "galanko",
+                "permissions": {"admin": True, "push": True},
+            }
+        ],
+        get_user_last_event=_iso(days_ago=400),
+    )
+    result = await check_stale_collaborators(client, RepoCoords(owner="o", repo="r"))
+    assert result.status == "fail"
+    assert result.detail["stale_count"] == 1
+    assert result.detail["stale"][0]["login"] == "galanko"
+
+
+@pytest.mark.asyncio
+async def test_stale_collaborators_pass_when_events_unverifiable() -> None:
+    """A collaborator whose events endpoint returns 404 or no entries should
+    NOT be auto-flagged as stale — they may simply have no public footprint
+    (private-repo-only contributors). Record as unverifiable, pass the check.
+    """
+    client = _StubClient(
+        list_collaborators=[
+            {
+                "login": "private-user",
+                "permissions": {"push": True},
+            }
+        ],
+        get_user_last_event=None,
+    )
+    result = await check_stale_collaborators(client, RepoCoords(owner="o", repo="r"))
+    assert result.status == "pass"
+    assert result.detail["unverifiable"] == ["private-user"]
 
 
 @pytest.mark.asyncio

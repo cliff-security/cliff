@@ -63,14 +63,15 @@ async def check_stale_collaborators(
             detail={"reason": "unexpected_body"},
         )
     # GitHub's GET /repos/{owner}/{repo}/collaborators does NOT return a
-    # ``last_active`` / ``last_activity_at`` field on the User object — those
-    # keys are not part of the REST API. Without per-user activity data we
-    # cannot make a real stale-vs-active determination. Earlier versions of
-    # this check treated the missing field as evidence of staleness and
-    # marked every collaborator as stale, producing a false fail on every
-    # repo. Degrade to ``unknown`` instead so the dashboard renders the
-    # tri-state ``?`` and the user sees an honest "we couldn't check" rather
-    # than a phantom failure.
+    # ``last_active`` / ``last_activity_at`` field on the User object. When
+    # the field is missing we fall back to ``GET /users/{login}/events`` —
+    # the user's most recent public event timestamp is a reasonable proxy
+    # for activity. Limitation: a collaborator who is active only in
+    # *private* repos will appear inactive (their events are not visible
+    # to a third-party token). We accept that trade-off because (a) most
+    # active maintainers leave a public trail and (b) the alternative is
+    # the previous all-or-nothing collapse that flagged every collaborator
+    # as stale on every repo.
     cutoff = _now()
     eligible = [
         entry
@@ -89,57 +90,65 @@ async def check_stale_collaborators(
             status="pass",
             detail={"checked": len(collabs), "threshold_days": STALE_DAYS},
         )
-    has_last_active = any(
-        entry.get("last_active") or entry.get("last_activity_at") for entry in eligible
-    )
-    if not has_last_active:
-        return PostureCheckResult(
-            check_name="stale_collaborators",
-            status="unknown",
-            detail={
-                "reason": "no_last_active_field",
-                "checked": len(collabs),
-                "threshold_days": STALE_DAYS,
-                "note": (
-                    "GitHub's collaborators endpoint doesn't return last-active "
-                    "data; per-user activity must be derived from a separate "
-                    "endpoint we don't query here. Treat as unverified."
-                ),
-            },
-        )
     stale: list[dict[str, Any]] = []
+    unverifiable: list[str] = []
     for entry in eligible:
-        last_active_str = entry.get("last_active") or entry.get("last_activity_at") or ""
-        last_active = _parse_iso(last_active_str) if last_active_str else None
+        login = entry.get("login")
+        last_active_str = (
+            entry.get("last_active") or entry.get("last_activity_at") or ""
+        )
+        if last_active_str:
+            last_active = _parse_iso(last_active_str)
+        else:
+            # Fall back to the per-user public-events endpoint.
+            event_time = await _try_call(gh_client, "get_user_last_event", login)
+            if isinstance(event_time, UnableToVerify):
+                # Network or auth issue — record but don't mark stale.
+                unverifiable.append(login or "<unknown>")
+                continue
+            if event_time is None:
+                # No public events at all. We can't tell if the account is
+                # truly dormant or just private; record as unverifiable
+                # rather than auto-flag.
+                unverifiable.append(login or "<unknown>")
+                continue
+            last_active_str = event_time if isinstance(event_time, str) else ""
+            last_active = _parse_iso(last_active_str) if last_active_str else None
         if last_active is None:
-            # Keep the collaborator out of the stale list when we lack data
-            # for them specifically — this avoids the all-or-nothing trap of
-            # the previous implementation while still surfacing collaborators
-            # whose last-active timestamp is genuinely past the cutoff.
+            unverifiable.append(login or "<unknown>")
             continue
         days = (cutoff - last_active).days
         if days >= STALE_DAYS:
             stale.append(
                 {
-                    "login": entry.get("login"),
+                    "login": login,
                     "last_active": last_active_str,
                     "days_since": days,
                 }
             )
-    if not stale:
+    detail: dict[str, Any] = {
+        "checked": len(collabs),
+        "eligible": len(eligible),
+        "threshold_days": STALE_DAYS,
+    }
+    if unverifiable:
+        detail["unverifiable"] = unverifiable[:20]
+    if stale:
+        detail["stale_count"] = len(stale)
+        detail["stale"] = stale[:20]
         return PostureCheckResult(
             check_name="stale_collaborators",
-            status="pass",
-            detail={"checked": len(collabs), "threshold_days": STALE_DAYS},
+            status="fail",
+            detail=detail,
         )
+    # No verified-stale collaborators. If everyone we could check is fresh
+    # (or the only "?" entries are users with no public footprint), pass
+    # — the alternative would be capping grade A on every repo with even
+    # one private-only contributor.
     return PostureCheckResult(
         check_name="stale_collaborators",
-        status="fail",
-        detail={
-            "stale_count": len(stale),
-            "threshold_days": STALE_DAYS,
-            "stale": stale[:20],
-        },
+        status="pass",
+        detail=detail,
     )
 
 
