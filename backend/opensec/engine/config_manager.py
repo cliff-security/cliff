@@ -109,24 +109,41 @@ class ConfigManager:
         return {"provider": provider_id, "key_masked": masked, "has_credentials": True}
 
     async def get_api_keys(self, db: aiosqlite.Connection) -> list[dict]:
-        """List all stored API keys (masked) with auth status from OpenCode."""
+        """List API keys: DB-stored entries plus env-sourced ones discovered by OpenCode.
+
+        DB rows always win on dedup — the user explicitly stored them, so they
+        should override an env value of the same provider.
+        """
         stored = await list_settings(db, prefix="api_key:")
         try:
             auth_status = await self.get_auth_status()
         except Exception:
             auth_status = {}
 
-        results = []
+        results: list[dict] = []
+        db_providers: set[str] = set()
         for setting in stored:
             provider_id = setting.key.removeprefix("api_key:")
+            db_providers.add(provider_id)
             value = setting.value or {}
             provider_auth = auth_status.get(provider_id, [])
-            has_credentials = len(provider_auth) > 0
             results.append({
                 "provider": provider_id,
                 "key_masked": value.get("key_masked", "****"),
-                "has_credentials": has_credentials,
+                "has_credentials": len(provider_auth) > 0,
+                "source": "db",
                 "updated_at": setting.updated_at.isoformat() if setting.updated_at else None,
+            })
+
+        for provider_id, auth_entries in auth_status.items():
+            if provider_id in db_providers or not auth_entries:
+                continue
+            results.append({
+                "provider": provider_id,
+                "key_masked": None,
+                "has_credentials": True,
+                "source": "env",
+                "updated_at": None,
             })
 
         return results

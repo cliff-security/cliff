@@ -914,47 +914,103 @@
         "type": "object"
       },
       "CriteriaSnapshot": {
-        "description": "Ten-criteria snapshot persisted at completion time.\n\nFive fields are carried from PRD-0002 (``no_critical_vulns``,\n``posture_checks_passing/total``, ``security_md_present``,\n``dependabot_present``). Seven additional booleans land in PRD-0003 v0.2;\nthey default to ``False`` so any old persisted JSON still rehydrates\ncleanly. Of those seven, five count toward the ten-criteria grade and two\n(``branch_protection_enabled`` is a duplicate-named convenience flag,\n``no_secrets_detected`` is the four-state-vocab name for the existing\n``no_secrets_in_code`` posture check).",
+        "description": "Ten-criteria snapshot persisted at completion time.\n\nEach grade-counting criterion is a tri-state:\n\n* ``True`` \u2014 verified pass\n* ``False`` \u2014 verified fail\n* ``None`` \u2014 could not be verified (e.g. a posture check returned\n  ``unknown`` because no GitHub token was configured for the daemon)\n\nOld JSON that stored bare ``False`` still rehydrates cleanly. The\n``None`` case existed before this change but was silently collapsed\nto ``False`` by ``status == \"pass\"`` shorthand in :func:`_build_snapshot`,\nmaking \"we couldn't check\" indistinguishable from \"we checked and it\nfailed\". Grading still treats unknown as not-met (conservative), but\nconsumers can now render a third state instead of a misleading \u2717.",
         "properties": {
           "actions_pinned_to_sha": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": false,
-            "title": "Actions Pinned To Sha",
-            "type": "boolean"
+            "title": "Actions Pinned To Sha"
           },
           "branch_protection_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": false,
-            "title": "Branch Protection Enabled",
-            "type": "boolean"
+            "title": "Branch Protection Enabled"
           },
           "code_owners_exists": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": false,
-            "title": "Code Owners Exists",
-            "type": "boolean"
+            "title": "Code Owners Exists"
           },
           "dependabot_present": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": false,
-            "title": "Dependabot Present",
-            "type": "boolean"
+            "title": "Dependabot Present"
           },
           "no_critical_vulns": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": false,
-            "title": "No Critical Vulns",
-            "type": "boolean"
+            "title": "No Critical Vulns"
           },
           "no_high_vulns": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": false,
-            "title": "No High Vulns",
-            "type": "boolean"
+            "title": "No High Vulns"
           },
           "no_secrets_detected": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": false,
-            "title": "No Secrets Detected",
-            "type": "boolean"
+            "title": "No Secrets Detected"
           },
           "no_stale_collaborators": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": false,
-            "title": "No Stale Collaborators",
-            "type": "boolean"
+            "title": "No Stale Collaborators"
           },
           "posture_checks_passing": {
             "default": 0,
@@ -967,14 +1023,28 @@
             "type": "integer"
           },
           "secret_scanning_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": false,
-            "title": "Secret Scanning Enabled",
-            "type": "boolean"
+            "title": "Secret Scanning Enabled"
           },
           "security_md_present": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": false,
-            "title": "Security Md Present",
-            "type": "boolean"
+            "title": "Security Md Present"
           }
         },
         "title": "CriteriaSnapshot",
@@ -2382,15 +2452,42 @@
         "type": "object"
       },
       "ModelUpdateRequest": {
+        "description": "Accepts either ``{model_full_id}`` or the GET-shape ``{provider, model_id}``.\n\nThe latter is normalized into ``model_full_id`` so the rest of the\npipeline can keep treating it as the canonical form.",
         "properties": {
           "model_full_id": {
-            "title": "Model Full Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Full Id"
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
           }
         },
-        "required": [
-          "model_full_id"
-        ],
         "title": "ModelUpdateRequest",
         "type": "object"
       },
@@ -4418,7 +4515,7 @@
     },
     "/api/findings": {
       "get": {
-        "description": "List findings.\n\nWhen ``scope=current`` the list is scoped to the latest assessment via\n``assessment_id`` and limited to vulnerability types (``dependency``,\n``code``, ``secret``) so the Findings page matches the dashboard's\nVulnerabilities tile. Posture rows (``type='posture'``) live on the\ndashboard's posture card and are excluded here.",
+        "description": "List findings.\n\nWhen ``scope=current`` the list is scoped to the latest assessment via\n``assessment_id``. All finding types are included \u2014 including posture\nrows \u2014 so the Issues page surfaces every actionable item from the\nmost recent scan. The dashboard's posture card filters by\n``type=posture`` if it wants only those.\n\nBaseline-passing posture rows (``type='posture'`` + ``status='passed'`` +\nno ``pr_url``) are suppressed under ``scope=current``: they were never\nactionable issues, so they should not appear in the Issues page.\nPosture rows that *became* passing via a workspace PR (``pr_url`` is\nset) are still surfaced so the Done section reflects the user's work.",
         "operationId": "list_findings_endpoint_api_findings_get",
         "parameters": [
           {

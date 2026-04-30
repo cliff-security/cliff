@@ -417,6 +417,22 @@ def _build_snapshot(
             severities.add((f.severity or "").upper())
     has_unknown = "UNKNOWN" in severities
     passing = sum(1 for s in posture_statuses.values() if s == "pass")
+
+    def _tri(check: PostureCheckName) -> bool | None:
+        """Map a posture-check status to the criteria tri-state.
+
+        ``pass`` → True, ``fail`` → False, ``unknown`` (or check missing,
+        e.g. the daemon has no GitHub token to evaluate it) → None.
+        ``advisory`` collapses to False because advisory checks aren't
+        grade-counting and shouldn't claim "pass" toward Grade A.
+        """
+        status = posture_statuses.get(check)
+        if status == "pass":
+            return True
+        if status is None or status == "unknown":
+            return None
+        return False
+
     return CriteriaSnapshot(
         no_critical_vulns="CRITICAL" not in severities and not has_unknown,
         no_high_vulns=(
@@ -427,14 +443,14 @@ def _build_snapshot(
         ),
         posture_checks_passing=passing,
         posture_checks_total=len(posture_statuses),
-        security_md_present=posture_statuses.get("security_md") == "pass",
-        dependabot_present=posture_statuses.get("dependabot_config") == "pass",
-        branch_protection_enabled=posture_statuses.get("branch_protection") == "pass",
-        no_secrets_detected=posture_statuses.get("no_secrets_in_code") == "pass",
-        actions_pinned_to_sha=posture_statuses.get("actions_pinned_to_sha") == "pass",
-        no_stale_collaborators=posture_statuses.get("stale_collaborators") == "pass",
-        code_owners_exists=posture_statuses.get("code_owners_exists") == "pass",
-        secret_scanning_enabled=posture_statuses.get("secret_scanning_enabled") == "pass",
+        security_md_present=_tri("security_md"),
+        dependabot_present=_tri("dependabot_config"),
+        branch_protection_enabled=_tri("branch_protection"),
+        no_secrets_detected=_tri("no_secrets_in_code"),
+        actions_pinned_to_sha=_tri("actions_pinned_to_sha"),
+        no_stale_collaborators=_tri("stale_collaborators"),
+        code_owners_exists=_tri("code_owners_exists"),
+        secret_scanning_enabled=_tri("secret_scanning_enabled"),
     )
 
 

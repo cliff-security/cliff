@@ -21,36 +21,47 @@ Grade = Literal["A", "B", "C", "D", "F"]
 class CriteriaSnapshot(BaseModel):
     """Ten-criteria snapshot persisted at completion time.
 
-    Five fields are carried from PRD-0002 (``no_critical_vulns``,
-    ``posture_checks_passing/total``, ``security_md_present``,
-    ``dependabot_present``). Seven additional booleans land in PRD-0003 v0.2;
-    they default to ``False`` so any old persisted JSON still rehydrates
-    cleanly. Of those seven, five count toward the ten-criteria grade and two
-    (``branch_protection_enabled`` is a duplicate-named convenience flag,
-    ``no_secrets_detected`` is the four-state-vocab name for the existing
-    ``no_secrets_in_code`` posture check).
+    Each grade-counting criterion is a tri-state:
+
+    * ``True`` — verified pass
+    * ``False`` — verified fail
+    * ``None`` — could not be verified (e.g. a posture check returned
+      ``unknown`` because no GitHub token was configured for the daemon)
+
+    Old JSON that stored bare ``False`` still rehydrates cleanly. The
+    ``None`` case existed before this change but was silently collapsed
+    to ``False`` by ``status == "pass"`` shorthand in :func:`_build_snapshot`,
+    making "we couldn't check" indistinguishable from "we checked and it
+    failed". Grading still treats unknown as not-met (conservative), but
+    consumers can now render a third state instead of a misleading ✗.
     """
 
     # Carried from PRD-0002.
-    no_critical_vulns: bool = False
+    no_critical_vulns: bool | None = False
     posture_checks_passing: int = 0
     posture_checks_total: int = 0
-    security_md_present: bool = False
-    dependabot_present: bool = False
+    security_md_present: bool | None = False
+    dependabot_present: bool | None = False
 
     # New in PRD-0003 v0.2.
-    no_high_vulns: bool = False
-    branch_protection_enabled: bool = False
-    no_secrets_detected: bool = False
-    actions_pinned_to_sha: bool = False
-    no_stale_collaborators: bool = False
-    code_owners_exists: bool = False
-    secret_scanning_enabled: bool = False
+    no_high_vulns: bool | None = False
+    branch_protection_enabled: bool | None = False
+    no_secrets_detected: bool | None = False
+    actions_pinned_to_sha: bool | None = False
+    no_stale_collaborators: bool | None = False
+    code_owners_exists: bool | None = False
+    secret_scanning_enabled: bool | None = False
 
     def met_count(self) -> int:
-        """How many of the 10 grading criteria are satisfied."""
+        """How many of the 10 grading criteria are verified-pass.
+
+        Only ``True`` counts; ``False`` (verified fail) and ``None``
+        (unknown) both contribute zero. This keeps grading conservative —
+        unverified does not become a free pass.
+        """
         return sum(
-            [
+            1
+            for v in (
                 self.no_critical_vulns,
                 self.no_high_vulns,
                 self.security_md_present,
@@ -61,7 +72,8 @@ class CriteriaSnapshot(BaseModel):
                 self.no_stale_collaborators,
                 self.code_owners_exists,
                 self.secret_scanning_enabled,
-            ]
+            )
+            if v is True
         )
 
     def all_met(self) -> bool:

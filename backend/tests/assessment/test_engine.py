@@ -440,6 +440,40 @@ def test_derive_grade_uses_snapshot_directly() -> None:
     assert derive_grade(snap) == "D"
 
 
+def test_criteria_unknown_is_distinct_from_fail() -> None:
+    """``None`` (unknown — could not verify) must round-trip and stay distinct
+    from ``False`` (verified fail).
+
+    Previously ``_build_snapshot`` collapsed both to ``False`` via
+    ``status == "pass"`` shorthand, so a posture check that returned
+    ``unknown`` (e.g. no GitHub token) was indistinguishable from a real
+    failure. Frontend / CLI consumers couldn't render the third state.
+    """
+    snap = CriteriaSnapshot(
+        no_critical_vulns=True,
+        no_high_vulns=True,
+        security_md_present=True,
+        dependabot_present=True,
+        no_secrets_detected=True,
+        code_owners_exists=True,
+        # Real verified failure:
+        actions_pinned_to_sha=False,
+        # Cannot verify (no PAT, etc.):
+        branch_protection_enabled=None,
+        no_stale_collaborators=None,
+        secret_scanning_enabled=None,
+    )
+    # 6 verified-pass; 1 verified-fail; 3 unknown — only the 6 count.
+    assert snap.met_count() == 6
+    assert derive_grade(snap) == "C"
+    # The three unknowns must serialize as ``null``, not ``false``.
+    dumped = snap.model_dump()
+    assert dumped["branch_protection_enabled"] is None
+    assert dumped["no_stale_collaborators"] is None
+    assert dumped["secret_scanning_enabled"] is None
+    assert dumped["actions_pinned_to_sha"] is False  # real fail
+
+
 def test_criteria_snapshot_10_fields() -> None:
     snap = CriteriaSnapshot()
     grading_fields = {

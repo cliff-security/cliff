@@ -97,6 +97,10 @@ class Client:
         r = self.request("PATCH", path, **kwargs)
         return self._parse(r)
 
+    def put(self, path: str, **kwargs: Any) -> Any:
+        r = self.request("PUT", path, **kwargs)
+        return self._parse(r)
+
     @staticmethod
     def _parse(r: httpx.Response) -> Any:
         if r.is_success:
@@ -156,16 +160,27 @@ def poll(
     is_failed: callable | None = None,  # type: ignore[valid-type]
     interval: float = 1.5,
     timeout: float = 600.0,
+    tolerate_status: tuple[int, ...] = (),
 ) -> Any:
     """Poll a status endpoint until ``is_done(payload)`` is true.
 
     Returns the final payload. Raises :class:`TimeoutError` after ``timeout``
     seconds. If ``is_failed`` is provided and returns true, raises
     :class:`HTTPError`.
+
+    ``tolerate_status`` lists HTTP status codes that should be treated as
+    "not ready yet" rather than fatal — useful for polling endpoints that
+    404 until a downstream worker creates the row.
     """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        payload = client.get(path)
+        try:
+            payload = client.get(path)
+        except HTTPError as exc:
+            if exc.status in tolerate_status:
+                time.sleep(interval)
+                continue
+            raise
         if is_done(payload):
             return payload
         if is_failed and is_failed(payload):

@@ -1,6 +1,6 @@
 {
   "name": "secure-repo",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Run OpenSec end-to-end on the current repo from Claude Code: install if needed, scan, plan, approve, PR, merge, close. Wraps the agent-shaped `opensec` CLI.",
   "author": {
     "name": "galanko",

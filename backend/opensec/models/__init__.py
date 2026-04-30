@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime  # noqa: TCH003 — Pydantic needs this at runtime
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 # Per-entity re-exports ------------------------------------------------------
 from opensec.models.assessment import (
@@ -263,7 +263,26 @@ class IntegrationConfigUpdate(BaseModel):
 
 
 class ModelUpdateRequest(BaseModel):
-    model_full_id: str
+    """Accepts either ``{model_full_id}`` or the GET-shape ``{provider, model_id}``.
+
+    The latter is normalized into ``model_full_id`` so the rest of the
+    pipeline can keep treating it as the canonical form.
+    """
+
+    model_full_id: str | None = None
+    provider: str | None = None
+    model_id: str | None = None
+
+    @model_validator(mode="after")
+    def _normalize(self) -> ModelUpdateRequest:
+        if not self.model_full_id:
+            if self.provider and self.model_id:
+                self.model_full_id = f"{self.provider}/{self.model_id}"
+            else:
+                raise ValueError(
+                    "must provide model_full_id, or both provider and model_id"
+                )
+        return self
 
 
 class ApiKeyCreate(BaseModel):
@@ -273,8 +292,9 @@ class ApiKeyCreate(BaseModel):
 
 class ApiKeyResponse(BaseModel):
     provider: str
-    key_masked: str
+    key_masked: str | None = None
     has_credentials: bool = True
+    source: Literal["db", "env"] = "db"
     updated_at: datetime | None = None
 
 

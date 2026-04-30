@@ -182,9 +182,14 @@ def from_posture(
         if r.status == "unknown":
             continue
         is_advisory = r.check_name in ADVISORY_CHECKS or r.status == "advisory"
+        # Branch on the scanner verdict even within advisory: an advisory
+        # check that *passed* is not an action item — it should land as
+        # ``passed``, not ``new``. Without this, passing advisories
+        # (e.g. signed_commits 20/20, workflow_trigger_scope flagged_count=0)
+        # show up on the Issues page indistinguishable from real failures.
         if is_advisory:
             grade_impact = "advisory"
-            status = "new"
+            status = "passed" if r.status == "pass" else "new"
         elif r.status == "pass":
             grade_impact = "counts"
             status = "passed"

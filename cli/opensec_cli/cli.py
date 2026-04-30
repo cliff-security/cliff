@@ -77,6 +77,16 @@ def _with_client(fn):
                 code=f"http_{exc.status}",
                 exit_code=EXIT_ERROR,
             )
+        except TimeoutError as exc:
+            emit_error(
+                str(exc),
+                code="timeout",
+                hint=(
+                    "Pipeline didn't produce a result within the polling window. "
+                    "Re-run, or check the daemon logs."
+                ),
+                exit_code=EXIT_ERROR,
+            )
 
     wrapper.__name__ = fn.__name__
     wrapper.__doc__ = fn.__doc__
@@ -269,12 +279,13 @@ def fix(client: Client, issue_id: str, timeout: float) -> None:
 
     # Poll the sidebar until either:
     #   * a plan exists (awaiting approval),
-    #   * the plan is already approved (executor running, weird but harmless),
     #   * or a validation result already exists (auto-resolved short-circuit).
+    # Tolerate 404: the sidebar row is created lazily by the first agent
+    # write, so a 404 right after run-all is normal.
     def _done(s: dict[str, Any]) -> bool:
         plan = s.get("plan") or {}
         validation = s.get("validation") or {}
-        return bool(plan.get("steps") or plan.get("summary") or validation)
+        return bool(plan.get("plan_steps") or validation)
 
     sidebar = poll(
         client,
@@ -282,9 +293,11 @@ def fix(client: Client, issue_id: str, timeout: float) -> None:
         is_done=_done,
         interval=2.0,
         timeout=timeout,
+        tolerate_status=(404,),
     )
 
     plan = sidebar.get("plan") or {}
+    dod = sidebar.get("definition_of_done") or {}
     validation = sidebar.get("validation") or {}
 
     if validation:
@@ -299,15 +312,16 @@ def fix(client: Client, issue_id: str, timeout: float) -> None:
                 "next": f"close {workspace_id}",
             }
         )
+        return
 
     emit(
         {
             "workspace_id": workspace_id,
             "finding_id": issue_id,
             "plan": {
-                "summary": plan.get("summary"),
-                "steps": plan.get("steps", []),
-                "definition_of_done": plan.get("definition_of_done") or plan.get("dod"),
+                "steps": plan.get("plan_steps") or [],
+                "interim_mitigation": plan.get("interim_mitigation"),
+                "definition_of_done": dod.get("items") or [],
                 "approved": bool(plan.get("approved")),
             },
             "awaiting": "plan_approval",
@@ -345,6 +359,7 @@ def approve(client: Client, workspace_id: str, timeout: float) -> None:
         is_done=_done,
         interval=3.0,
         timeout=timeout,
+        tolerate_status=(404,),
     )
 
     validation = sidebar.get("validation") or {}
@@ -352,7 +367,7 @@ def approve(client: Client, workspace_id: str, timeout: float) -> None:
     verdict = (validation.get("verdict") or validation.get("status") or "").lower()
 
     pr_url = pull_request.get("url") or pull_request.get("pr_url")
-    branch = pull_request.get("branch")
+    branch = pull_request.get("branch_name") or pull_request.get("branch")
 
     payload: dict[str, Any] = {
         "workspace_id": workspace_id,
@@ -395,6 +410,67 @@ def close(client: Client, workspace_id: str) -> None:
             "next": None,
         }
     )
+
+
+# ---- 7. model -------------------------------------------------------------
+
+
+@main.group()
+def model() -> None:
+    """Get, set, or list the LLM model OpenSec uses to drive agents."""
+
+
+@model.command("get")
+@_with_client
+def model_get(client: Client) -> None:
+    """Show the currently configured model."""
+    client.version_handshake()
+    info = client.get("/api/settings/model")
+    emit({**info, "next": None})
+
+
+@model.command("set")
+@click.argument("model_full_id")
+@_with_client
+def model_set(client: Client, model_full_id: str) -> None:
+    """Set the active model. Pass a slash-joined ID (e.g. ``openai/gpt-5-nano``)."""
+    client.version_handshake()
+    info = client.put(
+        "/api/settings/model",
+        json={"model_full_id": model_full_id},
+    )
+    emit({**info, "next": None})
+
+
+@model.command("list")
+@click.option(
+    "--provider",
+    default="openai",
+    help="Provider ID to list models for (default: openai).",
+)
+@_with_client
+def model_list(client: Client, provider: str) -> None:
+    """List available models for a provider as ``[{id, name}]``.
+
+    The full provider catalog is large; this command projects it locally
+    so the agent driving the CLI receives only the slim id+name slice.
+    """
+    client.version_handshake()
+    catalog = client.get("/api/settings/providers")
+    match = next((p for p in catalog if p.get("id") == provider), None)
+    if match is None:
+        emit_error(
+            f"Provider not found: {provider}",
+            code="provider_not_found",
+            hint="Run `opensec model list --provider <id>` with a valid provider ID.",
+            exit_code=EXIT_ERROR,
+        )
+        return
+    models = [
+        {"id": m_id, "name": (m or {}).get("name", m_id)}
+        for m_id, m in (match.get("models") or {}).items()
+    ]
+    emit({"provider": provider, "models": models, "next": None})
 
 
 # ---- selftest -------------------------------------------------------------

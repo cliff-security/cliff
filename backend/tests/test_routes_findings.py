@@ -142,6 +142,62 @@ async def test_pagination(db_client, finding_payload):
     assert len(resp.json()) == 1
 
 
+async def test_list_findings_scope_current_includes_posture(db_client):
+    """``scope=current`` must surface posture findings alongside CVE rows.
+
+    Previously the route filtered to ``["dependency","code","secret"]`` so
+    posture rows lived only on the dashboard. Users driving /secure-repo
+    couldn't see or fix failing posture checks from the Issues page or CLI.
+    """
+    from opensec.assessment.posture import ADVISORY_CHECKS
+    from opensec.db.connection import _db
+    from opensec.db.dao.assessment import create_assessment
+    from opensec.db.repo_finding import create_finding
+    from opensec.models import AssessmentCreate, FindingCreate
+
+    assert _db is not None
+    repo_url = "https://github.com/a/b"
+    a = await create_assessment(_db, AssessmentCreate(repo_url=repo_url))
+
+    # One CVE finding + one failing posture check, both attached to the
+    # current assessment.
+    await create_finding(
+        _db,
+        FindingCreate(
+            source_type="trivy",
+            source_id="cve-1",
+            type="dependency",
+            assessment_id=a.id,
+            title="CVE-XXXX-NNNN",
+            normalized_priority="P1",
+        ),
+    )
+    name = "actions_pinned_to_sha"
+    is_advisory = name in ADVISORY_CHECKS
+    await create_finding(
+        _db,
+        FindingCreate(
+            source_type="opensec-posture",
+            source_id=f"{repo_url}:{name}",
+            type="posture",
+            grade_impact="advisory" if is_advisory else "counts",
+            category="repo_configuration",
+            assessment_id=a.id,
+            status="new",
+            title=name,
+        ),
+    )
+
+    resp = await db_client.get("/api/findings", params={"scope": "current"})
+    assert resp.status_code == 200
+    rows = resp.json()
+    types = {r["type"] for r in rows}
+    assert "posture" in types, (
+        f"posture must surface under scope=current; got types={types}"
+    )
+    assert "dependency" in types
+
+
 async def test_filter_has_workspace(db_client, finding_payload):
     # Create two findings.
     r1 = await db_client.post("/api/findings", json=finding_payload)

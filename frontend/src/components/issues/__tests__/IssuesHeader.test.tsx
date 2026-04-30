@@ -67,7 +67,7 @@ describe('IssuesHeader', () => {
     expect(screen.getByTestId('issues-caption').textContent).toContain('pre-assessment')
   })
 
-  it('renders Type chip group with [All, Vulnerability] (Phase 1 hard-coded)', () => {
+  it('renders Type chip group with [All issues, Vulnerability, Posture]', () => {
     render(
       <IssuesHeader
         findings={[]}
@@ -76,8 +76,9 @@ describe('IssuesHeader', () => {
         onSeverityFilterChange={() => {}}
       />,
     )
-    expect(screen.getByRole('button', { name: /All vulnerabilities/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /All issues/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^Vulnerability/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Posture/i })).toBeInTheDocument()
   })
 
   it('emits severity-filter changes when a severity chip is clicked', () => {

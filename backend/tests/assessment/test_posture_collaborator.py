@@ -105,6 +105,67 @@ async def test_stale_collaborators_unknown_on_pat_failure() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stale_collaborators_uses_user_events_fallback() -> None:
+    """When /collaborators omits last_active (the real GitHub shape), the check
+    falls back to /users/{login}/events for each push/admin collaborator and
+    uses the most recent public event as the activity signal.
+    """
+    client = _StubClient(
+        list_collaborators=[
+            {
+                "login": "galanko",
+                "permissions": {"admin": True, "push": True},
+                # No last_active / last_activity_at — mirrors the real API.
+            }
+        ],
+        get_user_last_event=_iso(days_ago=3),
+    )
+    result = await check_stale_collaborators(client, RepoCoords(owner="o", repo="r"))
+    assert result.status == "pass"
+    assert result.detail["eligible"] == 1
+    assert "stale" not in result.detail
+
+
+@pytest.mark.asyncio
+async def test_stale_collaborators_fail_via_events_fallback() -> None:
+    """If /users/{login}/events returns a timestamp older than the cutoff,
+    the collaborator is correctly flagged as stale via the fallback path."""
+    client = _StubClient(
+        list_collaborators=[
+            {
+                "login": "galanko",
+                "permissions": {"admin": True, "push": True},
+            }
+        ],
+        get_user_last_event=_iso(days_ago=400),
+    )
+    result = await check_stale_collaborators(client, RepoCoords(owner="o", repo="r"))
+    assert result.status == "fail"
+    assert result.detail["stale_count"] == 1
+    assert result.detail["stale"][0]["login"] == "galanko"
+
+
+@pytest.mark.asyncio
+async def test_stale_collaborators_pass_when_events_unverifiable() -> None:
+    """A collaborator whose events endpoint returns 404 or no entries should
+    NOT be auto-flagged as stale — they may simply have no public footprint
+    (private-repo-only contributors). Record as unverifiable, pass the check.
+    """
+    client = _StubClient(
+        list_collaborators=[
+            {
+                "login": "private-user",
+                "permissions": {"push": True},
+            }
+        ],
+        get_user_last_event=None,
+    )
+    result = await check_stale_collaborators(client, RepoCoords(owner="o", repo="r"))
+    assert result.status == "pass"
+    assert result.detail["unverifiable"] == ["private-user"]
+
+
+@pytest.mark.asyncio
 async def test_broad_team_permissions_advisory_with_no_method_available() -> None:
     """When the client doesn't support list_repo_teams, degrade to unknown."""
     client = _StubClient()
@@ -127,6 +188,25 @@ async def test_broad_team_permissions_advisory_when_supported() -> None:
     )
     assert result.status == "advisory"
     assert result.detail["flagged_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_broad_team_permissions_pass_when_no_teams_flagged() -> None:
+    """No write-access teams over the threshold → emit pass, not advisory.
+
+    Without this, the row sat perpetually open on the Issues page even though
+    nothing was actionable.
+    """
+    client = _StubClient(
+        list_repo_teams=[
+            {"slug": "viewers", "permission": "pull", "members_count": 100},
+        ]
+    )
+    result = await check_broad_team_permissions(
+        client, RepoCoords(owner="o", repo="r")
+    )
+    assert result.status == "pass"
+    assert result.detail["flagged_count"] == 0
 
 
 @pytest.mark.asyncio

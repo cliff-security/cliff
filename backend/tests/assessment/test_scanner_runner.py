@@ -187,3 +187,97 @@ async def test_run_semgrep_parses_fixture_output(
     result = await runner.run_semgrep(target, timeout=10)
     assert result.findings, "fixture must have at least one finding"
     assert result.findings[0].path
+
+
+# --- skip-dirs / exclude posture (ADR-0028 follow-up) -----------------------
+#
+# Trivy and Semgrep walk the target directory themselves, so the in-process
+# `iter_repo_files` exclusion list has no effect on them. Without explicit
+# CLI flags, both scanners report findings from `backend/tests/fixtures/` and
+# similar test-data directories, surfacing hundreds of false positives on
+# any repo that ships intentionally-vulnerable lockfiles for parser tests
+# (including OpenSec itself).
+
+
+@pytest.mark.asyncio
+async def test_run_trivy_passes_skip_dirs_csv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Trivy must receive ``--skip-dirs <csv>`` so it doesn't walk fixture trees."""
+    from opensec.assessment._fs import SKIP_DIRS
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    argv_file = tmp_path / "trivy-argv.json"
+    _make_executable(
+        bin_dir / "trivy",
+        (
+            f"#!{sys.executable}\n"
+            "import json, sys\n"
+            f"argv_file = {str(argv_file)!r}\n"
+            "if '--version' in sys.argv:\n"
+            "    print('Version: 0.70.0')\n"
+            "    sys.exit(0)\n"
+            "open(argv_file, 'w').write(json.dumps(sys.argv))\n"
+            "print('{}')\n"
+        ),
+    )
+
+    monkeypatch.setenv("PATH", os.environ.get("PATH", "/usr/bin:/bin"))
+    runner = SubprocessScannerRunner(bin_dir=bin_dir)
+    target = tmp_path / "repo"
+    target.mkdir()
+
+    await runner.run_trivy(target, timeout=10)
+
+    argv = json.loads(argv_file.read_text())
+    assert "--skip-dirs" in argv, f"trivy was invoked without --skip-dirs: {argv}"
+    csv = argv[argv.index("--skip-dirs") + 1]
+    passed = set(csv.split(","))
+    # Trivy uses doublestar globs against paths relative to the scan target,
+    # so matching a directory at any depth needs ``**/<name>``. A bare
+    # basename misses nested occurrences (the case that motivated this fix:
+    # OpenSec's own ``backend/tests/fixtures``).
+    expected = {f"**/{d}" for d in SKIP_DIRS}
+    assert passed >= expected, f"--skip-dirs missing globs: {expected - passed}"
+    # Spot-check the two that motivated this fix.
+    assert "**/fixtures" in passed
+    assert "**/test_fixtures" in passed
+
+
+@pytest.mark.asyncio
+async def test_run_semgrep_passes_exclude_for_each_skip_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Semgrep takes one ``--exclude <dir>`` per directory; every SKIP_DIR must appear."""
+    from opensec.assessment._fs import SKIP_DIRS
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    argv_file = tmp_path / "semgrep-argv.json"
+    _make_executable(
+        bin_dir / "semgrep",
+        (
+            f"#!{sys.executable}\n"
+            "import json, sys\n"
+            f"argv_file = {str(argv_file)!r}\n"
+            "if '--version' in sys.argv:\n"
+            "    print('1.70.0')\n"
+            "    sys.exit(0)\n"
+            "open(argv_file, 'w').write(json.dumps(sys.argv))\n"
+            "print('{\"results\":[],\"errors\":[]}')\n"
+        ),
+    )
+
+    monkeypatch.setenv("PATH", os.environ.get("PATH", "/usr/bin:/bin"))
+    runner = SubprocessScannerRunner(bin_dir=bin_dir)
+    target = tmp_path / "repo"
+    target.mkdir()
+
+    await runner.run_semgrep(target, timeout=10)
+
+    argv = json.loads(argv_file.read_text())
+    excludes = {argv[i + 1] for i, a in enumerate(argv) if a == "--exclude"}
+    assert excludes >= SKIP_DIRS, (
+        f"semgrep --exclude missing entries: {SKIP_DIRS - excludes}"
+    )

@@ -96,17 +96,18 @@ export function IssuesHeader({
         <span>{grade ? `grade ${grade}` : 'pre-assessment'}</span>
       </p>
 
-      {/* Type filter — hard-coded to [All, Vulnerability] in Phase 1. */}
+      {/* Type filter — display chips. Filtering wires up post-Phase-1; for
+          now both Vulnerability and Posture are surfaced when present so the
+          catch-all label is "All issues". */}
       <div className="flex items-center gap-2 mb-2" role="group" aria-label="Type filter">
         <span className="text-[10.5px] uppercase tracking-wider font-bold text-on-surface-variant pr-1">
           Type
         </span>
         <IssueFilterChip active count={total}>
-          All vulnerabilities
+          All issues
         </IssueFilterChip>
-        <IssueFilterChip icon="bug_report" count={total}>
-          Vulnerability
-        </IssueFilterChip>
+        <IssueFilterChip icon="bug_report">Vulnerability</IssueFilterChip>
+        <IssueFilterChip icon="verified_user">Posture</IssueFilterChip>
       </div>
 
       {/* Severity filter — drives the visible row set. */}

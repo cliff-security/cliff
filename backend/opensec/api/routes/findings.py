@@ -109,13 +109,18 @@ async def list_findings_endpoint(
     """List findings.
 
     When ``scope=current`` the list is scoped to the latest assessment via
-    ``assessment_id`` and limited to vulnerability types (``dependency``,
-    ``code``, ``secret``) so the Findings page matches the dashboard's
-    Vulnerabilities tile. Posture rows (``type='posture'``) live on the
-    dashboard's posture card and are excluded here.
+    ``assessment_id``. All finding types are included — including posture
+    rows — so the Issues page surfaces every actionable item from the
+    most recent scan. The dashboard's posture card filters by
+    ``type=posture`` if it wants only those.
+
+    Baseline-passing posture rows (``type='posture'`` + ``status='passed'`` +
+    no ``pr_url``) are suppressed under ``scope=current``: they were never
+    actionable issues, so they should not appear in the Issues page.
+    Posture rows that *became* passing via a workspace PR (``pr_url`` is
+    set) are still surfaced so the Done section reflects the user's work.
     """
     assessment_id: str | None = None
-    type_filter: list[str] | None = None
     if scope == "current":
         from opensec.db.dao.assessment import get_latest_assessment
 
@@ -123,17 +128,24 @@ async def list_findings_endpoint(
         if latest is None:
             return []
         assessment_id = latest.id
-        type_filter = ["dependency", "code", "secret"]
 
-    return await list_findings(
+    rows = await list_findings(
         db,
         status=status,
         has_workspace=has_workspace,
-        type=type_filter,
         assessment_id=assessment_id,
         limit=limit,
         offset=offset,
     )
+
+    if scope == "current":
+        rows = [
+            r
+            for r in rows
+            if not (r.type == "posture" and r.status == "passed" and not r.pr_url)
+        ]
+
+    return rows
 
 
 @router.get("/findings/{finding_id}", response_model=Finding)

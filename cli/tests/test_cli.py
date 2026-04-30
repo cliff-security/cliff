@@ -280,21 +280,132 @@ def test_fix_creates_workspace_and_pauses_at_plan(cli, httpx_mock):
         json={
             "workspace_id": "ws-1",
             "plan": {
-                "summary": "Bump log4j to 2.17.1",
-                "steps": ["update pom.xml", "rebuild"],
-                "definition_of_done": "tests pass",
+                "plan_steps": ["update pom.xml", "rebuild"],
+                "interim_mitigation": "Block log4j on WAF",
                 "approved": False,
             },
+            "definition_of_done": {"items": ["tests pass", "no log4j <2.17 in lockfile"]},
             "updated_at": "x",
         },
     )
     res = cli.invoke(main, ["fix", "f1"])
-    assert res.exit_code == 2
+    assert res.exit_code == 2, res.stderr
     payload = _last_json(res.stdout)
     assert payload["workspace_id"] == "ws-1"
     assert payload["awaiting"] == "plan_approval"
-    assert payload["plan"]["summary"].startswith("Bump")
+    assert payload["plan"]["steps"] == ["update pom.xml", "rebuild"]
+    assert payload["plan"]["interim_mitigation"] == "Block log4j on WAF"
+    assert payload["plan"]["definition_of_done"] == [
+        "tests pass",
+        "no log4j <2.17 in lockfile",
+    ]
+    assert "summary" not in payload["plan"]
     assert payload["next"] == "approve ws-1"
+
+
+def test_fix_tolerates_initial_404(cli, httpx_mock):
+    """The sidebar row is created lazily by the first agent write — a 404
+    on the very first poll is normal and must not crash the CLI."""
+    _stub_version(httpx_mock)
+    httpx_mock.add_response(
+        url="http://test-server/api/findings/f1",
+        json={
+            "id": "f1",
+            "source_type": "scanner",
+            "source_id": "s1",
+            "title": "log4j",
+            "status": "new",
+            "type": "dependency",
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+            "derived": {"workspace_id": None},
+        },
+    )
+    httpx_mock.add_response(
+        url="http://test-server/api/workspaces",
+        method="POST",
+        status_code=201,
+        json={
+            "id": "ws-1",
+            "finding_id": "f1",
+            "state": "open",
+            "created_at": "x",
+            "updated_at": "x",
+        },
+    )
+    httpx_mock.add_response(
+        url="http://test-server/api/workspaces/ws-1/sessions",
+        method="POST",
+        json={"session_id": "sess-1"},
+    )
+    httpx_mock.add_response(
+        url="http://test-server/api/workspaces/ws-1/pipeline/run-all",
+        method="POST",
+        status_code=202,
+        json={"status": "running"},
+    )
+    # First sidebar poll: 404 (worker hasn't seeded yet)
+    httpx_mock.add_response(
+        url="http://test-server/api/workspaces/ws-1/sidebar",
+        status_code=404,
+        json={"detail": "Sidebar state not found"},
+    )
+    # Second poll: plan ready
+    httpx_mock.add_response(
+        url="http://test-server/api/workspaces/ws-1/sidebar",
+        json={
+            "workspace_id": "ws-1",
+            "plan": {"plan_steps": ["bump"], "approved": False},
+            "definition_of_done": {"items": ["tests pass"]},
+            "updated_at": "x",
+        },
+    )
+    res = cli.invoke(main, ["fix", "f1"])
+    assert res.exit_code == 2, res.stderr
+    payload = _last_json(res.stdout)
+    assert payload["plan"]["steps"] == ["bump"]
+
+
+def test_fix_timeout_emits_json_error(cli, httpx_mock):
+    """A polling timeout must surface as a JSON error, not a Python traceback."""
+    _stub_version(httpx_mock)
+    httpx_mock.add_response(
+        url="http://test-server/api/findings/f1",
+        json={
+            "id": "f1",
+            "source_type": "scanner",
+            "source_id": "s1",
+            "title": "x",
+            "status": "new",
+            "type": "dependency",
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+            "derived": {"workspace_id": "ws-1"},
+        },
+    )
+    httpx_mock.add_response(
+        url="http://test-server/api/workspaces/ws-1/sessions",
+        method="POST",
+        json={"session_id": "sess-1"},
+    )
+    httpx_mock.add_response(
+        url="http://test-server/api/workspaces/ws-1/pipeline/run-all",
+        method="POST",
+        status_code=202,
+        json={"status": "running"},
+    )
+    # Sidebar with no plan — _done() never returns true, poll() times out.
+    httpx_mock.add_response(
+        url="http://test-server/api/workspaces/ws-1/sidebar",
+        is_reusable=True,
+        json={"workspace_id": "ws-1", "updated_at": "x"},
+    )
+    res = cli.invoke(main, ["fix", "f1", "--timeout", "0.05"])
+    assert res.exit_code == 1
+    payload = json.loads(res.stderr.strip().splitlines()[-1])
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "timeout"
+    assert "polling" in payload["error"]["hint"].lower()
 
 
 # ---------------------------------------------------------------------------
@@ -320,7 +431,10 @@ def test_approve_passes_validation(cli, httpx_mock):
         json={
             "workspace_id": "ws-1",
             "validation": {"verdict": "ok", "reason": "tests pass"},
-            "pull_request": {"url": "https://github.com/x/y/pull/1", "branch": "fix/log4j"},
+            "pull_request": {
+                "pr_url": "https://github.com/x/y/pull/1",
+                "branch_name": "fix/log4j",
+            },
             "updated_at": "x",
         },
     )
@@ -385,3 +499,80 @@ def test_close_marks_workspace(cli, httpx_mock):
     payload = _last_json(res.stdout)
     assert payload["closed"] is True
     assert payload["finding_id"] == "f1"
+
+
+# ---------------------------------------------------------------------------
+# model
+# ---------------------------------------------------------------------------
+
+
+def test_model_get(cli, httpx_mock):
+    _stub_version(httpx_mock)
+    httpx_mock.add_response(
+        url="http://test-server/api/settings/model",
+        json={
+            "model_full_id": "openai/gpt-5-nano",
+            "provider": "openai",
+            "model_id": "gpt-5-nano",
+        },
+    )
+    res = cli.invoke(main, ["model", "get"])
+    assert res.exit_code == 0, res.stderr
+    payload = _last_json(res.stdout)
+    assert payload["model_full_id"] == "openai/gpt-5-nano"
+    assert payload["provider"] == "openai"
+
+
+def test_model_set(cli, httpx_mock):
+    _stub_version(httpx_mock)
+    httpx_mock.add_response(
+        url="http://test-server/api/settings/model",
+        method="PUT",
+        json={
+            "model_full_id": "openai/gpt-5-nano",
+            "provider": "openai",
+            "model_id": "gpt-5-nano",
+        },
+    )
+    res = cli.invoke(main, ["model", "set", "openai/gpt-5-nano"])
+    assert res.exit_code == 0, res.stderr
+    payload = _last_json(res.stdout)
+    assert payload["model_full_id"] == "openai/gpt-5-nano"
+
+
+def test_model_list_projects_locally(cli, httpx_mock):
+    """The provider catalog can be huge — `model list` must return only the
+    slim id+name slice the agent driving the CLI needs."""
+    _stub_version(httpx_mock)
+    httpx_mock.add_response(
+        url="http://test-server/api/settings/providers",
+        json=[
+            {
+                "id": "openai",
+                "models": {
+                    "gpt-5-nano": {"name": "GPT-5 Nano", "cost": {"input": 0.05}},
+                    "gpt-4.1-nano": {"name": "GPT-4.1 Nano"},
+                },
+            },
+            {"id": "anthropic", "models": {"claude-opus-4-7": {"name": "Claude Opus 4.7"}}},
+        ],
+    )
+    res = cli.invoke(main, ["model", "list", "--provider", "openai"])
+    assert res.exit_code == 0, res.stderr
+    payload = _last_json(res.stdout)
+    assert payload["provider"] == "openai"
+    assert {"id": "gpt-5-nano", "name": "GPT-5 Nano"} in payload["models"]
+    # Cost / capabilities must NOT leak through — projection is lossy on purpose.
+    assert all(set(m.keys()) == {"id", "name"} for m in payload["models"])
+
+
+def test_model_list_unknown_provider(cli, httpx_mock):
+    _stub_version(httpx_mock)
+    httpx_mock.add_response(
+        url="http://test-server/api/settings/providers",
+        json=[{"id": "openai", "models": {}}],
+    )
+    res = cli.invoke(main, ["model", "list", "--provider", "bogus"])
+    assert res.exit_code == 1
+    payload = json.loads(res.stderr.strip().splitlines()[-1])
+    assert payload["error"]["code"] == "provider_not_found"

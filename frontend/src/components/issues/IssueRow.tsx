@@ -20,7 +20,11 @@
  */
 import { memo, useState, type KeyboardEvent, type ReactElement } from 'react'
 import type { Finding, IssueStage } from '../../api/client'
-import { IssueSeverityBadge, type IssueSeverityKind } from './IssueSeverityBadge'
+import {
+  IssuePostureBadge,
+  IssueSeverityBadge,
+  type IssueSeverityKind,
+} from './IssueSeverityBadge'
 import { IssueStageChip } from './IssueStageChip'
 
 const SEVERITY_HAIRLINE: Record<IssueSeverityKind, string> = {
@@ -29,6 +33,10 @@ const SEVERITY_HAIRLINE: Record<IssueSeverityKind, string> = {
   medium: 'bg-secondary',
   low: 'bg-tertiary',
 }
+
+/** Hairline color for non-CVE finding types. Posture rows use a neutral
+ *  outline so the eye doesn't read them as "high severity bug". */
+const POSTURE_HAIRLINE = 'bg-outline-variant'
 
 const TYPE_ICON: Record<string, string> = {
   dependency: 'bug_report',
@@ -72,6 +80,7 @@ function IssueRowImpl({
 
   const stage: IssueStage = finding.derived?.stage ?? 'todo'
   const action = actionForStage(stage)
+  const isPosture = finding.type === 'posture'
   const sev = severityKind(finding.raw_severity)
   const typeIcon = TYPE_ICON[finding.type ?? 'dependency'] ?? 'bug_report'
 
@@ -110,10 +119,10 @@ function IssueRowImpl({
         boxShadow: focused ? 'inset 0 0 0 2px var(--primary, #4d44e3)' : undefined,
       }}
     >
-      {/* 1. Severity hairline */}
+      {/* 1. Severity hairline (neutral for posture — they have no CVSS sev) */}
       <span
         aria-hidden="true"
-        className={`rounded-full ${SEVERITY_HAIRLINE[sev]}`}
+        className={`rounded-full ${isPosture ? POSTURE_HAIRLINE : SEVERITY_HAIRLINE[sev]}`}
         style={{ width: 3, height: 28, alignSelf: 'center' }}
       />
 
@@ -138,37 +147,47 @@ function IssueRowImpl({
           </span>
         </div>
         <div className="flex items-center gap-2 mt-0.5 text-[11.5px] text-on-surface-variant">
-          {file != null && (
+          {/* CVSS / file:line / CWE only apply to CVE-shaped rows. Posture
+              rows show their category instead — surfaced via the badge. */}
+          {!isPosture && file != null && (
             <span className="font-mono">
               {file}
               {line != null ? `:${line}` : ''}
             </span>
           )}
-          {cwe && (
+          {!isPosture && cwe && (
             <>
               <span className="text-outline">·</span>
               <span className="font-mono">{cwe}</span>
             </>
           )}
-          {cvss != null && (
+          {!isPosture && cvss != null && (
             <>
               <span className="text-outline">·</span>
               <span>CVSS {cvss}</span>
             </>
           )}
-          <span className="text-outline">·</span>
-          <span className="font-mono">{finding.source_id}</span>
-          {found && (
+          {!isPosture && (
             <>
               <span className="text-outline">·</span>
+              <span className="font-mono">{finding.source_id}</span>
+            </>
+          )}
+          {found && (
+            <>
+              {!isPosture && <span className="text-outline">·</span>}
               <span>Found {found}</span>
             </>
           )}
         </div>
       </div>
 
-      {/* 4. Severity */}
-      <IssueSeverityBadge kind={sev} size="sm" />
+      {/* 4. Severity / category badge — posture findings have no severity. */}
+      {isPosture ? (
+        <IssuePostureBadge category={finding.category ?? undefined} size="sm" />
+      ) : (
+        <IssueSeverityBadge kind={sev} size="sm" />
+      )}
 
       {/* 5. Stage chip */}
       <IssueStageChip kind={stage} size="sm" />
