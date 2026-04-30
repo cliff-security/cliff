@@ -462,3 +462,101 @@ def test_executor_output_contract(engine: AgentTemplateEngine, sample_finding_di
     assert "changes_summary" in agent.content
     assert "test_results" in agent.content
     assert "status" in agent.content
+
+
+# ---------------------------------------------------------------------------
+# Posture-detail surface and hard rules (regression for the agent that opened
+# PR #111 — it confabulated a fix because it never saw the structured detail).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def posture_finding_dict() -> dict:
+    """A type='posture' finding with structured detail under raw_payload."""
+    now = datetime.now(UTC)
+    f = Finding(
+        id="finding-posture-001",
+        source_type="opensec-posture",
+        source_id="https://github.com/galanko/OpenSec:trusted_action_sources",
+        title="trusted_action_sources",
+        type="posture",
+        status="new",
+        asset_label="https://github.com/galanko/OpenSec",
+        raw_payload={
+            "check_name": "trusted_action_sources",
+            "scanner_status": "fail",
+            "detail": {
+                "untrusted_count": 2,
+                "untrusted": [
+                    {
+                        "file": ".github/workflows/release.yml",
+                        "action": "aquasecurity/trivy-action",
+                        "owner": "aquasecurity",
+                    },
+                    {
+                        "file": ".github/workflows/release.yml",
+                        "action": "sigstore/cosign-installer",
+                        "owner": "sigstore",
+                    },
+                ],
+            },
+        },
+        created_at=now,
+        updated_at=now,
+    )
+    return f.model_dump(mode="json")
+
+
+def test_executor_surfaces_posture_detail(
+    engine: AgentTemplateEngine, posture_finding_dict: dict
+):
+    """The executor must see the structured ``raw_payload.detail`` for posture
+    findings — without this section the agent has only the title to reason from
+    and confabulates fixes (PR #111 hallucinated a SHA, used a non-action repo,
+    and added a workflow without a permissions block — none of which addressed
+    the cited rows).
+    """
+    agent = engine.render_agent(
+        "remediation_executor", finding=posture_finding_dict
+    )
+    assert "Scanner detail (posture)" in agent.content
+    # Each cited row's identifying fields must reach the prompt verbatim so
+    # the executor can name them in the diff.
+    assert "aquasecurity/trivy-action" in agent.content
+    assert "sigstore/cosign-installer" in agent.content
+    assert ".github/workflows/release.yml" in agent.content
+
+
+def test_executor_includes_hard_rules(
+    engine: AgentTemplateEngine, sample_finding_dict: dict
+):
+    """The executor's hard-rules block must be present on every render — these
+    are the verify-SHA / verify-action / require-permissions / address-cited-rows
+    guardrails that PR #111's failure mode taught us to write down.
+    """
+    agent = engine.render_agent(
+        "remediation_executor", finding=sample_finding_dict
+    )
+    assert "Never invent a SHA" in agent.content
+    assert "Verify the action exists" in agent.content
+    assert "permissions:" in agent.content
+    assert "address the cited rows" in agent.content
+    assert "Never claim to have done what you didn't" in agent.content
+    # The exact verification command must appear so the agent has a concrete
+    # invocation to copy rather than infer.
+    assert 'gh api "repos/<owner>/<repo>/commits/<ref>"' in agent.content
+
+
+def test_planner_surfaces_posture_detail(
+    engine: AgentTemplateEngine, posture_finding_dict: dict
+):
+    """Same surface gap as the executor — the planner needs the cited rows in
+    its prompt or its plan defaults to "harden CI" rather than "edit these
+    nine specific lines".
+    """
+    agent = engine.render_agent(
+        "remediation_planner", finding=posture_finding_dict
+    )
+    assert "Scanner detail (posture)" in agent.content
+    assert "aquasecurity/trivy-action" in agent.content
+    assert "address the cited rows, not the policy" in agent.content
