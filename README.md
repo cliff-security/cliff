@@ -9,7 +9,7 @@
 [![Version](https://img.shields.io/github/v/release/galanko/OpenSec?include_prereleases&label=version&color=4d44e3)](https://github.com/galanko/OpenSec/releases)
 [![Backend CI](https://github.com/galanko/OpenSec/actions/workflows/backend.yml/badge.svg?branch=main)](https://github.com/galanko/OpenSec/actions/workflows/backend.yml)
 [![Frontend CI](https://github.com/galanko/OpenSec/actions/workflows/frontend.yml/badge.svg?branch=main)](https://github.com/galanko/OpenSec/actions/workflows/frontend.yml)
-[![Secured by OpenSec](https://img.shields.io/badge/secured_by-opensec-2b3437.svg)](https://github.com/galanko/OpenSec)
+[![Secured by OpenSec](https://img.shields.io/badge/secured_by-opensec-4d44e3.svg?labelColor=2b3437)](https://github.com/galanko/OpenSec)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-4d44e3.svg)](LICENSE)
 [![Status: Alpha](https://img.shields.io/badge/status-alpha-f59e0b.svg)](ROADMAP.md)
 
