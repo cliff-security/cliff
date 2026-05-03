@@ -30,7 +30,7 @@ Built on [OpenCode](https://github.com/anomalyco/opencode). Runs in a single Doc
 
 ## Quick start
 
-Prereqs: Docker 24+ and an LLM API key (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`).
+Prereqs: Docker 24+.
 
 <!-- install:start -->
 ```bash
