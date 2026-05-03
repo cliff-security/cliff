@@ -15,6 +15,10 @@
 
 </div>
 
+<p align="center">
+  <img src="docs/assets/screenshots/lifecycle.gif" alt="One issue moving through the OpenSec lifecycle: Todo → Plan review → PR review → Done" width="900" />
+</p>
+
 ## What is OpenSec?
 
 OpenSec is a self-hosted, open-source AI copilot for vulnerability remediation. Drop in a finding (CSV, Snyk, Trivy, your own scanner) and you get a chat-led workspace where AI sub-agents enrich context, identify owners, plan the fix, draft tickets, and validate closure. You steer; the agents do the legwork.
