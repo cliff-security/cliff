@@ -99,26 +99,21 @@ export default function IngestProgress({ onComplete, onClose, initialJobId, init
     }
   }, [progress, qc])
 
-  // Debounced auto-estimate on source/rawJson changes
+  // Debounced auto-estimate on source/rawJson changes. Stale estimate is
+  // cleared in the change handlers (sync, in-event); the effect only runs the
+  // async fetch.
   useEffect(() => {
-    if (!source.trim() || !rawJson.trim()) {
-      setEstimate(null)
-      return
-    }
+    if (!source.trim() || !rawJson.trim()) return
     let parsed: Record<string, unknown>[]
     try {
       const data = JSON.parse(rawJson)
-      if (!Array.isArray(data) || data.length === 0) {
-        setEstimate(null)
-        return
-      }
+      if (!Array.isArray(data) || data.length === 0) return
       parsed = data
     } catch {
-      setEstimate(null)
       return
     }
-    setEstimating(true)
     const timer = setTimeout(async () => {
+      setEstimating(true)
       try {
         const res = await api.startIngest({ source, raw_data: parsed, dry_run: true })
         setEstimate({
@@ -256,7 +251,7 @@ export default function IngestProgress({ onComplete, onClose, initialJobId, init
                   <input
                     type="text"
                     value={source}
-                    onChange={(e) => setSource(e.target.value)}
+                    onChange={(e) => { setSource(e.target.value); setEstimate(null) }}
                     placeholder="e.g. wiz, snyk, trivy"
                     className="w-full bg-surface-container-low rounded-lg px-3 py-2 text-sm text-on-surface outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-outline-variant"
                   />
@@ -340,6 +335,7 @@ export default function IngestProgress({ onComplete, onClose, initialJobId, init
                     onChange={(e) => {
                       setRawJson(e.target.value)
                       setParseError(null)
+                      setEstimate(null)
                     }}
                     placeholder={'[\n  { "id": "...", "title": "...", "severity": "..." },\n  ...\n]'}
                     className="w-full bg-surface-container-low rounded-lg px-3 py-2.5 text-sm font-mono text-on-surface outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-outline-variant min-h-[120px] resize-y"
