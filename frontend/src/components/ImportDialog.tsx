@@ -97,22 +97,20 @@ export default function ImportDialog({ onComplete, onClose }: ImportDialogProps)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [isRunning, onClose])
 
-  // Debounced auto-estimate for paste tab
+  // Debounced auto-estimate for paste tab. Stale estimate is cleared in the
+  // change handlers (sync, in-event); the effect only runs the async fetch.
   useEffect(() => {
-    if (tab !== 'paste' || !source.trim() || !rawJson.trim()) {
-      setEstimate(null)
-      return
-    }
+    if (tab !== 'paste' || !source.trim() || !rawJson.trim()) return
     let parsed: Record<string, unknown>[]
     try {
       const data = JSON.parse(rawJson)
-      if (!Array.isArray(data) || data.length === 0) { setEstimate(null); return }
+      if (!Array.isArray(data) || data.length === 0) return
       parsed = data
     } catch {
-      setEstimate(null); return
+      return
     }
-    setEstimating(true)
     const timer = setTimeout(async () => {
+      setEstimating(true)
       try {
         const res = await api.startIngest({ source, raw_data: parsed, dry_run: true })
         setEstimate({ total_items: res.total_items, total_chunks: res.total_chunks, estimated_tokens: res.estimated_tokens })
@@ -253,7 +251,7 @@ export default function ImportDialog({ onComplete, onClose }: ImportDialogProps)
             {/* Tabs */}
             <div className="flex gap-1 bg-surface-container-low rounded-lg p-1 mb-5">
               <button
-                onClick={() => setTab('upload')}
+                onClick={() => { setTab('upload'); setEstimate(null) }}
                 className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-semibold transition-colors ${
                   tab === 'upload'
                     ? 'bg-surface-container-lowest text-on-surface shadow-sm'
@@ -264,7 +262,7 @@ export default function ImportDialog({ onComplete, onClose }: ImportDialogProps)
                 Upload
               </button>
               <button
-                onClick={() => setTab('paste')}
+                onClick={() => { setTab('paste'); setEstimate(null) }}
                 className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-semibold transition-colors ${
                   tab === 'paste'
                     ? 'bg-surface-container-lowest text-on-surface shadow-sm'
@@ -285,7 +283,7 @@ export default function ImportDialog({ onComplete, onClose }: ImportDialogProps)
                 <input
                   type="text"
                   value={source}
-                  onChange={(e) => setSource(e.target.value)}
+                  onChange={(e) => { setSource(e.target.value); setEstimate(null) }}
                   placeholder="e.g. wiz, snyk, trivy"
                   className="w-full bg-surface-container-low rounded-lg px-3 py-2 text-sm text-on-surface outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-outline-variant"
                 />
@@ -405,7 +403,7 @@ export default function ImportDialog({ onComplete, onClose }: ImportDialogProps)
                     </label>
                     <textarea
                       value={rawJson}
-                      onChange={(e) => { setRawJson(e.target.value); setError(null) }}
+                      onChange={(e) => { setRawJson(e.target.value); setError(null); setEstimate(null) }}
                       placeholder={'[\n  { "id": "...", "title": "...", "severity": "..." },\n  ...\n]'}
                       className="w-full bg-surface-container-low rounded-xl px-3 py-2.5 text-sm font-mono text-on-surface outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-outline-variant min-h-[180px] resize-y"
                     />
