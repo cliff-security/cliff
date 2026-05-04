@@ -2379,6 +2379,19 @@
         "title": "IssueDerived",
         "type": "object"
       },
+      "ListReposRequest": {
+        "properties": {
+          "github_token": {
+            "title": "Github Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "github_token"
+        ],
+        "title": "ListReposRequest",
+        "type": "object"
+      },
       "MarkSummarySeenResponse": {
         "description": "Idempotent response: ``summary_seen_at`` is set on first call.",
         "properties": {
@@ -2636,34 +2649,6 @@
           "github_token"
         ],
         "title": "OnboardingRepoRequest",
-        "type": "object"
-      },
-      "OnboardingRepoResponse": {
-        "properties": {
-          "assessment_id": {
-            "title": "Assessment Id",
-            "type": "string"
-          },
-          "repo_url": {
-            "title": "Repo Url",
-            "type": "string"
-          },
-          "verified": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/VerifiedRepo"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "assessment_id",
-          "repo_url"
-        ],
-        "title": "OnboardingRepoResponse",
         "type": "object"
       },
       "PermissionDecision": {
@@ -3720,38 +3705,6 @@
         "title": "ValidationError",
         "type": "object"
       },
-      "VerifiedRepo": {
-        "description": "Display-only metadata the SPA shows on the connect-success card.",
-        "properties": {
-          "default_branch": {
-            "title": "Default Branch",
-            "type": "string"
-          },
-          "permissions": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "title": "Permissions",
-            "type": "array"
-          },
-          "repo_name": {
-            "title": "Repo Name",
-            "type": "string"
-          },
-          "visibility": {
-            "title": "Visibility",
-            "type": "string"
-          }
-        },
-        "required": [
-          "repo_name",
-          "visibility",
-          "default_branch"
-        ],
-        "title": "VerifiedRepo",
-        "type": "object"
-      },
       "VersionInfo": {
         "description": "Version handshake for the agent CLI (`opensec status`).\n\n`min_cli` is the lowest CLI version this server promises to speak to.\nA CLI older than this should refuse to operate and tell the user to upgrade.\n`schema_version` bumps when the CLI/server contract changes incompatibly.",
         "properties": {
@@ -3880,6 +3833,17 @@
             ],
             "title": "Linked Ticket Id"
           },
+          "repo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo Url"
+          },
           "source_check_name": {
             "anyOf": [
               {
@@ -3978,6 +3942,17 @@
           "finding_id": {
             "title": "Finding Id",
             "type": "string"
+          },
+          "repo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo Url"
           },
           "state": {
             "default": "open",
@@ -5139,9 +5114,49 @@
         ]
       }
     },
+    "/api/onboarding/github/repos": {
+      "post": {
+        "description": "Return the repos a PAT can reach, for onboarding's picker step.\n\nThe token is **not** persisted here \u2014 only on a successful call to\n``POST /onboarding/repo``. Avoids dangling vault entries when the user\nabandons the flow at the picker.\n\nAuth/scope failures return 422 ``{code: \"invalid_token\"}``. Network and\nGitHub 5xx return 502 \u2014 onboarding's manual-URL fallback covers this.",
+        "operationId": "list_github_repos_api_onboarding_github_repos_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ListReposRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Github Repos",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
     "/api/onboarding/repo": {
       "post": {
-        "description": "Register a repo and kick off the initial assessment.",
+        "description": "Register a repo and kick off the initial assessment.\n\nReturns ``OnboardingRepoResponse`` on success. On hard probe failures\nreturns a ``JSONResponse`` with ``{detail, code}`` at 422 \u2014 the SPA\nbranches on ``code`` (e.g. ``missing_repo_scope``).",
         "operationId": "connect_repo_api_onboarding_repo_post",
         "requestBody": {
           "content": {
@@ -5157,9 +5172,7 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OnboardingRepoResponse"
-                }
+                "schema": {}
               }
             },
             "description": "Successful Response"

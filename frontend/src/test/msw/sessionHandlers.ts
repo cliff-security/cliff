@@ -58,6 +58,46 @@ export const sessionHandlers = [
     }),
   ),
 
+  // Phase A of the picker — list the repos a token can reach. Tokens with
+  // sentinel value ``invalid-token`` simulate the 401 path; everything else
+  // returns a couple of fixture repos so the picker has rows to render.
+  http.post('/api/onboarding/github/repos', async ({ request }) => {
+    const body = (await request.json()) as { github_token?: string }
+    if (!body?.github_token) {
+      return HttpResponse.json(
+        { detail: 'github_token must not be empty', code: 'invalid_token' },
+        { status: 422 },
+      )
+    }
+    if (body.github_token === 'invalid-token') {
+      return HttpResponse.json(
+        {
+          detail: 'Token is invalid or lacks read access.',
+          code: 'invalid_token',
+        },
+        { status: 422 },
+      )
+    }
+    return HttpResponse.json({
+      repos: [
+        {
+          full_name: 'alex-dev/fast-markdown',
+          html_url: 'https://github.com/alex-dev/fast-markdown',
+          private: false,
+          default_branch: 'main',
+          can_push: true,
+        },
+        {
+          full_name: 'alex-dev/legacy-archive',
+          html_url: 'https://github.com/alex-dev/legacy-archive',
+          private: true,
+          default_branch: 'main',
+          can_push: false,
+        },
+      ],
+    })
+  }),
+
   http.post('/api/onboarding/repo', async ({ request }) => {
     const body = (await request.json()) as StubbedRepoRequest
 
@@ -68,14 +108,21 @@ export const sessionHandlers = [
       )
     }
 
-    if (body.github_token === 'no-repo-scope') {
+    // Two ways to land on the missing-repo-scope branch in the new flow:
+    //   - the token is read-only (sentinel ``no-repo-scope``)
+    //   - the user typed a URL via the manual fallback that the token
+    //     can't push to (sentinel ``read-only`` in the URL)
+    if (
+      body.github_token === 'no-repo-scope' ||
+      body.repo_url.includes('read-only')
+    ) {
       return HttpResponse.json(
         {
           detail:
-            "Your token is missing the 'repo' scope. Regenerate the token with the 'repo' box checked and try again.",
+            'Token has read but not write access. Contents (write) and Pull requests (write) are required.',
           code: 'missing_repo_scope',
         },
-        { status: 403 },
+        { status: 422 },
       )
     }
 
