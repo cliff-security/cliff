@@ -109,7 +109,9 @@ export default function HistoryCard({ workspace, onExport }: HistoryCardProps) {
         <ActionButton
           label="View"
           icon="visibility"
-          onClick={() => navigate(`/workspace/${workspace.id}`)}
+          onClick={() =>
+            navigate(`/issues?open=${encodeURIComponent(workspace.finding_id)}`)
+          }
         />
       </div>
     </ListCard>

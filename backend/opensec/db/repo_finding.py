@@ -63,6 +63,8 @@ def _row_to_finding(row: aiosqlite.Row) -> Finding:
         category=row["category"],
         assessment_id=row["assessment_id"],
         pr_url=row["pr_url"],
+        exception_reason=row["exception_reason"],
+        exception_note=row["exception_note"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
@@ -95,9 +97,10 @@ async def create_finding(db: aiosqlite.Connection, data: FindingCreate) -> Findi
             assessment_id, title, description, plain_description,
             raw_severity, normalized_priority, status, likely_owner,
             why_this_matters, asset_id, asset_label, raw_payload, pr_url,
+            exception_reason, exception_note,
             created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(source_type, source_id) DO UPDATE SET
             title               = excluded.title,
             description         = excluded.description,
@@ -136,6 +139,8 @@ async def create_finding(db: aiosqlite.Connection, data: FindingCreate) -> Findi
             data.asset_label,
             json.dumps(data.raw_payload) if data.raw_payload is not None else None,
             data.pr_url,
+            data.exception_reason,
+            data.exception_note,
             now,
             now,
         ),

@@ -21,7 +21,13 @@ from opensec.models.issue_derivation import derive
 NOW = datetime(2026, 4, 29, 12, 0, 0, tzinfo=UTC)
 
 
-def make_finding(*, status: str = "new", raw_payload: dict | None = None) -> Finding:
+def make_finding(
+    *,
+    status: str = "new",
+    raw_payload: dict | None = None,
+    exception_reason: str | None = None,
+    exception_note: str | None = None,
+) -> Finding:
     return Finding(
         id="f-1",
         source_type="trivy",
@@ -29,6 +35,8 @@ def make_finding(*, status: str = "new", raw_payload: dict | None = None) -> Fin
         title="CVE-2024-1234",
         status=status,  # type: ignore[arg-type]
         raw_payload=raw_payload,
+        exception_reason=exception_reason,  # type: ignore[arg-type]
+        exception_note=exception_note,
         created_at=NOW,
         updated_at=NOW,
     )
@@ -290,8 +298,7 @@ def test_case_13_exception_false_positive() -> None:
 
 
 def test_case_14_exception_default_accepted() -> None:
-    """Phase 1 has no reason picker; exception without a reason defaults to
-    ``accepted`` per the IMPL plan."""
+    """Exception without a reason defaults to ``accepted`` per the IMPL plan."""
     result = derive(
         make_finding(status="exception"),
         workspace=make_workspace(),
@@ -301,6 +308,71 @@ def test_case_14_exception_default_accepted() -> None:
 
     assert result.section == "done"
     assert result.stage == "accepted"
+
+
+# ----------------------------------------------------------------------------
+# Phase 2 (IMPL-0007 §B2) — exception_reason column drives the verdict
+# ----------------------------------------------------------------------------
+
+
+def test_case_14a_exception_reason_false_positive() -> None:
+    result = derive(
+        make_finding(status="exception", exception_reason="false_positive"),
+        workspace=make_workspace(),
+        sidebar=None,
+        latest_runs_by_type={},
+    )
+    assert result.section == "done"
+    assert result.stage == "false_positive"
+
+
+def test_case_14b_exception_reason_wont_fix() -> None:
+    result = derive(
+        make_finding(status="exception", exception_reason="wont_fix"),
+        workspace=make_workspace(),
+        sidebar=None,
+        latest_runs_by_type={},
+    )
+    assert result.section == "done"
+    assert result.stage == "wont_fix"
+
+
+def test_case_14c_exception_reason_accepted_risk_maps_to_accepted() -> None:
+    result = derive(
+        make_finding(status="exception", exception_reason="accepted_risk"),
+        workspace=make_workspace(),
+        sidebar=None,
+        latest_runs_by_type={},
+    )
+    assert result.section == "done"
+    assert result.stage == "accepted"
+
+
+def test_case_14d_exception_reason_deferred() -> None:
+    result = derive(
+        make_finding(status="exception", exception_reason="deferred"),
+        workspace=make_workspace(),
+        sidebar=None,
+        latest_runs_by_type={},
+    )
+    assert result.section == "done"
+    assert result.stage == "deferred"
+
+
+def test_case_14e_legacy_raw_payload_reason_still_works() -> None:
+    """Pre-Phase-2 rows (with ``raw_payload.exception_reason`` but no column)
+    keep their derived stage so old findings don't regress to ``accepted``."""
+    result = derive(
+        make_finding(
+            status="exception",
+            raw_payload={"exception_reason": "false_positive"},
+        ),
+        workspace=make_workspace(),
+        sidebar=None,
+        latest_runs_by_type={},
+    )
+    assert result.section == "done"
+    assert result.stage == "false_positive"
 
 
 # ----------------------------------------------------------------------------

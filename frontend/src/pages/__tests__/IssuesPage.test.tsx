@@ -17,7 +17,7 @@ vi.mock('react-router', async (orig) => {
   }
 })
 
-function renderPage(findings: Finding[]) {
+function renderPage(findings: Finding[], initialEntries: string[] = ['/issues']) {
   server.use(
     http.get('/api/findings', () => HttpResponse.json(findings)),
     http.get('/api/dashboard', () =>
@@ -63,7 +63,7 @@ function renderPage(findings: Finding[]) {
   })
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={initialEntries}>
         <IssuesPage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -110,7 +110,6 @@ describe('IssuesPage', () => {
     expect(inProgress.textContent).toContain('1 generating')
     expect(inProgress.textContent).toContain('1 opening PR')
     expect(inProgress.textContent).toContain('1 validating')
-    // Collapsed: rows are not yet rendered.
     expect(screen.queryByText(/Issue p1/)).toBeNull()
   })
 
@@ -125,10 +124,12 @@ describe('IssuesPage', () => {
     expect(sessionStorage.getItem('opensec.issues.inProgressOpen')).toBe('1')
   })
 
-  it('clicking a Todo row triggers createWorkspace and navigates to /workspace/:id', async () => {
+  it('clicking a Todo row creates a workspace and opens the side panel via ?open', async () => {
+    let createCount = 0
     server.use(
-      http.post('/api/workspaces', () =>
-        HttpResponse.json({
+      http.post('/api/workspaces', () => {
+        createCount += 1
+        return HttpResponse.json({
           id: 'w-new',
           finding_id: 't1',
           state: 'open',
@@ -138,28 +139,29 @@ describe('IssuesPage', () => {
           validation_state: null,
           created_at: '',
           updated_at: '',
-        }),
-      ),
+        })
+      }),
     )
     const findings = [makeFinding({ id: 't1', stage: 'todo' })]
     renderPage(findings)
-    // Wait for the integrations + health queries to resolve so the GitHub
-    // repo-guard guard is satisfied before clicking Start.
     await screen.findByText(/grade B/)
     const startBtn = await screen.findByRole('button', { name: /^Start$/i })
-    // Allow the integrations query to settle (driven by useIntegrations).
-    await waitFor(() => {
-      // No assertion needed; this just yields the microtask queue.
-      expect(startBtn).toBeInTheDocument()
-    })
     fireEvent.click(startBtn)
-    await waitFor(
-      () => expect(navigateMock).toHaveBeenCalledWith('/workspace/w-new'),
-      { timeout: 3000 },
+    await waitFor(() => expect(createCount).toBe(1))
+    // Side panel mounts with the issue's title visible.
+    await waitFor(() =>
+      expect(screen.getByRole('dialog', { name: /Issue details/i })).toBeInTheDocument(),
     )
   })
 
-  it('clicking a Review row with an existing workspace navigates without creating a new one', async () => {
+  it('clicking a Review row with an existing workspace opens the panel without creating a new workspace', async () => {
+    let createCalled = false
+    server.use(
+      http.post('/api/workspaces', () => {
+        createCalled = true
+        return HttpResponse.json({})
+      }),
+    )
     const findings = [
       makeFinding({ id: 'r1', stage: 'plan_ready', workspaceId: 'w-existing' }),
     ]
@@ -167,7 +169,18 @@ describe('IssuesPage', () => {
     const reviewBtn = await screen.findByRole('button', { name: /Review plan/i })
     fireEvent.click(reviewBtn)
     await waitFor(() =>
-      expect(navigateMock).toHaveBeenCalledWith('/workspace/w-existing'),
+      expect(screen.getByRole('dialog', { name: /Issue details/i })).toBeInTheDocument(),
+    )
+    expect(createCalled).toBe(false)
+  })
+
+  it('opens the panel from a deep link (?open=:id)', async () => {
+    const findings = [
+      makeFinding({ id: 'r1', stage: 'plan_ready', workspaceId: 'w-1' }),
+    ]
+    renderPage(findings, ['/issues?open=r1'])
+    await waitFor(() =>
+      expect(screen.getByRole('dialog', { name: /Issue details/i })).toBeInTheDocument(),
     )
   })
 
@@ -179,18 +192,7 @@ describe('IssuesPage', () => {
 
   it('does NOT render the empty-Review card when there are zero findings overall', async () => {
     renderPage([])
-    // The blanket EmptyState handles fully-empty repos; we should not
-    // double up with the "Review is clear" tertiary card.
     expect(screen.queryByText(/Review is clear\./i)).toBeNull()
-  })
-
-  it('hides the migration banner once dismissed and reflects in sessionStorage', async () => {
-    renderPage([])
-    const dismiss = await screen.findByRole('button', { name: /dismiss/i })
-    fireEvent.click(dismiss)
-    expect(sessionStorage.getItem('opensec.issues.migrationBannerDismissed')).toBe(
-      '1',
-    )
   })
 
   it('Severity filter narrows the visible rows', async () => {
@@ -210,23 +212,93 @@ describe('IssuesPage', () => {
     })
   })
 
-  it('Done section shows at most 4 rows by default with a Show all toggle', async () => {
-    const findings = [
-      makeFinding({ id: 'd1', stage: 'fixed' }),
-      makeFinding({ id: 'd2', stage: 'fixed' }),
-      makeFinding({ id: 'd3', stage: 'fixed' }),
-      makeFinding({ id: 'd4', stage: 'fixed' }),
-      makeFinding({ id: 'd5', stage: 'fixed' }),
-      makeFinding({ id: 'd6', stage: 'fixed' }),
-    ]
-    renderPage(findings)
-    await screen.findByText('Issue d1')
-    expect(screen.getByText('Issue d4')).toBeInTheDocument()
-    expect(screen.queryByText('Issue d5')).toBeNull()
-    const showAll = screen.getByRole('button', { name: /Show all/i })
-    fireEvent.click(showAll)
-    await waitFor(() =>
-      expect(screen.getByText('Issue d5')).toBeInTheDocument(),
-    )
+  // F8 — Done collapse + verdict chips + [/] keyboard toggle
+  describe('Done section (F8)', () => {
+    it('is collapsed by default; rows hidden until expanded', async () => {
+      const findings = [
+        makeFinding({ id: 'd1', stage: 'fixed' }),
+        makeFinding({ id: 'd2', stage: 'false_positive' }),
+      ]
+      renderPage(findings)
+      await screen.findByLabelText('Done section')
+      expect(screen.queryByText('Issue d1')).toBeNull()
+    })
+
+    it('clicking the Done header expands the section and persists per session', async () => {
+      const findings = [makeFinding({ id: 'd1', stage: 'fixed' })]
+      renderPage(findings)
+      const header = await screen.findByRole('button', {
+        name: /Closed in the last 7 days/i,
+      })
+      fireEvent.click(header)
+      await waitFor(() => expect(screen.getByText('Issue d1')).toBeInTheDocument())
+      expect(sessionStorage.getItem('opensec.issues.doneOpen')).toBe('1')
+    })
+
+    it('] toggles open and [ toggles closed via keyboard', async () => {
+      const findings = [makeFinding({ id: 'd1', stage: 'fixed' })]
+      renderPage(findings)
+      await screen.findByLabelText('Done section')
+      // ] expands
+      fireEvent.keyDown(window, { key: ']' })
+      await waitFor(() => expect(screen.getByText('Issue d1')).toBeInTheDocument())
+      // [ collapses
+      fireEvent.keyDown(window, { key: '[' })
+      await waitFor(() => expect(screen.queryByText('Issue d1')).toBeNull())
+    })
+
+    it('renders single-word verdict chips (Fixed / False positive / etc)', async () => {
+      const findings = [
+        makeFinding({ id: 'd1', stage: 'fixed' }),
+        makeFinding({ id: 'd2', stage: 'wont_fix' }),
+        makeFinding({ id: 'd3', stage: 'false_positive' }),
+      ]
+      renderPage(findings)
+      const header = await screen.findByRole('button', {
+        name: /Closed in the last 7 days/i,
+      })
+      fireEvent.click(header)
+      await waitFor(() => {
+        expect(screen.getByTestId('stage-chip-fixed')).toHaveTextContent('Fixed')
+        expect(screen.getByTestId('stage-chip-wont_fix')).toHaveTextContent("Won't fix")
+        expect(screen.getByTestId('stage-chip-false_positive')).toHaveTextContent(
+          'False positive',
+        )
+      })
+    })
+  })
+
+  // F7 — Plans-waiting / PRs-ready sub-headers
+  describe('Review sub-grouping (F7)', () => {
+    it('renders both sub-headers when both buckets are non-empty', async () => {
+      const findings = [
+        makeFinding({ id: 'p1', stage: 'plan_ready' }),
+        makeFinding({ id: 'p2', stage: 'plan_ready' }),
+        makeFinding({ id: 'pr1', stage: 'pr_ready' }),
+      ]
+      renderPage(findings)
+      await screen.findByLabelText('Review section')
+      expect(screen.getByText(/Plans waiting/i)).toBeInTheDocument()
+      expect(screen.getByText(/PRs ready/i)).toBeInTheDocument()
+    })
+
+    it('renders flat (no sub-headers) when only Plans bucket is populated', async () => {
+      const findings = [
+        makeFinding({ id: 'p1', stage: 'plan_ready' }),
+        makeFinding({ id: 'p2', stage: 'plan_ready' }),
+      ]
+      renderPage(findings)
+      await screen.findByLabelText('Review section')
+      expect(screen.queryByText(/Plans waiting/i)).toBeNull()
+      expect(screen.queryByText(/PRs ready/i)).toBeNull()
+    })
+
+    it('renders flat (no sub-headers) when only PRs bucket is populated', async () => {
+      const findings = [makeFinding({ id: 'pr1', stage: 'pr_ready' })]
+      renderPage(findings)
+      await screen.findByLabelText('Review section')
+      expect(screen.queryByText(/Plans waiting/i)).toBeNull()
+      expect(screen.queryByText(/PRs ready/i)).toBeNull()
+    })
   })
 })

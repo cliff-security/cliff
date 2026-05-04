@@ -52,6 +52,16 @@ FindingType = Literal["dependency", "code", "secret", "posture"]
 FindingGradeImpact = Literal["counts", "advisory"]
 
 
+#: PRD-0006 Phase 2 — reason values accepted by ``POST /findings/{id}/reject``.
+#: Mirrors the CHECK constraint in migration 012_phase2_columns.sql.
+ExceptionReason = Literal[
+    "false_positive",
+    "accepted_risk",
+    "wont_fix",
+    "deferred",
+]
+
+
 #: Issues page UI section (IMPL-0006). Computed from ``Finding.status`` plus
 #: workspace + sidebar state — never persisted.
 IssueSection = Literal["review", "in_progress", "todo", "done"]
@@ -108,6 +118,10 @@ class FindingCreate(BaseModel):
     category: str | None = None
     assessment_id: str | None = None
     pr_url: str | None = None
+    # PRD-0006 Phase 2 — reject metadata. Note ≤ 280 chars enforced at the
+    # reject route; create paths typically leave both NULL.
+    exception_reason: ExceptionReason | None = None
+    exception_note: str | None = None
 
 
 class FindingUpdate(BaseModel):
@@ -127,6 +141,11 @@ class FindingUpdate(BaseModel):
     category: str | None = None
     assessment_id: str | None = None
     pr_url: str | None = None
+    # PRD-0006 Phase 2 — patch path so the Reopen button can clear the
+    # reject metadata back to NULL. ``exception_reason`` accepts the four
+    # documented values; sentinel ``None`` = clear.
+    exception_reason: ExceptionReason | None = None
+    exception_note: str | None = None
 
 
 class Finding(BaseModel):
@@ -149,6 +168,9 @@ class Finding(BaseModel):
     category: str | None = None
     assessment_id: str | None = None
     pr_url: str | None = None
+    # PRD-0006 Phase 2 — reject metadata (migration 012_phase2_columns.sql).
+    exception_reason: ExceptionReason | None = None
+    exception_note: str | None = None
     created_at: datetime
     updated_at: datetime
     # IMPL-0006 — populated by ``repo_finding`` for list/get responses; not a

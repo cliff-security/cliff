@@ -1189,6 +1189,25 @@
         "title": "DashboardPayload",
         "type": "object"
       },
+      "ExecuteAgentRequest": {
+        "description": "Optional body for ``POST /workspaces/{id}/agents/{type}/execute``.\n\nPRD-0006 Phase 2 / IMPL-0007 \u00a7B4 \u2014 adds ``user_note`` for the planner's\nRefine flow. Other agent types accept the body but ignore the note.",
+        "properties": {
+          "user_note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Note"
+          }
+        },
+        "title": "ExecuteAgentRequest",
+        "type": "object"
+      },
       "ExecuteResponse": {
         "properties": {
           "agent_run_id": {
@@ -1283,6 +1302,34 @@
               }
             ],
             "title": "Description"
+          },
+          "exception_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exception Note"
+          },
+          "exception_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "false_positive",
+                  "accepted_risk",
+                  "wont_fix",
+                  "deferred"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exception Reason"
           },
           "grade_impact": {
             "default": "counts",
@@ -1487,6 +1534,34 @@
             ],
             "title": "Description"
           },
+          "exception_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exception Note"
+          },
+          "exception_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "false_positive",
+                  "accepted_risk",
+                  "wont_fix",
+                  "deferred"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exception Reason"
+          },
           "grade_impact": {
             "default": "counts",
             "enum": [
@@ -1677,6 +1752,34 @@
               }
             ],
             "title": "Description"
+          },
+          "exception_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exception Note"
+          },
+          "exception_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "false_positive",
+                  "accepted_risk",
+                  "wont_fix",
+                  "deferred"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exception Reason"
           },
           "grade_impact": {
             "anyOf": [
@@ -2989,6 +3092,38 @@
           "description"
         ],
         "title": "RegistryEntry",
+        "type": "object"
+      },
+      "RejectFindingRequest": {
+        "description": "Body of ``POST /findings/{id}/reject`` (PRD-0006 Phase 2 / IMPL-0007 \u00a7B3).",
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 280,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "reason": {
+            "enum": [
+              "false_positive",
+              "accepted_risk",
+              "wont_fix",
+              "deferred"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "RejectFindingRequest",
         "type": "object"
       },
       "RepoAgentStatus": {
@@ -4909,6 +5044,59 @@
         ]
       }
     },
+    "/api/findings/{finding_id}/reject": {
+      "post": {
+        "description": "Mark a finding as an exception with a documented reason (PRD-0006 Phase 2).\n\nRe-rejecting overrides the prior reason+note \u2014 the most recent submission\nwins. The derived ``stage`` field on the response reflects the verdict\nchip the Issues page will render in the Done section.",
+        "operationId": "reject_finding_endpoint_api_findings__finding_id__reject_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "finding_id",
+            "required": true,
+            "schema": {
+              "title": "Finding Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectFindingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Finding"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reject Finding Endpoint",
+        "tags": [
+          "findings"
+        ]
+      }
+    },
     "/api/onboarding/complete": {
       "post": {
         "description": "Mark onboarding as complete once the first assessment finishes.",
@@ -6589,7 +6777,7 @@
     },
     "/api/workspaces/{workspace_id}/agents/{agent_type}/execute": {
       "post": {
-        "description": "Start an agent run as a background task.\n\nReturns immediately with the agent_run_id. Connect to the\nagent-execution SSE stream to receive permission_request events\nand a done signal.",
+        "description": "Start an agent run as a background task.\n\nReturns immediately with the agent_run_id. Connect to the\nagent-execution SSE stream to receive permission_request events\nand a done signal.\n\nOptional body ``{user_note}`` is forwarded to the planner's prompt for\nPRD-0006 Phase 2's Refine flow; other agent types ignore it.",
         "operationId": "execute_agent_api_workspaces__workspace_id__agents__agent_type__execute_post",
         "parameters": [
           {
@@ -6611,6 +6799,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ExecuteAgentRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "202": {
             "content": {

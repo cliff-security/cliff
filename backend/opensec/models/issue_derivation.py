@@ -60,8 +60,19 @@ def derive(
 
     # ---------- Done verdicts (terminal) ------------------------------------
     if finding.status == "exception":
-        reason = (finding.raw_payload or {}).get("exception_reason")
-        return out("done", "false_positive" if reason == "false_positive" else "accepted")
+        # PRD-0006 Phase 2 — the dedicated column wins. ``raw_payload`` is
+        # consulted only as a legacy fallback so findings written before
+        # migration 012 don't regress to the ``accepted`` default.
+        reason = finding.exception_reason or (finding.raw_payload or {}).get(
+            "exception_reason"
+        )
+        stage_by_reason = {
+            "false_positive": "false_positive",
+            "wont_fix": "wont_fix",
+            "accepted_risk": "accepted",
+            "deferred": "deferred",
+        }
+        return out("done", stage_by_reason.get(reason, "accepted"))
 
     if finding.status in ("validated", "closed"):
         return out("done", "fixed")

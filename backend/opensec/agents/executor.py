@@ -219,11 +219,16 @@ def build_agent_prompt(
     *,
     finding: dict[str, Any],
     prior_context: dict[str, dict[str, Any]] | None = None,
+    user_note: str | None = None,
 ) -> str:
     """Build the execution prompt for a specific agent type.
 
     Includes the actual finding data and any prior agent results inline,
     so the LLM has everything it needs without reading files.
+
+    ``user_note`` (PRD-0006 Phase 2 / IMPL-0007 §B4) — only meaningful for
+    ``agent_type == 'remediation_planner'``. When set, the planner is asked
+    to treat it as authoritative refinement input on a re-run.
     """
     label = _AGENT_TYPE_LABELS.get(agent_type, agent_type)
     contract = _STRUCTURED_OUTPUT_CONTRACTS.get(agent_type, "")
@@ -243,11 +248,22 @@ def build_agent_prompt(
         if knowledge:
             prior_text = f"\n{knowledge}\n"
 
+    refinement_text = ""
+    if agent_type == "remediation_planner" and user_note:
+        refinement_text = (
+            "\n## User refinement\n\n"
+            "The user reviewed an earlier plan and asked you to revise it "
+            "with the following note. Treat this as authoritative — adjust "
+            "the plan steps, dependencies, and validation method to honor "
+            "this guidance without losing safety.\n\n"
+            f"> {user_note}\n"
+        )
+
     return f"""\
 IMPORTANT: This is a programmatic agent execution request. Respond with ONLY \
 a JSON code block — no tool calls, no file reads, no conversation.
 
-{finding_text}{prior_text}
+{finding_text}{prior_text}{refinement_text}
 Run {label} on the finding above. Respond with a single \
 ```json code block matching this exact schema:
 
@@ -437,6 +453,7 @@ class AgentExecutor:
         on_progress: Callable[[str], None] | None = None,
         on_permission: Callable[[dict], None] | None = None,
         env_vars: dict[str, str] | None = None,
+        user_note: str | None = None,
     ) -> AgentExecutionResult:
         """Execute a single agent run.
 
@@ -449,6 +466,10 @@ class AgentExecutor:
             on_progress: Optional callback for streaming text chunks.
             on_permission: Optional callback when a tool needs user approval.
                 Called with {id, tool, patterns} dict.
+            user_note: PRD-0006 Phase 2 — user refinement note. Only honored
+                when ``agent_type == 'remediation_planner'``; ignored for
+                other agents. Re-runs replace ``SidebarState.plan`` per the
+                existing executor semantics.
 
         Returns:
             AgentExecutionResult with status and parsed output.
@@ -502,6 +523,8 @@ class AgentExecutor:
                         extra_vars["repo_url"] = env_vars["OPENSEC_REPO_URL"]
                     if env_vars.get("GH_TOKEN"):
                         extra_vars["gh_token"] = env_vars["GH_TOKEN"]
+                if user_note and agent_type == "remediation_planner":
+                    extra_vars["user_note"] = user_note
                 rendered = engine.render_agent(
                     agent_type,
                     finding=finding_data,
@@ -517,7 +540,10 @@ class AgentExecutor:
                 prompt = rendered.content
             else:
                 prompt = build_agent_prompt(
-                    agent_type, finding=finding_data, prior_context=prior_ctx
+                    agent_type,
+                    finding=finding_data,
+                    prior_context=prior_ctx,
+                    user_note=user_note,
                 )
 
             # Tool agents (e.g. remediation_executor) need more time for

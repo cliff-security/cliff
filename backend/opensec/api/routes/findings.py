@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
 from opensec.db.connection import get_db
 from opensec.db.repo_finding import (
@@ -24,6 +25,14 @@ from opensec.models import (
     IngestJobResponse,
     IngestRequest,
 )
+from opensec.models.finding import ExceptionReason
+
+
+class RejectFindingRequest(BaseModel):
+    """Body of ``POST /findings/{id}/reject`` (PRD-0006 Phase 2 / IMPL-0007 §B3)."""
+
+    reason: ExceptionReason
+    note: str | None = Field(default=None, max_length=280)
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +155,32 @@ async def list_findings_endpoint(
         ]
 
     return rows
+
+
+@router.post("/findings/{finding_id}/reject", response_model=Finding)
+async def reject_finding_endpoint(
+    finding_id: str,
+    body: RejectFindingRequest,
+    db=Depends(get_db),
+):
+    """Mark a finding as an exception with a documented reason (PRD-0006 Phase 2).
+
+    Re-rejecting overrides the prior reason+note — the most recent submission
+    wins. The derived ``stage`` field on the response reflects the verdict
+    chip the Issues page will render in the Done section.
+    """
+    updated = await update_finding(
+        db,
+        finding_id,
+        FindingUpdate(
+            status="exception",
+            exception_reason=body.reason,
+            exception_note=body.note,
+        ),
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Finding not found")
+    return updated
 
 
 @router.get("/findings/{finding_id}", response_model=Finding)
