@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import type {
@@ -73,6 +74,19 @@ export function useFinding(id: string | undefined) {
     queryFn: () => api.getFinding(id!),
     enabled: !!id,
   })
+}
+
+// PRD-0006 / IMPL-0008 — Issues count badge for SideNav. Shares the cache key
+// with IssuesPage's `useFindings({ scope: 'current', refetchIntervalMs: 5000 })`
+// call so mounting both components triggers a single network request.
+export function useOpenIssuesCount(): number {
+  const { data } = useFindings({ scope: 'current', refetchIntervalMs: 5000 })
+  return useMemo(() => {
+    if (!data) return 0
+    return data.filter((f) =>
+      ['review', 'in_progress', 'todo'].includes(f.derived?.section ?? ''),
+    ).length
+  }, [data])
 }
 
 // PRD-0006 Phase 2 — partial PATCH for the side panel's Reopen flow (clear
