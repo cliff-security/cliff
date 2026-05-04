@@ -1284,6 +1284,34 @@
             ],
             "title": "Description"
           },
+          "exception_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exception Note"
+          },
+          "exception_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "false_positive",
+                  "accepted_risk",
+                  "wont_fix",
+                  "deferred"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exception Reason"
+          },
           "grade_impact": {
             "default": "counts",
             "enum": [
@@ -1487,6 +1515,34 @@
             ],
             "title": "Description"
           },
+          "exception_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exception Note"
+          },
+          "exception_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "false_positive",
+                  "accepted_risk",
+                  "wont_fix",
+                  "deferred"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exception Reason"
+          },
           "grade_impact": {
             "default": "counts",
             "enum": [
@@ -1677,6 +1733,34 @@
               }
             ],
             "title": "Description"
+          },
+          "exception_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exception Note"
+          },
+          "exception_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "false_positive",
+                  "accepted_risk",
+                  "wont_fix",
+                  "deferred"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exception Reason"
           },
           "grade_impact": {
             "anyOf": [
@@ -2989,6 +3073,38 @@
           "description"
         ],
         "title": "RegistryEntry",
+        "type": "object"
+      },
+      "RejectFindingRequest": {
+        "description": "Body of ``POST /findings/{id}/reject`` (PRD-0006 Phase 2 / IMPL-0007 \u00a7B3).",
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 280,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "reason": {
+            "enum": [
+              "false_positive",
+              "accepted_risk",
+              "wont_fix",
+              "deferred"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "RejectFindingRequest",
         "type": "object"
       },
       "RepoAgentStatus": {
@@ -4904,6 +5020,59 @@
           }
         },
         "summary": "Update Finding Endpoint",
+        "tags": [
+          "findings"
+        ]
+      }
+    },
+    "/api/findings/{finding_id}/reject": {
+      "post": {
+        "description": "Mark a finding as an exception with a documented reason (PRD-0006 Phase 2).\n\nRe-rejecting overrides the prior reason+note \u2014 the most recent submission\nwins. The derived ``stage`` field on the response reflects the verdict\nchip the Issues page will render in the Done section.",
+        "operationId": "reject_finding_endpoint_api_findings__finding_id__reject_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "finding_id",
+            "required": true,
+            "schema": {
+              "title": "Finding Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectFindingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Finding"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reject Finding Endpoint",
         "tags": [
           "findings"
         ]
