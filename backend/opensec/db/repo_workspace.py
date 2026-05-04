@@ -13,6 +13,12 @@ if TYPE_CHECKING:
 
 
 def _row_to_workspace(row: aiosqlite.Row) -> Workspace:
+    # ``repo_url`` is migration 013 — older rows / mocked rows may not expose
+    # the column, so read defensively and fall back to ``None``.
+    try:
+        repo_url = row["repo_url"]
+    except (IndexError, KeyError):
+        repo_url = None
     return Workspace(
         id=row["id"],
         finding_id=row["finding_id"],
@@ -25,6 +31,7 @@ def _row_to_workspace(row: aiosqlite.Row) -> Workspace:
         validation_state=row["validation_state"],
         workspace_dir=row["workspace_dir"],
         context_version=row["context_version"],
+        repo_url=repo_url,
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
@@ -37,8 +44,9 @@ async def create_workspace(db: aiosqlite.Connection, data: WorkspaceCreate) -> W
         """
         INSERT INTO workspace
             (id, finding_id, state, current_focus, active_plan_version,
-             linked_ticket_id, validation_state, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             linked_ticket_id, validation_state, repo_url,
+             created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             workspace_id,
@@ -48,6 +56,7 @@ async def create_workspace(db: aiosqlite.Connection, data: WorkspaceCreate) -> W
             None,
             None,
             None,
+            data.repo_url,
             now,
             now,
         ),

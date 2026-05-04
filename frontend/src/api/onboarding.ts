@@ -1,8 +1,9 @@
 /**
  * Thin fetch wrapper for the onboarding endpoints. Mirrors the OpenAPI
  * contract in `src/api/types.ts`:
- *   POST /api/onboarding/repo     — verify repo + PAT
- *   POST /api/onboarding/complete — mark onboarding complete
+ *   POST /api/onboarding/repo          — verify repo + PAT
+ *   POST /api/onboarding/github/repos  — list the PAT's reachable repos (picker)
+ *   POST /api/onboarding/complete      — mark onboarding complete
  */
 
 const BASE = ''
@@ -27,6 +28,25 @@ export interface OnboardingRepoResponse {
   assessment_id: string
   repo_url: string
   verified?: VerifiedRepoSummary
+}
+
+export interface ListReposRequest {
+  github_token: string
+}
+
+/** One row in the onboarding repo picker. ``can_push`` mirrors GitHub's
+ *  repo ``permissions.push`` so we can disable rows for read-only repos
+ *  rather than letting the user pick one and surface the failure later. */
+export interface RepoOption {
+  full_name: string
+  html_url: string
+  private: boolean
+  default_branch: string
+  can_push: boolean
+}
+
+export interface ListReposResponse {
+  repos: RepoOption[]
 }
 
 export interface OnboardingCompleteRequest {
@@ -72,6 +92,9 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
 export const onboardingApi = {
   connectRepo: (req: OnboardingRepoRequest) =>
     postJson<OnboardingRepoResponse>('/api/onboarding/repo', req),
+
+  listRepos: (req: ListReposRequest) =>
+    postJson<ListReposResponse>('/api/onboarding/github/repos', req),
 
   complete: (req: OnboardingCompleteRequest) =>
     postJson<OnboardingCompleteResponse>('/api/onboarding/complete', req),

@@ -74,6 +74,9 @@ class WorkspaceCreate(BaseModel):
     finding_id: str
     state: WorkspaceState = "open"
     current_focus: str | None = None
+    # Snapshot of integration_config.config.repo_url at create-time. Pins
+    # the workspace to the repo it was opened against — see migration 013.
+    repo_url: str | None = None
 
 
 class WorkspaceUpdate(BaseModel):
@@ -96,6 +99,7 @@ class Workspace(BaseModel):
     validation_state: str | None = None
     workspace_dir: str | None = None
     context_version: int = 0
+    repo_url: str | None = None
     created_at: datetime
     updated_at: datetime
 
