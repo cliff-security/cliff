@@ -192,7 +192,7 @@ export default function SideNav() {
   return (
     <aside
       // 1px solid right border — design exception per chrome.jsx IPSideNav.
-      className="flex flex-col w-56 shrink-0 bg-surface-container-low border-r border-outline-variant min-h-screen"
+      className="flex flex-col w-56 shrink-0 bg-surface-container-low border-r border-outline-variant sticky top-0 h-screen self-start"
     >
       {/* Logo block */}
       <NavLink
@@ -223,7 +223,7 @@ export default function SideNav() {
 
       <WorkspaceSwitcher />
 
-      <nav aria-label="Primary" className="flex-1 px-2.5 space-y-0.5">
+      <nav aria-label="Primary" className="flex-1 min-h-0 overflow-y-auto px-2.5 space-y-0.5">
         {NAV_ITEMS.map((item) => (
           <NavLink
             key={item.to}
