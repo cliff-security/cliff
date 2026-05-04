@@ -6,8 +6,8 @@ import asyncio
 import json
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from opensec.agents.errors import AgentBusyError, AgentProcessError
@@ -33,6 +33,16 @@ class ExecuteResponse(BaseModel):
     agent_run_id: str
     agent_type: str
     status: str
+
+
+class ExecuteAgentRequest(BaseModel):
+    """Optional body for ``POST /workspaces/{id}/agents/{type}/execute``.
+
+    PRD-0006 Phase 2 / IMPL-0007 §B4 — adds ``user_note`` for the planner's
+    Refine flow. Other agent types accept the body but ignore the note.
+    """
+
+    user_note: str | None = Field(default=None, max_length=2000)
 
 
 class SuggestNextResponse(BaseModel):
@@ -79,12 +89,16 @@ async def execute_agent(
     agent_type: str,
     request: Request,
     db=Depends(get_db),
+    body: ExecuteAgentRequest | None = Body(default=None),
 ):
     """Start an agent run as a background task.
 
     Returns immediately with the agent_run_id. Connect to the
     agent-execution SSE stream to receive permission_request events
     and a done signal.
+
+    Optional body ``{user_note}`` is forwarded to the planner's prompt for
+    PRD-0006 Phase 2's Refine flow; other agent types ignore it.
     """
     workspace = await get_workspace(db, workspace_id)
     if not workspace:
@@ -108,6 +122,7 @@ async def execute_agent(
 
     # Resolve GitHub env vars (GH_TOKEN, OPENSEC_REPO_URL) for the workspace process.
     env_vars = await _resolve_repo_env_vars(request, db)
+    user_note = body.user_note if body else None
 
     # Launch execution as a background task so we can return immediately.
     async def _run_in_background() -> None:
@@ -121,6 +136,7 @@ async def execute_agent(
                     workspace_id, evt
                 ),
                 env_vars=env_vars,
+                user_note=user_note,
             )
         except (AgentBusyError, AgentProcessError):
             logger.exception(

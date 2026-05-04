@@ -1189,6 +1189,25 @@
         "title": "DashboardPayload",
         "type": "object"
       },
+      "ExecuteAgentRequest": {
+        "description": "Optional body for ``POST /workspaces/{id}/agents/{type}/execute``.\n\nPRD-0006 Phase 2 / IMPL-0007 \u00a7B4 \u2014 adds ``user_note`` for the planner's\nRefine flow. Other agent types accept the body but ignore the note.",
+        "properties": {
+          "user_note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Note"
+          }
+        },
+        "title": "ExecuteAgentRequest",
+        "type": "object"
+      },
       "ExecuteResponse": {
         "properties": {
           "agent_run_id": {
@@ -6758,7 +6777,7 @@
     },
     "/api/workspaces/{workspace_id}/agents/{agent_type}/execute": {
       "post": {
-        "description": "Start an agent run as a background task.\n\nReturns immediately with the agent_run_id. Connect to the\nagent-execution SSE stream to receive permission_request events\nand a done signal.",
+        "description": "Start an agent run as a background task.\n\nReturns immediately with the agent_run_id. Connect to the\nagent-execution SSE stream to receive permission_request events\nand a done signal.\n\nOptional body ``{user_note}`` is forwarded to the planner's prompt for\nPRD-0006 Phase 2's Refine flow; other agent types ignore it.",
         "operationId": "execute_agent_api_workspaces__workspace_id__agents__agent_type__execute_post",
         "parameters": [
           {
@@ -6780,6 +6799,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ExecuteAgentRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "202": {
             "content": {

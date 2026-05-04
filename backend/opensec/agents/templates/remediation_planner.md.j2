@@ -78,6 +78,14 @@ plan is not acceptable when the rows to change are right above.
 {% endif %}
 {% endif %}
 
+{% if user_note %}
+## User refinement
+
+The user reviewed an earlier plan and asked you to revise it with the following note. Treat this as authoritative — adjust the plan steps, dependencies, and validation method to honor this guidance without losing safety.
+
+> {{ user_note }}
+
+{% endif %}
 ## Your task
 
 Generate a step-by-step remediation plan. The plan must be concrete enough that an engineer can execute it without additional research.
