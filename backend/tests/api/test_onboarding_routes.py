@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from opensec.api._engine_dep import get_assessment_engine
+from opensec.assessment.posture.github_client import UnableToVerify
 from opensec.main import app
 from opensec.models import CriteriaSnapshot
 from tests.fakes.assessment_engine import FakeAssessmentEngine
@@ -105,3 +107,212 @@ async def test_complete_onboarding_not_complete_returns_409(db_client):
 async def test_complete_onboarding_unknown_assessment_returns_404(db_client):
     resp = await db_client.post("/api/onboarding/complete", json={"assessment_id": "nope"})
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Token scope enforcement on /onboarding/repo
+# ---------------------------------------------------------------------------
+#
+# The autouse fixture in conftest.py stubs ``_probe_repo_metadata`` to
+# always return None. These tests need the real probe with mocked GitHub
+# responses, so they un-stub it (``_real_probe`` re-patches with the
+# original function imported at module-load time) and patch
+# ``GithubClient.get_repo_info`` underneath — then assert the route
+# renders the right ``code``.
+
+# Captured at import time, before the autouse fixture replaces it.
+from opensec.api.routes.onboarding import (  # noqa: E402, N813
+    _probe_repo_metadata as _original_probe,
+)
+
+
+def _real_probe():
+    return patch(
+        "opensec.api.routes.onboarding._probe_repo_metadata",
+        new=_original_probe,
+    )
+
+
+def _patch_get_repo_info(return_value):
+    return patch(
+        "opensec.api.routes.onboarding.GithubClient.get_repo_info",
+        new=AsyncMock(return_value=return_value),
+    )
+
+
+async def test_repo_with_push_succeeds(db_client, fake_engine):
+    """200 with permissions.push=true → assessment scheduled, no error."""
+    info = {
+        "full_name": "org/repo",
+        "private": True,
+        "default_branch": "main",
+        "permissions": {"push": True, "pull": True, "admin": False},
+    }
+    # Override the autouse stub so the real probe runs.
+    with _real_probe(), _patch_get_repo_info(info):
+        resp = await db_client.post(
+            "/api/onboarding/repo",
+            json={
+                "repo_url": "https://github.com/org/repo",
+                "github_token": "ghp_xxx",
+            },
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["verified"]["repo_name"] == "org/repo"
+    assert "push" in body["verified"]["permissions"]
+    await _drain()
+
+
+async def test_repo_without_push_returns_missing_repo_scope(db_client, fake_engine):
+    """200 with permissions.push=false → 422 missing_repo_scope, no scan."""
+    info = {
+        "full_name": "org/repo",
+        "private": True,
+        "default_branch": "main",
+        "permissions": {"push": False, "pull": True},
+    }
+    with _real_probe(), _patch_get_repo_info(info):
+        resp = await db_client.post(
+            "/api/onboarding/repo",
+            json={
+                "repo_url": "https://github.com/org/repo",
+                "github_token": "ghp_readonly",
+            },
+        )
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["code"] == "missing_repo_scope"
+    # No assessment kicked off when probe hard-fails.
+    assert fake_engine.call_count == 0
+
+
+async def test_repo_403_returns_missing_repo_scope(db_client, fake_engine):
+    with _real_probe(), _patch_get_repo_info(UnableToVerify(reason="http_403")):
+        resp = await db_client.post(
+            "/api/onboarding/repo",
+            json={
+                "repo_url": "https://github.com/org/repo",
+                "github_token": "ghp_bad",
+            },
+        )
+    assert resp.status_code == 422
+    assert resp.json()["code"] == "missing_repo_scope"
+
+
+async def test_repo_404_returns_repo_not_found(db_client, fake_engine):
+    with _real_probe(), _patch_get_repo_info(UnableToVerify(reason="http_404")):
+        resp = await db_client.post(
+            "/api/onboarding/repo",
+            json={
+                "repo_url": "https://github.com/org/missing",
+                "github_token": "ghp_ok",
+            },
+        )
+    assert resp.status_code == 422
+    assert resp.json()["code"] == "repo_not_found"
+
+
+async def test_repo_network_error_keeps_legacy_soft_path(db_client, fake_engine):
+    """Network/5xx → ``verified=None``, scan still scheduled (legacy behavior).
+
+    Transient GitHub blips shouldn't strand a user mid-onboarding.
+    """
+    with _real_probe(), _patch_get_repo_info(
+        UnableToVerify(reason="network: TimeoutException")
+    ):
+        resp = await db_client.post(
+            "/api/onboarding/repo",
+            json={
+                "repo_url": "https://github.com/org/repo",
+                "github_token": "ghp_ok",
+            },
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["verified"] is None
+    assert body["assessment_id"]
+    await _drain()
+    assert fake_engine.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# /onboarding/github/repos — picker endpoint
+# ---------------------------------------------------------------------------
+
+
+def _patch_list_user_repos(return_value):
+    return patch(
+        "opensec.api.routes.onboarding.GithubClient.list_user_repos",
+        new=AsyncMock(return_value=return_value),
+    )
+
+
+async def test_list_repos_returns_picker_options(db_client):
+    repos = [
+        {
+            "full_name": "org/alpha",
+            "html_url": "https://github.com/org/alpha",
+            "private": True,
+            "default_branch": "main",
+            "permissions": {"push": True, "pull": True},
+            "archived": False,
+        },
+        {
+            "full_name": "org/readonly",
+            "html_url": "https://github.com/org/readonly",
+            "private": False,
+            "default_branch": "main",
+            "permissions": {"push": False, "pull": True},
+            "archived": False,
+        },
+        {
+            # Archived repos are filtered out — the user can't open a PR
+            # against them, picker would just frustrate.
+            "full_name": "org/archived",
+            "html_url": "https://github.com/org/archived",
+            "private": False,
+            "default_branch": "main",
+            "permissions": {"push": True},
+            "archived": True,
+        },
+    ]
+    with _patch_list_user_repos(repos):
+        resp = await db_client.post(
+            "/api/onboarding/github/repos",
+            json={"github_token": "ghp_ok"},
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    names = [r["full_name"] for r in body["repos"]]
+    assert names == ["org/alpha", "org/readonly"]  # archived filtered, push first
+    assert body["repos"][0]["can_push"] is True
+    assert body["repos"][1]["can_push"] is False
+
+
+async def test_list_repos_401_returns_invalid_token(db_client):
+    with _patch_list_user_repos(UnableToVerify(reason="http_401")):
+        resp = await db_client.post(
+            "/api/onboarding/github/repos",
+            json={"github_token": "ghp_bad"},
+        )
+    assert resp.status_code == 422
+    assert resp.json()["code"] == "invalid_token"
+
+
+async def test_list_repos_empty_token_returns_invalid_token(db_client):
+    resp = await db_client.post(
+        "/api/onboarding/github/repos",
+        json={"github_token": "   "},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["code"] == "invalid_token"
+
+
+async def test_list_repos_network_failure_returns_502(db_client):
+    with _patch_list_user_repos(UnableToVerify(reason="network: TimeoutException")):
+        resp = await db_client.post(
+            "/api/onboarding/github/repos",
+            json={"github_token": "ghp_ok"},
+        )
+    assert resp.status_code == 502

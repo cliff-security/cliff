@@ -66,6 +66,7 @@ class WorkspaceContextBuilder:
         finding: Finding,
         *,
         initial_focus: str | None = None,
+        repo_url: str | None = None,
     ) -> Workspace:
         """Create a complete workspace: DB row + directory + rendered agents.
 
@@ -76,6 +77,11 @@ class WorkspaceContextBuilder:
             4. Render and write agent templates
             5. Store directory path in DB
 
+        ``repo_url`` is the snapshot of the GitHub integration's repo at the
+        moment the workspace was opened (migration 013). Agents prefer this
+        over the live integration value so editing the integration mid-flight
+        doesn't silently rebind the workspace to a different repo.
+
         Returns the fully populated Workspace model.
         """
         # 1. DB row
@@ -83,6 +89,7 @@ class WorkspaceContextBuilder:
             finding_id=finding.id,
             state="open",
             current_focus=initial_focus,
+            repo_url=repo_url,
         )
         workspace = await create_workspace(db, ws_data)
 
