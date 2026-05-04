@@ -8,35 +8,34 @@
  */
 
 import type React from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router'
 import {
   useDashboard,
   useFixPostureCheck,
   useMarkSummarySeen,
-  usePostureFixStatus,
   useRunAssessment,
 } from '@/api/dashboard'
 import type {
   DashboardPayload,
-  Finding,
-  PostureCheckName,
-  PostureCheckStatus,
   PostureFixableCheck,
   PostureFixParams,
 } from '@/api/dashboard'
 import { onboardingApi } from '@/api/onboarding'
 import AssessmentInProgressView from '@/components/dashboard/AssessmentInProgressView'
 import AssessmentSummary from '@/components/dashboard/AssessmentSummary'
-import CompletionProgressCard from '@/components/dashboard/CompletionProgressCard'
-import GradeRing from '@/components/dashboard/GradeRing'
-import ScannedByLine from '@/components/dashboard/ScannedByLine'
-import ScorecardInfoLine from '@/components/dashboard/ScorecardInfoLine'
+import IssueGradeHero, {
+  type GradeLetter,
+} from '@/components/dashboard/IssueGradeHero'
+import IssueGradeHistoryChart from '@/components/dashboard/IssueGradeHistoryChart'
+import IssueMetricCard from '@/components/dashboard/IssueMetricCard'
+import IssueNeedsYouLine from '@/components/dashboard/IssueNeedsYouLine'
+import PostureCard, {
+  type PostureFeedback,
+} from '@/components/dashboard/PostureCard'
 import CompletionCelebration from '@/components/completion/CompletionCelebration'
-import CompletionStatusCard from '@/components/completion/CompletionStatusCard'
 import SummaryActionPanel from '@/components/completion/SummaryActionPanel'
-import InlineErrorCallout from '@/components/onboarding/InlineErrorCallout'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import ErrorState from '@/components/ErrorState'
 import PageShell from '@/components/PageShell'
@@ -46,20 +45,6 @@ import PageSpinner from '@/components/PageSpinner'
 // comes from /api/dashboard.criteria; this constant is the gate for the
 // "all met" celebration check.
 const CRITERIA_TOTAL = 10
-
-const SEVERITY_ORDER: Array<{
-  key: 'critical' | 'high' | 'medium' | 'low'
-  label: string
-  tone: string
-}> = [
-  { key: 'critical', label: 'Critical', tone: 'text-error' },
-  { key: 'high', label: 'High', tone: 'text-error' },
-  // ADR-0029 / IMPL-0004 T14: medium severity reads as "fine" under the
-  // tertiary (green) token. Swap to the new warning family so it scans as
-  // "attention needed but not blocking".
-  { key: 'medium', label: 'Medium', tone: 'text-warning' },
-  { key: 'low', label: 'Low', tone: 'text-on-surface-variant' },
-]
 
 export default function DashboardPage() {
   return (
@@ -314,12 +299,6 @@ function useAckOnboardingOnce(data: DashboardPayload | undefined): void {
   }, [data?.assessment])
 }
 
-interface PostureFeedback {
-  kind: 'success' | 'error'
-  checkName: PostureFixableCheck
-  message: string
-}
-
 function ReportCard({ data }: { data: DashboardPayload }) {
   const navigate = useNavigate()
   const fixMutation = useFixPostureCheck()
@@ -333,17 +312,6 @@ function ReportCard({ data }: { data: DashboardPayload }) {
   >({})
 
   const repoName = repoNameFromUrl(data.assessment?.repo_url)
-  // v0.2 dashboard: data.criteria is the labeled list per ADR-0032 — count
-  // ``met`` entries directly. The legacy ``countCriteriaMet`` over
-  // ``criteria_snapshot`` returns at most 5 (the PRD-0002 shape) but the UI
-  // displays it against ``CRITERIA_TOTAL = 10``, producing the misleading
-  // "4 of 10" the user reported. Match the AssessmentSummaryGate path
-  // which uses the labeled list as the v0.2 source of truth.
-  const criteriaMet =
-    (data.criteria ?? []).filter((c) => c.met).length
-  const remaining = Math.max(0, CRITERIA_TOTAL - criteriaMet)
-
-  const heroCopy = buildHeroCopy(data.grade, remaining)
 
   const handleGenerate = (
     checkName: PostureFixableCheck,
@@ -387,14 +355,17 @@ function ReportCard({ data }: { data: DashboardPayload }) {
       ? renderCompletionBlock(data, repoName, 'A')
       : null
 
-  const totalFindings = Object.values(data.findings_count_by_priority ?? {}).reduce(
-    (a, b) => a + b,
-    0,
-  )
-  const postureFails =
-    (data.posture_total_count ?? 0) - (data.posture_pass_count ?? 0)
-  const showGradeExplainer =
-    data.grade !== 'A' && (totalFindings > 0 || postureFails > 0)
+  const grade = (data.grade ?? null) as GradeLetter | null
+  const heroLabel = heroLabelFromGrade(grade)
+  const heroCaption = heroCopyFromState(data)
+
+  const openIssues = data.open_issues
+  const timeToClose = data.time_to_close
+  const needsYou = data.needs_you ?? {
+    plans_waiting: 0,
+    prs_ready: 0,
+    critical_todo: 0,
+  }
 
   return (
     <PageShell
@@ -409,60 +380,87 @@ function ReportCard({ data }: { data: DashboardPayload }) {
       }
     >
       {completionBlock}
-      {showGradeExplainer && (
-        <GradeExplainer
-          grade={data.grade}
-          findingsCount={totalFindings}
-          posturePassing={data.posture_pass_count ?? 0}
-          postureTotal={data.posture_total_count ?? 0}
-          onStartFixing={() => navigate('/findings')}
+      <div className="flex flex-col gap-4">
+        <IssueGradeHero
+          letter={grade}
+          label={heroLabel}
+          caption={heroCaption}
+          onOpenReview={() => navigate('/issues?section=review')}
+          onViewRubric={() => navigate('/findings')}
         />
-      )}
-      <div className="flex flex-col gap-6">
-        <section className="flex flex-col items-start gap-6 rounded-3xl bg-surface-container-low p-8 md:flex-row md:items-center">
-          <GradeRing
-            grade={data.grade}
-            criteriaMet={criteriaMet}
-            criteriaTotal={CRITERIA_TOTAL}
+
+        <IssueNeedsYouLine
+          plansWaiting={needsYou.plans_waiting ?? 0}
+          prsReady={needsYou.prs_ready ?? 0}
+          criticalTodo={needsYou.critical_todo ?? 0}
+          onOpenReview={() => navigate('/issues?section=review')}
+        />
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <IssueMetricCard
+            label="Open issues"
+            value={String(openIssues?.current ?? 0)}
+            deltaPct={openIssues?.delta_pct_30d ?? 0}
+            lowerIsBetter
+            series={openIssues?.history ?? []}
+            footnote={openIssuesFootnote(data)}
           />
-          <div className="flex-1">
-            <p className="text-xs font-medium uppercase tracking-wide text-on-surface-variant">
-              Security grade
-            </p>
-            <h2 className="mt-1 font-headline text-3xl font-bold text-on-surface">
-              {heroCopy.headline}
-            </h2>
-            <p className="mt-2 text-base text-on-surface-variant">
-              {heroCopy.body}
-            </p>
-          </div>
-          {data.completion_id && (
-            <div className="w-full md:w-auto md:max-w-xs md:flex-shrink-0">
-              <CompletionStatusCard
-                completionId={data.completion_id}
-                completedAt={data.assessment?.completed_at ?? null}
-              />
+          <IssueMetricCard
+            label="Time to close"
+            value={formatDurationShort(timeToClose?.current_seconds ?? null)}
+            deltaPct={timeToClose?.delta_pct_30d ?? 0}
+            lowerIsBetter
+            series={timeToClose?.history ?? []}
+            accent="tertiary"
+          />
+        </div>
+
+        <section
+          data-testid="issue-grade-history-section"
+          className="rounded-2xl"
+          style={{
+            background: 'var(--surface-container-lowest, #ffffff)',
+            border: '1px solid var(--outline-variant, #abb3b7)',
+          }}
+        >
+          <header className="flex items-center justify-between px-6 pt-5 pb-3 flex-wrap gap-3">
+            <div>
+              <h2 className="font-headline font-extrabold text-[18px] text-on-surface">
+                Open issues over time
+              </h2>
+              <p className="text-[12px] text-on-surface-variant mt-0.5">
+                Stacked by severity. The dotted line marks the most recent
+                grade change.
+              </p>
             </div>
-          )}
+            <div className="flex items-center gap-3 text-[11px]">
+              {[
+                { label: 'Critical', color: 'var(--error, #9e3f4e)' },
+                { label: 'High', color: 'rgb(199,128,52)' },
+                { label: 'Medium', color: 'var(--secondary, #595e78)' },
+                { label: 'Low', color: 'var(--tertiary, #575e78)' },
+              ].map((l) => (
+                <span
+                  key={l.label}
+                  className="inline-flex items-center gap-1.5 text-on-surface-variant"
+                >
+                  <span
+                    className="rounded-sm"
+                    style={{ width: 10, height: 10, background: l.color }}
+                  />
+                  {l.label}
+                </span>
+              ))}
+            </div>
+          </header>
+          <div className="px-3 pb-4">
+            <IssueGradeHistoryChart
+              severityHistory={data.severity_history ?? null}
+              gradeHistory={data.grade_history ?? []}
+            />
+          </div>
         </section>
 
-        {/* PR-B: Scanned-by row sits directly under the hero so the brand
-            trust signal (Trivy 0.52 · 7 findings · ...) lands every time
-            the report card renders. */}
-        {data.tools && data.tools.length > 0 && (
-          <ScannedByLine tools={data.tools} />
-        )}
-
-        <CompletionProgressCard
-          criteriaMet={criteriaMet}
-          criteriaTotal={CRITERIA_TOTAL}
-          repoName={repoName}
-        />
-
-        <VulnerabilitiesCard
-          data={data}
-          onStartFixing={() => navigate('/findings')}
-        />
         <PostureCard
           data={data}
           onGenerate={handleGenerate}
@@ -470,880 +468,77 @@ function ReportCard({ data }: { data: DashboardPayload }) {
           feedback={postureFeedback}
           activeWorkspaceIds={activeWorkspaceIds}
         />
-
-        <ScorecardInfoLine />
       </div>
     </PageShell>
   )
 }
 
-function VulnerabilitiesCard({
-  data,
-  onStartFixing,
-}: {
-  data: DashboardPayload
-  onStartFixing: () => void
-}) {
-  const counts = data.findings_count_by_priority ?? {}
-  const total = SEVERITY_ORDER.reduce(
-    (sum, s) => sum + (counts[s.key] ?? 0),
-    0,
-  )
-  const hasIssues = total > 0
+// ----------------------------------------------------------- hero copy helpers
 
-  return (
-    <section className="flex flex-col gap-4 rounded-3xl bg-surface-container-low p-6">
-      <header>
-        <h3 className="font-headline text-lg font-bold text-on-surface">
-          Vulnerabilities
-        </h3>
-        <p className="text-sm text-on-surface-variant">
-          Findings waiting to be solved.
-        </p>
-      </header>
-
-      <div className="grid grid-cols-4 gap-3">
-        {SEVERITY_ORDER.map((sev) => {
-          const value = counts[sev.key] ?? 0
-          return (
-            <div
-              key={sev.key}
-              className="rounded-2xl bg-surface-container p-3"
-            >
-              <p className={`text-2xl font-bold leading-none ${sev.tone}`}>
-                {value}
-              </p>
-              <p className="mt-1 text-xs font-medium text-on-surface-variant">
-                {sev.label}
-              </p>
-            </div>
-          )
-        })}
-      </div>
-
-      {hasIssues ? (
-        <button
-          type="button"
-          onClick={onStartFixing}
-          className="inline-flex w-max items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-on-primary shadow-sm hover:bg-primary/90"
-        >
-          <span className="material-symbols-outlined text-sm" aria-hidden>
-            play_arrow
-          </span>
-          Start fixing
-        </button>
-      ) : (
-        <p className="text-sm text-tertiary">No open vulnerabilities. Nice.</p>
-      )}
-    </section>
-  )
+function heroLabelFromGrade(grade: GradeLetter | null): string {
+  if (grade === null) return 'Awaiting first scan'
+  if (grade === 'A') return 'Stable'
+  if (grade === 'B') return 'Steady'
+  if (grade === 'C' || grade === 'D') return 'At risk'
+  return 'Vulnerable'
 }
 
-// Per-check metadata: label, what-it-checks blurb, and ordered fix steps.
-// The two "auto-fix" checks (security_md, dependabot_config) show a
-// primary "Generate and open PR" CTA *in addition* to the manual steps so
-// maintainers can either let OpenSec do it or do it themselves.
-const POSTURE_META: Record<
-  PostureCheckName,
-  {
-    label: string
-    failLabel: string
-    description: string
-    steps: string[]
-    docHref?: string
-    docLabel?: string
-  }
-> = {
-  security_md: {
-    label: 'SECURITY.md is committed',
-    failLabel: 'SECURITY.md is missing',
-    description:
-      'A security policy tells researchers how to report vulnerabilities privately instead of filing a public issue.',
-    steps: [
-      'Create SECURITY.md at the repo root.',
-      'Add a "Reporting a vulnerability" section with a contact email or private issue link.',
-      'State your supported versions and expected response time (e.g. 72 hours).',
-      'Commit and push to main — OpenSec re-detects on the next assessment.',
-    ],
-    docHref:
-      'https://docs.github.com/en/code-security/getting-started/adding-a-security-policy-to-your-repository',
-    docLabel: 'GitHub: adding a security policy',
-  },
-  dependabot_config: {
-    label: 'Dependabot is configured',
-    failLabel: 'Dependabot is not configured',
-    description:
-      'Dependabot opens weekly PRs for outdated dependencies so you do not ship unpatched CVEs.',
-    steps: [
-      'Create .github/dependabot.yml at the repo root.',
-      'Declare a package-ecosystem entry for each lockfile OpenSec detected.',
-      'Set a weekly schedule and an optional reviewer team.',
-      'Commit and merge — Dependabot runs automatically on GitHub-hosted repos.',
-    ],
-    docHref:
-      'https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuring-dependabot-version-updates',
-    docLabel: 'GitHub: Dependabot version updates',
-  },
-  branch_protection: {
-    label: 'Default branch is protected',
-    failLabel: 'Default branch is not protected',
-    description:
-      'Without branch protection, a compromised contributor or misclick can push straight to main with no review.',
-    steps: [
-      'Go to Settings → Branches → Add rule for main.',
-      'Enable "Require a pull request before merging" with at least 1 reviewer.',
-      'Enable "Require status checks to pass" and select your CI checks.',
-      'Save the rule, then re-assess in OpenSec.',
-    ],
-    docHref:
-      'https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches',
-    docLabel: 'GitHub: about protected branches',
-  },
-  no_force_pushes: {
-    label: 'Force pushes are blocked',
-    failLabel: 'Force pushes to main are allowed',
-    description:
-      'Force-pushes rewrite history and can silently drop commits — critical on your default branch.',
-    steps: [
-      'Open the branch protection rule for main (Settings → Branches).',
-      'Under "Rules applied to everyone including administrators", tick "Do not allow force pushes".',
-      'Save and re-assess.',
-    ],
-    docHref:
-      'https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches#allow-force-pushes',
-    docLabel: 'GitHub: force-push protections',
-  },
-  signed_commits: {
-    label: 'Recent commits are signed',
-    failLabel: 'Recent commits are unsigned (advisory)',
-    description:
-      'Signed commits prove each commit actually came from its claimed author. Advisory — we recommend it, but it does not block Grade A.',
-    steps: [
-      'Generate a GPG or SSH signing key and add it to your GitHub profile.',
-      'Run "git config --global commit.gpgsign true" (or use "ssh" for SSH signing).',
-      'Amend or re-commit from now on so new commits show a Verified badge.',
-      'Optional: require signed commits in your branch protection rule.',
-    ],
-    docHref:
-      'https://docs.github.com/en/authentication/managing-commit-signature-verification/about-commit-signature-verification',
-    docLabel: 'GitHub: commit signature verification',
-  },
-  no_secrets_in_code: {
-    label: 'No secrets detected in tracked files',
-    failLabel: 'Possible secrets detected in tracked files',
-    description:
-      'OpenSec scans for high-specificity tokens: AWS AKIA keys, GitHub ghp_/ghs_, Stripe sk_live_, Google AIza, and PEM blocks.',
-    steps: [
-      'Open the "detail" payload for this check to see which files matched.',
-      'Remove the secret from the file and rotate the credential immediately — assume it is leaked.',
-      'Add the pattern to .gitignore if it was a config file that should never be tracked.',
-      'For historical removal, consider "git filter-repo" or the BFG Repo-Cleaner, then force-push (careful).',
-      'Add an entry to .opensec/secrets-ignore only after you are sure the match is a false positive.',
-    ],
-    docHref:
-      'https://docs.github.com/en/code-security/secret-scanning/about-secret-scanning',
-    docLabel: 'GitHub: about secret scanning',
-  },
-  lockfile_present: {
-    label: 'A dependency lockfile is committed',
-    failLabel: 'No dependency lockfile detected',
-    description:
-      'Lockfiles pin exact versions so "npm install" next week matches what was audited today.',
-    steps: [
-      'Run your package manager to regenerate a lockfile (e.g. "npm install", "uv lock", "go mod tidy").',
-      'Commit the resulting package-lock.json / Pipfile.lock / go.sum / Cargo.lock.',
-      'Remove it from .gitignore if it was excluded.',
-      'Re-assess once the lockfile is on main.',
-    ],
-  },
-  code_owners_exists: {
-    label: 'CODEOWNERS file is committed',
-    failLabel: 'CODEOWNERS file is missing',
-    description:
-      'CODEOWNERS auto-requests review from the right owners and is a prereq for owner-required branch protection.',
-    steps: [
-      'Create .github/CODEOWNERS at the repo root.',
-      'Map paths to teams or individuals: e.g. "* @your-org/maintainers".',
-      'Commit and push — GitHub auto-requests reviews on the next PR.',
-    ],
-    docHref:
-      'https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners',
-    docLabel: 'GitHub: about code owners',
-  },
-  secret_scanning_enabled: {
-    label: 'Secret scanning is enabled',
-    failLabel: 'Secret scanning is disabled',
-    description:
-      'GitHub-side secret scanning catches credentials in pushed commits before they hit a public mirror.',
-    steps: [
-      'Open Settings → Code security and analysis.',
-      'Enable "Secret scanning" (and "Push protection" if available on your plan).',
-      'Re-assess once the toggle is on.',
-    ],
-    docHref:
-      'https://docs.github.com/en/code-security/secret-scanning/enabling-secret-scanning-features/enabling-secret-scanning-for-your-repository',
-    docLabel: 'GitHub: enabling secret scanning',
-  },
-  actions_pinned_to_sha: {
-    label: 'CI actions are pinned to commit SHAs',
-    failLabel: 'CI actions are pinned to mutable refs',
-    description:
-      'Pinning third-party Actions to commit SHAs (not tags or branches) prevents a rolled tag from silently swapping in malicious code.',
-    steps: [
-      'Replace each "uses: actions/checkout@v4" in .github/workflows/*.yml with the full commit SHA.',
-      'Add a comment with the version label so renovate-style bumpers can still find it.',
-      'Repeat for every third-party action in the workflows.',
-    ],
-    docHref:
-      'https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#using-third-party-actions',
-    docLabel: 'GitHub: hardening third-party actions',
-  },
-  trusted_action_sources: {
-    label: 'Workflows only call trusted Action sources',
-    failLabel: 'Workflows call untrusted Action sources',
-    description:
-      'Restricting Actions to verified creators and your org reduces the supply-chain blast radius for CI.',
-    steps: [
-      'Open Settings → Actions → General → Allow specific actions.',
-      'Switch to "Allow <org>, and select non-<org> actions" with the verified-creator + reusable-workflows toggles.',
-      'Re-assess after saving.',
-    ],
-  },
-  workflow_trigger_scope: {
-    label: 'Workflow triggers are scoped (advisory)',
-    failLabel: 'Workflow trigger scope is broad (advisory)',
-    description:
-      'Workflows that combine pull_request_target with checkout of the PR head can run untrusted code with org secrets. Advisory — review every match.',
-    steps: [
-      'Open the flagged workflow files (linked in the detail).',
-      'Remove or replace pull_request_target with pull_request where possible.',
-      'If you must keep pull_request_target, never check out the PR head ref in the same job that has secrets.',
-    ],
-    docHref:
-      'https://securitylab.github.com/research/github-actions-preventing-pwn-requests/',
-    docLabel: 'Preventing pwn-requests in Actions',
-  },
-  stale_collaborators: {
-    label: 'No stale collaborators',
-    failLabel: 'Stale collaborators detected',
-    description:
-      'Outside collaborators that never touch the repo are credential sprawl — revoke access until they need it.',
-    steps: [
-      'Open Settings → Collaborators and review the inactive list.',
-      'Remove or downgrade access for collaborators who have not contributed in 6+ months.',
-      'Re-invite when needed; the audit trail beats permanent access.',
-    ],
-  },
-  broad_team_permissions: {
-    label: 'Team permissions are scoped (advisory)',
-    failLabel: 'Team permissions are too broad (advisory)',
-    description:
-      'A team with write access and 20+ members is a wide blast radius. Advisory — judge per team.',
-    steps: [
-      'Open Settings → Manage access → Team list.',
-      'Either split the team into a smaller "writers" subset or downgrade write to triage / read.',
-    ],
-  },
-  default_branch_permissions: {
-    label: 'Default branch permissions are scoped',
-    failLabel: 'Default branch is writable by too many roles',
-    description:
-      'Anyone with write access can push to an unprotected default branch — combine with branch protection above.',
-    steps: [
-      'Open Settings → Branches → Default branch rule.',
-      'Add "Restrict who can push to matching branches" and pick a small reviewer set.',
-      'Re-assess once saved.',
-    ],
-  },
-}
-
-// Defensive fallback for any check name the backend might emit that we
-// don't yet have detailed copy for — keeps the row rendering instead of
-// crashing the dashboard.
-const FALLBACK_POSTURE_META: (typeof POSTURE_META)[PostureCheckName] = {
-  label: 'Posture check',
-  failLabel: 'Posture check failed',
-  description:
-    'See the detail payload for this check’s findings. OpenSec is rolling out per-check guidance; a detailed remediation walkthrough lands in a follow-up release.',
-  steps: [
-    'Open the "detail" payload to see exactly what the scanner reported.',
-    'Re-assess after addressing the underlying configuration.',
-  ],
-}
-
-const FIXABLE_NAMES: PostureFixableCheck[] = [
-  'security_md',
-  'dependabot_config',
-]
-
-function isFixable(name: PostureCheckName): name is PostureFixableCheck {
-  return (FIXABLE_NAMES as readonly string[]).includes(name)
-}
-
-const STATUS_ORDER: Record<PostureCheckStatus, number> = {
-  fail: 0,
-  unknown: 1,
-  advisory: 2,
-  pass: 3,
-}
-
-/**
- * Row-render shape for the dashboard posture card.
- *
- * Derived from the unified ``finding`` table (ADR-0027) — the wire ships
- * ``Finding`` rows with ``type='posture'``; this view collapses them onto
- * the four-state vocabulary the card already speaks. The same shape is
- * also synthesized from ``criteria_snapshot`` for pre-2026-04 assessments
- * that predate posture persistence in the unified table.
- */
-interface PostureCheckView {
-  id: string
-  check_name: PostureCheckName
-  status: PostureCheckStatus
-  detail: Record<string, unknown> | null
-}
-
-function toPostureCheckView(row: Finding): PostureCheckView {
-  const raw = (row.raw_payload ?? {}) as {
-    check_name?: string
-    scanner_status?: PostureCheckStatus
-    detail?: Record<string, unknown> | null
-  }
-  const checkName = (raw.check_name ?? row.title) as PostureCheckName
-  let status: PostureCheckStatus
-  if (raw.scanner_status) {
-    status = raw.scanner_status
-  } else if (row.grade_impact === 'advisory') {
-    status = 'advisory'
-  } else if (row.status === 'passed') {
-    status = 'pass'
-  } else {
-    status = 'fail'
-  }
-  return {
-    id: row.id,
-    check_name: checkName,
-    status,
-    detail: raw.detail ?? null,
-  }
-}
-
-function PostureCard({
-  data,
-  onGenerate,
-  pending,
-  feedback,
-  activeWorkspaceIds,
-}: {
-  data: DashboardPayload
-  onGenerate: (
-    checkName: PostureFixableCheck,
-    params?: PostureFixParams,
-  ) => void
-  pending: boolean
-  feedback: PostureFeedback | null
-  activeWorkspaceIds: Partial<Record<PostureFixableCheck, string>>
-}) {
-  const {
-    posture_pass_count,
-    posture_total_count,
-    criteria_snapshot: criteria,
-    posture_checks,
-  } = data
-
-  // Project posture findings (unified ``finding`` rows per ADR-0027) into
-  // the row-render shape this card consumes. Falls back to a synthesized
-  // minimal list for pre-2026-04 assessments whose payloads don't include
-  // posture rows.
-  const checks: PostureCheckView[] = useMemo(() => {
-    if (posture_checks && posture_checks.length > 0) {
-      return posture_checks.map(toPostureCheckView)
-    }
-    const names: PostureCheckName[] = [
-      'security_md',
-      'dependabot_config',
-      'branch_protection',
-      'no_force_pushes',
-      'no_secrets_in_code',
-      'lockfile_present',
-      'signed_commits',
-    ]
-    return names.map((n) => ({
-      id: `synth-${n}`,
-      check_name: n,
-      status:
-        n === 'security_md' && criteria.security_md_present
-          ? 'pass'
-          : n === 'dependabot_config' && criteria.dependabot_present
-            ? 'pass'
-            : 'unknown',
-      detail: null,
-    }))
-  }, [posture_checks, criteria])
-
-  const sorted = useMemo(
-    () =>
-      [...checks].sort(
-        (a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status],
-      ),
-    [checks],
-  )
-
-  const passCount = posture_pass_count ?? 0
-  const totalCount = posture_total_count ?? 0
-  const pct = totalCount > 0 ? Math.round((passCount / totalCount) * 100) : 0
-
-  return (
-    <section className="flex flex-col gap-4 rounded-3xl bg-surface-container-low p-6">
-      <header className="flex flex-col gap-2">
-        <div
-          data-testid="posture-progress-rail"
-          aria-hidden
-          className="h-1.5 w-40 rounded-full bg-surface-container-high overflow-hidden"
-        >
-          <div
-            className="h-full bg-tertiary transition-all"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-        <div>
-          <h3 className="font-headline text-lg font-bold text-on-surface">
-            Repo posture
-          </h3>
-          <p className="text-sm text-on-surface-variant">
-            {passCount} of {totalCount} checks pass · {pct}% complete · click
-            any item for step-by-step guidance
-          </p>
-        </div>
-      </header>
-
-      {feedback && feedback.kind === 'error' && (
-        <InlineErrorCallout
-          title={`Couldn't open the PR for ${feedback.checkName === 'security_md' ? 'SECURITY.md' : 'Dependabot'}`}
-          body={<>{feedback.message}</>}
-          action={
-            feedback.message.toLowerCase().includes('github integration')
-              ? { label: 'Open Settings', href: '/settings' }
-              : undefined
-          }
-        />
-      )}
-      {feedback && feedback.kind === 'success' && (
-        <div
-          role="status"
-          className="rounded-lg bg-tertiary-container/30 px-4 py-3 flex items-start gap-3"
-        >
-          <span
-            className="material-symbols-outlined text-tertiary flex-shrink-0"
-            aria-hidden
-          >
-            check_circle
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-on-surface">
-              Workspace spawned
-            </p>
-            <p className="text-sm text-on-surface-variant mt-1 leading-relaxed">
-              {feedback.message}
-            </p>
-          </div>
-        </div>
-      )}
-
-      <ul role="list" className="flex flex-col gap-2">
-        {sorted.map((check) => (
-          <PostureCheckRow
-            key={check.check_name}
-            check={check}
-            onGenerate={onGenerate}
-            pending={pending}
-            activeWorkspaceId={
-              isFixable(check.check_name)
-                ? activeWorkspaceIds[check.check_name]
-                : undefined
-            }
-          />
-        ))}
-      </ul>
-    </section>
-  )
-}
-
-function PostureCheckRow({
-  check,
-  onGenerate,
-  pending,
-  activeWorkspaceId,
-}: {
-  check: PostureCheckView
-  onGenerate: (name: PostureFixableCheck, params?: PostureFixParams) => void
-  pending: boolean
-  activeWorkspaceId?: string
-}) {
-  const meta = POSTURE_META[check.check_name] ?? FALLBACK_POSTURE_META
-  const [open, setOpen] = useState(check.status === 'fail')
-  // security_md is the only auto-fix that benefits from a user-supplied
-  // parameter today (the contact email on the generated SECURITY.md).
-  // Kept local to the row so it doesn't pollute the card-level state.
-  const [contactEmail, setContactEmail] = useState('')
-
-  const tone = statusTone(check.status)
-  const label =
-    check.status === 'pass' || check.status === 'advisory'
-      ? meta.label
-      : meta.failLabel
-
-  return (
-    <li
-      className={`rounded-2xl ${tone.bg} transition-colors`}
-      data-testid={`posture-row-${check.check_name}`}
-    >
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left hover:bg-surface-container"
-      >
-        <span
-          className={`material-symbols-outlined text-xl ${tone.iconColor}`}
-          aria-hidden
-        >
-          {tone.icon}
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-on-surface">{label}</p>
-          <p className="text-xs text-on-surface-variant mt-0.5">
-            {statusCopy(check.status)}
-            {check.status === 'unknown' &&
-              ' · likely a missing PAT scope, check Settings.'}
-          </p>
-        </div>
-        <span
-          className={`material-symbols-outlined text-on-surface-variant transition-transform ${
-            open ? 'rotate-180' : ''
-          }`}
-          aria-hidden
-        >
-          expand_more
-        </span>
-      </button>
-
-      {open && (
-        <div className="px-4 pb-4 pt-1 text-sm text-on-surface-variant">
-          <p className="mb-3">{meta.description}</p>
-
-          {check.status !== 'pass' && (
-            <>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
-                How to fix
-              </p>
-              <ol className="ml-4 list-decimal space-y-1.5">
-                {meta.steps.map((s, i) => (
-                  <li key={i} className="text-sm text-on-surface">
-                    {s}
-                  </li>
-                ))}
-              </ol>
-            </>
-          )}
-
-          {meta.docHref && (
-            <a
-              href={meta.docHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
-            >
-              <span className="material-symbols-outlined text-sm" aria-hidden>
-                open_in_new
-              </span>
-              {meta.docLabel ?? 'Read the docs'}
-            </a>
-          )}
-
-          {check.status !== 'pass' && isFixable(check.check_name) && (
-            <div className="mt-4 flex flex-col gap-3 border-t border-outline-variant/30 pt-3">
-              {check.check_name === 'security_md' && !activeWorkspaceId && (
-                <label
-                  className="flex flex-col gap-1 text-xs font-medium text-on-surface-variant"
-                  htmlFor={`contact-email-${check.check_name}`}
-                >
-                  Contact email for vulnerability reports
-                  <span className="font-normal text-on-surface-variant/80">
-                    Optional. If you leave this blank the generated
-                    SECURITY.md ships with a clearly-labelled placeholder
-                    you can edit before merging.
-                  </span>
-                  <input
-                    id={`contact-email-${check.check_name}`}
-                    type="email"
-                    inputMode="email"
-                    placeholder="security@your-project.org"
-                    value={contactEmail}
-                    onChange={(e) => setContactEmail(e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    className="mt-1 w-full rounded-lg bg-surface-container-lowest px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/60 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                  />
-                </label>
-              )}
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    if (!isFixable(check.check_name)) return
-                    const params: PostureFixParams = {}
-                    if (check.check_name === 'security_md' && contactEmail.trim()) {
-                      params.contact_email = contactEmail.trim()
-                    }
-                    onGenerate(
-                      check.check_name,
-                      Object.keys(params).length > 0 ? params : undefined,
-                    )
-                  }}
-                  disabled={pending || Boolean(activeWorkspaceId)}
-                  className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-on-primary shadow-sm hover:bg-primary/90 disabled:opacity-50"
-                >
-                  <span className="material-symbols-outlined text-sm" aria-hidden>
-                    play_arrow
-                  </span>
-                  Let OpenSec open a PR
-                </button>
-                <span className="text-xs text-on-surface-variant">
-                  Opens a draft PR you review before merging.
-                </span>
-              </div>
-              {activeWorkspaceId && (
-                <PostureFixStatusStrip workspaceId={activeWorkspaceId} />
-              )}
-            </div>
-          )}
-
-          {check.detail && Object.keys(check.detail).length > 0 && (
-            <details className="mt-3">
-              <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
-                Check detail (JSON)
-              </summary>
-              <pre className="mt-2 max-h-48 overflow-auto rounded-lg bg-surface-container p-3 text-xs text-on-surface">
-                {JSON.stringify(check.detail, null, 2)}
-              </pre>
-            </details>
-          )}
-        </div>
-      )}
-    </li>
-  )
-}
-
-function PostureFixStatusStrip({ workspaceId }: { workspaceId: string }) {
-  const { data, isLoading } = usePostureFixStatus(workspaceId)
-  const status = data?.status ?? (isLoading ? 'queued' : 'queued')
-
-  let icon = 'hourglass_top'
-  let tone = 'text-on-surface-variant'
-  let label = 'Starting the generator agent…'
-
-  if (status === 'queued') {
-    label = 'Agent queued — spinning up OpenCode…'
-  } else if (status === 'running') {
-    label = 'Agent running — cloning, writing, committing, pushing…'
-  } else if (status === 'pr_created') {
-    icon = 'check_circle'
-    tone = 'text-tertiary'
-    label = 'Draft PR opened and ready for your review.'
-  } else if (status === 'already_present') {
-    icon = 'info'
-    tone = 'text-on-surface-variant'
-    label = 'No change needed — the file was already present and complete.'
-  } else if (status === 'failed') {
-    icon = 'error'
-    tone = 'text-error'
-    label = data?.error || 'The agent failed before opening a PR.'
-  }
-
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      className="flex items-start gap-2 rounded-lg bg-surface-container-lowest px-3 py-2"
-    >
-      <span
-        className={`material-symbols-outlined text-base ${tone}`}
-        aria-hidden
-      >
-        {icon}
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="text-xs font-medium text-on-surface">{label}</p>
-        {data?.pr_url && (
-          <a
-            href={data.pr_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
-          >
-            <span className="material-symbols-outlined text-xs" aria-hidden>
-              open_in_new
-            </span>
-            Review {data.pr_url.replace('https://github.com/', '')}
-          </a>
-        )}
-        <p className="mt-0.5 text-[10px] text-on-surface-variant/80">
-          workspace {workspaceId}
-        </p>
-      </div>
-    </div>
-  )
-}
-
-function statusTone(status: PostureCheckStatus): {
-  icon: string
-  iconColor: string
-  bg: string
-} {
-  switch (status) {
-    case 'pass':
-      return {
-        icon: 'check_circle',
-        iconColor: 'text-tertiary',
-        bg: 'bg-surface-container',
-      }
-    case 'advisory':
-      return {
-        icon: 'info',
-        iconColor: 'text-on-surface-variant',
-        bg: 'bg-surface-container',
-      }
-    case 'unknown':
-      return {
-        icon: 'help',
-        iconColor: 'text-on-surface-variant',
-        bg: 'bg-surface-container',
-      }
-    case 'fail':
-    default:
-      return {
-        icon: 'error',
-        iconColor: 'text-primary',
-        bg: 'bg-primary-container/25',
-      }
-  }
-}
-
-function statusCopy(status: PostureCheckStatus): string {
-  switch (status) {
-    case 'pass':
-      return 'Passing'
-    case 'advisory':
-      return 'Recommended'
-    case 'unknown':
-      return 'Unable to verify'
-    case 'fail':
-    default:
-      return 'Needs attention'
-  }
-}
-
-function GradeExplainer({
-  grade,
-  findingsCount,
-  posturePassing,
-  postureTotal,
-  onStartFixing,
-}: {
-  grade: DashboardPayload['grade']
-  findingsCount: number
-  posturePassing: number
-  postureTotal: number
-  onStartFixing: () => void
-}) {
-  const postureFails = Math.max(0, postureTotal - posturePassing)
-  const parts: string[] = []
-  if (findingsCount > 0) {
-    parts.push(
-      `${findingsCount} ${findingsCount === 1 ? 'vulnerability' : 'vulnerabilities'}`,
-    )
-  }
-  if (postureFails > 0) {
-    parts.push(
-      `${postureFails} of ${postureTotal} posture check${postureTotal === 1 ? '' : 's'} failing`,
-    )
-  }
-  const summary = parts.join(' and ')
-
-  return (
-    <section
-      data-testid="grade-explainer"
-      className="mb-6 rounded-3xl bg-surface-container-low p-6"
-    >
-      <div className="flex items-start gap-4">
-        <span
-          className="material-symbols-outlined text-tertiary mt-0.5"
-          aria-hidden
-        >
-          info
-        </span>
-        <div className="flex-1">
-          <h3 className="font-headline text-lg font-bold text-on-surface">
-            {grade === 'F'
-              ? 'Your project starts at grade F'
-              : `Your project is at grade ${grade}`}
-          </h3>
-          <p className="mt-1 text-sm text-on-surface-variant">
-            {summary
-              ? `We found ${summary}. Each fix moves the grade up — start anywhere below.`
-              : 'Keep fixing findings to raise the grade.'}
-          </p>
-          {findingsCount > 0 && (
-            <button
-              type="button"
-              onClick={onStartFixing}
-              className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-on-primary shadow-sm hover:bg-primary/90"
-            >
-              <span className="material-symbols-outlined text-sm" aria-hidden>
-                play_arrow
-              </span>
-              Start fixing
-            </button>
-          )}
-        </div>
-      </div>
-    </section>
-  )
-}
-
-function buildHeroCopy(
-  grade: DashboardPayload['grade'],
-  remaining: number,
-): { headline: string; body: string } {
+function heroCopyFromState(data: DashboardPayload): string {
+  const grade = data.grade
   if (grade == null) {
-    return {
-      headline: 'Working on it',
-      body: 'We are still assessing your repository.',
+    return 'Run an assessment to earn your first grade. The Issues page surfaces every fix as a one-click Start.'
+  }
+  const open = data.open_issues
+  const needs = data.needs_you
+  const parts: string[] = []
+  if (open && typeof open.delta_pct_30d === 'number' && open.delta_pct_30d !== 0) {
+    const direction = open.delta_pct_30d < 0 ? 'down' : 'up'
+    parts.push(
+      `Open issues are ${direction} ${Math.abs(open.delta_pct_30d)}% over the last 30 days.`,
+    )
+  } else if (open) {
+    parts.push(
+      `${open.current ?? 0} ${open.current === 1 ? 'issue' : 'issues'} open right now.`,
+    )
+  }
+  if (needs) {
+    const waiting = (needs.plans_waiting ?? 0) + (needs.prs_ready ?? 0)
+    if (waiting > 0) {
+      parts.push(
+        `${waiting} ${waiting === 1 ? 'item is' : 'items are'} waiting on you.`,
+      )
     }
   }
-  if (grade === 'A') {
-    return {
-      headline: 'Security completion reached',
-      body: 'All five criteria are met. Keep it up.',
-    }
-  }
-  if (grade === 'F' || grade === 'D') {
-    return {
-      headline: 'Work to do',
-      body: `Start with any failing check below. Fix ${remaining} item${remaining === 1 ? '' : 's'} to reach security completion.`,
-    }
-  }
-  if (remaining === 0) {
-    return {
-      headline: 'Almost there',
-      body: 'Criteria look good. Address any remaining findings to earn grade A.',
-    }
-  }
-  return {
-    headline: 'Nearly there',
-    body: `Fix ${remaining} more ${remaining === 1 ? 'item' : 'items'} to reach security completion.`,
-  }
+  return parts.join(' ')
+}
+
+function openIssuesFootnote(data: DashboardPayload): string | undefined {
+  const counts = data.vulnerabilities?.by_severity
+  if (!counts) return undefined
+  const segments: string[] = []
+  const order: Array<['critical' | 'high' | 'medium' | 'low', string]> = [
+    ['critical', 'Critical'],
+    ['high', 'High'],
+    ['medium', 'Medium'],
+    ['low', 'Low'],
+  ]
+  order.forEach(([key, label]) => {
+    const v = counts[key] ?? 0
+    if (v > 0) segments.push(`${v} ${label}`)
+  })
+  return segments.length > 0 ? segments.join(' · ') : undefined
+}
+
+function formatDurationShort(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined) return '—'
+  const totalMinutes = Math.round(seconds / 60)
+  if (totalMinutes < 60) return `${totalMinutes}m`
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  if (hours < 24) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`
+  const days = Math.floor(hours / 24)
+  const remHours = hours % 24
+  return remHours > 0 ? `${days}d ${remHours}h` : `${days}d`
 }
 
 function repoNameFromUrl(url: string | null | undefined): string {
