@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5-alpha] - 2026-05-04
+
+PRD-0006 lands end to end: the Issues page, dashboard, and sidenav are
+rebuilt against the v2 design handoff, the standalone Workspace page is
+gone, and onboarding gains a real GitHub repo picker with scope
+verification. The rest of the release is dogfooding-driven fixes —
+posture findings render on the Workspace page, the executor + planner
+no longer wedge on the failure modes from PR #111, and the Settings
+search ranks providers above models.
+
+### Added
+
+- **Issues page Phase 2 (PR #129).** Stage-aware side panel with refine
+  and reject actions, sub-grouping, Done-collapse, and the standalone
+  Workspace route retired in favor of the panel. `finding.exception_reason`
+  + reject endpoint on the API; `user_note` extension on the
+  remediation planner.
+- **Dashboard refresh Phase 2B (PR #130).** Hero grade, severity metric
+  cards, history chart. Dashboard payload extended with the phase-2
+  fields. `PostureCard` extracted as its own component.
+- **Sidenav redesign (PR #134).** 224px named rail with logo block,
+  workspace switcher, Issues count badge, and a labeled Settings
+  footer per Claude Design's `IPSideNav`. New `useOpenIssuesCount`
+  hook backs the sidenav badge.
+- **Onboarding repo picker + scope verification (PR #133).** Real
+  GitHub repo picker, provider probe before the AI-config step
+  advances, and a workspace repo snapshot stored at install time so
+  the rest of the app can show `owner/repo` (workspace switcher
+  included).
+
+### Fixed
+
+- **Settings search ranks providers above models (PR #135).** Typing
+  a provider name no longer buries the provider row underneath every
+  model that mentions it.
+- **Sidebar pinned to viewport (PR #136).** The Settings entry was
+  scrolling out of view on short viewports; the rail is now fixed so
+  the footer stays reachable.
+- **Workspace renders posture details (PR #112).** Posture findings
+  used to land on a blank Workspace page because the renderer only
+  knew about CVE-shaped metadata. Now both shapes render.
+- **Executor + planner harden against PR-#111 failure modes
+  (PR #113).** Closes the regressions surfaced by the PR-111 incident
+  so the agent loop doesn't wedge on the same shapes again.
+- **Stale estimate cleared in change handlers, not in `useEffect`
+  (PR #127).** The estimate field could keep showing a stale value
+  after the user edited the dependent inputs; the clear now fires
+  synchronously from the handler.
+
+### Changed
+
+- **README slimmed to what / quickstart / Claude Code (PR #126).**
+  Removes the long architecture tour from the front page; the deep
+  docs still live under `docs/`.
+- **"Secured by OpenSec" README badge brand-colored (PR #128).**
+  Hoisted onto its own centered line and recolored to the indigo
+  primary.
+
+### Chores
+
+- `actions/attest-sbom` 2.4.0 → 4.1.0 (PR #117).
+- `astral-sh/setup-uv` 3.2.4 → 8.1.0 (PR #116).
+- `actions/checkout` 4.3.1 → 6.0.2 (PR #115).
+
 ## [0.1.4-alpha] - 2026-04-30
 
 Dogfooding `/secure-repo` against the OpenSec repo itself surfaced a
