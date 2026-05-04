@@ -63,31 +63,54 @@ export default function ProviderSettings() {
     return null
   }
 
-  // Search results — filter providers and models by query, auto-expanded
+  // Search results — provider matches always rank above model-only matches.
+  // Without this, gateway providers (OpenRouter, etc.) whose model IDs contain
+  // "anthropic" or "openai" can crowd out the actual canonical provider.
   const searchResults = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
     if (!q) return []
 
-    const results: { provider: ProviderInfo; matchingModels: [string, ProviderInfo['models'][string]][] }[] = []
+    type Hit = {
+      provider: ProviderInfo
+      matchingModels: [string, ProviderInfo['models'][string]][]
+      providerMatch: boolean
+    }
+    const tierPrefix: Hit[] = []
+    const tierSubstring: Hit[] = []
+    const tierModelOnly: Hit[] = []
 
     for (const provider of providerList) {
-      const providerMatch = provider.name.toLowerCase().includes(q) || provider.id.toLowerCase().includes(q)
+      const idLower = provider.id.toLowerCase()
+      const nameLower = provider.name.toLowerCase()
+      const isPrefixMatch = idLower.startsWith(q) || nameLower.startsWith(q)
+      const isSubstringMatch = !isPrefixMatch && (idLower.includes(q) || nameLower.includes(q))
+      const providerMatch = isPrefixMatch || isSubstringMatch
+
       const matchingModels = Object.entries(provider.models).filter(
         ([id, model]) =>
           id.toLowerCase().includes(q) ||
-          (model.name && model.name.toLowerCase().includes(q))
+          (model.name && model.name.toLowerCase().includes(q)),
       )
 
-      if (providerMatch || matchingModels.length > 0) {
-        results.push({
+      if (providerMatch) {
+        const hit: Hit = {
           provider,
-          matchingModels: providerMatch ? Object.entries(provider.models) : matchingModels,
-        })
+          matchingModels: Object.entries(provider.models),
+          providerMatch: true,
+        }
+        if (isPrefixMatch) tierPrefix.push(hit)
+        else tierSubstring.push(hit)
+      } else if (matchingModels.length > 0) {
+        tierModelOnly.push({ provider, matchingModels, providerMatch: false })
       }
-
-      if (results.length >= 8) break
     }
-    return results
+
+    const byName = (a: Hit, b: Hit) => a.provider.name.localeCompare(b.provider.name)
+    tierPrefix.sort(byName)
+    tierSubstring.sort(byName)
+    tierModelOnly.sort(byName)
+
+    return [...tierPrefix, ...tierSubstring, ...tierModelOnly.slice(0, 8)]
   }, [searchQuery, providerList])
 
   const handleSelectModel = (fullId: string) => {
@@ -360,7 +383,7 @@ export default function ProviderSettings() {
                   No providers or models match "{searchQuery}"
                 </p>
               ) : (
-                searchResults.map(({ provider, matchingModels }) => {
+                searchResults.map(({ provider, matchingModels, providerMatch }) => {
                   const needsKey = provider.env.length > 0
                   const auth = getAuthLabel(provider.id)
                   const isCurrentProvider = provider.id === currentProviderId
@@ -385,6 +408,11 @@ export default function ProviderSettings() {
                         )}
                         <span className="text-sm font-semibold text-on-surface flex-1">
                           {provider.name}
+                          {providerMatch && !isCurrentProvider && (
+                            <span className="ml-2 text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant bg-surface-container-highest px-1.5 py-0.5 rounded">
+                              provider
+                            </span>
+                          )}
                           {isCurrentProvider && (
                             <span className="ml-2 text-[10px] font-semibold uppercase tracking-wider text-primary bg-primary/10 px-1.5 py-0.5 rounded">
                               active
