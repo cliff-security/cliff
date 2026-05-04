@@ -13,10 +13,9 @@
  *   - todo                               → "Start" primary button
  *   - any in-flight or done stage        → chevron-right view-only icon
  *
- * Click anywhere on the row (or on the action) calls `onActivate`. In Phase 1
- * the parent IssuesPage wires this to the existing Solve flow:
- * `createWorkspace(finding) → navigate(/workspace/:id)`. Phase 2 swaps in the
- * side-panel.
+ * Click anywhere on the row (or on the action) calls `onActivate`. The parent
+ * IssuesPage wires this to the side-panel URL state (PRD-0006 Phase 2):
+ * `createWorkspace(finding) → setSearchParams({ open: <findingId> })`.
  */
 import { memo, useState, type KeyboardEvent, type ReactElement } from 'react'
 import type { Finding, IssueStage } from '../../api/client'

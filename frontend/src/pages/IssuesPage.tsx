@@ -1,24 +1,21 @@
 /**
- * IssuesPage — Phase 1 (PRD-0006).
+ * IssuesPage — PRD-0006 Phase 2 (IMPL-0007 PR-A).
  *
- * Replaces FindingsPage. Four sections in this order:
+ * Phase 2 ships:
+ *   1. Side panel (F1+F3+F4+F5+F6) opened via ``?open=<findingId>`` URL state
+ *      — replaces the standalone /workspace/:id depth surface.
+ *   2. Plans-waiting / PRs-ready sub-headers inside Review (F7) — only when
+ *      both subgroups are non-empty.
+ *   3. Done collapsed by default with single-word verdict chips and a
+ *      ``[`` / ``]`` keyboard toggle (F8). Collapse state persists per
+ *      session.
+ *   4. MigrationBanner removed (F10) — Phase 2 is the redesign it announced.
  *
- *   1. Needs your review — pinned at the top, primary-container framing.
- *   2. In progress       — collapsed by default with a stage-breakdown
- *                          summary; persists in sessionStorage.
- *   3. Todo              — flat, primary "Start" action per row.
- *   4. Done              — flat, dim, max 4 visible (rest behind "Show all").
- *
- * Click anywhere on a row (or on its action button) navigates to the existing
- * Workspace page — Phase 1 keeps `/workspace/:id` reachable. The side panel
- * lands in Phase 2.
- *
- * Reuses `useFindings({ scope: 'current' })` (no new query), the existing
- * Solve flow (createWorkspace + repo guard), and `useDashboard()` for the
- * grade letter shown in the IssuesHeader caption.
+ * Phase 1's pinned Review section, In progress collapsed-by-default, sidenav
+ * trim, and ``derived`` server contract all carry over unchanged.
  */
-import { useCallback, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router'
 import type { Finding } from '../api/client'
 import { api } from '../api/client'
 import { useDashboard } from '../api/dashboard'
@@ -29,11 +26,12 @@ import ErrorState from '../components/ErrorState'
 import ImportDialog from '../components/ImportDialog'
 import { IssueCountBadge } from '../components/issues/IssueCountBadge'
 import { IssueRow } from '../components/issues/IssueRow'
+import { IssueSidePanel } from '../components/issues/IssueSidePanel'
 import { IssuesHeader, type SeverityFilter } from '../components/issues/IssuesHeader'
-import { MigrationBanner } from '../components/issues/MigrationBanner'
 
 const IN_PROGRESS_OPEN_KEY = 'opensec.issues.inProgressOpen'
-const DONE_VISIBLE_LIMIT = 4
+const DONE_OPEN_KEY = 'opensec.issues.doneOpen'
+const OPEN_PARAM = 'open'
 
 export default function IssuesPage() {
   return (
@@ -48,14 +46,20 @@ export default function IssuesPage() {
 
 function IssuesPageContent() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const openId = searchParams.get(OPEN_PARAM)
+
   const [solving, setSolving] = useState<string | null>(null)
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('all')
   const [importOpen, setImportOpen] = useState(false)
   const [showRepoGuard, setShowRepoGuard] = useState(false)
   const [pendingFinding, setPendingFinding] = useState<Finding | null>(null)
-  const [doneExpanded, setDoneExpanded] = useState(false)
   const [inProgressOpen, setInProgressOpen] = useState(
     () => sessionStorage.getItem(IN_PROGRESS_OPEN_KEY) === '1',
+  )
+  // Done is collapsed by default in Phase 2 (matches In progress).
+  const [doneOpen, setDoneOpen] = useState(
+    () => sessionStorage.getItem(DONE_OPEN_KEY) === '1',
   )
 
   const { data: integrations } = useIntegrations()
@@ -70,12 +74,6 @@ function IssuesPageContent() {
   const { data: dashboard } = useDashboard()
   const grade = dashboard?.grade ?? null
 
-  // ``has_workspace: false`` is intentionally NOT passed (unlike the legacy
-  // FindingsPage). Issues page needs findings WITH workspaces too — they're
-  // what populate Review, In progress, and Done. ``scope: 'current'`` keeps
-  // posture rows out of the response (Phase 1 is vulnerability-only).
-  // ``refetchIntervalMs: 5000`` polls every 5s so rows visibly transition
-  // between sections as agents progress — no manual refresh needed.
   const {
     data: findings,
     isLoading,
@@ -116,32 +114,61 @@ function IssuesPageContent() {
     }
   }, [findings, severityFilter])
 
-  const startWorkspace = useCallback(
+  // F7 — split Review into Plans-waiting + PRs-ready buckets when both are
+  // non-empty. Single-bucket Review renders flat (no sub-headers) so the
+  // typical case stays uncluttered.
+  const reviewSplit = useMemo(() => {
+    const plans: Finding[] = []
+    const prs: Finding[] = []
+    for (const f of sections.review) {
+      const stage = f.derived?.stage
+      if (stage === 'plan_ready') plans.push(f)
+      else if (stage === 'pr_ready' || stage === 'pr_awaiting_val') prs.push(f)
+    }
+    return { plans, prs, useSubheaders: plans.length > 0 && prs.length > 0 }
+  }, [sections.review])
+
+  const openPanel = useCallback(
+    (findingId: string) => {
+      const next = new URLSearchParams(searchParams)
+      next.set(OPEN_PARAM, findingId)
+      setSearchParams(next, { replace: false })
+    },
+    [searchParams, setSearchParams],
+  )
+
+  const closePanel = useCallback(() => {
+    const next = new URLSearchParams(searchParams)
+    next.delete(OPEN_PARAM)
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
+
+  const startWorkspaceAndOpen = useCallback(
     async (finding: Finding) => {
-      // Existing workspace? Just navigate.
-      const existing = finding.derived?.workspace_id
-      if (existing) {
-        navigate(`/workspace/${existing}`)
+      // Workspace already exists? Just open the panel — no backend round-trip.
+      if (finding.derived?.workspace_id) {
+        openPanel(finding.id)
         return
       }
       setSolving(finding.id)
       try {
-        const workspace = await api.createWorkspace({ finding_id: finding.id })
-        navigate(`/workspace/${workspace.id}`)
+        await api.createWorkspace({ finding_id: finding.id })
+        openPanel(finding.id)
       } catch (err) {
         console.error('Failed to create workspace:', err)
+      } finally {
         setSolving(null)
       }
     },
-    [navigate],
+    [openPanel],
   )
 
   const handleActivate = useCallback(
     (finding: Finding) => {
-      // If a workspace already exists, skip the GitHub-integration guard —
-      // the agent has run before so the user has already moved past it.
+      // If a workspace already exists, open the panel directly — the user
+      // already cleared the GitHub-integration guard the first time.
       if (finding.derived?.workspace_id) {
-        navigate(`/workspace/${finding.derived.workspace_id}`)
+        openPanel(finding.id)
         return
       }
       if (!repoConfigured) {
@@ -149,9 +176,9 @@ function IssuesPageContent() {
         setShowRepoGuard(true)
         return
       }
-      void startWorkspace(finding)
+      void startWorkspaceAndOpen(finding)
     },
-    [navigate, repoConfigured, startWorkspace],
+    [openPanel, repoConfigured, startWorkspaceAndOpen],
   )
 
   const toggleInProgress = useCallback(() => {
@@ -161,6 +188,40 @@ function IssuesPageContent() {
       return next
     })
   }, [])
+
+  const toggleDone = useCallback(() => {
+    setDoneOpen((prev) => {
+      const next = !prev
+      sessionStorage.setItem(DONE_OPEN_KEY, next ? '1' : '0')
+      return next
+    })
+  }, [])
+
+  // F8 — global ``[`` / ``]`` keyboard shortcut for the Done section. Skips
+  // any keystroke originating from a text input so the user can still type.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const target = e.target as HTMLElement | null
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return
+      }
+      if (e.key === '[' && doneOpen) {
+        e.preventDefault()
+        toggleDone()
+      } else if (e.key === ']' && !doneOpen) {
+        e.preventDefault()
+        toggleDone()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [doneOpen, toggleDone])
 
   if (isError) {
     return (
@@ -180,9 +241,15 @@ function IssuesPageContent() {
     sections.inProgress.length + sections.todo.length + sections.done.length > 0
   const allRepoEmpty = !isLoading && allFindings.length === 0
 
+  // Resolve the side-panel target. If the URL points at a finding the list
+  // doesn't contain (e.g. a stale bookmark or a finding that's been deleted)
+  // we silently ignore the param rather than rendering an empty panel.
+  const openFinding = openId
+    ? (allFindings.find((f) => f.id === openId) ?? null)
+    : null
+
   return (
     <div className="bg-background min-h-screen">
-      <MigrationBanner />
       <IssuesHeader
         findings={allFindings}
         grade={grade}
@@ -246,11 +313,34 @@ function IssuesPageContent() {
                   Approve, refine, or reject before the agent ships.
                 </span>
               </div>
-              <div className="space-y-px">
-                {sections.review.map((f) => (
-                  <IssueRow key={f.id} finding={f} onActivate={handleActivate} />
-                ))}
-              </div>
+              {reviewSplit.useSubheaders ? (
+                <>
+                  <ReviewSubHeader
+                    label="Plans waiting"
+                    count={reviewSplit.plans.length}
+                  />
+                  <div className="space-y-px">
+                    {reviewSplit.plans.map((f) => (
+                      <IssueRow key={f.id} finding={f} onActivate={handleActivate} />
+                    ))}
+                  </div>
+                  <ReviewSubHeader
+                    label="PRs ready"
+                    count={reviewSplit.prs.length}
+                  />
+                  <div className="space-y-px">
+                    {reviewSplit.prs.map((f) => (
+                      <IssueRow key={f.id} finding={f} onActivate={handleActivate} />
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-px">
+                  {sections.review.map((f) => (
+                    <IssueRow key={f.id} finding={f} onActivate={handleActivate} />
+                  ))}
+                </div>
+              )}
             </section>
           ) : (
             showEmptyReviewCard && (
@@ -270,10 +360,6 @@ function IssuesPageContent() {
           )}
 
           {/* ── IN PROGRESS ─────────────────────────────────────────── */}
-          {/* Render the In progress section unless we're already showing the
-              "Review is clear" empty card AND there's nothing in progress to
-              report — keeps the page from displaying two consecutive
-              empty-state messages. */}
           {(sections.inProgress.length > 0 || !showEmptyReviewCard) && (
             <section aria-label="In progress section" className="mb-8">
               <button
@@ -375,9 +461,21 @@ function IssuesPageContent() {
             )}
           </section>
 
-          {/* ── DONE ────────────────────────────────────────────────── */}
+          {/* ── DONE — collapsed by default in Phase 2 ──────────────── */}
           <section aria-label="Done section">
-            <div className="flex items-center gap-3 px-2 mb-2">
+            <button
+              type="button"
+              onClick={toggleDone}
+              aria-expanded={doneOpen}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors bg-surface-container-lowest border border-outline-variant hover:bg-surface-container"
+            >
+              <span
+                className="material-symbols-outlined text-on-surface-variant"
+                style={{ fontSize: 18 }}
+                aria-hidden="true"
+              >
+                {doneOpen ? 'expand_more' : 'chevron_right'}
+              </span>
               <span
                 className="material-symbols-outlined text-on-surface-variant"
                 style={{ fontSize: 16 }}
@@ -389,39 +487,34 @@ function IssuesPageContent() {
                 Done
               </h2>
               <IssueCountBadge count={sections.done.length} tone="muted" />
-              <span className="text-[12px] text-on-surface-variant ml-2">
-                Closed in the last 7 days.
-              </span>
-              {sections.done.length > DONE_VISIBLE_LIMIT && (
-                <button
-                  type="button"
-                  onClick={() => setDoneExpanded((p) => !p)}
-                  className="ml-auto text-[12px] text-primary font-semibold hover:underline"
+              <span className="ml-auto inline-flex items-center gap-2 text-[11.5px] text-on-surface-variant font-medium">
+                <span>{doneOpen ? 'Hide' : 'Closed in the last 7 days'}</span>
+                <kbd
+                  aria-hidden
+                  className="px-1 rounded font-mono text-[10px]"
+                  style={{ background: 'var(--surface-container)' }}
                 >
-                  {doneExpanded
-                    ? 'Show less'
-                    : `Show all (${sections.done.length})`}
-                </button>
-              )}
-            </div>
-            <div className="space-y-px">
-              {(doneExpanded
-                ? sections.done
-                : sections.done.slice(0, DONE_VISIBLE_LIMIT)
-              ).map((f) => (
-                <IssueRow
-                  key={f.id}
-                  finding={f}
-                  onActivate={handleActivate}
-                  dim
-                />
-              ))}
-              {sections.done.length === 0 && (
-                <p className="text-[12px] text-on-surface-variant px-3 py-2">
-                  Nothing closed yet.
-                </p>
-              )}
-            </div>
+                  {doneOpen ? '[' : ']'}
+                </kbd>
+              </span>
+            </button>
+            {doneOpen && (
+              <div className="space-y-px mt-3">
+                {sections.done.map((f) => (
+                  <IssueRow
+                    key={f.id}
+                    finding={f}
+                    onActivate={handleActivate}
+                    dim
+                  />
+                ))}
+                {sections.done.length === 0 && (
+                  <p className="text-[12px] text-on-surface-variant px-3 py-2">
+                    Nothing closed yet.
+                  </p>
+                )}
+              </div>
+            )}
           </section>
 
           {totalIssues === 0 && (
@@ -432,7 +525,10 @@ function IssuesPageContent() {
         </div>
       )}
 
-      {/* Repo guard dialog (carried over from FindingsPage). */}
+      {/* Side panel — F1+F2+F3+F4+F5+F6. */}
+      {openFinding && <IssueSidePanel finding={openFinding} onClose={closePanel} />}
+
+      {/* Repo guard dialog (carried over from Phase 1). */}
       {showRepoGuard && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px]">
           <div className="bg-surface-container-lowest rounded-xl shadow-xl w-full max-w-md mx-4 p-8">
@@ -464,7 +560,7 @@ function IssuesPageContent() {
                 type="button"
                 onClick={() => {
                   setShowRepoGuard(false)
-                  if (pendingFinding) void startWorkspace(pendingFinding)
+                  if (pendingFinding) void startWorkspaceAndOpen(pendingFinding)
                   setPendingFinding(null)
                 }}
                 className="w-full text-on-surface-variant py-2.5 rounded-lg text-sm font-medium hover:bg-surface-container transition-colors"
@@ -475,6 +571,17 @@ function IssuesPageContent() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function ReviewSubHeader({ label, count }: { label: string; count: number }) {
+  return (
+    <div className="flex items-center gap-2 px-4 mt-3 mb-1.5">
+      <h3 className="font-headline font-bold text-[10.5px] uppercase tracking-wider text-on-surface-variant">
+        {label}
+      </h3>
+      <IssueCountBadge count={count} tone="muted" />
     </div>
   )
 }
