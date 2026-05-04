@@ -1,0 +1,885 @@
+/**
+ * IssueSidePanel — PRD-0006 Phase 2 / IMPL-0007 §F1+F3+F4+F5+F6.
+ *
+ * 480px right-edge drawer that replaces the standalone Workspace page as the
+ * only depth surface for an issue. Driven entirely by the issue's derived
+ * stage:
+ *
+ *   - section ordering inside the body is stage-aware (Plan first when Plan
+ *     ready, PR first when PR ready, Validation first when Done — see
+ *     ``sectionsForStage`` below)
+ *   - sticky footer is always 72px tall and swaps content per stage
+ *   - the Refine flow lives inline in the Plan section; the Reject reason
+ *     picker lives inline in the footer (no modal in either case)
+ *
+ * The component is read-mostly: ``useFindings`` already drives the row data
+ * on the parent IssuesPage, and the panel re-uses that single source of
+ * truth via the ``finding`` prop. Workspace-scoped data (sidebar + agent
+ * runs) is loaded lazily via existing hooks when a workspace exists.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ExceptionReason, Finding, IssueStage } from '../../api/client'
+import {
+  useExecuteAgent,
+  useRejectFinding,
+  useSidebar,
+  useUpdateFinding,
+} from '../../api/hooks'
+import { IssueFilterChip } from './IssueFilterChip'
+import { IssueSeverityBadge, type IssueSeverityKind } from './IssueSeverityBadge'
+import { IssueStageChip } from './IssueStageChip'
+
+interface IssueSidePanelProps {
+  finding: Finding
+  onClose: () => void
+}
+
+type SectionKey = 'plan' | 'plan_drafting' | 'pr' | 'validation' | 'finding' | 'activity'
+
+const REASON_OPTIONS: { value: ExceptionReason; label: string }[] = [
+  { value: 'false_positive', label: 'False positive' },
+  { value: 'wont_fix', label: "Won't fix" },
+  { value: 'accepted_risk', label: 'Accept risk' },
+  { value: 'deferred', label: 'Defer' },
+]
+
+function severityKind(raw: string | null): IssueSeverityKind {
+  const key = (raw ?? 'medium').toLowerCase()
+  if (key === 'critical' || key === 'high' || key === 'low') return key
+  return 'medium'
+}
+
+function sectionsForStage(stage: IssueStage): SectionKey[] {
+  if (stage === 'plan_ready') return ['plan', 'finding', 'activity']
+  if (stage === 'pr_ready' || stage === 'pr_awaiting_val') {
+    return ['pr', 'plan', 'finding', 'activity']
+  }
+  if (
+    stage === 'fixed' ||
+    stage === 'false_positive' ||
+    stage === 'wont_fix' ||
+    stage === 'accepted' ||
+    stage === 'deferred'
+  ) {
+    return ['validation', 'pr', 'plan', 'finding', 'activity']
+  }
+  if (
+    stage === 'planning' ||
+    stage === 'generating' ||
+    stage === 'pushing' ||
+    stage === 'opening_pr' ||
+    stage === 'validating'
+  ) {
+    return ['plan_drafting', 'finding', 'activity']
+  }
+  // todo
+  return ['finding', 'activity']
+}
+
+export function IssueSidePanel({ finding, onClose }: IssueSidePanelProps) {
+  const stage: IssueStage = finding.derived?.stage ?? 'todo'
+  const workspaceId = finding.derived?.workspace_id ?? null
+  const sections = useMemo(() => sectionsForStage(stage), [stage])
+
+  const [refining, setRefining] = useState(false)
+  const [rejecting, setRejecting] = useState(false)
+  const panelRef = useRef<HTMLElement | null>(null)
+
+  const closePanel = useCallback(() => {
+    setRefining(false)
+    setRejecting(false)
+    onClose()
+  }, [onClose])
+
+  // Esc closes (only when neither inline state owns the key — those handle
+  // their own Esc to exit just the substate).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !refining && !rejecting) {
+        closePanel()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [closePanel, refining, rejecting])
+
+  // Outside-click closes. The mockup has a non-modal overlay; keep it
+  // unobtrusive (no backdrop) and detect clicks via document-level listener.
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as Node | null
+      if (panelRef.current && target && !panelRef.current.contains(target)) {
+        closePanel()
+      }
+    }
+    // Defer registration to the next tick so the click that opened the panel
+    // doesn't immediately close it.
+    const handle = window.setTimeout(
+      () => document.addEventListener('mousedown', onClick),
+      0,
+    )
+    return () => {
+      window.clearTimeout(handle)
+      document.removeEventListener('mousedown', onClick)
+    }
+  }, [closePanel])
+
+  return (
+    <aside
+      ref={panelRef}
+      role="dialog"
+      aria-label={`Issue details — ${finding.title}`}
+      className="fixed right-0 top-0 bottom-0 z-30 flex flex-col bg-surface-container-lowest"
+      style={{
+        width: 480,
+        borderLeft: '1px solid var(--outline-variant)',
+        boxShadow: '-12px 0 32px rgba(28,30,34,0.06)',
+      }}
+    >
+      <SidePanelHeader finding={finding} stage={stage} onClose={closePanel} />
+
+      <div className="flex-1 overflow-y-auto">
+        {sections.map((key) => {
+          if (key === 'plan')
+            return (
+              <SPPlan
+                key={key}
+                finding={finding}
+                refining={refining}
+                onRefineCancel={() => setRefining(false)}
+                onRefineSubmitted={() => setRefining(false)}
+              />
+            )
+          if (key === 'plan_drafting')
+            return <SPPlanDrafting key={key} stage={stage} />
+          if (key === 'pr')
+            return <SPPullRequest key={key} prUrl={finding.derived?.pr_url ?? null} />
+          if (key === 'validation') return <SPValidation key={key} stage={stage} />
+          if (key === 'finding') return <SPFinding key={key} finding={finding} />
+          return <SPActivity key={key} workspaceId={workspaceId} />
+        })}
+      </div>
+
+      <SidePanelFooter
+        finding={finding}
+        stage={stage}
+        rejecting={rejecting}
+        onRefine={() => {
+          setRejecting(false)
+          setRefining(true)
+        }}
+        onRejectStart={() => {
+          setRefining(false)
+          setRejecting(true)
+        }}
+        onRejectCancel={() => setRejecting(false)}
+        onRejected={closePanel}
+      />
+    </aside>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Header
+// ---------------------------------------------------------------------------
+
+function SidePanelHeader({
+  finding,
+  stage,
+  onClose,
+}: {
+  finding: Finding
+  stage: IssueStage
+  onClose: () => void
+}) {
+  const sev = severityKind(finding.raw_severity)
+  const file = (finding.raw_payload?.file as string | undefined) ?? null
+  const line = (finding.raw_payload?.line as number | string | undefined) ?? null
+
+  return (
+    <header
+      className="px-5 pt-5 pb-4 flex-shrink-0"
+      style={{ borderBottom: '1px solid var(--outline-variant)' }}
+    >
+      <div className="flex items-center gap-2 mb-3">
+        <IssueSeverityBadge kind={sev} size="sm" />
+        <IssueStageChip kind={stage} size="sm" />
+        <span className="text-[11px] text-on-surface-variant ml-auto font-mono">
+          {finding.id.toUpperCase()}
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close panel"
+          className="rounded-md p-1 hover:bg-surface-container text-on-surface-variant"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+            close
+          </span>
+        </button>
+      </div>
+      <h2 className="font-headline font-extrabold text-[18px] text-on-surface leading-snug mb-2">
+        {finding.title}
+      </h2>
+      <div className="flex items-center gap-2 text-[11.5px] text-on-surface-variant flex-wrap">
+        <span className="material-symbols-outlined" style={{ fontSize: 13 }} aria-hidden>
+          {finding.type === 'posture' ? 'verified_user' : 'bug_report'}
+        </span>
+        <span className="capitalize">{finding.type ?? 'vulnerability'}</span>
+        {file && (
+          <>
+            <span className="text-outline">·</span>
+            <span className="font-mono">
+              {file}
+              {line != null ? `:${line}` : ''}
+            </span>
+          </>
+        )}
+      </div>
+    </header>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Section primitives
+// ---------------------------------------------------------------------------
+
+function SectionTitle({ icon, title, hint }: { icon: string; title: string; hint?: string }) {
+  return (
+    <div className="flex items-center gap-2 mb-2.5">
+      <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: 15 }} aria-hidden>
+        {icon}
+      </span>
+      <h3 className="font-headline font-bold text-[12.5px] uppercase tracking-wider text-on-surface-variant">
+        {title}
+      </h3>
+      {hint && <span className="text-[11px] text-outline ml-1">{hint}</span>}
+    </div>
+  )
+}
+
+function SPPlan({
+  finding,
+  refining,
+  onRefineCancel,
+  onRefineSubmitted,
+}: {
+  finding: Finding
+  refining: boolean
+  onRefineCancel: () => void
+  onRefineSubmitted: () => void
+}) {
+  const workspaceId = finding.derived?.workspace_id ?? null
+  const { data: sidebar } = useSidebar(workspaceId ?? undefined)
+  const planSteps = (sidebar?.plan as { steps?: { title?: string; file?: string }[] } | undefined)?.steps ?? []
+
+  return (
+    <section
+      className="px-5 py-5"
+      style={{ borderBottom: '1px solid var(--outline-variant)' }}
+    >
+      <SectionTitle icon="auto_awesome" title="Plan" />
+      {planSteps.length > 0 ? (
+        <ol className="space-y-2.5">
+          {planSteps.map((step, i) => (
+            <li key={i} className="flex items-start gap-3">
+              <span
+                className="flex items-center justify-center rounded-full font-mono font-semibold flex-shrink-0 mt-0.5 bg-primary-container text-on-primary-container"
+                style={{ width: 22, height: 22, fontSize: 10.5 }}
+              >
+                {i + 1}
+              </span>
+              <div className="flex-1 min-w-0">
+                <div className="text-[12.5px] text-on-surface">{step.title ?? `Step ${i + 1}`}</div>
+                {step.file && (
+                  <div className="text-[11px] text-on-surface-variant mt-1 font-mono">{step.file}</div>
+                )}
+              </div>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="text-[12.5px] text-on-surface-variant">
+          The planner has not produced a plan yet.
+        </p>
+      )}
+
+      {refining && (
+        <SidePanelRefineCallout
+          workspaceId={workspaceId}
+          onCancel={onRefineCancel}
+          onSubmitted={onRefineSubmitted}
+        />
+      )}
+    </section>
+  )
+}
+
+function SidePanelRefineCallout({
+  workspaceId,
+  onCancel,
+  onSubmitted,
+}: {
+  workspaceId: string | null
+  onCancel: () => void
+  onSubmitted: () => void
+}) {
+  const [note, setNote] = useState('')
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const executeAgent = useExecuteAgent(workspaceId ?? undefined)
+
+  useEffect(() => {
+    // Defer focus to ensure the textarea has mounted.
+    window.setTimeout(() => textareaRef.current?.focus(), 0)
+  }, [])
+
+  const sending = executeAgent.isPending
+
+  return (
+    <div
+      className="mt-4 rounded-xl p-3 flex items-start gap-2.5"
+      style={{ background: 'var(--primary-container)' }}
+    >
+      <span
+        className="material-symbols-outlined text-on-primary-container mt-0.5"
+        style={{ fontSize: 18 }}
+        aria-hidden
+      >
+        edit_note
+      </span>
+      <div className="flex-1">
+        <div className="text-[11px] uppercase tracking-wider text-on-primary-container font-bold mb-1.5">
+          Refining plan
+        </div>
+        <textarea
+          ref={textareaRef}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              e.stopPropagation()
+              onCancel()
+            }
+          }}
+          placeholder="Tell the planner what to change"
+          rows={3}
+          className="w-full bg-surface-container-lowest rounded-lg p-2.5 text-[12.5px] text-on-surface outline-none resize-none"
+          style={{ border: '1px solid var(--outline-variant)' }}
+        />
+        <div className="flex items-center justify-end gap-2 mt-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-2.5 py-1.5 text-[12px] font-semibold rounded-lg text-on-surface hover:bg-surface-container"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!workspaceId || !note.trim() || sending}
+            onClick={() => {
+              if (!workspaceId) return
+              executeAgent.mutate(
+                { agentType: 'remediation_planner', user_note: note.trim() },
+                { onSuccess: () => onSubmitted() },
+              )
+            }}
+            className="px-2.5 py-1.5 text-[12px] font-semibold rounded-lg bg-primary text-on-primary disabled:opacity-50 hover:bg-primary-dim inline-flex items-center gap-1"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }} aria-hidden>
+              send
+            </span>
+            Send to agent
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SPPlanDrafting({ stage }: { stage: IssueStage }) {
+  const labels: Partial<Record<IssueStage, string>> = {
+    planning: 'Reviewing the advisory and the call sites…',
+    generating: 'Generating the patch…',
+    pushing: 'Pushing the branch to GitHub…',
+    opening_pr: 'Opening the pull request…',
+    validating: 'Re-running the validator against the latest commit…',
+  }
+  return (
+    <section
+      className="px-5 py-5"
+      style={{ borderBottom: '1px solid var(--outline-variant)' }}
+    >
+      <SectionTitle icon="auto_awesome" title="Plan" hint="Drafting…" />
+      <div
+        className="rounded-xl p-4 flex items-start gap-3"
+        style={{ background: 'var(--primary-container)' }}
+      >
+        <span
+          className="material-symbols-outlined opensec-pulse-dot text-on-primary-container"
+          style={{ fontSize: 18 }}
+          aria-hidden
+        >
+          autorenew
+        </span>
+        <div className="flex-1">
+          <div className="text-[12.5px] font-semibold text-on-primary-container mb-1">
+            {labels[stage] ?? 'Working on the fix…'}
+          </div>
+          <div className="text-[11.5px] text-on-primary-container/80">
+            We&rsquo;ll surface the result here when it&rsquo;s ready.
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function SPPullRequest({ prUrl }: { prUrl: string | null }) {
+  return (
+    <section
+      className="px-5 py-5"
+      style={{ borderBottom: '1px solid var(--outline-variant)' }}
+    >
+      <SectionTitle icon="merge_type" title="Pull request" />
+      {prUrl ? (
+        <a
+          href={prUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-primary hover:underline"
+        >
+          {prUrl}
+          <span className="material-symbols-outlined" style={{ fontSize: 14 }} aria-hidden>
+            north_east
+          </span>
+        </a>
+      ) : (
+        <p className="text-[12.5px] text-on-surface-variant">No pull request yet.</p>
+      )}
+    </section>
+  )
+}
+
+function SPValidation({ stage }: { stage: IssueStage }) {
+  const verdict =
+    stage === 'fixed'
+      ? 'Fix verified'
+      : stage === 'false_positive'
+        ? 'Marked as false positive'
+        : stage === 'wont_fix'
+          ? "Marked won't fix"
+          : stage === 'accepted'
+            ? 'Risk accepted'
+            : stage === 'deferred'
+              ? 'Deferred'
+              : 'Closed'
+  return (
+    <section
+      className="px-5 py-5"
+      style={{ borderBottom: '1px solid var(--outline-variant)' }}
+    >
+      <SectionTitle icon="task_alt" title="Validation" />
+      <div
+        className="rounded-xl p-4 bg-tertiary-container text-on-tertiary-container"
+      >
+        <div className="flex items-center gap-2 mb-1.5">
+          <span
+            className="material-symbols-outlined"
+            style={{ fontSize: 18, fontVariationSettings: "'FILL' 1" }}
+            aria-hidden
+          >
+            check_circle
+          </span>
+          <span className="text-[13px] font-bold">{verdict}</span>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function SPFinding({ finding }: { finding: Finding }) {
+  const cwe = (finding.raw_payload?.cwe as string | undefined) ?? null
+  const cvss = (finding.raw_payload?.cvss as number | undefined) ?? null
+  const file = (finding.raw_payload?.file as string | undefined) ?? null
+  const line = (finding.raw_payload?.line as number | string | undefined) ?? null
+  const found = (finding.raw_payload?.found as string | undefined) ?? null
+
+  return (
+    <section
+      className="px-5 py-5"
+      style={{ borderBottom: '1px solid var(--outline-variant)' }}
+    >
+      <SectionTitle icon="bug_report" title="Finding" />
+      <dl className="grid grid-cols-[110px_1fr] gap-y-2 text-[12px]">
+        <dt className="text-on-surface-variant">CWE</dt>
+        <dd className="font-mono text-on-surface">{cwe ?? '—'}</dd>
+        {cvss != null && (
+          <>
+            <dt className="text-on-surface-variant">CVSS</dt>
+            <dd className="font-mono text-on-surface">{cvss}</dd>
+          </>
+        )}
+        <dt className="text-on-surface-variant">Source</dt>
+        <dd className="text-on-surface">{finding.source_type}</dd>
+        {file && (
+          <>
+            <dt className="text-on-surface-variant">File</dt>
+            <dd className="font-mono text-on-surface">
+              {file}
+              {line != null ? `:${line}` : ''}
+            </dd>
+          </>
+        )}
+        {found && (
+          <>
+            <dt className="text-on-surface-variant">Found</dt>
+            <dd className="text-on-surface">{found}</dd>
+          </>
+        )}
+      </dl>
+      {finding.description && (
+        <p className="text-[12.5px] text-on-surface leading-relaxed mt-4">
+          {finding.description}
+        </p>
+      )}
+    </section>
+  )
+}
+
+function SPActivity({ workspaceId }: { workspaceId: string | null }) {
+  return (
+    <section className="px-5 py-5">
+      <SectionTitle icon="schedule" title="Activity" />
+      {workspaceId ? (
+        <p className="text-[12px] text-on-surface-variant">
+          Detailed agent timeline will land in a follow-up. The Issues row reflects
+          the latest stage transition.
+        </p>
+      ) : (
+        <p className="text-[12px] text-on-surface-variant">
+          Start the issue to begin its activity log.
+        </p>
+      )}
+    </section>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Footer
+// ---------------------------------------------------------------------------
+
+function SidePanelFooter({
+  finding,
+  stage,
+  rejecting,
+  onRefine,
+  onRejectStart,
+  onRejectCancel,
+  onRejected,
+}: {
+  finding: Finding
+  stage: IssueStage
+  rejecting: boolean
+  onRefine: () => void
+  onRejectStart: () => void
+  onRejectCancel: () => void
+  onRejected: () => void
+}) {
+  return (
+    <footer
+      data-testid="side-panel-footer"
+      className="sticky bottom-0 left-0 right-0 z-10 bg-surface-container-lowest"
+      style={{
+        borderTop: '1px solid var(--outline-variant)',
+        height: 72,
+        padding: '0 20px',
+        display: 'flex',
+        alignItems: 'center',
+      }}
+    >
+      {rejecting ? (
+        <RejectFooter
+          finding={finding}
+          onCancel={onRejectCancel}
+          onRejected={onRejected}
+        />
+      ) : (
+        <DefaultFooter
+          finding={finding}
+          stage={stage}
+          onRefine={onRefine}
+          onRejectStart={onRejectStart}
+        />
+      )}
+    </footer>
+  )
+}
+
+function DefaultFooter({
+  finding,
+  stage,
+  onRefine,
+  onRejectStart,
+}: {
+  finding: Finding
+  stage: IssueStage
+  onRefine: () => void
+  onRejectStart: () => void
+}) {
+  const workspaceId = finding.derived?.workspace_id ?? null
+  const executeAgent = useExecuteAgent(workspaceId ?? undefined)
+  const updateFinding = useUpdateFinding()
+  const prUrl = finding.derived?.pr_url ?? null
+
+  if (stage === 'todo') {
+    return (
+      <div className="flex items-center gap-2 w-full">
+        <PrimaryButton icon="play_arrow" kbd="S" disabled>
+          Start
+        </PrimaryButton>
+        <TextButton>Assign to me</TextButton>
+        <span className="ml-auto" />
+        <TextButton icon="more_horiz">More</TextButton>
+      </div>
+    )
+  }
+
+  if (
+    stage === 'planning' ||
+    stage === 'generating' ||
+    stage === 'pushing' ||
+    stage === 'opening_pr' ||
+    stage === 'validating'
+  ) {
+    return (
+      <div className="flex items-center gap-3 w-full">
+        <span
+          aria-hidden
+          className="opensec-pulse-dot rounded-full bg-primary"
+          style={{ width: 8, height: 8 }}
+        />
+        <div className="flex-1 min-w-0">
+          <div className="text-[12.5px] font-semibold text-on-surface">
+            {stage === 'validating' ? 'Validating fix' : 'Generating fix'}
+          </div>
+          <div className="text-[11px] text-on-surface-variant">
+            We&rsquo;ll notify you when the next step is ready.
+          </div>
+        </div>
+        <TextButton>Cancel run</TextButton>
+      </div>
+    )
+  }
+
+  if (stage === 'plan_ready') {
+    return (
+      <div className="flex items-center gap-2 w-full">
+        <PrimaryButton
+          icon="check_circle"
+          kbd="A"
+          onClick={() => {
+            if (!workspaceId) return
+            executeAgent.mutate({ agentType: 'remediation_executor' })
+          }}
+          disabled={!workspaceId || executeAgent.isPending}
+        >
+          Approve & generate fix
+        </PrimaryButton>
+        <TextButton kbd="R" onClick={onRefine}>
+          Refine
+        </TextButton>
+        <span className="ml-auto" />
+        <ErrorButton icon="block" kbd="X" onClick={onRejectStart}>
+          Reject
+        </ErrorButton>
+      </div>
+    )
+  }
+
+  if (stage === 'pr_ready' || stage === 'pr_awaiting_val') {
+    return (
+      <div className="flex items-center gap-2 w-full">
+        <PrimaryButton icon="merge_type" disabled>
+          Approve &amp; merge
+        </PrimaryButton>
+        {prUrl && (
+          <a
+            href={prUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[12px] font-semibold rounded-lg bg-surface-container-lowest text-on-surface hover:bg-surface-container"
+            style={{ border: '1px solid var(--outline-variant)' }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }} aria-hidden>
+              open_in_new
+            </span>
+            Open PR
+          </a>
+        )}
+        <span className="ml-auto" />
+        <ErrorButton icon="close" disabled>
+          Close PR
+        </ErrorButton>
+      </div>
+    )
+  }
+
+  // done variants
+  return (
+    <div className="w-full">
+      <div className="flex items-center gap-2 mb-1.5">
+        <span
+          className="material-symbols-outlined text-tertiary"
+          style={{ fontSize: 14, fontVariationSettings: "'FILL' 1" }}
+          aria-hidden
+        >
+          check_circle
+        </span>
+        <span className="text-[12px] font-semibold text-on-surface">Closed</span>
+        <TextButton
+          icon="undo"
+          className="ml-auto"
+          onClick={() => {
+            updateFinding.mutate({
+              id: finding.id,
+              data: {
+                status: 'in_progress',
+                exception_reason: null,
+                exception_note: null,
+              },
+            })
+          }}
+          disabled={updateFinding.isPending}
+        >
+          Reopen
+        </TextButton>
+      </div>
+      <div
+        className="rounded-full overflow-hidden"
+        style={{ height: 3, background: 'var(--outline-variant)' }}
+      >
+        <div style={{ width: '100%', height: '100%', background: 'var(--tertiary)' }} />
+      </div>
+    </div>
+  )
+}
+
+function RejectFooter({
+  finding,
+  onCancel,
+  onRejected,
+}: {
+  finding: Finding
+  onCancel: () => void
+  onRejected: () => void
+}) {
+  const [reason, setReason] = useState<ExceptionReason | null>(null)
+  const reject = useRejectFinding()
+
+  const submit = () => {
+    if (!reason) return
+    reject.mutate(
+      { id: finding.id, payload: { reason } },
+      { onSuccess: () => onRejected() },
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-2 w-full overflow-x-auto">
+      <span className="text-[11.5px] uppercase tracking-wider text-on-surface-variant font-bold whitespace-nowrap mr-1">
+        Reason
+      </span>
+      {REASON_OPTIONS.map((opt) => (
+        <IssueFilterChip
+          key={opt.value}
+          active={reason === opt.value}
+          onClick={() => setReason(opt.value)}
+        >
+          {opt.label}
+        </IssueFilterChip>
+      ))}
+      <span className="ml-auto" />
+      <TextButton onClick={onCancel}>Cancel</TextButton>
+      <ErrorButton icon="block" onClick={submit} disabled={!reason || reject.isPending}>
+        Reject
+      </ErrorButton>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Tiny button primitives — kept inline since they're only used here.
+// ---------------------------------------------------------------------------
+
+interface BtnProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  icon?: string
+  kbd?: string
+  children: React.ReactNode
+}
+
+function PrimaryButton({ icon, kbd, children, className, ...rest }: BtnProps) {
+  return (
+    <button
+      type="button"
+      {...rest}
+      className={`inline-flex items-center gap-1 px-3 py-2 text-[13px] font-semibold rounded-lg bg-primary text-on-primary disabled:opacity-50 hover:bg-primary-dim ${className ?? ''}`}
+    >
+      {icon && (
+        <span className="material-symbols-outlined" style={{ fontSize: 14 }} aria-hidden>
+          {icon}
+        </span>
+      )}
+      {children}
+      {kbd && <KbdHint label={kbd} />}
+    </button>
+  )
+}
+
+function TextButton({ icon, kbd, children, className, ...rest }: BtnProps) {
+  return (
+    <button
+      type="button"
+      {...rest}
+      className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-[12px] font-semibold rounded-lg text-on-surface hover:bg-surface-container disabled:opacity-50 ${className ?? ''}`}
+    >
+      {icon && (
+        <span className="material-symbols-outlined" style={{ fontSize: 14 }} aria-hidden>
+          {icon}
+        </span>
+      )}
+      {children}
+      {kbd && <KbdHint label={kbd} />}
+    </button>
+  )
+}
+
+function ErrorButton({ icon, kbd, children, className, ...rest }: BtnProps) {
+  return (
+    <button
+      type="button"
+      {...rest}
+      className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-[12px] font-semibold rounded-lg text-error hover:bg-error/8 disabled:opacity-50 ${className ?? ''}`}
+    >
+      {icon && (
+        <span className="material-symbols-outlined" style={{ fontSize: 14 }} aria-hidden>
+          {icon}
+        </span>
+      )}
+      {children}
+      {kbd && <KbdHint label={kbd} />}
+    </button>
+  )
+}
+
+function KbdHint({ label }: { label: string }) {
+  return (
+    <kbd
+      className="ml-1 px-1 rounded font-mono text-[10px] text-on-surface-variant"
+      style={{ background: 'var(--surface-container)' }}
+    >
+      {label}
+    </kbd>
+  )
+}

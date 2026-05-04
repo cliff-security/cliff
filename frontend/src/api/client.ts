@@ -41,6 +41,15 @@ export type FindingStatus =
 export type FindingType = 'dependency' | 'code' | 'secret' | 'posture';
 export type FindingGradeImpact = 'counts' | 'advisory';
 
+// PRD-0006 Phase 2 — values accepted by POST /findings/{id}/reject. The
+// server enforces this set via a CHECK constraint (migration 012) and a
+// Pydantic Literal — keep them in lockstep.
+export type ExceptionReason =
+  | 'false_positive'
+  | 'accepted_risk'
+  | 'wont_fix'
+  | 'deferred';
+
 // PRD-0006 / IMPL-0006 — server-derived UI section + stage. Computed in
 // repo_finding from workspace + sidebar + agent-run state. Never persisted.
 export type IssueSection = 'review' | 'in_progress' | 'todo' | 'done';
@@ -85,6 +94,15 @@ export interface Finding {
   updated_at: string;
   // PRD-0006 / IMPL-0006 — populated on list/get responses.
   derived?: IssueDerived | null;
+  // PRD-0006 Phase 2 — reject metadata, set by POST /findings/{id}/reject.
+  exception_reason?: ExceptionReason | null;
+  exception_note?: string | null;
+}
+
+// PRD-0006 Phase 2 — body of POST /findings/{id}/reject.
+export interface RejectFindingPayload {
+  reason: ExceptionReason;
+  note?: string | null;
 }
 
 export type WorkspaceState =
@@ -465,6 +483,22 @@ export const api = {
   },
   getFinding: (id: string) => request<Finding>(`/api/findings/${id}`),
 
+  // PRD-0006 Phase 2 — partial update (used by the side panel's Reopen flow
+  // to clear ``status`` + ``exception_reason`` + ``exception_note`` back to
+  // null after a reject). Backend route is PATCH /findings/{id}.
+  updateFinding: (id: string, data: Partial<Finding>) =>
+    request<Finding>(`/api/findings/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+
+  // PRD-0006 Phase 2 — reject endpoint (POST /findings/{id}/reject).
+  rejectFinding: (id: string, payload: RejectFindingPayload) =>
+    request<Finding>(`/api/findings/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
   // Workspaces
   createWorkspace: (data: WorkspaceCreate) =>
     request<Workspace>('/api/workspaces', {
@@ -632,11 +666,19 @@ export const api = {
   getSuggestedNext: (workspaceId: string) =>
     request<SuggestedNext>(`/api/workspaces/${workspaceId}/pipeline/suggest-next`),
 
-  // Agent execution
-  executeAgent: (workspaceId: string, agentType: string) =>
+  // Agent execution. PRD-0006 Phase 2 — optional ``user_note`` is forwarded
+  // to the planner's prompt for the Refine flow; other agents ignore it.
+  executeAgent: (
+    workspaceId: string,
+    agentType: string,
+    body?: { user_note?: string },
+  ) =>
     request<{ agent_run_id: string; agent_type: string; status: string }>(
       `/api/workspaces/${workspaceId}/agents/${agentType}/execute`,
-      { method: 'POST' },
+      {
+        method: 'POST',
+        body: body ? JSON.stringify(body) : undefined,
+      },
     ),
 
   // Run all remaining pipeline agents sequentially

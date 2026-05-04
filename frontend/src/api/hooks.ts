@@ -3,10 +3,12 @@ import { api } from './client'
 import type {
   AgentRunCreate,
   AgentRunUpdate,
+  Finding,
   IngestRequest,
   IntegrationConfigCreate,
   IntegrationConfigUpdate,
   MessageCreate,
+  RejectFindingPayload,
   WorkspaceCreate,
 } from './client'
 
@@ -70,6 +72,58 @@ export function useFinding(id: string | undefined) {
     queryKey: ['finding', id],
     queryFn: () => api.getFinding(id!),
     enabled: !!id,
+  })
+}
+
+// PRD-0006 Phase 2 — partial PATCH for the side panel's Reopen flow (clear
+// status + exception_reason + exception_note). Invalidates the findings
+// list + the single-finding query so the row visually returns to its
+// pre-reject section/stage.
+export function useUpdateFinding() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<Finding> }) =>
+      api.updateFinding(id, data),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['findings'] })
+      qc.invalidateQueries({ queryKey: ['finding', variables.id] })
+    },
+  })
+}
+
+// PRD-0006 Phase 2 — Reject reason picker submit (POST /findings/{id}/reject).
+export function useRejectFinding() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: RejectFindingPayload }) =>
+      api.rejectFinding(id, payload),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['findings'] })
+      qc.invalidateQueries({ queryKey: ['finding', variables.id] })
+    },
+  })
+}
+
+// PRD-0006 Phase 2 — generic agent-execute mutation. The Refine inline state
+// in the side panel passes ``{ agentType: 'remediation_planner', user_note }``;
+// other callers can omit ``user_note`` and behave like Phase 1.
+export function useExecuteAgent(workspaceId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      agentType,
+      user_note,
+    }: {
+      agentType: string
+      user_note?: string
+    }) => api.executeAgent(workspaceId!, agentType, user_note ? { user_note } : undefined),
+    onSuccess: () => {
+      if (workspaceId) {
+        qc.invalidateQueries({ queryKey: ['agent-runs', workspaceId] })
+        qc.invalidateQueries({ queryKey: ['sidebar', workspaceId] })
+      }
+      qc.invalidateQueries({ queryKey: ['findings'] })
+    },
   })
 }
 
