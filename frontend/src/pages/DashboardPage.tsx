@@ -25,15 +25,16 @@ import type {
 import { onboardingApi } from '@/api/onboarding'
 import AssessmentInProgressView from '@/components/dashboard/AssessmentInProgressView'
 import AssessmentSummary from '@/components/dashboard/AssessmentSummary'
-import CompletionProgressCard from '@/components/dashboard/CompletionProgressCard'
-import GradeRing from '@/components/dashboard/GradeRing'
+import IssueGradeHero, {
+  type GradeLetter,
+} from '@/components/dashboard/IssueGradeHero'
+import IssueGradeHistoryChart from '@/components/dashboard/IssueGradeHistoryChart'
+import IssueMetricCard from '@/components/dashboard/IssueMetricCard'
+import IssueNeedsYouLine from '@/components/dashboard/IssueNeedsYouLine'
 import PostureCard, {
   type PostureFeedback,
 } from '@/components/dashboard/PostureCard'
-import ScannedByLine from '@/components/dashboard/ScannedByLine'
-import ScorecardInfoLine from '@/components/dashboard/ScorecardInfoLine'
 import CompletionCelebration from '@/components/completion/CompletionCelebration'
-import CompletionStatusCard from '@/components/completion/CompletionStatusCard'
 import SummaryActionPanel from '@/components/completion/SummaryActionPanel'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import ErrorState from '@/components/ErrorState'
@@ -44,20 +45,6 @@ import PageSpinner from '@/components/PageSpinner'
 // comes from /api/dashboard.criteria; this constant is the gate for the
 // "all met" celebration check.
 const CRITERIA_TOTAL = 10
-
-const SEVERITY_ORDER: Array<{
-  key: 'critical' | 'high' | 'medium' | 'low'
-  label: string
-  tone: string
-}> = [
-  { key: 'critical', label: 'Critical', tone: 'text-error' },
-  { key: 'high', label: 'High', tone: 'text-error' },
-  // ADR-0029 / IMPL-0004 T14: medium severity reads as "fine" under the
-  // tertiary (green) token. Swap to the new warning family so it scans as
-  // "attention needed but not blocking".
-  { key: 'medium', label: 'Medium', tone: 'text-warning' },
-  { key: 'low', label: 'Low', tone: 'text-on-surface-variant' },
-]
 
 export default function DashboardPage() {
   return (
@@ -325,17 +312,6 @@ function ReportCard({ data }: { data: DashboardPayload }) {
   >({})
 
   const repoName = repoNameFromUrl(data.assessment?.repo_url)
-  // v0.2 dashboard: data.criteria is the labeled list per ADR-0032 — count
-  // ``met`` entries directly. The legacy ``countCriteriaMet`` over
-  // ``criteria_snapshot`` returns at most 5 (the PRD-0002 shape) but the UI
-  // displays it against ``CRITERIA_TOTAL = 10``, producing the misleading
-  // "4 of 10" the user reported. Match the AssessmentSummaryGate path
-  // which uses the labeled list as the v0.2 source of truth.
-  const criteriaMet =
-    (data.criteria ?? []).filter((c) => c.met).length
-  const remaining = Math.max(0, CRITERIA_TOTAL - criteriaMet)
-
-  const heroCopy = buildHeroCopy(data.grade, remaining)
 
   const handleGenerate = (
     checkName: PostureFixableCheck,
@@ -379,14 +355,17 @@ function ReportCard({ data }: { data: DashboardPayload }) {
       ? renderCompletionBlock(data, repoName, 'A')
       : null
 
-  const totalFindings = Object.values(data.findings_count_by_priority ?? {}).reduce(
-    (a, b) => a + b,
-    0,
-  )
-  const postureFails =
-    (data.posture_total_count ?? 0) - (data.posture_pass_count ?? 0)
-  const showGradeExplainer =
-    data.grade !== 'A' && (totalFindings > 0 || postureFails > 0)
+  const grade = (data.grade ?? null) as GradeLetter | null
+  const heroLabel = heroLabelFromGrade(grade)
+  const heroCaption = heroCopyFromState(data)
+
+  const openIssues = data.open_issues
+  const timeToClose = data.time_to_close
+  const needsYou = data.needs_you ?? {
+    plans_waiting: 0,
+    prs_ready: 0,
+    critical_todo: 0,
+  }
 
   return (
     <PageShell
@@ -401,60 +380,87 @@ function ReportCard({ data }: { data: DashboardPayload }) {
       }
     >
       {completionBlock}
-      {showGradeExplainer && (
-        <GradeExplainer
-          grade={data.grade}
-          findingsCount={totalFindings}
-          posturePassing={data.posture_pass_count ?? 0}
-          postureTotal={data.posture_total_count ?? 0}
-          onStartFixing={() => navigate('/findings')}
+      <div className="flex flex-col gap-4">
+        <IssueGradeHero
+          letter={grade}
+          label={heroLabel}
+          caption={heroCaption}
+          onOpenReview={() => navigate('/issues?section=review')}
+          onViewRubric={() => navigate('/findings')}
         />
-      )}
-      <div className="flex flex-col gap-6">
-        <section className="flex flex-col items-start gap-6 rounded-3xl bg-surface-container-low p-8 md:flex-row md:items-center">
-          <GradeRing
-            grade={data.grade}
-            criteriaMet={criteriaMet}
-            criteriaTotal={CRITERIA_TOTAL}
+
+        <IssueNeedsYouLine
+          plansWaiting={needsYou.plans_waiting ?? 0}
+          prsReady={needsYou.prs_ready ?? 0}
+          criticalTodo={needsYou.critical_todo ?? 0}
+          onOpenReview={() => navigate('/issues?section=review')}
+        />
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <IssueMetricCard
+            label="Open issues"
+            value={String(openIssues?.current ?? 0)}
+            deltaPct={openIssues?.delta_pct_30d ?? 0}
+            lowerIsBetter
+            series={openIssues?.history ?? []}
+            footnote={openIssuesFootnote(data)}
           />
-          <div className="flex-1">
-            <p className="text-xs font-medium uppercase tracking-wide text-on-surface-variant">
-              Security grade
-            </p>
-            <h2 className="mt-1 font-headline text-3xl font-bold text-on-surface">
-              {heroCopy.headline}
-            </h2>
-            <p className="mt-2 text-base text-on-surface-variant">
-              {heroCopy.body}
-            </p>
-          </div>
-          {data.completion_id && (
-            <div className="w-full md:w-auto md:max-w-xs md:flex-shrink-0">
-              <CompletionStatusCard
-                completionId={data.completion_id}
-                completedAt={data.assessment?.completed_at ?? null}
-              />
+          <IssueMetricCard
+            label="Time to close"
+            value={formatDurationShort(timeToClose?.current_seconds ?? null)}
+            deltaPct={timeToClose?.delta_pct_30d ?? 0}
+            lowerIsBetter
+            series={timeToClose?.history ?? []}
+            accent="tertiary"
+          />
+        </div>
+
+        <section
+          data-testid="issue-grade-history-section"
+          className="rounded-2xl"
+          style={{
+            background: 'var(--surface-container-lowest, #ffffff)',
+            border: '1px solid var(--outline-variant, #abb3b7)',
+          }}
+        >
+          <header className="flex items-center justify-between px-6 pt-5 pb-3 flex-wrap gap-3">
+            <div>
+              <h2 className="font-headline font-extrabold text-[18px] text-on-surface">
+                Open issues over time
+              </h2>
+              <p className="text-[12px] text-on-surface-variant mt-0.5">
+                Stacked by severity. The dotted line marks the most recent
+                grade change.
+              </p>
             </div>
-          )}
+            <div className="flex items-center gap-3 text-[11px]">
+              {[
+                { label: 'Critical', color: 'var(--error, #9e3f4e)' },
+                { label: 'High', color: 'rgb(199,128,52)' },
+                { label: 'Medium', color: 'var(--secondary, #595e78)' },
+                { label: 'Low', color: 'var(--tertiary, #575e78)' },
+              ].map((l) => (
+                <span
+                  key={l.label}
+                  className="inline-flex items-center gap-1.5 text-on-surface-variant"
+                >
+                  <span
+                    className="rounded-sm"
+                    style={{ width: 10, height: 10, background: l.color }}
+                  />
+                  {l.label}
+                </span>
+              ))}
+            </div>
+          </header>
+          <div className="px-3 pb-4">
+            <IssueGradeHistoryChart
+              severityHistory={data.severity_history ?? null}
+              gradeHistory={data.grade_history ?? []}
+            />
+          </div>
         </section>
 
-        {/* PR-B: Scanned-by row sits directly under the hero so the brand
-            trust signal (Trivy 0.52 · 7 findings · ...) lands every time
-            the report card renders. */}
-        {data.tools && data.tools.length > 0 && (
-          <ScannedByLine tools={data.tools} />
-        )}
-
-        <CompletionProgressCard
-          criteriaMet={criteriaMet}
-          criteriaTotal={CRITERIA_TOTAL}
-          repoName={repoName}
-        />
-
-        <VulnerabilitiesCard
-          data={data}
-          onStartFixing={() => navigate('/findings')}
-        />
         <PostureCard
           data={data}
           onGenerate={handleGenerate}
@@ -462,176 +468,77 @@ function ReportCard({ data }: { data: DashboardPayload }) {
           feedback={postureFeedback}
           activeWorkspaceIds={activeWorkspaceIds}
         />
-
-        <ScorecardInfoLine />
       </div>
     </PageShell>
   )
 }
 
-function VulnerabilitiesCard({
-  data,
-  onStartFixing,
-}: {
-  data: DashboardPayload
-  onStartFixing: () => void
-}) {
-  const counts = data.findings_count_by_priority ?? {}
-  const total = SEVERITY_ORDER.reduce(
-    (sum, s) => sum + (counts[s.key] ?? 0),
-    0,
-  )
-  const hasIssues = total > 0
+// ----------------------------------------------------------- hero copy helpers
 
-  return (
-    <section className="flex flex-col gap-4 rounded-3xl bg-surface-container-low p-6">
-      <header>
-        <h3 className="font-headline text-lg font-bold text-on-surface">
-          Vulnerabilities
-        </h3>
-        <p className="text-sm text-on-surface-variant">
-          Findings waiting to be solved.
-        </p>
-      </header>
-
-      <div className="grid grid-cols-4 gap-3">
-        {SEVERITY_ORDER.map((sev) => {
-          const value = counts[sev.key] ?? 0
-          return (
-            <div
-              key={sev.key}
-              className="rounded-2xl bg-surface-container p-3"
-            >
-              <p className={`text-2xl font-bold leading-none ${sev.tone}`}>
-                {value}
-              </p>
-              <p className="mt-1 text-xs font-medium text-on-surface-variant">
-                {sev.label}
-              </p>
-            </div>
-          )
-        })}
-      </div>
-
-      {hasIssues ? (
-        <button
-          type="button"
-          onClick={onStartFixing}
-          className="inline-flex w-max items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-on-primary shadow-sm hover:bg-primary/90"
-        >
-          <span className="material-symbols-outlined text-sm" aria-hidden>
-            play_arrow
-          </span>
-          Start fixing
-        </button>
-      ) : (
-        <p className="text-sm text-tertiary">No open vulnerabilities. Nice.</p>
-      )}
-    </section>
-  )
+function heroLabelFromGrade(grade: GradeLetter | null): string {
+  if (grade === null) return 'Awaiting first scan'
+  if (grade === 'A') return 'Stable'
+  if (grade === 'B') return 'Steady'
+  if (grade === 'C' || grade === 'D') return 'At risk'
+  return 'Vulnerable'
 }
 
-
-function GradeExplainer({
-  grade,
-  findingsCount,
-  posturePassing,
-  postureTotal,
-  onStartFixing,
-}: {
-  grade: DashboardPayload['grade']
-  findingsCount: number
-  posturePassing: number
-  postureTotal: number
-  onStartFixing: () => void
-}) {
-  const postureFails = Math.max(0, postureTotal - posturePassing)
-  const parts: string[] = []
-  if (findingsCount > 0) {
-    parts.push(
-      `${findingsCount} ${findingsCount === 1 ? 'vulnerability' : 'vulnerabilities'}`,
-    )
-  }
-  if (postureFails > 0) {
-    parts.push(
-      `${postureFails} of ${postureTotal} posture check${postureTotal === 1 ? '' : 's'} failing`,
-    )
-  }
-  const summary = parts.join(' and ')
-
-  return (
-    <section
-      data-testid="grade-explainer"
-      className="mb-6 rounded-3xl bg-surface-container-low p-6"
-    >
-      <div className="flex items-start gap-4">
-        <span
-          className="material-symbols-outlined text-tertiary mt-0.5"
-          aria-hidden
-        >
-          info
-        </span>
-        <div className="flex-1">
-          <h3 className="font-headline text-lg font-bold text-on-surface">
-            {grade === 'F'
-              ? 'Your project starts at grade F'
-              : `Your project is at grade ${grade}`}
-          </h3>
-          <p className="mt-1 text-sm text-on-surface-variant">
-            {summary
-              ? `We found ${summary}. Each fix moves the grade up — start anywhere below.`
-              : 'Keep fixing findings to raise the grade.'}
-          </p>
-          {findingsCount > 0 && (
-            <button
-              type="button"
-              onClick={onStartFixing}
-              className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-on-primary shadow-sm hover:bg-primary/90"
-            >
-              <span className="material-symbols-outlined text-sm" aria-hidden>
-                play_arrow
-              </span>
-              Start fixing
-            </button>
-          )}
-        </div>
-      </div>
-    </section>
-  )
-}
-
-function buildHeroCopy(
-  grade: DashboardPayload['grade'],
-  remaining: number,
-): { headline: string; body: string } {
+function heroCopyFromState(data: DashboardPayload): string {
+  const grade = data.grade
   if (grade == null) {
-    return {
-      headline: 'Working on it',
-      body: 'We are still assessing your repository.',
+    return 'Run an assessment to earn your first grade. The Issues page surfaces every fix as a one-click Start.'
+  }
+  const open = data.open_issues
+  const needs = data.needs_you
+  const parts: string[] = []
+  if (open && typeof open.delta_pct_30d === 'number' && open.delta_pct_30d !== 0) {
+    const direction = open.delta_pct_30d < 0 ? 'down' : 'up'
+    parts.push(
+      `Open issues are ${direction} ${Math.abs(open.delta_pct_30d)}% over the last 30 days.`,
+    )
+  } else if (open) {
+    parts.push(
+      `${open.current ?? 0} ${open.current === 1 ? 'issue' : 'issues'} open right now.`,
+    )
+  }
+  if (needs) {
+    const waiting = (needs.plans_waiting ?? 0) + (needs.prs_ready ?? 0)
+    if (waiting > 0) {
+      parts.push(
+        `${waiting} ${waiting === 1 ? 'item is' : 'items are'} waiting on you.`,
+      )
     }
   }
-  if (grade === 'A') {
-    return {
-      headline: 'Security completion reached',
-      body: 'All five criteria are met. Keep it up.',
-    }
-  }
-  if (grade === 'F' || grade === 'D') {
-    return {
-      headline: 'Work to do',
-      body: `Start with any failing check below. Fix ${remaining} item${remaining === 1 ? '' : 's'} to reach security completion.`,
-    }
-  }
-  if (remaining === 0) {
-    return {
-      headline: 'Almost there',
-      body: 'Criteria look good. Address any remaining findings to earn grade A.',
-    }
-  }
-  return {
-    headline: 'Nearly there',
-    body: `Fix ${remaining} more ${remaining === 1 ? 'item' : 'items'} to reach security completion.`,
-  }
+  return parts.join(' ')
+}
+
+function openIssuesFootnote(data: DashboardPayload): string | undefined {
+  const counts = data.vulnerabilities?.by_severity
+  if (!counts) return undefined
+  const segments: string[] = []
+  const order: Array<['critical' | 'high' | 'medium' | 'low', string]> = [
+    ['critical', 'Critical'],
+    ['high', 'High'],
+    ['medium', 'Medium'],
+    ['low', 'Low'],
+  ]
+  order.forEach(([key, label]) => {
+    const v = counts[key] ?? 0
+    if (v > 0) segments.push(`${v} ${label}`)
+  })
+  return segments.length > 0 ? segments.join(' · ') : undefined
+}
+
+function formatDurationShort(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined) return '—'
+  const totalMinutes = Math.round(seconds / 60)
+  if (totalMinutes < 60) return `${totalMinutes}m`
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  if (hours < 24) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`
+  const days = Math.floor(hours / 24)
+  const remHours = hours % 24
+  return remHours > 0 ? `${days}d ${remHours}h` : `${days}d`
 }
 
 function repoNameFromUrl(url: string | null | undefined): string {

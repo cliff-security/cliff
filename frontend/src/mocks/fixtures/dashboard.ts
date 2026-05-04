@@ -241,6 +241,136 @@ export const gradeACompletionHoldingPayload: DashboardPayload = {
 }
 
 // ---------------------------------------------------------------------------
+// PRD-0006 Phase 2 — grade-B-with-history fixture
+//
+// Carries the full Phase 2 add-on payload (open_issues + time_to_close +
+// needs_you + grade_history + severity_history) so the new IssueGradeHero,
+// IssueNeedsYouLine, IssueMetricCard, and IssueGradeHistoryChart components
+// have realistic data to render in the page tests.
+// ---------------------------------------------------------------------------
+
+const completedAssessmentB: Assessment = {
+  id: 'asmt_b_001',
+  repo_url: 'https://github.com/acme/fast-markdown',
+  status: 'complete',
+  grade: 'B',
+  started_at: EARLIER,
+  completed_at: NOW,
+  summary_seen_at: NOW,
+  criteria_snapshot: {
+    ..._legacyEmptyCriteria,
+    no_critical_vulns: true,
+    no_high_vulns: true,
+    security_md_present: true,
+    dependabot_present: true,
+    no_secrets_detected: true,
+    code_owners_exists: true,
+    branch_protection_enabled: true,
+    posture_checks_passing: 12,
+    posture_checks_total: 15,
+  },
+}
+
+const _snapshotB = {
+  ..._emptySnapshot,
+  no_critical_vulns: true,
+  no_high_vulns: true,
+  security_md_present: true,
+  dependabot_present: true,
+  no_secrets_detected: true,
+  code_owners_exists: true,
+  branch_protection_enabled: true,
+  posture_checks_passing: 12,
+  posture_checks_total: 15,
+}
+
+// 30-day open-issues series — fictional but plausibly trending downward.
+const _openIssuesHistory = [
+  72, 70, 70, 68, 68, 67, 65, 64, 62, 60,
+  58, 57, 55, 54, 52, 50, 48, 47, 45, 44,
+  42, 40, 38, 37, 36, 34, 32, 30, 28, 26,
+]
+
+// 30-day time-to-close p50 (seconds) series with a few quiet days.
+const _ttcHistory: Array<number | null> = [
+  86400, 82800, 79200, null, 75600, 72000, null, 68400, 64800, 61200,
+  null, 57600, 54000, 50400, null, 46800, 43200, 39600, 36000, null,
+  32400, 28800, 25200, null, 21600, 18000, null, 15300, 12600, 11520,
+]
+
+const _gradeHistoryB: Array<{
+  date: string
+  grade: 'A' | 'B' | 'C' | 'D' | 'F' | null
+}> = (() => {
+  const out: Array<{
+    date: string
+    grade: 'A' | 'B' | 'C' | 'D' | 'F' | null
+  }> = []
+  for (let i = 89; i >= 0; i -= 1) {
+    let grade: 'A' | 'B' | 'C' | 'D' | 'F' | null = null
+    if (i === 0) grade = 'B' // today
+    else if (i === 17) grade = 'B' // promotion 17 days ago
+    else if (i === 18) grade = 'C' // previous letter
+    else if (i === 50) grade = 'C'
+    else if (i === 89) grade = 'D'
+    out.push({
+      date: `2026-04-${String(20 - (i % 30)).padStart(2, '0')}`,
+      grade,
+    })
+  }
+  return out.reverse()
+})()
+
+const _severityHistoryB = {
+  critical: Array.from({ length: 60 }, (_, i) => (i < 50 ? 1 : 0)),
+  high: Array.from({ length: 60 }, (_, i) => Math.max(0, 9 - Math.floor(i / 8))),
+  medium: Array.from({ length: 60 }, (_, i) => 26 - Math.floor(i / 4)),
+  low: Array.from({ length: 60 }, (_, i) => 24 - Math.floor(i / 6)),
+}
+
+export const gradeBWithHistoryPayload: DashboardPayload = {
+  assessment: completedAssessmentB,
+  completion_id: null,
+  criteria: _criteriaForSnapshot(_snapshotB),
+  criteria_snapshot: _snapshotB,
+  findings_count_by_priority: {
+    critical: 1,
+    high: 9,
+    medium: 26,
+    low: 24,
+  },
+  grade: 'B',
+  posture_checks: [],
+  posture: null,
+  posture_pass_count: 12,
+  posture_total_count: 15,
+  tools: [],
+  vulnerabilities: {
+    total: 60,
+    by_severity: { critical: 1, high: 9, medium: 26, low: 24 },
+    by_source: { dependency: 50, code: 8, secret: 2 },
+    tool_credits: ['trivy', 'semgrep'],
+  },
+  open_issues: {
+    current: 26,
+    history: _openIssuesHistory,
+    delta_pct_30d: -64,
+  },
+  time_to_close: {
+    current_seconds: 11520,
+    history: _ttcHistory,
+    delta_pct_30d: -86,
+  },
+  needs_you: {
+    plans_waiting: 3,
+    prs_ready: 2,
+    critical_todo: 1,
+  },
+  grade_history: _gradeHistoryB,
+  severity_history: _severityHistoryB,
+}
+
+// ---------------------------------------------------------------------------
 // Findings (plain-language, for FindingRow + FindingDetailPage)
 // ---------------------------------------------------------------------------
 
@@ -411,6 +541,7 @@ export type DashboardFixtureName =
   | 'assessment-running'
   | 'grade-C-with-issues'
   | 'grade-A-completion-holding'
+  | 'grade-B-with-history'
 
 export function getDashboardFixture(
   name: DashboardFixtureName,
@@ -422,5 +553,7 @@ export function getDashboardFixture(
       return gradeCWithIssuesPayload
     case 'grade-A-completion-holding':
       return gradeACompletionHoldingPayload
+    case 'grade-B-with-history':
+      return gradeBWithHistoryPayload
   }
 }
