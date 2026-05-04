@@ -29,6 +29,7 @@ from opensec.assessment.posture import (
 from opensec.db.connection import get_db
 from opensec.db.dao.assessment import get_latest_assessment
 from opensec.db.dao.completion import get_completion_for_assessment
+from opensec.db.dao.dashboard_metrics import assemble_phase2_metrics
 from opensec.db.repo_finding import (
     count_findings_by_priority,
     list_findings,
@@ -96,8 +97,49 @@ class VulnerabilityCounts(BaseModel):
     tool_credits: list[str] = Field(default_factory=list)
 
 
+# ----------------------------------------------------------------- Phase 2
+# PRD-0006 / IMPL-0007 PR-B / B5 — additive trend / needs-you / history fields.
+# All series are oldest-first, today is the last element. Series shorter than
+# the requested window pad with leading zeros (or ``None`` for grade_history).
+
+
+class OpenIssuesSeries(BaseModel):
+    current: int = 0
+    history: list[int] = Field(default_factory=list)
+    delta_pct_30d: int = 0
+
+
+class TimeToCloseSeries(BaseModel):
+    current_seconds: int | None = None
+    history: list[int | None] = Field(default_factory=list)
+    delta_pct_30d: int = 0
+
+
+class NeedsYouCounts(BaseModel):
+    plans_waiting: int = 0
+    prs_ready: int = 0
+    critical_todo: int = 0
+
+
+class GradeHistoryPoint(BaseModel):
+    date: str
+    grade: Literal["A", "B", "C", "D", "F"] | None = None
+
+
+class SeverityHistory(BaseModel):
+    critical: list[int] = Field(default_factory=list)
+    high: list[int] = Field(default_factory=list)
+    medium: list[int] = Field(default_factory=list)
+    low: list[int] = Field(default_factory=list)
+
+
 class DashboardPayload(BaseModel):
-    """v0.2 dashboard wire shape — see ADR-0032 for the full design rationale."""
+    """v0.2 dashboard wire shape — see ADR-0032 for the full design rationale.
+
+    PRD-0006 Phase 2 (IMPL-0007 PR-B) adds the trend / needs-you / history
+    fields below. They are additive and never alter the v0.2 contract; the
+    snapshot test in ``test_openapi_snapshot.py`` is the regression guard.
+    """
 
     assessment: Assessment | None
     grade: Grade | None
@@ -111,6 +153,13 @@ class DashboardPayload(BaseModel):
     tools: list[AssessmentTool] = Field(default_factory=list)
     vulnerabilities: VulnerabilityCounts | None = None
     completion_id: str | None = None
+
+    # PRD-0006 Phase 2 additions.
+    open_issues: OpenIssuesSeries = Field(default_factory=OpenIssuesSeries)
+    time_to_close: TimeToCloseSeries = Field(default_factory=TimeToCloseSeries)
+    needs_you: NeedsYouCounts = Field(default_factory=NeedsYouCounts)
+    grade_history: list[GradeHistoryPoint] = Field(default_factory=list)
+    severity_history: SeverityHistory = Field(default_factory=SeverityHistory)
 
 
 # ------------------------------------------------------------------- helpers
@@ -322,6 +371,7 @@ def _synthesize_tools(
 @router.get("", response_model=DashboardPayload)
 async def get_dashboard(db=Depends(get_db)) -> DashboardPayload:
     latest = await get_latest_assessment(db)
+    phase2 = await assemble_phase2_metrics(db)
 
     if latest is None:
         empty_snapshot = CriteriaSnapshot()
@@ -338,6 +388,13 @@ async def get_dashboard(db=Depends(get_db)) -> DashboardPayload:
             tools=[],
             vulnerabilities=None,
             completion_id=None,
+            open_issues=OpenIssuesSeries(**phase2["open_issues"]),
+            time_to_close=TimeToCloseSeries(**phase2["time_to_close"]),
+            needs_you=NeedsYouCounts(**phase2["needs_you"]),
+            grade_history=[
+                GradeHistoryPoint(**p) for p in phase2["grade_history"]
+            ],
+            severity_history=SeverityHistory(**phase2["severity_history"]),
         )
 
     counts = await count_findings_by_priority(
@@ -378,4 +435,9 @@ async def get_dashboard(db=Depends(get_db)) -> DashboardPayload:
         tools=tools,
         vulnerabilities=vulnerabilities,
         completion_id=completion_id,
+        open_issues=OpenIssuesSeries(**phase2["open_issues"]),
+        time_to_close=TimeToCloseSeries(**phase2["time_to_close"]),
+        needs_you=NeedsYouCounts(**phase2["needs_you"]),
+        grade_history=[GradeHistoryPoint(**p) for p in phase2["grade_history"]],
+        severity_history=SeverityHistory(**phase2["severity_history"]),
     )

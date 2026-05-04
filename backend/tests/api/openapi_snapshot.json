@@ -1075,7 +1075,7 @@
         "type": "object"
       },
       "DashboardPayload": {
-        "description": "v0.2 dashboard wire shape \u2014 see ADR-0032 for the full design rationale.",
+        "description": "v0.2 dashboard wire shape \u2014 see ADR-0032 for the full design rationale.\n\nPRD-0006 Phase 2 (IMPL-0007 PR-B) adds the trend / needs-you / history\nfields below. They are additive and never alter the v0.2 contract; the\nsnapshot test in ``test_openapi_snapshot.py`` is the regression guard.",
         "properties": {
           "assessment": {
             "anyOf": [
@@ -1133,6 +1133,19 @@
             ],
             "title": "Grade"
           },
+          "grade_history": {
+            "items": {
+              "$ref": "#/components/schemas/GradeHistoryPoint"
+            },
+            "title": "Grade History",
+            "type": "array"
+          },
+          "needs_you": {
+            "$ref": "#/components/schemas/NeedsYouCounts"
+          },
+          "open_issues": {
+            "$ref": "#/components/schemas/OpenIssuesSeries"
+          },
           "posture": {
             "anyOf": [
               {
@@ -1158,6 +1171,12 @@
           "posture_total_count": {
             "title": "Posture Total Count",
             "type": "integer"
+          },
+          "severity_history": {
+            "$ref": "#/components/schemas/SeverityHistory"
+          },
+          "time_to_close": {
+            "$ref": "#/components/schemas/TimeToCloseSeries"
           },
           "tools": {
             "items": {
@@ -1927,6 +1946,37 @@
         "title": "FindingUpdate",
         "type": "object"
       },
+      "GradeHistoryPoint": {
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "enum": [
+                  "A",
+                  "B",
+                  "C",
+                  "D",
+                  "F"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grade"
+          }
+        },
+        "required": [
+          "date"
+        ],
+        "title": "GradeHistoryPoint",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -2607,6 +2657,27 @@
         "title": "ModelUpdateRequest",
         "type": "object"
       },
+      "NeedsYouCounts": {
+        "properties": {
+          "critical_todo": {
+            "default": 0,
+            "title": "Critical Todo",
+            "type": "integer"
+          },
+          "plans_waiting": {
+            "default": 0,
+            "title": "Plans Waiting",
+            "type": "integer"
+          },
+          "prs_ready": {
+            "default": 0,
+            "title": "Prs Ready",
+            "type": "integer"
+          }
+        },
+        "title": "NeedsYouCounts",
+        "type": "object"
+      },
       "OnboardingCompleteRequest": {
         "properties": {
           "assessment_id": {
@@ -2649,6 +2720,29 @@
           "github_token"
         ],
         "title": "OnboardingRepoRequest",
+        "type": "object"
+      },
+      "OpenIssuesSeries": {
+        "properties": {
+          "current": {
+            "default": 0,
+            "title": "Current",
+            "type": "integer"
+          },
+          "delta_pct_30d": {
+            "default": 0,
+            "title": "Delta Pct 30D",
+            "type": "integer"
+          },
+          "history": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "History",
+            "type": "array"
+          }
+        },
+        "title": "OpenIssuesSeries",
         "type": "object"
       },
       "PermissionDecision": {
@@ -3295,6 +3389,40 @@
         "title": "SessionSummary",
         "type": "object"
       },
+      "SeverityHistory": {
+        "properties": {
+          "critical": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Critical",
+            "type": "array"
+          },
+          "high": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "High",
+            "type": "array"
+          },
+          "low": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Low",
+            "type": "array"
+          },
+          "medium": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Medium",
+            "type": "array"
+          }
+        },
+        "title": "SeverityHistory",
+        "type": "object"
+      },
       "ShareActionRequest": {
         "properties": {
           "action": {
@@ -3663,6 +3791,42 @@
           "message"
         ],
         "title": "TestConnectionResult",
+        "type": "object"
+      },
+      "TimeToCloseSeries": {
+        "properties": {
+          "current_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Seconds"
+          },
+          "delta_pct_30d": {
+            "default": 0,
+            "title": "Delta Pct 30D",
+            "type": "integer"
+          },
+          "history": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "History",
+            "type": "array"
+          }
+        },
+        "title": "TimeToCloseSeries",
         "type": "object"
       },
       "ValidationError": {
