@@ -121,7 +121,8 @@ async def execute_agent(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     # Resolve GitHub env vars (GH_TOKEN, OPENSEC_REPO_URL) for the workspace process.
-    env_vars = await _resolve_repo_env_vars(request, db)
+    # Pass the workspace so the snapshotted repo URL wins over the live integration.
+    env_vars = await _resolve_repo_env_vars(request, db, workspace=workspace)
     user_note = body.user_note if body else None
 
     # Launch execution as a background task so we can return immediately.
@@ -250,7 +251,7 @@ async def run_all_pipeline(
     except AgentBusyError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    env_vars = await _resolve_repo_env_vars(request, db)
+    env_vars = await _resolve_repo_env_vars(request, db, workspace=workspace)
 
     async def _run_pipeline() -> None:
         max_iterations = len(VALID_AGENT_TYPES) + 3  # generous upper bound

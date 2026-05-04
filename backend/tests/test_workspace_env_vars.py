@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from opensec.api.routes.workspaces import _resolve_repo_env_vars
-from opensec.models import IntegrationConfig
+from opensec.models import IntegrationConfig, Workspace
 
 
 def _github_integration(
@@ -102,3 +103,76 @@ async def test_resolve_vault_none(mock_request, mock_db):
 
     assert result == {"OPENSEC_REPO_URL": "https://github.com/x/y"}
     assert "GH_TOKEN" not in result
+
+
+# ---------------------------------------------------------------------------
+# Workspace repo snapshot (migration 013)
+# ---------------------------------------------------------------------------
+
+
+def _ws(*, repo_url: str | None) -> Workspace:
+    now = datetime.now(UTC)
+    return Workspace(
+        id="ws-1",
+        finding_id="f-1",
+        state="open",
+        repo_url=repo_url,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+async def test_snapshot_url_wins_over_integration(mock_request, mock_db):
+    """Workspace.repo_url is preferred over the live integration value.
+
+    This is the multi-repo-PAT safety net: if the user changes the
+    integration repo from A to B while a workspace opened against A is in
+    flight, the workspace must keep operating on A.
+    """
+    gh = _github_integration(repo_url="https://github.com/org/B")
+    workspace = _ws(repo_url="https://github.com/org/A")
+
+    with patch(
+        "opensec.api.routes.workspaces.list_integrations",
+        new=AsyncMock(return_value=[gh]),
+    ):
+        result = await _resolve_repo_env_vars(
+            mock_request, mock_db, workspace=workspace
+        )
+
+    assert result["OPENSEC_REPO_URL"] == "https://github.com/org/A"
+
+
+async def test_no_snapshot_falls_back_to_integration(mock_request, mock_db):
+    """Pre-migration workspaces (repo_url=None) fall back to the integration."""
+    gh = _github_integration(repo_url="https://github.com/org/legacy")
+    workspace = _ws(repo_url=None)
+
+    with patch(
+        "opensec.api.routes.workspaces.list_integrations",
+        new=AsyncMock(return_value=[gh]),
+    ):
+        result = await _resolve_repo_env_vars(
+            mock_request, mock_db, workspace=workspace
+        )
+
+    assert result["OPENSEC_REPO_URL"] == "https://github.com/org/legacy"
+
+
+async def test_snapshot_works_without_integration(mock_request, mock_db):
+    """If the integration was deleted, the snapshot still drives the URL.
+
+    Token-less, but the URL is enough for read-only operations and for
+    error messages downstream.
+    """
+    workspace = _ws(repo_url="https://github.com/org/snapshotted")
+
+    with patch(
+        "opensec.api.routes.workspaces.list_integrations",
+        new=AsyncMock(return_value=[]),
+    ):
+        result = await _resolve_repo_env_vars(
+            mock_request, mock_db, workspace=workspace
+        )
+
+    assert result == {"OPENSEC_REPO_URL": "https://github.com/org/snapshotted"}

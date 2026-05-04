@@ -50,11 +50,23 @@ def _get_context_builder(request: Request) -> WorkspaceContextBuilder:
 
 
 async def _resolve_repo_env_vars(
-    request: Request, db: aiosqlite.Connection
+    request: Request,
+    db: aiosqlite.Connection,
+    *,
+    workspace: Workspace | None = None,
 ) -> dict[str, str]:
-    """Read GH_TOKEN and OPENSEC_REPO_URL from the GitHub integration.
+    """Read GH_TOKEN and OPENSEC_REPO_URL for a workspace's agent runtime.
 
-    Returns a dict of env vars to inject into workspace processes.
+    Resolution order for the repo URL:
+      1. ``workspace.repo_url`` — snapshot taken at workspace creation
+         (migration 013). Pins the workspace to the repo it was opened
+         against; multi-repo PATs cannot silently rebind it.
+      2. ``integration_config.config.repo_url`` — live fallback for
+         pre-migration workspaces (snapshot column will be NULL).
+
+    The PAT always comes live from the vault — rotating the token is
+    intentional behavior we want to take effect immediately.
+
     Failures are non-fatal — returns partial or empty dict.
     """
     env_vars: dict[str, str] = {}
@@ -69,14 +81,18 @@ async def _resolve_repo_env_vars(
         (i for i in integrations if i.provider_name == "GitHub" and i.enabled),
         None,
     )
+
+    # Repo URL: prefer the workspace snapshot, fall back to the integration.
+    snapshot = workspace.repo_url if workspace is not None else None
+    if snapshot:
+        env_vars["OPENSEC_REPO_URL"] = snapshot
+    elif github is not None and github.config and github.config.get("repo_url"):
+        env_vars["OPENSEC_REPO_URL"] = github.config["repo_url"]
+
+    # GitHub PAT from vault — keyed by the integration row, so we still need it.
     if github is None:
         return env_vars
 
-    # Repo URL from integration config (not secret)
-    if github.config and github.config.get("repo_url"):
-        env_vars["OPENSEC_REPO_URL"] = github.config["repo_url"]
-
-    # GitHub PAT from vault
     vault = getattr(request.app.state, "vault", None)
     if vault is not None:
         try:
@@ -86,6 +102,29 @@ async def _resolve_repo_env_vars(
             pass  # No token configured — not an error
 
     return env_vars
+
+
+async def _resolve_github_repo_url(db: aiosqlite.Connection) -> str | None:
+    """Read the current GitHub integration's ``config.repo_url``.
+
+    Used at workspace-creation time to snapshot onto the workspace row.
+    Returns ``None`` if no enabled GitHub integration exists or it lacks a
+    repo URL — caller stores ``None``, falling back to the live integration
+    value at runtime (preserves current behavior).
+    """
+    try:
+        integrations = await list_integrations(db)
+    except Exception:
+        logger.warning("Failed to list integrations for snapshot", exc_info=True)
+        return None
+    github = next(
+        (i for i in integrations if i.provider_name == "GitHub" and i.enabled),
+        None,
+    )
+    if github is None or not github.config:
+        return None
+    value = github.config.get("repo_url")
+    return value if isinstance(value, str) and value else None
 
 
 async def _get_workspace_or_404(db, workspace_id: str) -> Workspace:
@@ -111,8 +150,13 @@ async def create_workspace_endpoint(
     if finding is None:
         raise HTTPException(status_code=404, detail="Finding not found")
 
+    # Snapshot the integration's current repo URL onto the workspace so a
+    # later edit to the integration config doesn't silently rebind in-flight
+    # workspaces to a different repo (migration 013).
+    repo_url = await _resolve_github_repo_url(db)
+
     return await context_builder.create_workspace(
-        db, finding, initial_focus=body.current_focus
+        db, finding, initial_focus=body.current_focus, repo_url=repo_url
     )
 
 
@@ -185,7 +229,7 @@ async def create_workspace_session(
         raise HTTPException(status_code=409, detail="Workspace has no directory")
 
     pool = _get_pool(request)
-    env_vars = await _resolve_repo_env_vars(request, db)
+    env_vars = await _resolve_repo_env_vars(request, db, workspace=workspace)
     client = await pool.get_or_start(
         workspace_id, Path(workspace.workspace_dir), env_vars=env_vars
     )
@@ -216,7 +260,7 @@ async def workspace_send_message(
         raise HTTPException(status_code=409, detail="Workspace has no directory")
 
     pool = _get_pool(request)
-    env_vars = await _resolve_repo_env_vars(request, db)
+    env_vars = await _resolve_repo_env_vars(request, db, workspace=workspace)
     client = await pool.get_or_start(
         workspace_id, Path(workspace.workspace_dir), env_vars=env_vars
     )
@@ -238,7 +282,7 @@ async def workspace_stream_events(
         raise HTTPException(status_code=409, detail="Workspace has no directory")
 
     pool = _get_pool(request)
-    env_vars = await _resolve_repo_env_vars(request, db)
+    env_vars = await _resolve_repo_env_vars(request, db, workspace=workspace)
     client = await pool.get_or_start(
         workspace_id, Path(workspace.workspace_dir), env_vars=env_vars
     )
@@ -311,7 +355,7 @@ async def respond_to_chat_permission(
         raise HTTPException(status_code=409, detail="Workspace has no directory")
 
     pool = _get_pool(request)
-    env_vars = await _resolve_repo_env_vars(request, db)
+    env_vars = await _resolve_repo_env_vars(request, db, workspace=workspace)
     client = await pool.get_or_start(
         workspace_id, Path(workspace.workspace_dir), env_vars=env_vars
     )

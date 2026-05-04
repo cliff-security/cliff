@@ -21,6 +21,25 @@ class UnableToVerify:
     reason: str
 
 
+def _parse_next_link(link_header: str | None) -> str | None:
+    """Extract the ``rel="next"`` URL from a GitHub Link header, if any.
+
+    GitHub paginates ``GET /user/repos`` via a ``Link`` header containing
+    comma-separated ``<url>; rel="kind"`` entries. We don't need a full
+    RFC 5988 parser — only the next-page URL.
+    """
+    if not link_header:
+        return None
+    for part in link_header.split(","):
+        segments = [s.strip() for s in part.split(";")]
+        if len(segments) < 2 or not segments[0].startswith("<") or not segments[0].endswith(">"):
+            continue
+        rels = [s for s in segments[1:] if s == 'rel="next"']
+        if rels:
+            return segments[0][1:-1]
+    return None
+
+
 class GithubClient:
     def __init__(
         self,
@@ -106,6 +125,51 @@ class GithubClient:
         if response.status_code in (401, 403, 404, 429):
             return UnableToVerify(reason=f"http_{response.status_code}")
         return UnableToVerify(reason=f"http_{response.status_code}")
+
+    async def list_user_repos(
+        self, *, max_pages: int = 5, per_page: int = 100
+    ) -> list[dict[str, Any]] | UnableToVerify:
+        """``GET /user/repos`` paginated — used by onboarding's repo picker.
+
+        Returns the raw repo objects across up to ``max_pages`` pages
+        (default 500 repos). For users with more we expose a manual-URL
+        fallback in the SPA — listing every repo for accounts with thousands
+        is wasteful and slows the picker. Auth/scope failures degrade to
+        ``UnableToVerify`` so the route can map them to a 422 the SPA can
+        surface — same pattern as :meth:`get_repo_info`.
+        """
+        url: str | None = (
+            f"{GITHUB_API}/user/repos"
+            f"?per_page={per_page}&affiliation=owner,collaborator,organization_member"
+            f"&sort=updated"
+        )
+        repos: list[dict[str, Any]] = []
+        for _ in range(max_pages):
+            if url is None:
+                break
+            try:
+                response = await self._http.get(
+                    url, headers=self._headers(), timeout=self._timeout
+                )
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                return UnableToVerify(reason=f"network: {exc.__class__.__name__}")
+
+            if response.status_code != 200:
+                if response.status_code in (401, 403, 404, 429):
+                    return UnableToVerify(reason=f"http_{response.status_code}")
+                return UnableToVerify(reason=f"http_{response.status_code}")
+
+            body = response.json()
+            if not isinstance(body, list):
+                return UnableToVerify(reason="unexpected_body")
+            repos.extend(item for item in body if isinstance(item, dict))
+
+            # Follow the ``Link: <next-url>; rel="next"`` header. GitHub
+            # returns no rel=next on the final page; we stop there even if
+            # we haven't hit ``max_pages``.
+            url = _parse_next_link(response.headers.get("Link"))
+
+        return repos
 
     async def get_user_last_event(self, login: str) -> str | None | UnableToVerify:
         """Return the ISO timestamp of the user's most recent **public** event,
