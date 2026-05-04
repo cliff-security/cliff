@@ -42,6 +42,15 @@ Phase 7 — Ticket workflow (depends on Phase 6b, deferred to post-MVP):
 
 ## App Builder (Vertical 2)
 
+### Sidenav redesign follow-up (PRD-0006, IMPL-0008-sidenav-redesign) — shipped
+
+Closed by `feat/prd-0006-sidenav-redesign` (PR #134 / commit `b413e00`, merged 2026-05-04). 224px named rail with logo block, workspace switcher, Issues count badge, and labeled Settings footer per Claude Design's `IPSideNav`. Frontend-only, no backend, no migration.
+
+- [x] **F1**: `SideNav.tsx` rebuilt to 224px (`w-56`) in-flow rail — logo block (`shield_lock` filled + "OpenSec" wordmark), `WorkspaceSwitcher` card with repo avatar + `owner/repo` name + URL hint + chevron (no-op in alpha), 2 named nav items, labeled Settings footer with hairline divider
+- [x] **F2**: `AppLayout.tsx` moved to flex flow — `<main className="flex-1 min-w-0 overflow-x-hidden">`, no more `ml-20`
+- [x] **F3**: `useOpenIssuesCount()` hook landed at `frontend/src/api/hooks.ts`, reuses the `useFindings()` cache; SideNav consumes it for the Issues badge
+- [x] **F4**: Snapshot tests in `__snapshots__/SideNav.test.tsx.snap` cover active states for Dashboard / Issues / Settings
+
 ### Issues page Phase 2 (PRD-0006, IMPL-0007-issues-page-phase-2) — shipped
 
 Closed by two PRs landed 2026-05-04: PR-A side panel + Workspace removal + Issues polish (`feat/prd-0006-phase-2-side-panel`, PR #129) and PR-B Dashboard refresh (`feat/prd-0006-phase-2-dashboard`, PR #130).
