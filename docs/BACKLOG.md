@@ -42,31 +42,27 @@ Phase 7 — Ticket workflow (depends on Phase 6b, deferred to post-MVP):
 
 ## App Builder (Vertical 2)
 
-### Issues page Phase 2 (PRD-0006, IMPL-0007-issues-page-phase-2) — side panel + Workspace removal + Dashboard refresh
+### Issues page Phase 2 (PRD-0006, IMPL-0007-issues-page-phase-2) — shipped
 
-Two branches / two PRs that ship independently. PR-A carries the side panel and is the core Phase 2 bet; PR-B refreshes the Dashboard. **Gate: do NOT start until Phase 1 has been in main for ≥ 5 days with no blocking UX feedback.**
+Closed by two PRs landed 2026-05-04: PR-A side panel + Workspace removal + Issues polish (`feat/prd-0006-phase-2-side-panel`, PR #129) and PR-B Dashboard refresh (`feat/prd-0006-phase-2-dashboard`, PR #130).
 
-**PR-A — `feat/prd-0006-phase-2-side-panel`**
+**PR-A — side panel + Workspace removal (PR #129)**
 
-- [ ] **B1**: Migration `010_phase2_columns.sql` — add nullable `finding.exception_reason` (CHECK ∈ {false_positive, accepted_risk, wont_fix, deferred}) and `finding.exception_note` (≤ 280 chars at API layer). TDD via `tests/test_migration_010.py`
-- [ ] **B2**: Extend `Finding` model + `repo_finding` + `issue_derivation` for exception fields. 4 new derivation cases mapping reasons to `IssueStage` values
-- [ ] **B3**: `POST /findings/{id}/reject` — explicit state-transition endpoint accepting `{reason, note}`. Sets `status='exception'` + persists fields. TDD via `tests/test_routes_findings_reject.py`
-- [ ] **B4**: `user_note` extension on `POST /workspaces/{id}/agents/{type}/execute` — optional body field; when set + `agent_type='remediation_planner'`, threaded into the planner template's prompt. **V1 consult required** before code lands.
-- [ ] **F1**: `IssueSidePanel` shell — 480px right-edge drawer, header (severity + stage + ID + close), 240ms ease-out open / 180ms ease-in close + reduced-motion path
-- [ ] **F2**: URL state `/issues?open=:issueId` opens the panel; Esc / outside-click / browser-back close; closing clears the param
-- [ ] **F3**: Stage-aware section ordering (Plan / PR / Validation / Finding / Activity) with 200ms slide on stage transitions; auto-scroll new top section into view
-- [ ] **F4**: Sticky 72px footer with stage-aware content (5 variants); fixed height regardless of content; keyboard hints inline
-- [ ] **F5**: Refine inline state — primary-container tonal callout with autofocus textarea; submit calls execute endpoint with `user_note` (B4)
-- [ ] **F6**: Reject reason picker as inline footer state (no modal) — 4 chips + optional note; submit calls reject endpoint (B3)
-- [ ] **F7**: Plans-waiting / PRs-ready sub-grouping inside Review when both sub-groups are non-empty; otherwise flat (no regression from Phase 1)
-- [ ] **F8**: Done collapsed by default with single-word verdict chips; `[`/`]` keyboard shortcut; sessionStorage persistence
-- [ ] **F9**: Workspace page deletion (905 lines + tests); 301 redirect from `/workspace/:id` → `/issues?open=:id`; **audit-first** for shared component dependencies before deletion
-- [ ] **F10**: Migration banner removal (its job ends with this redesign)
+- [x] **B1**: Migration `012_phase2_columns.sql` — `finding.exception_reason` (CHECK ∈ {false_positive, accepted_risk, wont_fix, deferred}) + `finding.exception_note`
+- [x] **B2**: `Finding` / `FindingCreate` / `FindingUpdate` carry exception fields; `issue_derivation` maps each reason to the matching `IssueStage` with legacy `raw_payload.exception_reason` fallback
+- [x] **B3**: `POST /findings/{id}/reject` — accepts `{reason, note ≤ 280}`; re-rejecting overrides the prior reason+note
+- [x] **B4**: `user_note` (≤ 2000 chars) on `POST /workspaces/{id}/agents/{type}/execute`; threaded into `remediation_planner.md.j2` `## User refinement` block; other agents accept and ignore
+- [x] **F1+F3+F4+F5+F6**: `IssueSidePanel` — 480px right-edge drawer, stage-aware section ordering, sticky 72px footer (5 variants), inline Refine textarea, inline Reject reason picker (no modals)
+- [x] **F2**: URL state `/issues?open=:findingId` — Esc / outside-click / browser-back close; closing clears the param
+- [x] **F7**: Plans-waiting / PRs-ready sub-grouping in Review only when both buckets are non-empty
+- [x] **F8**: Done collapsed by default; `[`/`]` keyboard toggle; `sessionStorage` persistence
+- [x] **F9**: `WorkspacePage.tsx` (905 lines) deleted; `/workspace/:id` resolves through `WorkspaceRedirect` → `/issues?open=<finding_id>`; `HistoryCard` "View" rewired to `?open=`
+- [x] **F10**: `MigrationBanner` deleted (Phase 2 is the redesign it announced)
 
-**PR-B — `feat/prd-0006-phase-2-dashboard`** (independent of PR-A; ships in parallel or right after)
+**PR-B — Dashboard refresh (PR #130)**
 
-- [ ] **B5**: Extend `GET /dashboard` payload with: `counts.open_issues_history`, `counts.delta_pct_30d`, `counts.time_to_close_*`, `needs_you.{plans_waiting, prs_ready, critical_todo}`, `grade_history` (90 daily snapshots), `severity_history` (60 daily counts × 4 severities). One endpoint, one cache key.
-- [ ] **F11**: `DashboardPage` rebuild — `IssueGradeHero` (192px Manrope 800 letter + badge), `IssueMetricCard` × 2 with `IssueSparkline` + `IssueDeltaChip`, `IssueNeedsYouLine`, `IssueGradeHistoryChart` (1080×280 SVG stacked-area + letter-change marker). Reuse existing `useDashboard()` hook.
+- [x] **B5**: Extended `GET /dashboard` payload with history + needs-you fields (`counts.open_issues_history`, `counts.delta_pct_30d`, `counts.time_to_close_*`, `needs_you.{plans_waiting, prs_ready, critical_todo}`, `grade_history`, `severity_history`)
+- [x] **F11**: `DashboardPage` rebuilt — `IssueGradeHero`, `IssueMetricCard` × 2 with `IssueSparkline` + `IssueDeltaChip`, `IssueNeedsYouLine`, `IssueGradeHistoryChart`
 
 ### Issues page Phase 1 (PRD-0006, IMPL-0006-issues-page-phase-1) — shipped
 
