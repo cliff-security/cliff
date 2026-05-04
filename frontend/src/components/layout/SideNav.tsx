@@ -73,9 +73,12 @@ function repoInitials(repoUrl: string | undefined, providerName: string): string
 }
 
 function repoDisplayName(repoUrl: string): string {
+  // CEO override of the chrome.jsx mock: render in GitHub's native
+  // `owner/repo` style (galanko/OpenSec) instead of `owner-repo`
+  // (galanko-OpenSec) so the card reads instantly as a repo identifier.
   const stripped = repoUrl.replace(/^https?:\/\//, '').replace(/\.git$/, '')
   const parts = stripped.split('/').filter(Boolean)
-  if (parts.length >= 3) return `${parts[1]}-${parts[2]}`
+  if (parts.length >= 3) return `${parts[1]}/${parts[2]}`
   return parts[parts.length - 1] ?? repoUrl
 }
 

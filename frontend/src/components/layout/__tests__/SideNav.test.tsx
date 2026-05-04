@@ -84,12 +84,12 @@ describe('SideNav (IMPL-0008 redesign)', () => {
     expect(logoIcon.textContent).toBe('shield_lock')
   })
 
-  it('renders the workspace switcher with repo initials, name, and URL hint', async () => {
+  it('renders the workspace switcher with repo initials, owner/repo name, and URL hint', async () => {
     stubIntegrations()
     stubFindings([])
     renderSideNav()
     await waitFor(() =>
-      expect(screen.getByText('linear-billing')).toBeInTheDocument(),
+      expect(screen.getByText('linear/billing')).toBeInTheDocument(),
     )
     expect(screen.getByText('LB')).toBeInTheDocument()
     expect(screen.getByText('github.com/linear/billing')).toBeInTheDocument()
@@ -113,7 +113,7 @@ describe('SideNav (IMPL-0008 redesign)', () => {
     stubFindings([])
     renderSideNav()
     await waitFor(() =>
-      expect(screen.getByText('linear-billing')).toBeInTheDocument(),
+      expect(screen.getByText('linear/billing')).toBeInTheDocument(),
     )
     const switcher = screen.getByRole('button', { name: /workspace/i })
     expect(switcher.getAttribute('type')).toBe('button')

@@ -31,7 +31,7 @@ exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Dash
     </span>
   </a>
   <button
-    aria-label="Workspace: linear-billing"
+    aria-label="Workspace: linear/billing"
     class="mx-3 mb-4 flex items-center justify-between rounded-lg px-2.5 py-2 transition-colors border border-outline-variant hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
     type="button"
   >
@@ -51,7 +51,7 @@ exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Dash
         <div
           class="text-[12px] font-semibold text-on-surface truncate"
         >
-          linear-billing
+          linear/billing
         </div>
         <div
           class="text-[10px] text-on-surface-variant truncate"
@@ -172,7 +172,7 @@ exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Issu
     </span>
   </a>
   <button
-    aria-label="Workspace: linear-billing"
+    aria-label="Workspace: linear/billing"
     class="mx-3 mb-4 flex items-center justify-between rounded-lg px-2.5 py-2 transition-colors border border-outline-variant hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
     type="button"
   >
@@ -192,7 +192,7 @@ exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Issu
         <div
           class="text-[12px] font-semibold text-on-surface truncate"
         >
-          linear-billing
+          linear/billing
         </div>
         <div
           class="text-[10px] text-on-surface-variant truncate"
@@ -313,7 +313,7 @@ exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Sett
     </span>
   </a>
   <button
-    aria-label="Workspace: linear-billing"
+    aria-label="Workspace: linear/billing"
     class="mx-3 mb-4 flex items-center justify-between rounded-lg px-2.5 py-2 transition-colors border border-outline-variant hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
     type="button"
   >
@@ -333,7 +333,7 @@ exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Sett
         <div
           class="text-[12px] font-semibold text-on-surface truncate"
         >
-          linear-billing
+          linear/billing
         </div>
         <div
           class="text-[10px] text-on-surface-variant truncate"
