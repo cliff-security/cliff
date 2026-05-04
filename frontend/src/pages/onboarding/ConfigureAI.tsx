@@ -6,6 +6,7 @@ import WizardNav from '@/components/onboarding/WizardNav'
 import InlineErrorCallout from '@/components/onboarding/InlineErrorCallout'
 import ModelPickerDialog from '@/components/onboarding/ModelPickerDialog'
 import { useProviders, useSetApiKey, useUpdateModel } from '@/api/hooks'
+import { useProviderTest } from '@/api/providers'
 import { onboardingStorage } from './storage'
 
 /**
@@ -52,11 +53,27 @@ interface Selection {
   model: string
 }
 
+// Two-stage button state (PRD-0006 follow-up).
+//
+// The original "Test and continue" button only saved the key — it never
+// actually probed the provider, so a wrong key sailed through and surfaced
+// later as a confusing agent failure. We now require an explicit
+// successful probe before the wizard advances. ``passed`` collapses the
+// CTA to a plain "Continue" so the second click is fast.
+type TestStatus = 'untested' | 'testing' | 'passed' | 'failed'
+
+interface TestPass {
+  /** Latency the backend reported, surfaced in the success badge so the
+   *  user knows we actually round-tripped to the provider. */
+  latencyMs: number
+}
+
 export default function ConfigureAI() {
   const navigate = useNavigate()
   const { data: providers } = useProviders()
   const updateModel = useUpdateModel()
   const setApiKey = useSetApiKey()
+  const providerTest = useProviderTest()
 
   const [providerId, setProviderId] = useState<ProviderChoice>('openai')
   const [selection, setSelection] = useState<Selection | null>(null)
@@ -64,6 +81,18 @@ export default function ConfigureAI() {
   const [otherOpen, setOtherOpen] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [allowBypass, setAllowBypass] = useState(false)
+  const [testStatus, setTestStatus] = useState<TestStatus>('untested')
+  const [testPass, setTestPass] = useState<TestPass | null>(null)
+
+  // Reset the test verdict whenever the user changes anything that could
+  // have made it valid. We do NOT clear the saved key — it's still in the
+  // vault from the previous attempt, but the user has to re-prove it.
+  function resetTest() {
+    setTestStatus('untested')
+    setTestPass(null)
+    setErrorMsg(null)
+    setAllowBypass(false)
+  }
 
   // Models available for the short-list providers. "Other" always opens the
   // picker — we never need a local model list for it.
@@ -80,6 +109,7 @@ export default function ConfigureAI() {
   function handleCardSelect(id: ProviderChoice) {
     setProviderId(id)
     setSelection(null)
+    resetTest()
     if (id === 'other') setOtherOpen(true)
   }
 
@@ -87,6 +117,7 @@ export default function ConfigureAI() {
     setSelection({ provider, model })
     setProviderId('other')
     setOtherOpen(false)
+    resetTest()
   }
 
   function advance(selected: Selection) {
@@ -95,19 +126,59 @@ export default function ConfigureAI() {
     navigate('/onboarding/start')
   }
 
-  async function handleContinue() {
+  /**
+   * First-click handler: saves the credentials, then probes the provider
+   * via ``/api/settings/providers/test``. The probe fires a bounded
+   * "Say OK" through the just-saved configuration, so save MUST happen
+   * first — otherwise we'd be testing whatever was previously set.
+   *
+   * On any failure (save or probe) we surface ``error_message`` from the
+   * backend and offer the existing "Save anyway" bypass for genuinely
+   * stuck users (e.g. air-gapped environments where the probe can't run).
+   */
+  async function handleTest() {
     if (!selection || !apiKey.trim()) return
     setErrorMsg(null)
+    setAllowBypass(false)
+    setTestStatus('testing')
+
     const fullId = `${selection.provider}/${selection.model}`
     try {
       await setApiKey.mutateAsync({ provider: selection.provider, key: apiKey.trim() })
       await updateModel.mutateAsync(fullId)
-      advance(selection)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Could not save your choice'
+      const msg = err instanceof Error ? err.message : "Couldn't save your choice"
       setErrorMsg(msg)
       setAllowBypass(true)
+      setTestStatus('failed')
+      return
     }
+
+    try {
+      const result = await providerTest.mutateAsync({
+        provider: selection.provider,
+        model: selection.model,
+        api_key: apiKey.trim(),
+      })
+      if (result.ok) {
+        setTestPass({ latencyMs: result.latency_ms })
+        setTestStatus('passed')
+      } else {
+        setErrorMsg(result.error_message || 'The provider rejected the request.')
+        setAllowBypass(true)
+        setTestStatus('failed')
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not reach the provider.'
+      setErrorMsg(msg)
+      setAllowBypass(true)
+      setTestStatus('failed')
+    }
+  }
+
+  function handleAdvance() {
+    if (!selection) return
+    advance(selection)
   }
 
   function handleSaveAnyway() {
@@ -115,9 +186,21 @@ export default function ConfigureAI() {
     advance(selection)
   }
 
-  const pending = setApiKey.isPending || updateModel.isPending
-  const canContinue =
-    !!selection && apiKey.trim().length > 0 && !pending
+  const saving = setApiKey.isPending || updateModel.isPending
+  const testing = testStatus === 'testing' || providerTest.isPending || saving
+  const inputsReady = !!selection && apiKey.trim().length > 0
+  const passed = testStatus === 'passed'
+
+  // The CTA is the same physical button across both stages — only its
+  // label and handler change. Keeping it in the same DOM slot avoids
+  // jumpy layout when the verdict comes back.
+  const ctaLabel = testing
+    ? 'Testing…'
+    : passed
+      ? 'Continue'
+      : 'Test connection'
+  const ctaHandler = passed ? handleAdvance : handleTest
+  const ctaDisabled = !inputsReady || testing
 
   return (
     <OnboardingShell step={2}>
@@ -158,6 +241,7 @@ export default function ConfigureAI() {
               } else {
                 setSelection({ provider: providerId, model: modelId })
               }
+              resetTest()
             }}
             className="w-full px-4 py-3 rounded-lg bg-surface-container-lowest shadow-sm border-0 ring-0 focus:ring-2 focus:ring-primary/30 focus:outline-none text-sm"
           >
@@ -214,8 +298,7 @@ export default function ConfigureAI() {
           value={apiKey}
           onChange={(e) => {
             setApiKeyInput(e.target.value)
-            setErrorMsg(null)
-            setAllowBypass(false)
+            resetTest()
           }}
           placeholder="sk-••••••••••••••••••••••••••••"
           className="w-full px-4 py-3 rounded-lg bg-surface-container-lowest shadow-sm border-0 ring-0 focus:ring-2 focus:ring-primary/30 focus:outline-none text-sm font-mono"
@@ -260,11 +343,36 @@ export default function ConfigureAI() {
         />
       )}
 
+      {passed && (
+        <div
+          role="status"
+          aria-live="polite"
+          data-testid="provider-test-pass"
+          className="mt-4 rounded-lg bg-tertiary-container/30 px-4 py-3 flex items-start gap-3"
+        >
+          <span
+            className="material-symbols-outlined text-tertiary flex-shrink-0"
+            aria-hidden="true"
+            style={{ fontVariationSettings: "'FILL' 1" }}
+          >
+            check_circle
+          </span>
+          <div className="text-sm text-on-surface">
+            <p className="font-semibold">Connection verified</p>
+            <p className="text-on-surface-variant mt-0.5">
+              {selection
+                ? `${selection.provider}/${selection.model} responded in ${testPass?.latencyMs ?? '—'} ms.`
+                : 'Provider responded.'}
+            </p>
+          </div>
+        </div>
+      )}
+
       <WizardNav
         onBack={() => navigate('/onboarding/connect')}
-        onNext={handleContinue}
-        nextLabel={pending ? 'Testing…' : 'Test and continue'}
-        nextDisabled={!canContinue}
+        onNext={ctaHandler}
+        nextLabel={ctaLabel}
+        nextDisabled={ctaDisabled}
       />
 
       <ModelPickerDialog

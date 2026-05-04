@@ -202,6 +202,30 @@ export const sessionHandlers = [
     ]),
   ),
 
+  // ConfigureAI's "Test connection" runs the real provider probe before
+  // the wizard advances. Sentinel ``sk-bad-key`` simulates auth failure;
+  // any other key resolves to ``ok=true`` so component tests can walk the
+  // happy path without standing up OpenCode.
+  http.post('/api/settings/providers/test', async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as {
+      api_key?: string
+    }
+    if (body?.api_key === 'sk-bad-key') {
+      return HttpResponse.json({
+        ok: false,
+        latency_ms: 142,
+        error_code: 'auth_failed',
+        error_message: 'The provider rejected the key (401).',
+      })
+    }
+    return HttpResponse.json({
+      ok: true,
+      latency_ms: 312,
+      error_code: null,
+      error_message: null,
+    })
+  }),
+
   http.put('/api/settings/api-keys/:provider', async ({ params }) =>
     HttpResponse.json({
       provider: String(params.provider),

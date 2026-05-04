@@ -97,7 +97,15 @@ describe('onboarding wizard', () => {
     )
     await user.selectOptions(screen.getByLabelText(/^model/i), 'gpt-4o-mini')
     await user.type(screen.getByLabelText(/api key/i), 'sk-test-key')
-    await user.click(screen.getByRole('button', { name: /test and continue/i }))
+
+    // Two-stage button: first click probes the provider, second click
+    // advances. Without an explicit verified probe the wizard refuses to
+    // move on — that's the whole point of this flow.
+    await user.click(screen.getByRole('button', { name: /test connection/i }))
+    expect(
+      await screen.findByTestId('provider-test-pass'),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^continue$/i }))
 
     // 1.5 Start assessment.
     expect(
@@ -183,6 +191,34 @@ describe('onboarding wizard', () => {
       screen.getByLabelText(/github personal access token/i),
     ).toBeInTheDocument()
     expect(screen.queryByTestId('repo-picker')).not.toBeInTheDocument()
+  })
+
+  it('blocks advance when the provider probe rejects the key', async () => {
+    const user = userEvent.setup()
+    renderWizard('/onboarding/ai')
+
+    // Default OpenAI card is preselected; pick a model and the sentinel
+    // bad key the MSW handler rejects with auth_failed.
+    await waitFor(() =>
+      expect(
+        screen.getByRole('option', { name: 'GPT-4o mini' }),
+      ).toBeInTheDocument(),
+    )
+    await user.selectOptions(screen.getByLabelText(/^model/i), 'gpt-4o-mini')
+    await user.type(screen.getByLabelText(/api key/i), 'sk-bad-key')
+    await user.click(
+      screen.getByRole('button', { name: /test connection/i }),
+    )
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/rejected the key/i)
+    // The CTA stays as "Test connection" — no implicit Continue path.
+    expect(
+      screen.getByRole('button', { name: /test connection/i }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /^continue$/i }),
+    ).not.toBeInTheDocument()
   })
 
   it('opens the TokenHowToDialog scrim from the help link', async () => {
