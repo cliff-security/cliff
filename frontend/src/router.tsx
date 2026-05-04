@@ -6,7 +6,7 @@ import DashboardPage from '@/pages/DashboardPage'
 import FindingDetailPage from '@/pages/FindingDetailPage'
 import { FindingDetailPageRedirect } from '@/pages/FindingsRedirects'
 import IssuesPage from '@/pages/IssuesPage'
-import WorkspacePage from '@/pages/WorkspacePage'
+import WorkspaceRedirect from '@/pages/WorkspaceRedirect'
 import HistoryPage from '@/pages/HistoryPage'
 import SettingsPage from '@/pages/SettingsPage'
 import Spike from '@/pages/Spike'
@@ -47,7 +47,12 @@ export const router = createBrowserRouter([
       { path: 'findings', element: <Navigate to="/issues" replace /> },
       { path: 'findings/:id', element: <FindingDetailPageRedirect /> },
       { path: 'queue', element: <Navigate to="/issues" replace /> },
-      { path: 'workspace/:id?', element: <WorkspacePage /> },
+      // PRD-0006 Phase 2 — the standalone Workspace page is removed; the
+      // 480px side panel on /issues is now the only depth surface. The
+      // bare /workspace path goes straight to /issues; /workspace/:id
+      // resolves the workspace, then redirects to ?open=<finding_id>.
+      { path: 'workspace', element: <Navigate to="/issues" replace /> },
+      { path: 'workspace/:id', element: <WorkspaceRedirect /> },
       { path: 'history', element: <HistoryPage /> },
       { path: 'integrations', element: <Navigate to="/settings" replace /> },
       { path: 'settings', element: <SettingsPage /> },
