@@ -42,9 +42,35 @@ Phase 7 — Ticket workflow (depends on Phase 6b, deferred to post-MVP):
 
 ## App Builder (Vertical 2)
 
-### Issues page Phase 1 (PRD-0006, IMPL-0006-issues-page-phase-1) — alpha-shippable
+### Issues page Phase 2 (PRD-0006, IMPL-0007-issues-page-phase-2) — side panel + Workspace removal + Dashboard refresh
 
-Single branch / single PR: `feat/prd-0006-phase-1-issues-page`. Auto-executable via the handoff prompt in IMPL-0006. Phase 2 (side panel, Workspace removal, posture unification, Dashboard refresh) is a separate plan written after alpha feedback.
+Two branches / two PRs that ship independently. PR-A carries the side panel and is the core Phase 2 bet; PR-B refreshes the Dashboard. **Gate: do NOT start until Phase 1 has been in main for ≥ 5 days with no blocking UX feedback.**
+
+**PR-A — `feat/prd-0006-phase-2-side-panel`**
+
+- [ ] **B1**: Migration `010_phase2_columns.sql` — add nullable `finding.exception_reason` (CHECK ∈ {false_positive, accepted_risk, wont_fix, deferred}) and `finding.exception_note` (≤ 280 chars at API layer). TDD via `tests/test_migration_010.py`
+- [ ] **B2**: Extend `Finding` model + `repo_finding` + `issue_derivation` for exception fields. 4 new derivation cases mapping reasons to `IssueStage` values
+- [ ] **B3**: `POST /findings/{id}/reject` — explicit state-transition endpoint accepting `{reason, note}`. Sets `status='exception'` + persists fields. TDD via `tests/test_routes_findings_reject.py`
+- [ ] **B4**: `user_note` extension on `POST /workspaces/{id}/agents/{type}/execute` — optional body field; when set + `agent_type='remediation_planner'`, threaded into the planner template's prompt. **V1 consult required** before code lands.
+- [ ] **F1**: `IssueSidePanel` shell — 480px right-edge drawer, header (severity + stage + ID + close), 240ms ease-out open / 180ms ease-in close + reduced-motion path
+- [ ] **F2**: URL state `/issues?open=:issueId` opens the panel; Esc / outside-click / browser-back close; closing clears the param
+- [ ] **F3**: Stage-aware section ordering (Plan / PR / Validation / Finding / Activity) with 200ms slide on stage transitions; auto-scroll new top section into view
+- [ ] **F4**: Sticky 72px footer with stage-aware content (5 variants); fixed height regardless of content; keyboard hints inline
+- [ ] **F5**: Refine inline state — primary-container tonal callout with autofocus textarea; submit calls execute endpoint with `user_note` (B4)
+- [ ] **F6**: Reject reason picker as inline footer state (no modal) — 4 chips + optional note; submit calls reject endpoint (B3)
+- [ ] **F7**: Plans-waiting / PRs-ready sub-grouping inside Review when both sub-groups are non-empty; otherwise flat (no regression from Phase 1)
+- [ ] **F8**: Done collapsed by default with single-word verdict chips; `[`/`]` keyboard shortcut; sessionStorage persistence
+- [ ] **F9**: Workspace page deletion (905 lines + tests); 301 redirect from `/workspace/:id` → `/issues?open=:id`; **audit-first** for shared component dependencies before deletion
+- [ ] **F10**: Migration banner removal (its job ends with this redesign)
+
+**PR-B — `feat/prd-0006-phase-2-dashboard`** (independent of PR-A; ships in parallel or right after)
+
+- [ ] **B5**: Extend `GET /dashboard` payload with: `counts.open_issues_history`, `counts.delta_pct_30d`, `counts.time_to_close_*`, `needs_you.{plans_waiting, prs_ready, critical_todo}`, `grade_history` (90 daily snapshots), `severity_history` (60 daily counts × 4 severities). One endpoint, one cache key.
+- [ ] **F11**: `DashboardPage` rebuild — `IssueGradeHero` (192px Manrope 800 letter + badge), `IssueMetricCard` × 2 with `IssueSparkline` + `IssueDeltaChip`, `IssueNeedsYouLine`, `IssueGradeHistoryChart` (1080×280 SVG stacked-area + letter-change marker). Reuse existing `useDashboard()` hook.
+
+### Issues page Phase 1 (PRD-0006, IMPL-0006-issues-page-phase-1) — shipped
+
+Closed by `feat/prd-0006-phase-1-issues-page` (PR #101 / commit `d8de33e`). Pinned Review section, In progress collapsed-by-default, stage-aware row actions, sidenav trim, derived `section`/`stage` on Finding response. All 13 tasks (T1–T13) shipped.
 
 - [ ] **T1**: `issue_derivation.py` pure function + `IssueSection` / `IssueStage` / `IssueDerived` models. TDD: ≥ 18 cases in `tests/test_issue_derivation.py`. V1 consult on rule-table accuracy.
 - [ ] **T2**: Wire derivation into `repo_finding.list_findings` + `get_finding`. Batch-load workspaces / agent_runs / sidebar. N+1 guard test asserts ≤ 4 SQL queries for 100 findings.
