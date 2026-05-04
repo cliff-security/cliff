@@ -1,0 +1,425 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Dashboard active 1`] = `
+<aside
+  class="flex flex-col w-56 shrink-0 bg-surface-container-low border-r border-outline-variant min-h-screen"
+>
+  <a
+    aria-current="page"
+    aria-label="OpenSec home"
+    class="flex items-center gap-2.5 px-5 py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0 active"
+    data-discover="true"
+    href="/dashboard"
+  >
+    <div
+      class="rounded-xl flex items-center justify-center bg-primary text-on-primary"
+      style="width: 32px; height: 32px;"
+    >
+      <span
+        aria-hidden="true"
+        class="material-symbols-outlined"
+        data-testid="sidenav-logo-icon"
+        style="font-size: 20px; font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;"
+      >
+        shield_lock
+      </span>
+    </div>
+    <span
+      class="font-headline font-extrabold text-[15px] tracking-tight text-on-surface"
+    >
+      OpenSec
+    </span>
+  </a>
+  <button
+    aria-label="Workspace: linear/billing"
+    class="mx-3 mb-4 flex items-center justify-between rounded-lg px-2.5 py-2 transition-colors border border-outline-variant hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+    type="button"
+  >
+    <div
+      class="flex items-center gap-2 min-w-0"
+    >
+      <div
+        aria-hidden="true"
+        class="rounded-md flex items-center justify-center font-mono font-bold text-[10px] bg-tertiary-container text-on-tertiary-container"
+        style="width: 22px; height: 22px;"
+      >
+        LB
+      </div>
+      <div
+        class="min-w-0 text-left"
+      >
+        <div
+          class="text-[12px] font-semibold text-on-surface truncate"
+        >
+          linear/billing
+        </div>
+        <div
+          class="text-[10px] text-on-surface-variant truncate"
+        >
+          github.com/linear/billing
+        </div>
+      </div>
+    </div>
+    <span
+      aria-hidden="true"
+      class="material-symbols-outlined text-on-surface-variant"
+      style="font-size: 14px;"
+    >
+      unfold_more
+    </span>
+  </button>
+  <nav
+    aria-label="Primary"
+    class="flex-1 px-2.5 space-y-0.5"
+  >
+    <a
+      aria-current="page"
+      class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors bg-surface-container-highest text-on-surface font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+      data-discover="true"
+      href="/dashboard"
+    >
+      <span
+        aria-hidden="true"
+        class="material-symbols-outlined"
+        style="font-size: 18px; font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
+      >
+        space_dashboard
+      </span>
+      <span
+        class="flex-1"
+      >
+        Dashboard
+      </span>
+    </a>
+    <a
+      class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors text-on-surface-variant hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+      data-discover="true"
+      href="/issues"
+    >
+      <span
+        aria-hidden="true"
+        class="material-symbols-outlined"
+        style="font-size: 18px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
+      >
+        task_alt
+      </span>
+      <span
+        class="flex-1"
+      >
+        Issues
+      </span>
+      <span
+        class="font-mono font-semibold rounded-full text-[10px] min-w-[20px] text-center px-1.5 py-px bg-surface-container-high text-on-surface-variant"
+        data-testid="sidenav-issues-badge"
+      >
+        60
+      </span>
+    </a>
+  </nav>
+  <div
+    class="p-2.5 border-t border-outline-variant"
+    data-testid="sidenav-footer"
+  >
+    <a
+      class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors text-on-surface-variant hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+      data-discover="true"
+      href="/settings"
+    >
+      <span
+        aria-hidden="true"
+        class="material-symbols-outlined"
+        style="font-size: 18px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
+      >
+        settings
+      </span>
+      <span
+        class="flex-1"
+      >
+        Settings
+      </span>
+    </a>
+  </div>
+</aside>
+`;
+
+exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Issues active 1`] = `
+<aside
+  class="flex flex-col w-56 shrink-0 bg-surface-container-low border-r border-outline-variant min-h-screen"
+>
+  <a
+    aria-label="OpenSec home"
+    class="flex items-center gap-2.5 px-5 py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+    data-discover="true"
+    href="/dashboard"
+  >
+    <div
+      class="rounded-xl flex items-center justify-center bg-primary text-on-primary"
+      style="width: 32px; height: 32px;"
+    >
+      <span
+        aria-hidden="true"
+        class="material-symbols-outlined"
+        data-testid="sidenav-logo-icon"
+        style="font-size: 20px; font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;"
+      >
+        shield_lock
+      </span>
+    </div>
+    <span
+      class="font-headline font-extrabold text-[15px] tracking-tight text-on-surface"
+    >
+      OpenSec
+    </span>
+  </a>
+  <button
+    aria-label="Workspace: linear/billing"
+    class="mx-3 mb-4 flex items-center justify-between rounded-lg px-2.5 py-2 transition-colors border border-outline-variant hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+    type="button"
+  >
+    <div
+      class="flex items-center gap-2 min-w-0"
+    >
+      <div
+        aria-hidden="true"
+        class="rounded-md flex items-center justify-center font-mono font-bold text-[10px] bg-tertiary-container text-on-tertiary-container"
+        style="width: 22px; height: 22px;"
+      >
+        LB
+      </div>
+      <div
+        class="min-w-0 text-left"
+      >
+        <div
+          class="text-[12px] font-semibold text-on-surface truncate"
+        >
+          linear/billing
+        </div>
+        <div
+          class="text-[10px] text-on-surface-variant truncate"
+        >
+          github.com/linear/billing
+        </div>
+      </div>
+    </div>
+    <span
+      aria-hidden="true"
+      class="material-symbols-outlined text-on-surface-variant"
+      style="font-size: 14px;"
+    >
+      unfold_more
+    </span>
+  </button>
+  <nav
+    aria-label="Primary"
+    class="flex-1 px-2.5 space-y-0.5"
+  >
+    <a
+      class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors text-on-surface-variant hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+      data-discover="true"
+      href="/dashboard"
+    >
+      <span
+        aria-hidden="true"
+        class="material-symbols-outlined"
+        style="font-size: 18px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
+      >
+        space_dashboard
+      </span>
+      <span
+        class="flex-1"
+      >
+        Dashboard
+      </span>
+    </a>
+    <a
+      aria-current="page"
+      class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors bg-surface-container-highest text-on-surface font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+      data-discover="true"
+      href="/issues"
+    >
+      <span
+        aria-hidden="true"
+        class="material-symbols-outlined"
+        style="font-size: 18px; font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
+      >
+        task_alt
+      </span>
+      <span
+        class="flex-1"
+      >
+        Issues
+      </span>
+      <span
+        class="font-mono font-semibold rounded-full text-[10px] min-w-[20px] text-center px-1.5 py-px bg-primary text-on-primary"
+        data-testid="sidenav-issues-badge"
+      >
+        60
+      </span>
+    </a>
+  </nav>
+  <div
+    class="p-2.5 border-t border-outline-variant"
+    data-testid="sidenav-footer"
+  >
+    <a
+      class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors text-on-surface-variant hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+      data-discover="true"
+      href="/settings"
+    >
+      <span
+        aria-hidden="true"
+        class="material-symbols-outlined"
+        style="font-size: 18px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
+      >
+        settings
+      </span>
+      <span
+        class="flex-1"
+      >
+        Settings
+      </span>
+    </a>
+  </div>
+</aside>
+`;
+
+exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Settings active 1`] = `
+<aside
+  class="flex flex-col w-56 shrink-0 bg-surface-container-low border-r border-outline-variant min-h-screen"
+>
+  <a
+    aria-label="OpenSec home"
+    class="flex items-center gap-2.5 px-5 py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+    data-discover="true"
+    href="/dashboard"
+  >
+    <div
+      class="rounded-xl flex items-center justify-center bg-primary text-on-primary"
+      style="width: 32px; height: 32px;"
+    >
+      <span
+        aria-hidden="true"
+        class="material-symbols-outlined"
+        data-testid="sidenav-logo-icon"
+        style="font-size: 20px; font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;"
+      >
+        shield_lock
+      </span>
+    </div>
+    <span
+      class="font-headline font-extrabold text-[15px] tracking-tight text-on-surface"
+    >
+      OpenSec
+    </span>
+  </a>
+  <button
+    aria-label="Workspace: linear/billing"
+    class="mx-3 mb-4 flex items-center justify-between rounded-lg px-2.5 py-2 transition-colors border border-outline-variant hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+    type="button"
+  >
+    <div
+      class="flex items-center gap-2 min-w-0"
+    >
+      <div
+        aria-hidden="true"
+        class="rounded-md flex items-center justify-center font-mono font-bold text-[10px] bg-tertiary-container text-on-tertiary-container"
+        style="width: 22px; height: 22px;"
+      >
+        LB
+      </div>
+      <div
+        class="min-w-0 text-left"
+      >
+        <div
+          class="text-[12px] font-semibold text-on-surface truncate"
+        >
+          linear/billing
+        </div>
+        <div
+          class="text-[10px] text-on-surface-variant truncate"
+        >
+          github.com/linear/billing
+        </div>
+      </div>
+    </div>
+    <span
+      aria-hidden="true"
+      class="material-symbols-outlined text-on-surface-variant"
+      style="font-size: 14px;"
+    >
+      unfold_more
+    </span>
+  </button>
+  <nav
+    aria-label="Primary"
+    class="flex-1 px-2.5 space-y-0.5"
+  >
+    <a
+      class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors text-on-surface-variant hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+      data-discover="true"
+      href="/dashboard"
+    >
+      <span
+        aria-hidden="true"
+        class="material-symbols-outlined"
+        style="font-size: 18px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
+      >
+        space_dashboard
+      </span>
+      <span
+        class="flex-1"
+      >
+        Dashboard
+      </span>
+    </a>
+    <a
+      class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors text-on-surface-variant hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+      data-discover="true"
+      href="/issues"
+    >
+      <span
+        aria-hidden="true"
+        class="material-symbols-outlined"
+        style="font-size: 18px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
+      >
+        task_alt
+      </span>
+      <span
+        class="flex-1"
+      >
+        Issues
+      </span>
+      <span
+        class="font-mono font-semibold rounded-full text-[10px] min-w-[20px] text-center px-1.5 py-px bg-surface-container-high text-on-surface-variant"
+        data-testid="sidenav-issues-badge"
+      >
+        60
+      </span>
+    </a>
+  </nav>
+  <div
+    class="p-2.5 border-t border-outline-variant"
+    data-testid="sidenav-footer"
+  >
+    <a
+      aria-current="page"
+      class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors bg-surface-container-highest text-on-surface font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+      data-discover="true"
+      href="/settings"
+    >
+      <span
+        aria-hidden="true"
+        class="material-symbols-outlined"
+        style="font-size: 18px; font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
+      >
+        settings
+      </span>
+      <span
+        class="flex-1"
+      >
+        Settings
+      </span>
+    </a>
+  </div>
+</aside>
+`;
