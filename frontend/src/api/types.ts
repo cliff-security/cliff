@@ -265,10 +265,17 @@ export interface paths {
          * List Findings Endpoint
          * @description List findings.
          *
-         *     When ``scope=current`` the list is scoped to the latest assessment's
-         *     window (``source_type='opensec-assessment'`` + ``created_at`` at or after
-         *     the latest assessment's ``started_at``) so the Findings page matches the
-         *     dashboard's Vulnerabilities tile.
+         *     When ``scope=current`` the list is scoped to the latest assessment via
+         *     ``assessment_id``. All finding types are included — including posture
+         *     rows — so the Issues page surfaces every actionable item from the
+         *     most recent scan. The dashboard's posture card filters by
+         *     ``type=posture`` if it wants only those.
+         *
+         *     Baseline-passing posture rows (``type='posture'`` + ``status='passed'`` +
+         *     no ``pr_url``) are suppressed under ``scope=current``: they were never
+         *     actionable issues, so they should not appear in the Issues page.
+         *     Posture rows that *became* passing via a workspace PR (``pr_url`` is
+         *     set) are still surfaced so the Done section reflects the user's work.
          */
         get: operations["list_findings_endpoint_api_findings_get"];
         put?: never;
@@ -361,6 +368,30 @@ export interface paths {
         head?: never;
         /** Update Finding Endpoint */
         patch: operations["update_finding_endpoint_api_findings__finding_id__patch"];
+        trace?: never;
+    };
+    "/api/findings/{finding_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject Finding Endpoint
+         * @description Mark a finding as an exception with a documented reason (PRD-0006 Phase 2).
+         *
+         *     Re-rejecting overrides the prior reason+note — the most recent submission
+         *     wins. The derived ``stage`` field on the response reflects the verdict
+         *     chip the Issues page will render in the Done section.
+         */
+        post: operations["reject_finding_endpoint_api_findings__finding_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/onboarding/complete": {
@@ -809,6 +840,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/version": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Version */
+        get: operations["get_version_api_version_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces": {
         parameters: {
             query?: never;
@@ -971,6 +1019,9 @@ export interface paths {
          *     Returns immediately with the agent_run_id. Connect to the
          *     agent-execution SSE stream to receive permission_request events
          *     and a done signal.
+         *
+         *     Optional body ``{user_note}`` is forwarded to the planner's prompt for
+         *     PRD-0006 Phase 2's Refine flow; other agent types ignore it.
          */
         post: operations["execute_agent_api_workspaces__workspace_id__agents__agent_type__execute_post"];
         delete?: never;
@@ -1155,6 +1206,36 @@ export interface paths {
         get: operations["suggest_next_endpoint_api_workspaces__workspace_id__pipeline_suggest_next_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/plan/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Plan
+         * @description Mark the workspace's remediation plan as approved.
+         *
+         *     PRD-0006 Story 3 — the planner pauses the run-all loop until the user
+         *     explicitly approves. This endpoint flips ``plan.approved=true`` in BOTH
+         *     stores: the SQLite sidebar (read by the Issues-page derivation) AND
+         *     the filesystem ``context/plan.json`` (read by ``suggest_next`` to
+         *     decide whether the executor may run). A subsequent
+         *     ``POST /pipeline/run-all`` will then suggest the executor.
+         *
+         *     Returns 404 if the workspace doesn't exist or the planner hasn't yet
+         *     written a plan to the sidebar.
+         */
+        post: operations["approve_plan_api_workspaces__workspace_id__plan_approve_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1569,56 +1650,61 @@ export interface components {
          * CriteriaSnapshot
          * @description Ten-criteria snapshot persisted at completion time.
          *
-         *     Five fields are carried from PRD-0002 (``no_critical_vulns``,
-         *     ``posture_checks_passing/total``, ``security_md_present``,
-         *     ``dependabot_present``). Seven additional booleans land in PRD-0003 v0.2;
-         *     they default to ``False`` so any old persisted JSON still rehydrates
-         *     cleanly. Of those seven, five count toward the ten-criteria grade and two
-         *     (``branch_protection_enabled`` is a duplicate-named convenience flag,
-         *     ``no_secrets_detected`` is the four-state-vocab name for the existing
-         *     ``no_secrets_in_code`` posture check).
+         *     Each grade-counting criterion is a tri-state:
+         *
+         *     * ``True`` — verified pass
+         *     * ``False`` — verified fail
+         *     * ``None`` — could not be verified (e.g. a posture check returned
+         *       ``unknown`` because no GitHub token was configured for the daemon)
+         *
+         *     Old JSON that stored bare ``False`` still rehydrates cleanly. The
+         *     ``None`` case existed before this change but was silently collapsed
+         *     to ``False`` by ``status == "pass"`` shorthand in :func:`_build_snapshot`,
+         *     making "we couldn't check" indistinguishable from "we checked and it
+         *     failed". Grading still treats unknown as not-met (conservative), but
+         *     consumers can now render a third state instead of a misleading ✗.
          */
         CriteriaSnapshot: {
             /**
              * Actions Pinned To Sha
              * @default false
              */
-            actions_pinned_to_sha: boolean;
+            actions_pinned_to_sha: boolean | null;
             /**
              * Branch Protection Enabled
              * @default false
              */
-            branch_protection_enabled: boolean;
+            branch_protection_enabled: boolean | null;
             /**
              * Code Owners Exists
              * @default false
              */
-            code_owners_exists: boolean;
+            code_owners_exists: boolean | null;
             /**
              * Dependabot Present
              * @default false
              */
-            dependabot_present: boolean;
+            dependabot_present: boolean | null;
             /**
              * No Critical Vulns
              * @default false
              */
-            no_critical_vulns: boolean;
+            no_critical_vulns: boolean | null;
             /**
              * No High Vulns
              * @default false
              */
-            no_high_vulns: boolean;
+            no_high_vulns: boolean | null;
             /**
              * No Secrets Detected
              * @default false
              */
-            no_secrets_detected: boolean;
+            no_secrets_detected: boolean | null;
             /**
              * No Stale Collaborators
              * @default false
              */
-            no_stale_collaborators: boolean;
+            no_stale_collaborators: boolean | null;
             /**
              * Posture Checks Passing
              * @default 0
@@ -1633,12 +1719,12 @@ export interface components {
              * Secret Scanning Enabled
              * @default false
              */
-            secret_scanning_enabled: boolean;
+            secret_scanning_enabled: boolean | null;
             /**
              * Security Md Present
              * @default false
              */
-            security_md_present: boolean;
+            security_md_present: boolean | null;
         };
         /**
          * CriterionLabel
@@ -1655,6 +1741,10 @@ export interface components {
         /**
          * DashboardPayload
          * @description v0.2 dashboard wire shape — see ADR-0032 for the full design rationale.
+         *
+         *     PRD-0006 Phase 2 (IMPL-0007 PR-B) adds the trend / needs-you / history
+         *     fields below. They are additive and never alter the v0.2 contract; the
+         *     snapshot test in ``test_openapi_snapshot.py`` is the regression guard.
          */
         DashboardPayload: {
             assessment: components["schemas"]["Assessment"] | null;
@@ -1669,6 +1759,10 @@ export interface components {
             };
             /** Grade */
             grade: ("A" | "B" | "C" | "D" | "F") | null;
+            /** Grade History */
+            grade_history?: components["schemas"]["GradeHistoryPoint"][];
+            needs_you?: components["schemas"]["NeedsYouCounts"];
+            open_issues?: components["schemas"]["OpenIssuesSeries"];
             posture?: components["schemas"]["PostureWire"] | null;
             /**
              * Posture Checks
@@ -1679,9 +1773,22 @@ export interface components {
             posture_pass_count: number;
             /** Posture Total Count */
             posture_total_count: number;
+            severity_history?: components["schemas"]["SeverityHistory"];
+            time_to_close?: components["schemas"]["TimeToCloseSeries"];
             /** Tools */
             tools?: components["schemas"]["AssessmentTool"][];
             vulnerabilities?: components["schemas"]["VulnerabilityCounts"] | null;
+        };
+        /**
+         * ExecuteAgentRequest
+         * @description Optional body for ``POST /workspaces/{id}/agents/{type}/execute``.
+         *
+         *     PRD-0006 Phase 2 / IMPL-0007 §B4 — adds ``user_note`` for the planner's
+         *     Refine flow. Other agent types accept the body but ignore the note.
+         */
+        ExecuteAgentRequest: {
+            /** User Note */
+            user_note?: string | null;
         };
         /** ExecuteResponse */
         ExecuteResponse: {
@@ -1707,8 +1814,13 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            derived?: components["schemas"]["IssueDerived"] | null;
             /** Description */
             description?: string | null;
+            /** Exception Note */
+            exception_note?: string | null;
+            /** Exception Reason */
+            exception_reason?: ("false_positive" | "accepted_risk" | "wont_fix" | "deferred") | null;
             /**
              * Grade Impact
              * @default counts
@@ -1769,6 +1881,10 @@ export interface components {
             category?: string | null;
             /** Description */
             description?: string | null;
+            /** Exception Note */
+            exception_note?: string | null;
+            /** Exception Reason */
+            exception_reason?: ("false_positive" | "accepted_risk" | "wont_fix" | "deferred") | null;
             /**
              * Grade Impact
              * @default counts
@@ -1822,6 +1938,10 @@ export interface components {
             category?: string | null;
             /** Description */
             description?: string | null;
+            /** Exception Note */
+            exception_note?: string | null;
+            /** Exception Reason */
+            exception_reason?: ("false_positive" | "accepted_risk" | "wont_fix" | "deferred") | null;
             /** Grade Impact */
             grade_impact?: ("counts" | "advisory") | null;
             /** Likely Owner */
@@ -1846,6 +1966,13 @@ export interface components {
             type?: ("dependency" | "code" | "secret" | "posture") | null;
             /** Why This Matters */
             why_this_matters?: string | null;
+        };
+        /** GradeHistoryPoint */
+        GradeHistoryPoint: {
+            /** Date */
+            date: string;
+            /** Grade */
+            grade?: ("A" | "B" | "C" | "D" | "F") | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -2023,6 +2150,23 @@ export interface components {
             /** Registry Id */
             registry_id: string;
         };
+        /** IssueDerived */
+        IssueDerived: {
+            /** Pr Url */
+            pr_url?: string | null;
+            /**
+             * Section
+             * @enum {string}
+             */
+            section: "review" | "in_progress" | "todo" | "done";
+            /**
+             * Stage
+             * @enum {string}
+             */
+            stage: "todo" | "planning" | "generating" | "pushing" | "opening_pr" | "validating" | "plan_ready" | "pr_ready" | "pr_awaiting_val" | "fixed" | "false_positive" | "wont_fix" | "accepted" | "deferred";
+            /** Workspace Id */
+            workspace_id?: string | null;
+        };
         /**
          * MarkSummarySeenResponse
          * @description Idempotent response: ``summary_seen_at`` is set on first call.
@@ -2095,10 +2239,38 @@ export interface components {
              */
             provider: string;
         };
-        /** ModelUpdateRequest */
+        /**
+         * ModelUpdateRequest
+         * @description Accepts either ``{model_full_id}`` or the GET-shape ``{provider, model_id}``.
+         *
+         *     The latter is normalized into ``model_full_id`` so the rest of the
+         *     pipeline can keep treating it as the canonical form.
+         */
         ModelUpdateRequest: {
             /** Model Full Id */
-            model_full_id: string;
+            model_full_id?: string | null;
+            /** Model Id */
+            model_id?: string | null;
+            /** Provider */
+            provider?: string | null;
+        };
+        /** NeedsYouCounts */
+        NeedsYouCounts: {
+            /**
+             * Critical Todo
+             * @default 0
+             */
+            critical_todo: number;
+            /**
+             * Plans Waiting
+             * @default 0
+             */
+            plans_waiting: number;
+            /**
+             * Prs Ready
+             * @default 0
+             */
+            prs_ready: number;
         };
         /** OnboardingCompleteRequest */
         OnboardingCompleteRequest: {
@@ -2124,6 +2296,21 @@ export interface components {
             /** Repo Url */
             repo_url: string;
             verified?: components["schemas"]["VerifiedRepo"] | null;
+        };
+        /** OpenIssuesSeries */
+        OpenIssuesSeries: {
+            /**
+             * Current
+             * @default 0
+             */
+            current: number;
+            /**
+             * Delta Pct 30D
+             * @default 0
+             */
+            delta_pct_30d: number;
+            /** History */
+            history?: number[];
         };
         /** PermissionDecision */
         PermissionDecision: {
@@ -2297,6 +2484,19 @@ export interface components {
             } | null;
         };
         /**
+         * RejectFindingRequest
+         * @description Body of ``POST /findings/{id}/reject`` (PRD-0006 Phase 2 / IMPL-0007 §B3).
+         */
+        RejectFindingRequest: {
+            /** Note */
+            note?: string | null;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "false_positive" | "accepted_risk" | "wont_fix" | "deferred";
+        };
+        /**
          * RepoAgentStatus
          * @description On-disk status snapshot. One JSON file per repo workspace.
          */
@@ -2357,6 +2557,17 @@ export interface components {
             created_at?: string | null;
             /** Id */
             id: string;
+        };
+        /** SeverityHistory */
+        SeverityHistory: {
+            /** Critical */
+            critical?: number[];
+            /** High */
+            high?: number[];
+            /** Low */
+            low?: number[];
+            /** Medium */
+            medium?: number[];
         };
         /** ShareActionRequest */
         ShareActionRequest: {
@@ -2480,6 +2691,18 @@ export interface components {
             /** Success */
             success: boolean;
         };
+        /** TimeToCloseSeries */
+        TimeToCloseSeries: {
+            /** Current Seconds */
+            current_seconds?: number | null;
+            /**
+             * Delta Pct 30D
+             * @default 0
+             */
+            delta_pct_30d: number;
+            /** History */
+            history?: (number | null)[];
+        };
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -2509,6 +2732,30 @@ export interface components {
             repo_name: string;
             /** Visibility */
             visibility: string;
+        };
+        /**
+         * VersionInfo
+         * @description Version handshake for the agent CLI (`opensec status`).
+         *
+         *     `min_cli` is the lowest CLI version this server promises to speak to.
+         *     A CLI older than this should refuse to operate and tell the user to upgrade.
+         *     `schema_version` bumps when the CLI/server contract changes incompatibly.
+         */
+        VersionInfo: {
+            /**
+             * Min Cli
+             * @default 0.1.0
+             */
+            min_cli: string;
+            /** Opencode */
+            opencode: string;
+            /** Opensec */
+            opensec: string;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: string;
         };
         /** VulnerabilityCounts */
         VulnerabilityCounts: {
@@ -3196,6 +3443,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["FindingUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Finding"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reject_finding_endpoint_api_findings__finding_id__reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                finding_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RejectFindingRequest"];
             };
         };
         responses: {
@@ -3998,6 +4280,26 @@ export interface operations {
             };
         };
     };
+    get_version_api_version_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionInfo"];
+                };
+            };
+        };
+    };
     list_workspaces_endpoint_api_workspaces_get: {
         parameters: {
             query?: {
@@ -4406,7 +4708,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ExecuteAgentRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             202: {
@@ -4773,6 +5079,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SuggestNextResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_plan_api_workspaces__workspace_id__plan_approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SidebarState"];
                 };
             };
             /** @description Validation Error */
