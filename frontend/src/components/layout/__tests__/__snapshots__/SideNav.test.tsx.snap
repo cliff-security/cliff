@@ -2,7 +2,7 @@
 
 exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Dashboard active 1`] = `
 <aside
-  class="flex flex-col w-56 shrink-0 bg-surface-container-low border-r border-outline-variant min-h-screen"
+  class="flex flex-col w-56 shrink-0 bg-surface-container-low border-r border-outline-variant sticky top-0 h-screen self-start"
 >
   <a
     aria-current="page"
@@ -70,7 +70,7 @@ exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Dash
   </button>
   <nav
     aria-label="Primary"
-    class="flex-1 px-2.5 space-y-0.5"
+    class="flex-1 min-h-0 overflow-y-auto px-2.5 space-y-0.5"
   >
     <a
       aria-current="page"
@@ -144,7 +144,7 @@ exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Dash
 
 exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Issues active 1`] = `
 <aside
-  class="flex flex-col w-56 shrink-0 bg-surface-container-low border-r border-outline-variant min-h-screen"
+  class="flex flex-col w-56 shrink-0 bg-surface-container-low border-r border-outline-variant sticky top-0 h-screen self-start"
 >
   <a
     aria-label="OpenSec home"
@@ -211,7 +211,7 @@ exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Issu
   </button>
   <nav
     aria-label="Primary"
-    class="flex-1 px-2.5 space-y-0.5"
+    class="flex-1 min-h-0 overflow-y-auto px-2.5 space-y-0.5"
   >
     <a
       class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors text-on-surface-variant hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
@@ -285,7 +285,7 @@ exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Issu
 
 exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Settings active 1`] = `
 <aside
-  class="flex flex-col w-56 shrink-0 bg-surface-container-low border-r border-outline-variant min-h-screen"
+  class="flex flex-col w-56 shrink-0 bg-surface-container-low border-r border-outline-variant sticky top-0 h-screen self-start"
 >
   <a
     aria-label="OpenSec home"
@@ -352,7 +352,7 @@ exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Sett
   </button>
   <nav
     aria-label="Primary"
-    class="flex-1 px-2.5 space-y-0.5"
+    class="flex-1 min-h-0 overflow-y-auto px-2.5 space-y-0.5"
   >
     <a
       class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors text-on-surface-variant hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
