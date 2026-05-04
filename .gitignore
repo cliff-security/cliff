@@ -258,3 +258,6 @@ backend/workspaces/
 # Contains pre-disclosure findings, PoCs, cloned target repos, and
 # target-specific exploitation notes. Must stay local-only.
 research/
+
+# Go-to-market workspace — local-only marketing/GTM notes, campaigns, knowledge base
+gtm/

@@ -42,9 +42,40 @@ Phase 7 — Ticket workflow (depends on Phase 6b, deferred to post-MVP):
 
 ## App Builder (Vertical 2)
 
-### Issues page Phase 1 (PRD-0006, IMPL-0006-issues-page-phase-1) — alpha-shippable
+### Sidenav redesign follow-up (PRD-0006, IMPL-0008-sidenav-redesign) — shipped
 
-Single branch / single PR: `feat/prd-0006-phase-1-issues-page`. Auto-executable via the handoff prompt in IMPL-0006. Phase 2 (side panel, Workspace removal, posture unification, Dashboard refresh) is a separate plan written after alpha feedback.
+Closed by `feat/prd-0006-sidenav-redesign` (PR #134 / commit `b413e00`, merged 2026-05-04). 224px named rail with logo block, workspace switcher, Issues count badge, and labeled Settings footer per Claude Design's `IPSideNav`. Frontend-only, no backend, no migration.
+
+- [x] **F1**: `SideNav.tsx` rebuilt to 224px (`w-56`) in-flow rail — logo block (`shield_lock` filled + "OpenSec" wordmark), `WorkspaceSwitcher` card with repo avatar + `owner/repo` name + URL hint + chevron (no-op in alpha), 2 named nav items, labeled Settings footer with hairline divider
+- [x] **F2**: `AppLayout.tsx` moved to flex flow — `<main className="flex-1 min-w-0 overflow-x-hidden">`, no more `ml-20`
+- [x] **F3**: `useOpenIssuesCount()` hook landed at `frontend/src/api/hooks.ts`, reuses the `useFindings()` cache; SideNav consumes it for the Issues badge
+- [x] **F4**: Snapshot tests in `__snapshots__/SideNav.test.tsx.snap` cover active states for Dashboard / Issues / Settings
+
+### Issues page Phase 2 (PRD-0006, IMPL-0007-issues-page-phase-2) — shipped
+
+Closed by two PRs landed 2026-05-04: PR-A side panel + Workspace removal + Issues polish (`feat/prd-0006-phase-2-side-panel`, PR #129) and PR-B Dashboard refresh (`feat/prd-0006-phase-2-dashboard`, PR #130).
+
+**PR-A — side panel + Workspace removal (PR #129)**
+
+- [x] **B1**: Migration `012_phase2_columns.sql` — `finding.exception_reason` (CHECK ∈ {false_positive, accepted_risk, wont_fix, deferred}) + `finding.exception_note`
+- [x] **B2**: `Finding` / `FindingCreate` / `FindingUpdate` carry exception fields; `issue_derivation` maps each reason to the matching `IssueStage` with legacy `raw_payload.exception_reason` fallback
+- [x] **B3**: `POST /findings/{id}/reject` — accepts `{reason, note ≤ 280}`; re-rejecting overrides the prior reason+note
+- [x] **B4**: `user_note` (≤ 2000 chars) on `POST /workspaces/{id}/agents/{type}/execute`; threaded into `remediation_planner.md.j2` `## User refinement` block; other agents accept and ignore
+- [x] **F1+F3+F4+F5+F6**: `IssueSidePanel` — 480px right-edge drawer, stage-aware section ordering, sticky 72px footer (5 variants), inline Refine textarea, inline Reject reason picker (no modals)
+- [x] **F2**: URL state `/issues?open=:findingId` — Esc / outside-click / browser-back close; closing clears the param
+- [x] **F7**: Plans-waiting / PRs-ready sub-grouping in Review only when both buckets are non-empty
+- [x] **F8**: Done collapsed by default; `[`/`]` keyboard toggle; `sessionStorage` persistence
+- [x] **F9**: `WorkspacePage.tsx` (905 lines) deleted; `/workspace/:id` resolves through `WorkspaceRedirect` → `/issues?open=<finding_id>`; `HistoryCard` "View" rewired to `?open=`
+- [x] **F10**: `MigrationBanner` deleted (Phase 2 is the redesign it announced)
+
+**PR-B — Dashboard refresh (PR #130)**
+
+- [x] **B5**: Extended `GET /dashboard` payload with history + needs-you fields (`counts.open_issues_history`, `counts.delta_pct_30d`, `counts.time_to_close_*`, `needs_you.{plans_waiting, prs_ready, critical_todo}`, `grade_history`, `severity_history`)
+- [x] **F11**: `DashboardPage` rebuilt — `IssueGradeHero`, `IssueMetricCard` × 2 with `IssueSparkline` + `IssueDeltaChip`, `IssueNeedsYouLine`, `IssueGradeHistoryChart`
+
+### Issues page Phase 1 (PRD-0006, IMPL-0006-issues-page-phase-1) — shipped
+
+Closed by `feat/prd-0006-phase-1-issues-page` (PR #101 / commit `d8de33e`). Pinned Review section, In progress collapsed-by-default, stage-aware row actions, sidenav trim, derived `section`/`stage` on Finding response. All 13 tasks (T1–T13) shipped.
 
 - [ ] **T1**: `issue_derivation.py` pure function + `IssueSection` / `IssueStage` / `IssueDerived` models. TDD: ≥ 18 cases in `tests/test_issue_derivation.py`. V1 consult on rule-table accuracy.
 - [ ] **T2**: Wire derivation into `repo_finding.list_findings` + `get_finding`. Batch-load workspaces / agent_runs / sidebar. N+1 guard test asserts ≤ 4 SQL queries for 100 findings.
