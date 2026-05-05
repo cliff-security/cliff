@@ -23,12 +23,23 @@ import contextlib
 import logging
 import shutil
 import tempfile
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from opensec.assessment.clone import shallow_clone
-from opensec.assessment.posture import RepoCoords, run_all_posture_checks
+from opensec.assessment.posture import (
+    POSTURE_CHECKER_VERSION,
+    RepoCoords,
+    run_all_posture_checks,
+)
+from opensec.assessment.scope import (
+    capture_commit_sha,
+    count_dependencies,
+    count_scanned_files,
+    detect_ecosystems,
+)
 from opensec.assessment.to_findings import (
     from_posture,
     from_semgrep,
@@ -149,21 +160,51 @@ async def run_assessment(
         await _emit_tool(on_tool, tool)
 
     await _emit_step(on_step, "detect")
+    # IMPL-0009 — timing buckets per scanner (in milliseconds, populated as
+    # each block transitions to ``done``/``skipped``).
+    durations_ms: dict[str, int] = {}
+    # Scope captured opportunistically once the clone is in hand.
+    commit_sha: str | None = None
+    scanned_files: int | None = None
+    scanned_deps: int | None = None
+    ecosystems: list[str] = []
+
     async with cloner.clone(repo_url, branch=branch) as repo_path:
+        # Best-effort scope capture. None of these are critical-path; failures
+        # are silently swallowed so an assessment never breaks over UI text.
+        commit_sha = await capture_commit_sha(repo_path)
+        try:
+            scanned_files = count_scanned_files(repo_path)
+        except OSError:
+            scanned_files = None
+        try:
+            scanned_deps = count_dependencies(repo_path)
+            ecosystems = detect_ecosystems(repo_path)
+        except OSError:
+            scanned_deps = None
+            ecosystems = []
 
         # ---- Trivy ----
         tools["trivy"] = tools["trivy"].model_copy(update={"state": "active"})
         await _emit_tool(on_tool, tools["trivy"])
         await _emit_step(on_step, "trivy_vuln")
+        trivy_started = time.perf_counter()
         try:
             trivy_result = await runner.run_trivy(
                 repo_path, timeout=_TRIVY_TIMEOUT_S
             )
         except Exception:
-            tools["trivy"] = tools["trivy"].model_copy(update={"state": "skipped"})
+            durations_ms["trivy"] = _elapsed_ms(trivy_started)
+            tools["trivy"] = tools["trivy"].model_copy(
+                update={
+                    "state": "skipped",
+                    "duration_ms": durations_ms["trivy"],
+                }
+            )
             await _emit_tool(on_tool, tools["trivy"])
             logger.exception("trivy failed; assessment is fatally failing")
             raise
+        durations_ms["trivy"] = _elapsed_ms(trivy_started)
 
         await _emit_step(on_step, "trivy_secret")
 
@@ -173,6 +214,7 @@ async def run_assessment(
         await _emit_step(on_step, "semgrep")
         semgrep_result: SemgrepResult | None = None
         semgrep_ran = False
+        semgrep_started = time.perf_counter()
         try:
             semgrep_result = await runner.run_semgrep(
                 repo_path, timeout=_SEMGREP_TIMEOUT_S
@@ -180,21 +222,36 @@ async def run_assessment(
             semgrep_ran = True
         except Exception:
             logger.warning("semgrep failed; continuing without it", exc_info=True)
+            durations_ms["semgrep"] = _elapsed_ms(semgrep_started)
             tools["semgrep"] = tools["semgrep"].model_copy(
-                update={"state": "skipped"}
+                update={
+                    "state": "skipped",
+                    "duration_ms": durations_ms["semgrep"],
+                }
             )
             await _emit_tool(on_tool, tools["semgrep"])
+        else:
+            durations_ms["semgrep"] = _elapsed_ms(semgrep_started)
+
+        # If Semgrep skipped, fall back to a recursive walk for scanned_files.
+        if not semgrep_ran and scanned_files is None:
+            try:
+                scanned_files = count_scanned_files(repo_path)
+            except OSError:
+                scanned_files = None
 
         # ---- Posture ----
         tools["posture"] = tools["posture"].model_copy(update={"state": "active"})
         await _emit_tool(on_tool, tools["posture"])
         await _emit_step(on_step, "posture")
+        posture_started = time.perf_counter()
         posture_results = await run_all_posture_checks(
             repo_path,
             gh_client=gh_client,
             coords=coords,
             assessment_id=assessment_id,
         )
+        durations_ms["posture"] = _elapsed_ms(posture_started)
 
     # ---- Persistence + close pass (Phase 2) ----
     if db is not None:
@@ -209,6 +266,7 @@ async def run_assessment(
 
     # ---- Finalize tool results ----
     trivy_count = len(trivy_result.vulnerabilities) + len(trivy_result.secrets)
+    trivy_scope = _format_trivy_scope(scanned_deps, ecosystems)
     tools["trivy"] = tools["trivy"].model_copy(
         update={
             "state": "done",
@@ -219,12 +277,17 @@ async def run_assessment(
                 value=trivy_count,
                 text=_pluralize(trivy_count, "finding"),
             ),
+            # IMPL-0009 — single Trivy invocation does both passes; honest copy.
+            "ran": "Dependency + secret scan",
+            "scope": trivy_scope,
+            "duration_ms": durations_ms.get("trivy"),
         }
     )
     await _emit_tool(on_tool, tools["trivy"])
 
     if semgrep_ran and semgrep_result is not None:
         sg_count = len(semgrep_result.findings)
+        sg_scope = _format_semgrep_scope(scanned_files)
         tools["semgrep"] = tools["semgrep"].model_copy(
             update={
                 "state": "done",
@@ -235,19 +298,27 @@ async def run_assessment(
                     value=sg_count,
                     text=_pluralize(sg_count, "finding"),
                 ),
+                "ran": "Static analysis (p/security-audit)",
+                "scope": sg_scope,
+                "duration_ms": durations_ms.get("semgrep"),
             }
         )
         await _emit_tool(on_tool, tools["semgrep"])
 
     posture_pass = sum(1 for pc in posture_results if pc.status == "pass")
+    posture_total = len(posture_results)
     tools["posture"] = tools["posture"].model_copy(
         update={
             "state": "done",
+            "version": POSTURE_CHECKER_VERSION,
             "result": AssessmentToolResult(
                 kind="pass_count",
                 value=posture_pass,
                 text=f"{posture_pass} pass",
             ),
+            "ran": f"{posture_total} repo + cloud configuration checks",
+            "scope": _format_posture_scope(posture_total),
+            "duration_ms": durations_ms.get("posture"),
         }
     )
     await _emit_tool(on_tool, tools["posture"])
@@ -259,6 +330,24 @@ async def run_assessment(
     }
     snapshot = _build_snapshot(trivy_result, semgrep_result, posture_statuses)
     grade = derive_grade(snapshot)
+
+    # IMPL-0009 — persist scope fields onto the Assessment row when DB is in
+    # play. Routes that bypass the DB (test mode) still receive the values on
+    # the returned ``AssessmentResult`` and can persist themselves.
+    if db is not None:
+        from opensec.db.dao.assessment import update_assessment
+        from opensec.models.assessment import AssessmentUpdate
+
+        await update_assessment(
+            db,
+            assessment_id,
+            AssessmentUpdate(
+                commit_sha=commit_sha,
+                branch=branch,
+                scanned_files=scanned_files,
+                scanned_deps=scanned_deps,
+            ),
+        )
 
     return AssessmentResult(
         assessment_id=assessment_id,
@@ -275,6 +364,10 @@ async def run_assessment(
             for pc in posture_results
         ],
         tools=list(tools.values()),
+        commit_sha=commit_sha,
+        branch=branch,
+        scanned_files=scanned_files,
+        scanned_deps=scanned_deps,
     )
 
 
@@ -380,6 +473,32 @@ def _label_for(name: str, version: str | None) -> str:
 
 def _pluralize(n: int, noun: str) -> str:
     return f"{n} {noun}{'' if n == 1 else 's'}"
+
+
+def _elapsed_ms(started: float) -> int:
+    """Return milliseconds since ``time.perf_counter()`` reading ``started``."""
+    return max(0, int((time.perf_counter() - started) * 1000))
+
+
+def _format_trivy_scope(deps: int | None, ecosystems: list[str]) -> str:
+    """Honest description of Trivy's combined dependency + secret pass."""
+    parts: list[str] = []
+    if deps is not None and deps > 0:
+        parts.append(f"{deps} {'dep' if deps == 1 else 'deps'}")
+    if ecosystems:
+        parts.append(" + ".join(ecosystems))
+    parts.append("git history")
+    return " · ".join(parts)
+
+
+def _format_semgrep_scope(files: int | None) -> str:
+    if files is None:
+        return "p/security-audit"
+    return f"{files} {'file' if files == 1 else 'files'} · p/security-audit"
+
+
+def _format_posture_scope(total: int) -> str:
+    return f"{total} repo + cloud configuration checks"
 
 
 def derive_grade(criteria: CriteriaSnapshot, *_args: Any, **_kwargs: Any) -> Grade:

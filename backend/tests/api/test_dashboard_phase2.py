@@ -414,3 +414,127 @@ async def test_dashboard_phase2_history_is_oldest_first(db_client, days):
     # The exact day count check is a smoke; the windowed parametrize keeps
     # the test cheap and asserts each window length.
     _ = days
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# IMPL-0009 — new dashboard fields:
+#   open_by_severity, level_up, last_assessment, grade_label, grade_caption
+# ──────────────────────────────────────────────────────────────────────────
+
+
+async def test_dashboard_impl0009_empty_repo_defaults(db_client):
+    """No assessment → IMPL-0009 fields render as a clean "First scan" state."""
+    resp = await db_client.get("/api/dashboard")
+    data = resp.json()
+    # All four severities present, counts and weekly_delta all zero.
+    obs = data["open_by_severity"]
+    assert [r["kind"] for r in obs] == ["critical", "high", "medium", "low"]
+    assert all(r["count"] == 0 and r["weekly_delta"] == 0 for r in obs)
+
+    assert data["level_up"] is None
+    assert data["last_assessment"] is None
+    assert data["grade_label"] == "First scan"
+    assert "first assessment" in data["grade_caption"].lower()
+
+
+async def test_dashboard_impl0009_seeded_payload_shape(db_client):
+    """Seed an assessment + a few findings + verify the new fields populate."""
+    from opensec.db.connection import _db
+    from opensec.db.dao.assessment import create_assessment, set_assessment_result
+    from opensec.db.repo_finding import create_finding
+
+    a = await create_assessment(_db, AssessmentCreate(repo_url="https://github.com/a/b"))
+    await set_assessment_result(
+        _db,
+        a.id,
+        grade="B",
+        criteria_snapshot=CriteriaSnapshot(
+            no_critical_vulns=False,  # forces a critical gate
+            no_high_vulns=True,
+            posture_checks_passing=15,
+            posture_checks_total=15,
+            security_md_present=True,
+            dependabot_present=True,
+            branch_protection_enabled=True,
+            no_secrets_detected=True,
+            actions_pinned_to_sha=True,
+            no_stale_collaborators=True,
+            code_owners_exists=True,
+            secret_scanning_enabled=True,
+        ),
+    )
+    # One critical so the level_up gate has a bucket to point at.
+    await create_finding(
+        _db,
+        FindingCreate(
+            source_type="trivy",
+            source_id="v-crit",
+            type="dependency",
+            assessment_id=a.id,
+            title="RCE in lodash",
+            normalized_priority="critical",
+            status="new",
+        ),
+    )
+
+    resp = await db_client.get("/api/dashboard")
+    data = resp.json()
+
+    # open_by_severity: critical = 1, others = 0.
+    by_kind = {r["kind"]: r["count"] for r in data["open_by_severity"]}
+    assert by_kind["critical"] == 1
+    assert by_kind["high"] == 0
+
+    # level_up exists with at least the one critical gate.
+    assert data["level_up"] is not None
+    assert data["level_up"]["current"] == "B"
+    assert data["level_up"]["next"] == "A"
+    gate_ids = [g["id"] for g in data["level_up"]["gates"]]
+    assert "criticals_open" in gate_ids
+
+    # last_assessment carries the repo + scanners.
+    la = data["last_assessment"]
+    assert la is not None
+    assert la["repo_url"] == "https://github.com/a/b"
+    assert isinstance(la["scanners"], list)
+
+    # First-scan label until a prior completed assessment exists.
+    assert data["grade_label"] == "First scan"
+    assert data["grade_caption"]
+
+
+async def test_dashboard_impl0009_grade_label_transitions(db_client):
+    """A second completed assessment with a different grade flips the label."""
+    import asyncio
+
+    from opensec.db.connection import _db
+    from opensec.db.dao.assessment import create_assessment, set_assessment_result
+
+    snap = CriteriaSnapshot(no_critical_vulns=True)
+
+    a1 = await create_assessment(_db, AssessmentCreate(repo_url="https://github.com/a/b"))
+    await set_assessment_result(_db, a1.id, grade="C", criteria_snapshot=snap)
+    # Brief sleep to keep started_at strictly ordered between rows.
+    await asyncio.sleep(0.01)
+
+    a2 = await create_assessment(_db, AssessmentCreate(repo_url="https://github.com/a/b"))
+    await set_assessment_result(_db, a2.id, grade="B", criteria_snapshot=snap)
+
+    resp = await db_client.get("/api/dashboard")
+    data = resp.json()
+    assert data["grade_label"] == "Rising"
+    assert "Promoted from C" in data["grade_caption"]
+
+
+async def test_dashboard_impl0009_phase2_fields_preserved(db_client):
+    """B8 contract: all Phase 2 fields stay on the wire (additive only)."""
+    resp = await db_client.get("/api/dashboard")
+    data = resp.json()
+    for key in (
+        "open_issues",
+        "time_to_close",
+        "needs_you",
+        "grade_history",
+        "severity_history",
+    ):
+        assert key in data, f"Phase 2 field {key!r} dropped by IMPL-0009"

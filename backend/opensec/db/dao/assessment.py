@@ -45,6 +45,12 @@ def _row_to_assessment(row: aiosqlite.Row) -> Assessment:
         criteria_snapshot=criteria,
         tools=tools,
         summary_seen_at=_safe_get(row, "summary_seen_at"),
+        # IMPL-0009 (migration 014). Older databases that haven't run that
+        # migration still validate because ``_safe_get`` returns ``None``.
+        commit_sha=_safe_get(row, "commit_sha"),
+        branch=_safe_get(row, "branch"),
+        scanned_files=_safe_get(row, "scanned_files"),
+        scanned_deps=_safe_get(row, "scanned_deps"),
     )
 
 

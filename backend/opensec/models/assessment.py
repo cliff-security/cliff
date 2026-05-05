@@ -98,6 +98,10 @@ class AssessmentTool(BaseModel):
     from earlier drafts; the architect's regression test
     ``test_dashboard_omits_legacy_scanner_versions`` guards against either of
     those legacy keys leaking back in.
+
+    IMPL-0009 added ``duration_ms``, ``scope``, and ``ran`` for the new
+    "Last assessment" dashboard panel. All three are optional — pending
+    tools and legacy rows still validate cleanly.
     """
 
     id: str  # "trivy" | "semgrep" | "posture"
@@ -106,6 +110,9 @@ class AssessmentTool(BaseModel):
     icon: str
     state: ToolState
     result: AssessmentToolResult | None = None
+    duration_ms: int | None = None
+    scope: str | None = None
+    ran: str | None = None
 
 
 class AssessmentCreate(BaseModel):
@@ -118,6 +125,11 @@ class AssessmentUpdate(BaseModel):
     grade: Grade | None = None
     criteria_snapshot: CriteriaSnapshot | None = None
     tools: list[AssessmentTool] | None = None
+    # IMPL-0009 — scope captured during the run, persisted at completion.
+    commit_sha: str | None = None
+    branch: str | None = None
+    scanned_files: int | None = None
+    scanned_deps: int | None = None
 
 
 class Assessment(BaseModel):
@@ -130,6 +142,11 @@ class Assessment(BaseModel):
     criteria_snapshot: CriteriaSnapshot | None = None
     tools: list[AssessmentTool] | None = None
     summary_seen_at: datetime | None = None
+    # IMPL-0009 — scope of this assessment run.
+    commit_sha: str | None = None
+    branch: str | None = None
+    scanned_files: int | None = None
+    scanned_deps: int | None = None
 
 
 class AssessmentResult(BaseModel):
@@ -146,3 +163,8 @@ class AssessmentResult(BaseModel):
     findings: list[dict[str, Any]] = []
     posture_checks: list[dict[str, Any]] = []
     tools: list[AssessmentTool] = []
+    # IMPL-0009 — scope of this run, mirrored onto the persisted Assessment row.
+    commit_sha: str | None = None
+    branch: str | None = None
+    scanned_files: int | None = None
+    scanned_deps: int | None = None
