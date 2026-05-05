@@ -18,40 +18,41 @@ function renderPage() {
   )
 }
 
-describe('<DashboardPage />', () => {
+describe('<DashboardPage /> — IMPL-0009 surfaces', () => {
   beforeEach(() => {
     setDashboardFixture('grade-B-with-history')
   })
 
-  it('renders the new dashboard surface (hero + needs-you + metric cards + chart + posture) for grade-B-with-history fixture', async () => {
+  it('renders the four redesigned blocks (hero, open-by-severity, level-up, last-assessment)', async () => {
     renderPage()
 
+    // Hero
     await waitFor(() =>
       expect(
         screen.getByTestId('issue-grade-hero-letter'),
       ).toBeInTheDocument(),
     )
+    expect(screen.getByTestId('issue-grade-hero-letter')).toHaveTextContent('B')
 
-    expect(screen.getByTestId('issue-grade-hero-letter')).toHaveTextContent(
-      'B',
-    )
-    // "What needs you" line composes 3 plans + 2 PRs.
-    expect(screen.getByTestId('issue-needs-you-line')).toHaveAttribute(
-      'data-state',
-      'needs-you',
-    )
-    expect(screen.getByTestId('issue-needs-you-line')).toHaveTextContent(
-      /three plans and two prs are waiting on you/i,
-    )
-    // Two metric cards (open issues + time to close).
-    expect(screen.getAllByTestId('issue-metric-card').length).toBe(2)
-    // Stacked-severity history chart renders.
-    expect(screen.getByTestId('issue-grade-history-chart')).toBeInTheDocument()
+    // Open-by-severity card (left column)
+    expect(screen.getByTestId('open-by-severity-card')).toBeInTheDocument()
     expect(
-      screen.getByTestId('issue-grade-history-promotion'),
+      screen.getByTestId('open-by-severity-row-critical'),
     ).toBeInTheDocument()
-    // PostureCard preserved (the user-mandated guard for PR-B).
-    expect(screen.getByText('Repo posture')).toBeInTheDocument()
+    expect(
+      screen.getByTestId('open-by-severity-row-high'),
+    ).toBeInTheDocument()
+
+    // Level-up panel (right column)
+    expect(screen.getByTestId('level-up-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('gate-row-criticals_open')).toBeInTheDocument()
+    expect(screen.getByTestId('gate-row-posture_remaining')).toBeInTheDocument()
+
+    // Last-assessment panel (bottom block) — 3 scanner rows.
+    expect(screen.getByTestId('last-assessment-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('scanner-row-trivy')).toBeInTheDocument()
+    expect(screen.getByTestId('scanner-row-semgrep')).toBeInTheDocument()
+    expect(screen.getByTestId('scanner-row-posture')).toBeInTheDocument()
   })
 
   it('renders the grade-A hero with the "Stable" label and the completion celebration block', async () => {
@@ -64,16 +65,14 @@ describe('<DashboardPage />', () => {
       ),
     )
     expect(screen.getByText(/^stable$/i)).toBeInTheDocument()
-    // Grade A + completion_id triggers the celebration block above the hero.
+    // Grade A + completion_id still triggers the celebration block above
+    // the new dashboard.
     expect(screen.getByTestId('completion-block')).toBeInTheDocument()
   })
 
-  it('renders an em-dash hero letter when assessment exists but grade is null (defensive)', async () => {
-    // Use the running fixture's *post-complete* equivalent path: grade-C
-    // fixture has a real grade. The em-dash path is exercised by null grade,
-    // but the running state already handles that — so we just verify that
-    // the existing grade-C fixture continues to render through the new
-    // surface without errors.
+  it('falls back to a friendly message when level_up is null (grade-C fixture)', async () => {
+    // grade-C-with-issues has no level_up field, so the right column renders
+    // the empty-state placeholder instead of the panel.
     setDashboardFixture('grade-C-with-issues')
     renderPage()
     await waitFor(() =>
@@ -81,11 +80,8 @@ describe('<DashboardPage />', () => {
         'C',
       ),
     )
-    // Two metric cards still render even when Phase 2 fields are absent —
-    // the components default to empty series + zeros.
-    expect(screen.getAllByTestId('issue-metric-card').length).toBe(2)
-    // Posture card preserved.
-    expect(screen.getByText('Repo posture')).toBeInTheDocument()
+    expect(screen.getByTestId('level-up-empty')).toBeInTheDocument()
+    expect(screen.queryByTestId('level-up-panel')).not.toBeInTheDocument()
   })
 
   it('shows the AssessmentProgressList when assessment is running (state machine preserved)', async () => {
@@ -99,7 +95,7 @@ describe('<DashboardPage />', () => {
     )
     // The new report-card surface should NOT render in this state.
     expect(screen.queryByTestId('issue-grade-hero-letter')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('issue-needs-you-line')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('issue-grade-history-chart')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('open-by-severity-card')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('last-assessment-panel')).not.toBeInTheDocument()
   })
 })

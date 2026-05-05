@@ -414,6 +414,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/onboarding/github/repos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * List Github Repos
+         * @description Return the repos a PAT can reach, for onboarding's picker step.
+         *
+         *     The token is **not** persisted here — only on a successful call to
+         *     ``POST /onboarding/repo``. Avoids dangling vault entries when the user
+         *     abandons the flow at the picker.
+         *
+         *     Auth/scope failures return 422 ``{code: "invalid_token"}``. Network and
+         *     GitHub 5xx return 502 — onboarding's manual-URL fallback covers this.
+         */
+        post: operations["list_github_repos_api_onboarding_github_repos_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/onboarding/repo": {
         parameters: {
             query?: never;
@@ -426,6 +453,10 @@ export interface paths {
         /**
          * Connect Repo
          * @description Register a repo and kick off the initial assessment.
+         *
+         *     Returns ``OnboardingRepoResponse`` on success. On hard probe failures
+         *     returns a ``JSONResponse`` with ``{detail, code}`` at 422 — the SPA
+         *     branches on ``code`` (e.g. ``missing_repo_scope``).
          */
         post: operations["connect_repo_api_onboarding_repo_post"];
         delete?: never;
@@ -1410,6 +1441,10 @@ export interface components {
         };
         /** Assessment */
         Assessment: {
+            /** Branch */
+            branch?: string | null;
+            /** Commit Sha */
+            commit_sha?: string | null;
             /** Completed At */
             completed_at?: string | null;
             criteria_snapshot?: components["schemas"]["CriteriaSnapshot"] | null;
@@ -1419,6 +1454,10 @@ export interface components {
             id: string;
             /** Repo Url */
             repo_url: string;
+            /** Scanned Deps */
+            scanned_deps?: number | null;
+            /** Scanned Files */
+            scanned_files?: number | null;
             /**
              * Started At
              * Format: date-time
@@ -1469,6 +1508,7 @@ export interface components {
         AssessmentStatusResponse: {
             /** Assessment Id */
             assessment_id: string;
+            previous_assessment?: components["schemas"]["PreviousAssessmentInfo"] | null;
             /** Progress Pct */
             progress_pct: number;
             /** Status */
@@ -1516,15 +1556,25 @@ export interface components {
          *     from earlier drafts; the architect's regression test
          *     ``test_dashboard_omits_legacy_scanner_versions`` guards against either of
          *     those legacy keys leaking back in.
+         *
+         *     IMPL-0009 added ``duration_ms``, ``scope``, and ``ran`` for the new
+         *     "Last assessment" dashboard panel. All three are optional — pending
+         *     tools and legacy rows still validate cleanly.
          */
         AssessmentTool: {
+            /** Duration Ms */
+            duration_ms?: number | null;
             /** Icon */
             icon: string;
             /** Id */
             id: string;
             /** Label */
             label: string;
+            /** Ran */
+            ran?: string | null;
             result?: components["schemas"]["AssessmentToolResult"] | null;
+            /** Scope */
+            scope?: string | null;
             /**
              * State
              * @enum {string}
@@ -1745,6 +1795,11 @@ export interface components {
          *     PRD-0006 Phase 2 (IMPL-0007 PR-B) adds the trend / needs-you / history
          *     fields below. They are additive and never alter the v0.2 contract; the
          *     snapshot test in ``test_openapi_snapshot.py`` is the regression guard.
+         *
+         *     IMPL-0009 adds ``open_by_severity``, ``level_up``, ``last_assessment``,
+         *     ``grade_label``, ``grade_caption`` for the redesigned dashboard. The Phase 2
+         *     additions above are kept (deprecated, frontend stops reading them) so the
+         *     contract remains additive.
          */
         DashboardPayload: {
             assessment: components["schemas"]["Assessment"] | null;
@@ -1759,9 +1814,24 @@ export interface components {
             };
             /** Grade */
             grade: ("A" | "B" | "C" | "D" | "F") | null;
+            /**
+             * Grade Caption
+             * @default Run your first assessment to earn a grade.
+             */
+            grade_caption: string;
             /** Grade History */
             grade_history?: components["schemas"]["GradeHistoryPoint"][];
+            /**
+             * Grade Label
+             * @default First scan
+             * @enum {string}
+             */
+            grade_label: "Stable" | "Rising" | "Falling" | "First scan";
+            last_assessment?: components["schemas"]["LastAssessmentInfo"] | null;
+            level_up?: components["schemas"]["LevelUp"] | null;
             needs_you?: components["schemas"]["NeedsYouCounts"];
+            /** Open By Severity */
+            open_by_severity?: components["schemas"]["OpenBySeverityRow"][];
             open_issues?: components["schemas"]["OpenIssuesSeries"];
             posture?: components["schemas"]["PostureWire"] | null;
             /**
@@ -2168,6 +2238,73 @@ export interface components {
             workspace_id?: string | null;
         };
         /**
+         * LastAssessmentInfo
+         * @description Trust-block summary for the dashboard's "Last assessment" panel.
+         */
+        LastAssessmentInfo: {
+            /** Branch */
+            branch?: string | null;
+            /** Commit Sha */
+            commit_sha?: string | null;
+            /** Duration Ms */
+            duration_ms?: number | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Repo Url */
+            repo_url: string;
+            /** Scanned Deps */
+            scanned_deps?: number | null;
+            /** Scanned Files */
+            scanned_files?: number | null;
+            /** Scanners */
+            scanners?: components["schemas"]["AssessmentTool"][];
+        };
+        /** LevelUp */
+        LevelUp: {
+            /**
+             * Current
+             * @enum {string}
+             */
+            current: "A" | "B" | "C" | "D" | "F";
+            /** Gates */
+            gates?: components["schemas"]["LevelUpGate"][];
+            /** Next */
+            next?: ("A" | "B" | "C" | "D" | "F") | null;
+            /** Summary */
+            summary: string;
+        };
+        /** LevelUpGate */
+        LevelUpGate: {
+            /** Action Href */
+            action_href: string;
+            /** Action Label */
+            action_label: string;
+            /** Auto Fixable Check Names */
+            auto_fixable_check_names?: string[];
+            /** Current */
+            current: number;
+            /** Detail */
+            detail: string;
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ready_to_review" | "pr_ready" | "in_progress" | "auto_fixable" | "todo";
+            /** Target */
+            target: number;
+            /** Unit */
+            unit: string;
+        };
+        /** ListReposRequest */
+        ListReposRequest: {
+            /** Github Token */
+            github_token: string;
+        };
+        /**
          * MarkSummarySeenResponse
          * @description Idempotent response: ``summary_seen_at`` is set on first call.
          */
@@ -2289,13 +2426,20 @@ export interface components {
             /** Repo Url */
             repo_url: string;
         };
-        /** OnboardingRepoResponse */
-        OnboardingRepoResponse: {
-            /** Assessment Id */
-            assessment_id: string;
-            /** Repo Url */
-            repo_url: string;
-            verified?: components["schemas"]["VerifiedRepo"] | null;
+        /**
+         * OpenBySeverityRow
+         * @description One row of the new dashboard's "Open findings" card (IMPL-0009).
+         */
+        OpenBySeverityRow: {
+            /** Count */
+            count: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "critical" | "high" | "medium" | "low";
+            /** Weekly Delta */
+            weekly_delta: number;
         };
         /** OpenIssuesSeries */
         OpenIssuesSeries: {
@@ -2397,6 +2541,30 @@ export interface components {
             pass_count: number;
             /** Total Count */
             total_count: number;
+        };
+        /**
+         * PreviousAssessmentInfo
+         * @description Continuity card on the assessment-running surface (IMPL-0009).
+         *
+         *     Populated when at least one prior completed assessment exists so users
+         *     don't feel data vanished while the new run is in flight.
+         */
+        PreviousAssessmentInfo: {
+            /** Assessment Id */
+            assessment_id: string;
+            /** Commit Sha */
+            commit_sha?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Grade */
+            grade?: ("A" | "B" | "C" | "D" | "F") | null;
+            /**
+             * Open Count
+             * @default 0
+             */
+            open_count: number;
+            /** Report Href */
+            report_href: string;
         };
         /**
          * ProviderTestRequest
@@ -2717,23 +2885,6 @@ export interface components {
             type: string;
         };
         /**
-         * VerifiedRepo
-         * @description Display-only metadata the SPA shows on the connect-success card.
-         */
-        VerifiedRepo: {
-            /** Default Branch */
-            default_branch: string;
-            /**
-             * Permissions
-             * @default []
-             */
-            permissions: string[];
-            /** Repo Name */
-            repo_name: string;
-            /** Visibility */
-            visibility: string;
-        };
-        /**
          * VersionInfo
          * @description Version handshake for the agent CLI (`opensec status`).
          *
@@ -2799,6 +2950,8 @@ export interface components {
             kind: string;
             /** Linked Ticket Id */
             linked_ticket_id?: string | null;
+            /** Repo Url */
+            repo_url?: string | null;
             /** Source Check Name */
             source_check_name?: string | null;
             /**
@@ -2830,6 +2983,8 @@ export interface components {
             current_focus?: string | null;
             /** Finding Id */
             finding_id: string;
+            /** Repo Url */
+            repo_url?: string | null;
             /**
              * State
              * @default open
@@ -3534,6 +3689,39 @@ export interface operations {
             };
         };
     };
+    list_github_repos_api_onboarding_github_repos_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ListReposRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     connect_repo_api_onboarding_repo_post: {
         parameters: {
             query?: never;
@@ -3553,7 +3741,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OnboardingRepoResponse"];
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

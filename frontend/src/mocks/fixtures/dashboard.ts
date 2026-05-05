@@ -164,6 +164,8 @@ export const assessmentRunningPayload: DashboardPayload = {
   posture_total_count: 0,
   tools: [],
   vulnerabilities: null,
+  grade_label: 'First scan',
+  grade_caption: 'Run your first assessment to earn a grade.',
 }
 
 const _snapshotC = {
@@ -202,6 +204,8 @@ export const gradeCWithIssuesPayload: DashboardPayload = {
   posture_total_count: 7,
   tools: [],
   vulnerabilities: null,
+  grade_label: 'Stable',
+  grade_caption: 'Steady at C. Two more closures away from B.',
 }
 
 const _snapshotA = {
@@ -238,6 +242,8 @@ export const gradeACompletionHoldingPayload: DashboardPayload = {
   posture_total_count: 7,
   tools: [],
   vulnerabilities: null,
+  grade_label: 'Stable',
+  grade_caption: "You're at A — hold the line.",
 }
 
 // ---------------------------------------------------------------------------
@@ -368,6 +374,101 @@ export const gradeBWithHistoryPayload: DashboardPayload = {
   },
   grade_history: _gradeHistoryB,
   severity_history: _severityHistoryB,
+  grade_label: 'Stable',
+  grade_caption: 'Promoted from C 17 days ago. Two more closures away from A.',
+  open_by_severity: [
+    { kind: 'critical', count: 1, weekly_delta: -1 },
+    { kind: 'high', count: 9, weekly_delta: -3 },
+    { kind: 'medium', count: 26, weekly_delta: -1 },
+    { kind: 'low', count: 24, weekly_delta: 0 },
+  ],
+  level_up: {
+    current: 'B',
+    next: 'A',
+    summary: 'Three things between you and an A. Two are one-click.',
+    gates: [
+      {
+        id: 'criticals_open',
+        label: 'Close the open Critical',
+        detail: 'RCE in lodash chain · plan ready for your review',
+        current: 1,
+        target: 0,
+        unit: 'critical',
+        status: 'ready_to_review',
+        action_label: 'Review plan',
+        action_href: '/issues?open=fnd_001',
+        auto_fixable_check_names: [],
+      },
+      {
+        id: 'secrets_open',
+        label: 'Resolve the committed secret',
+        detail: 'Stripe live key · PR #1842 ready',
+        current: 1,
+        target: 0,
+        unit: 'secret',
+        status: 'pr_ready',
+        action_label: 'Open PR',
+        action_href: '/issues?open=fnd_secret_001',
+        auto_fixable_check_names: [],
+      },
+      {
+        id: 'posture_remaining',
+        label: 'Pass remaining posture checks',
+        detail: 'security_md, code_owners_exists',
+        current: 12,
+        target: 15,
+        unit: 'posture checks',
+        status: 'auto_fixable',
+        action_label: 'Auto-fix 2 of 3',
+        action_href: '/issues?type=posture',
+        auto_fixable_check_names: ['security_md', 'code_owners_exists'],
+      },
+    ],
+  },
+  last_assessment: {
+    repo_url: 'https://github.com/acme/fast-markdown',
+    finished_at: NOW,
+    duration_ms: 257_000,
+    commit_sha: 'a3f81c2',
+    branch: 'main',
+    scanned_files: 4128,
+    scanned_deps: 312,
+    scanners: [
+      {
+        id: 'trivy',
+        label: 'Trivy 0.52.2',
+        icon: 'bug_report',
+        state: 'done',
+        version: '0.52.2',
+        duration_ms: 38_400,
+        scope: '312 deps · npm + pip · git history',
+        ran: 'Dependency + secret scan',
+        result: { kind: 'findings_count', value: 7, text: '7 findings' },
+      },
+      {
+        id: 'semgrep',
+        label: 'Semgrep 1.70.0',
+        icon: 'code',
+        state: 'done',
+        version: '1.70.0',
+        duration_ms: 71_200,
+        scope: '4128 files · p/security-audit',
+        ran: 'Static analysis (p/security-audit)',
+        result: { kind: 'findings_count', value: 3, text: '3 findings' },
+      },
+      {
+        id: 'posture',
+        label: '15 posture checks',
+        icon: 'rule',
+        state: 'done',
+        version: '1.0.0',
+        duration_ms: 9_600,
+        scope: '15 repo + cloud configuration checks',
+        ran: '15 repo + cloud configuration checks',
+        result: { kind: 'pass_count', value: 12, text: '12 pass' },
+      },
+    ],
+  },
 }
 
 // ---------------------------------------------------------------------------
