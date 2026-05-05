@@ -191,9 +191,15 @@ uv sync --frozen --no-dev --quiet \
 ok "backend venv at ${BACKEND_DIR}/.venv"
 
 # ---- opencode binary -------------------------------------------------------
+#
+# Invoke the helper scripts directly so their `#!/usr/bin/env bash` shebang
+# takes effect. Calling `sh script.sh` would force the system /bin/sh which
+# is dash on Debian/Ubuntu — and the helpers use bashisms (`set -o pipefail`,
+# `[[ ... ]]`, arrays).
 
 say "Installing OpenCode binary"
-OPENSEC_BIN_DIR="${BIN_DIR}" sh "${APP_DIR}/scripts/install-opencode.sh" \
+chmod +x "${APP_DIR}/scripts/install-opencode.sh" "${APP_DIR}/scripts/install-scanners.sh"
+OPENSEC_BIN_DIR="${BIN_DIR}" "${APP_DIR}/scripts/install-opencode.sh" \
   || fail "install-opencode.sh failed."
 
 # ---- scanners (trivy, semgrep) ---------------------------------------------
@@ -203,7 +209,7 @@ say "Installing scanners (trivy, semgrep)"
 # Keeps the strict-mode contract for the future without blocking installs today.
 OPENSEC_BIN_DIR="${BIN_DIR}" \
 OPENSEC_SCANNER_VERIFY=warn \
-  sh "${APP_DIR}/scripts/install-scanners.sh" \
+  "${APP_DIR}/scripts/install-scanners.sh" \
   || fail "install-scanners.sh failed."
 
 # ---- credential vault key + env file ---------------------------------------

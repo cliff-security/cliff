@@ -101,11 +101,13 @@ CLI="${TEST_HOME}/cli-venv/bin/opensec"
 # ---- 4. doctor -------------------------------------------------------------
 echo "==> opensec doctor --json"
 DOCTOR_OUT="$(OPENSEC_HOME="${TEST_HOME}" "${CLI}" doctor --json || true)"
-echo "${DOCTOR_OUT}" | python3 -c "
+# Parse via the cli venv's python (guaranteed present after install) — system
+# python3 is missing on minimal containers we test in.
+echo "${DOCTOR_OUT}" | "${TEST_HOME}/cli-venv/bin/python" -c "
 import json, sys
 data = json.loads(sys.stdin.read())
 fails = data.get('failing', [])
-# Tolerate port.4096 in CI (other workflows might bind it). Otherwise hard fail.
+# Tolerate port.4096 if another workflow holds it.
 fails = [f for f in fails if f != 'port.4096']
 if fails:
     print('FAIL: doctor failing:', fails)
