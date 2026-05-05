@@ -1,0 +1,162 @@
+name: install-smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/install-local.sh'
+      - 'scripts/install-opencode.sh'
+      - 'scripts/install-scanners.sh'
+      - 'scripts/build-tarball.sh'
+      - 'cli/opensec_cli/daemon.py'
+      - 'cli/opensec_cli/cli.py'
+      - 'tests/install/smoke.sh'
+      - '.opencode-version'
+      - '.scanner-versions'
+      - '.github/workflows/install-smoke.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/install-local.sh'
+      - 'scripts/install-opencode.sh'
+      - 'scripts/install-scanners.sh'
+      - 'scripts/build-tarball.sh'
+      - 'cli/opensec_cli/daemon.py'
+      - 'cli/opensec_cli/cli.py'
+      - 'tests/install/smoke.sh'
+      - '.opencode-version'
+      - '.scanner-versions'
+      - '.github/workflows/install-smoke.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: install-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    # Default-runner matrix: catches macOS-specific bugs (Gatekeeper, Keychain
+    # deadlock) and the most common Linux distro (Ubuntu LTS) on every PR.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # The smoke script bootstraps uv itself, but pre-installing it on the
+      # runner cuts ~10s off each job and avoids the curl|sh layer.
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: Verify gh + curl + git are present
+        run: |
+          for cmd in gh curl git tar; do
+            command -v "$cmd" >/dev/null || { echo "missing: $cmd"; exit 1; }
+          done
+
+      - name: Run install smoke test
+        run: bash tests/install/smoke.sh
+
+  distros:
+    # Distro matrix: catches package-manager and toolchain quirks across
+    # every Linux family we promise to support — Debian/Ubuntu (apt),
+    # Fedora/RHEL (dnf), and Arch (pacman). Each is exercised inside its
+    # own container so we hit the actual minimal install state, not the
+    # pre-loaded GitHub runner image.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ubuntu-22.04
+            image: ubuntu:22.04
+            family: debian
+          - name: ubuntu-24.04
+            image: ubuntu:24.04
+            family: debian
+          - name: debian-12
+            image: debian:12
+            family: debian
+          - name: fedora-latest
+            image: fedora:latest
+            family: fedora
+          - name: rocky-9
+            image: rockylinux:9
+            family: rocky
+          - name: arch
+            image: archlinux:latest
+            family: arch
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Smoke install in ${{ matrix.name }}
+        env:
+          DISTRO_FAMILY: ${{ matrix.family }}
+          DISTRO_IMAGE: ${{ matrix.image }}
+        run: |
+          set -euo pipefail
+          # Per-family prereq: install curl/git/tar/gh, then bootstrap uv
+          # and run the install smoke. Each block is self-contained so we
+          # can catch missing-package issues (e.g. shasum on Fedora) right
+          # at the install step, not later.
+          case "${DISTRO_FAMILY}" in
+            debian)
+              prereqs='
+                apt-get update -qq
+                apt-get install -y -qq curl git ca-certificates gnupg tar >/dev/null
+                curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+                  | tee /usr/share/keyrings/githubcli-archive-keyring.gpg >/dev/null
+                chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+                ARCH=$(dpkg --print-architecture)
+                echo "deb [arch=${ARCH} signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+                  > /etc/apt/sources.list.d/github-cli.list
+                apt-get update -qq
+                apt-get install -y -qq gh >/dev/null
+              '
+              ;;
+            fedora)
+              prereqs='
+                dnf install -y -q git gh tar findutils >/dev/null
+              '
+              ;;
+            rocky)
+              prereqs='
+                dnf install -y -q git tar findutils dnf-plugins-core >/dev/null
+                dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo >/dev/null
+                dnf install -y -q gh >/dev/null
+              '
+              ;;
+            arch)
+              prereqs='
+                pacman -Syu --noconfirm --quiet curl git github-cli tar findutils >/dev/null
+              '
+              ;;
+          esac
+
+          # Stage a stub frontend/dist so build-tarball.sh runs without Node.
+          mkdir -p frontend/dist
+          [ -s frontend/dist/index.html ] || \
+            echo "<!doctype html><html><body>smoke</body></html>" > frontend/dist/index.html
+
+          run_script="$(mktemp)"
+          cat > "${run_script}" <<EOF
+          set -e
+          ${prereqs}
+          curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null 2>&1
+          export PATH="/root/.local/bin:\$PATH"
+          bash tests/install/smoke.sh
+          EOF
+          chmod +x "${run_script}"
+
+          docker run --rm \
+            -v "$(pwd):/work" \
+            -v "${run_script}:/run.sh:ro" \
+            -w /work \
+            "${DISTRO_IMAGE}" bash /run.sh

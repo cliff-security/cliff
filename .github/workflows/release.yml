@@ -439,9 +439,31 @@ jobs:
           # the curl one-liner (`/releases/latest/download/install.sh`) and
           # the manual compose recipe both resolve to the right artifacts.
           cp scripts/install.sh           install.sh
+          cp scripts/install-local.sh     install-local.sh
           cp docker/docker-compose.yml    docker-compose.yml
           cp docker/.env.example          .env.example
-          chmod +x install.sh
+          chmod +x install.sh install-local.sh
+
+      # Build the native-install tarball that install-local.sh consumes.
+      # The frontend build is the slow step; the CLI sdist already produced
+      # above doesn't share artifacts with this, so we run it inline.
+      - name: Setup Node (frontend build for tarball)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build local-install tarball
+        run: |
+          set -euo pipefail
+          scripts/build-tarball.sh "${{ needs.validate.outputs.version }}"
+          # Surface the staged assets at the workflow root so softprops/action-gh-release
+          # can pick them up alongside install-local.sh, install.sh, etc.
+          cp dist/opensec-${{ needs.validate.outputs.version }}.tar.gz        .
+          cp dist/opensec-${{ needs.validate.outputs.version }}.tar.gz.sha256 .
+          cp dist/opensec.tar.gz                                              .
+          cp dist/opensec.tar.gz.sha256                                       .
 
       # Agent surface (ADR-0034): the `opensec` CLI ships as a sdist release
       # asset so `install.sh` can pip-install it onto the user's host. The
@@ -491,7 +513,12 @@ jobs:
             opensec-${{ needs.validate.outputs.version }}.cdx.json
             verification.txt
             install.sh
+            install-local.sh
             docker-compose.yml
             .env.example
             opensec-cli.tar.gz
+            opensec-${{ needs.validate.outputs.version }}.tar.gz
+            opensec-${{ needs.validate.outputs.version }}.tar.gz.sha256
+            opensec.tar.gz
+            opensec.tar.gz.sha256
           fail_on_unmatched_files: true

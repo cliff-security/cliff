@@ -1,4 +1,10 @@
-# Install OpenSec
+# Install OpenSec — Docker
+
+> **Looking for the native installer?** macOS and Linux users should prefer
+> [docs/guides/install-local.md](guides/install-local.md) — no Docker
+> required, runs as a single uvicorn process, ~2 minute first-run UX.
+> This page documents the Docker path, which stays available as the
+> alternative (and the only path on Windows).
 
 OpenSec ships as a single, signed Docker image published to the GitHub
 Container Registry. The image runs as the non-root user `opensec`
