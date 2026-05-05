@@ -21,6 +21,18 @@ TARBALL=""
 cleanup() {
   rc=$?
   set +e
+  # On failure, dump the daemon log before tearing down so the operator
+  # (or CI) sees why it didn't come up healthy.
+  if [[ "${rc}" != "0" ]] && [[ -d "${TEST_HOME}/data/logs" ]]; then
+    echo
+    echo "===== detached daemon log ====="
+    for log in "${TEST_HOME}"/data/logs/opensec-*.log; do
+      [[ -f "${log}" ]] || continue
+      echo "--- ${log} ---"
+      cat "${log}"
+    done
+    echo "==============================="
+  fi
   # If the daemon is still up, kill it.
   if [[ -f "${TEST_HOME}/run/opensec.pid" ]]; then
     pid="$(cat "${TEST_HOME}/run/opensec.pid")"
@@ -50,6 +62,10 @@ TARBALL="$(ls -1 dist/opensec-*.tar.gz | head -1)"
 [[ -f "${TARBALL}" ]] || { echo "FAIL: no tarball produced"; exit 1; }
 
 # Layout sanity: every file the installer relies on must be in the tarball.
+# We list the archive once into a variable rather than piping into `grep -q`
+# in a loop — `grep -q` exits early, which under `set -o pipefail` causes
+# GNU tar to report a SIGPIPE write error and fail the pipeline.
+tarball_listing="$(tar -tzf "${TARBALL}")"
 for required in \
     backend/pyproject.toml \
     backend/opensec/main.py \
@@ -62,7 +78,7 @@ for required in \
     .opencode-version \
     .scanner-versions \
     VERSION ; do
-  if ! tar -tzf "${TARBALL}" | grep -qE "(^|/)${required}\$"; then
+  if ! grep -qE "(^|/)${required}\$" <<<"${tarball_listing}"; then
     echo "FAIL: ${required} missing from tarball"
     exit 1
   fi
