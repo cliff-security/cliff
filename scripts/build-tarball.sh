@@ -53,23 +53,33 @@ if [[ ! -f frontend/dist/index.html ]]; then
   exit 1
 fi
 
+# Helper: remove caches/build artifacts from a staged tree. Portable across
+# GNU/BSD find — `tar --exclude` glob semantics differ between the two, so we
+# stage with cp and prune afterwards.
+prune_caches() {
+  local root="$1"
+  find "${root}" \
+    \( -type d \( \
+         -name '.venv' -o \
+         -name '.pytest_cache' -o \
+         -name '.ruff_cache' -o \
+         -name '__pycache__' -o \
+         -name 'node_modules' -o \
+         -name '.mypy_cache' -o \
+         -name '.tox' -o \
+         -name 'dist' -o \
+         -name 'build' \
+       \) \
+       -prune -exec rm -rf {} + \
+    \) -o \
+    \( -type d -name '*.egg-info' -prune -exec rm -rf {} + \)
+}
+
 # ---- backend (source only — venv is created at install time) ---------------
 
-mkdir -p "${STAGE_DIR}/backend"
-# Copy backend, excluding throwaways (.venv, __pycache__, tests, build artifacts).
-# tar with --exclude is portable; rsync isn't always present.
-tar -cf - \
-  --exclude='backend/.venv' \
-  --exclude='backend/.pytest_cache' \
-  --exclude='backend/.ruff_cache' \
-  --exclude='backend/__pycache__' \
-  --exclude='**/__pycache__' \
-  --exclude='backend/tests' \
-  --exclude='backend/dist' \
-  --exclude='backend/build' \
-  --exclude='backend/*.egg-info' \
-  backend \
-  | tar -xf - -C "${STAGE_DIR}"
+cp -R backend "${STAGE_DIR}/backend"
+rm -rf "${STAGE_DIR}/backend/tests"
+prune_caches "${STAGE_DIR}/backend"
 
 # ---- frontend (dist only — source is not shipped) -------------------------
 
@@ -78,19 +88,9 @@ cp -R frontend/dist "${STAGE_DIR}/frontend/dist"
 
 # ---- cli source (installed at install time into its own venv) -------------
 
-tar -cf - \
-  --exclude='cli/.venv' \
-  --exclude='cli/.pytest_cache' \
-  --exclude='cli/.ruff_cache' \
-  --exclude='cli/__pycache__' \
-  --exclude='**/__pycache__' \
-  --exclude='**/.pytest_cache' \
-  --exclude='cli/tests' \
-  --exclude='cli/dist' \
-  --exclude='cli/build' \
-  --exclude='cli/*.egg-info' \
-  cli \
-  | tar -xf - -C "${STAGE_DIR}"
+cp -R cli "${STAGE_DIR}/cli"
+rm -rf "${STAGE_DIR}/cli/tests"
+prune_caches "${STAGE_DIR}/cli"
 
 # ---- scripts (just the two install helpers — install-local.sh isn't needed
 # at runtime, it's how the user got here in the first place) -----------------
