@@ -16,11 +16,13 @@ posture finding row.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
+from opensec.api.routes._level_up import LevelUp, derive_level_up
 from opensec.assessment.posture import (
     ADVISORY_CHECKS,
     CHECK_CATEGORY,
@@ -133,12 +135,42 @@ class SeverityHistory(BaseModel):
     low: list[int] = Field(default_factory=list)
 
 
+SeverityKind = Literal["critical", "high", "medium", "low"]
+GradeLabel = Literal["Stable", "Rising", "Falling", "First scan"]
+
+
+class OpenBySeverityRow(BaseModel):
+    """One row of the new dashboard's "Open findings" card (IMPL-0009)."""
+
+    kind: SeverityKind
+    count: int
+    weekly_delta: int  # current - 7-days-ago; negative = improvement
+
+
+class LastAssessmentInfo(BaseModel):
+    """Trust-block summary for the dashboard's "Last assessment" panel."""
+
+    repo_url: str
+    finished_at: datetime | None = None
+    duration_ms: int | None = None
+    commit_sha: str | None = None
+    branch: str | None = None
+    scanned_files: int | None = None
+    scanned_deps: int | None = None
+    scanners: list[AssessmentTool] = Field(default_factory=list)
+
+
 class DashboardPayload(BaseModel):
     """v0.2 dashboard wire shape — see ADR-0032 for the full design rationale.
 
     PRD-0006 Phase 2 (IMPL-0007 PR-B) adds the trend / needs-you / history
     fields below. They are additive and never alter the v0.2 contract; the
     snapshot test in ``test_openapi_snapshot.py`` is the regression guard.
+
+    IMPL-0009 adds ``open_by_severity``, ``level_up``, ``last_assessment``,
+    ``grade_label``, ``grade_caption`` for the redesigned dashboard. The Phase 2
+    additions above are kept (deprecated, frontend stops reading them) so the
+    contract remains additive.
     """
 
     assessment: Assessment | None
@@ -154,12 +186,20 @@ class DashboardPayload(BaseModel):
     vulnerabilities: VulnerabilityCounts | None = None
     completion_id: str | None = None
 
-    # PRD-0006 Phase 2 additions.
+    # PRD-0006 Phase 2 additions (deprecated by IMPL-0009 — kept for contract
+    # stability; the rebuilt frontend stops reading them).
     open_issues: OpenIssuesSeries = Field(default_factory=OpenIssuesSeries)
     time_to_close: TimeToCloseSeries = Field(default_factory=TimeToCloseSeries)
     needs_you: NeedsYouCounts = Field(default_factory=NeedsYouCounts)
     grade_history: list[GradeHistoryPoint] = Field(default_factory=list)
     severity_history: SeverityHistory = Field(default_factory=SeverityHistory)
+
+    # IMPL-0009 — primary fields the redesigned dashboard reads.
+    open_by_severity: list[OpenBySeverityRow] = Field(default_factory=list)
+    level_up: LevelUp | None = None
+    last_assessment: LastAssessmentInfo | None = None
+    grade_label: GradeLabel = "First scan"
+    grade_caption: str = "Run your first assessment to earn a grade."
 
 
 # ------------------------------------------------------------------- helpers
@@ -367,6 +407,177 @@ def _synthesize_tools(
     ]
 
 
+# ─────────────────────────────────────────── IMPL-0009 derivation helpers
+_GRADE_RANK: dict[str, int] = {"F": 0, "D": 1, "C": 2, "B": 3, "A": 4}
+_GRADE_BOUNDARY_FOR_NEXT: dict[str, int] = {
+    # Met-criteria threshold required to *reach* the named grade.
+    "A": 10,
+    "B": 8,
+    "C": 6,
+    "D": 4,
+    "F": 0,
+}
+_NEXT_GRADE: dict[str, str | None] = {
+    "F": "D",
+    "D": "C",
+    "C": "B",
+    "B": "A",
+    "A": None,
+}
+
+
+def _open_by_severity_rows(
+    open_findings: list[Finding], severity: SeverityHistory
+) -> list[OpenBySeverityRow]:
+    """Bucket non-posture findings by severity + compute weekly deltas.
+
+    The series in ``severity`` is 60 days oldest-first. Today is index ``-1``;
+    7 days ago is index ``-8`` (or the oldest available for fresh installs,
+    in which case the delta is 0).
+    """
+    counts: dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    for f in open_findings:
+        sev = (f.normalized_priority or "").lower()
+        if sev in counts:
+            counts[sev] += 1
+
+    deltas: dict[str, int] = {}
+    for kind in ("critical", "high", "medium", "low"):
+        series: list[int] = list(getattr(severity, kind, []) or [])
+        if not series:
+            deltas[kind] = 0
+            continue
+        current = series[-1]
+        prior = series[-8] if len(series) >= 8 else series[0]
+        deltas[kind] = current - prior
+
+    return [
+        OpenBySeverityRow(
+            kind="critical",
+            count=counts["critical"],
+            weekly_delta=deltas["critical"],
+        ),
+        OpenBySeverityRow(
+            kind="high", count=counts["high"], weekly_delta=deltas["high"]
+        ),
+        OpenBySeverityRow(
+            kind="medium", count=counts["medium"], weekly_delta=deltas["medium"]
+        ),
+        OpenBySeverityRow(
+            kind="low", count=counts["low"], weekly_delta=deltas["low"]
+        ),
+    ]
+
+
+def _grade_label(
+    current: Grade | None, prior: Grade | None
+) -> GradeLabel:
+    if current is None or prior is None:
+        return "First scan"
+    if _GRADE_RANK[current] > _GRADE_RANK[prior]:
+        return "Rising"
+    if _GRADE_RANK[current] < _GRADE_RANK[prior]:
+        return "Falling"
+    return "Stable"
+
+
+def _grade_caption(
+    *,
+    current: Grade | None,
+    prior: Grade | None,
+    days_since_change: int | None,
+    snapshot: CriteriaSnapshot | None,
+) -> str:
+    if current is None:
+        return "Run your first assessment to earn a grade."
+
+    next_grade = _NEXT_GRADE.get(current)
+    parts: list[str] = []
+
+    # Sentence 1: where we are.
+    if prior is None or prior == current:
+        parts.append(f"Steady at {current}.")
+    elif _GRADE_RANK[current] > _GRADE_RANK[prior]:
+        days_clause = f" {days_since_change} days ago" if days_since_change else ""
+        parts.append(f"Promoted from {prior}{days_clause}.")
+    else:
+        days_clause = f" {days_since_change} days ago" if days_since_change else ""
+        parts.append(f"Slipped from {prior}{days_clause}.")
+
+    # Sentence 2: how far to next.
+    if next_grade is not None and snapshot is not None:
+        boundary = _GRADE_BOUNDARY_FOR_NEXT.get(next_grade, 10)
+        gap = max(0, boundary - snapshot.met_count())
+        if gap > 0:
+            word = {1: "One", 2: "Two", 3: "Three", 4: "Four"}.get(gap, str(gap))
+            unit = "closure" if gap == 1 else "closures"
+            parts.append(f"{word} more {unit} away from {next_grade}.")
+    elif next_grade is None:
+        parts.append("You're at A — hold the line.")
+
+    return " ".join(parts)
+
+
+def _build_last_assessment(
+    latest: Assessment | None, tools: list[AssessmentTool]
+) -> LastAssessmentInfo | None:
+    if latest is None:
+        return None
+    return LastAssessmentInfo(
+        repo_url=latest.repo_url,
+        finished_at=latest.completed_at,
+        duration_ms=_duration_ms(latest),
+        commit_sha=latest.commit_sha,
+        branch=latest.branch,
+        scanned_files=latest.scanned_files,
+        scanned_deps=latest.scanned_deps,
+        scanners=tools,
+    )
+
+
+def _duration_ms(latest: Assessment) -> int | None:
+    if latest.completed_at is None or latest.started_at is None:
+        return None
+    delta = latest.completed_at - latest.started_at
+    return max(0, int(delta.total_seconds() * 1000))
+
+
+async def _resolve_prior_grade_and_age(
+    db, current: Assessment | None
+) -> tuple[Grade | None, int | None]:
+    """Return ``(prior_grade, days_since_letter_change)``.
+
+    Walks completed assessments in reverse-chronological order. If the most
+    recent prior has the same grade as ``current``, walks backward until a
+    different letter shows up — that's the promotion/demotion timestamp.
+    """
+    if current is None or current.grade is None:
+        return None, None
+    cursor = await db.execute(
+        "SELECT id, grade, completed_at FROM assessment "
+        "WHERE status = 'complete' AND completed_at IS NOT NULL "
+        "  AND id != ? "
+        "ORDER BY completed_at DESC",
+        (current.id,),
+    )
+    rows = await cursor.fetchall()
+    prior_grade: Grade | None = None
+    days_since_change: int | None = None
+    now = datetime.now(UTC)
+    for r in rows:
+        prior_grade = r["grade"]
+        if prior_grade != current.grade:
+            try:
+                completed = datetime.fromisoformat(r["completed_at"].replace("Z", "+00:00"))
+                if completed.tzinfo is None:
+                    completed = completed.replace(tzinfo=UTC)
+                days_since_change = max(0, (now - completed).days)
+            except (TypeError, ValueError):
+                days_since_change = None
+            break
+    return prior_grade, days_since_change
+
+
 # ------------------------------------------------------------------ endpoint
 @router.get("", response_model=DashboardPayload)
 async def get_dashboard(db=Depends(get_db)) -> DashboardPayload:
@@ -375,6 +586,7 @@ async def get_dashboard(db=Depends(get_db)) -> DashboardPayload:
 
     if latest is None:
         empty_snapshot = CriteriaSnapshot()
+        empty_severity = SeverityHistory(**phase2["severity_history"])
         return DashboardPayload(
             assessment=None,
             grade=None,
@@ -394,7 +606,14 @@ async def get_dashboard(db=Depends(get_db)) -> DashboardPayload:
             grade_history=[
                 GradeHistoryPoint(**p) for p in phase2["grade_history"]
             ],
-            severity_history=SeverityHistory(**phase2["severity_history"]),
+            severity_history=empty_severity,
+            # IMPL-0009 — empty defaults so the rebuilt frontend renders the
+            # "First scan" hero state cleanly.
+            open_by_severity=_open_by_severity_rows([], empty_severity),
+            level_up=None,
+            last_assessment=None,
+            grade_label="First scan",
+            grade_caption="Run your first assessment to earn a grade.",
         )
 
     counts = await count_findings_by_priority(
@@ -422,6 +641,36 @@ async def get_dashboard(db=Depends(get_db)) -> DashboardPayload:
     posture_wire = _build_posture_payload(posture_checks)
     tools = _synthesize_tools(latest.tools, pass_count, total_count, vulnerabilities)
 
+    # IMPL-0009 — derive new fields. Open vulnerability findings drive the
+    # severity card and finding-based level-up gates; posture findings drive
+    # the posture aggregate gate.
+    all_vuln_findings = await list_findings(
+        db,
+        type=["dependency", "secret", "code"],
+        limit=10_000,
+    )
+    open_statuses = {"new", "triaged", "in_progress", "remediated"}
+    open_findings = [
+        f for f in all_vuln_findings if f.status in open_statuses
+    ]
+    severity_history_obj = SeverityHistory(**phase2["severity_history"])
+    open_by_severity = _open_by_severity_rows(open_findings, severity_history_obj)
+    level_up = derive_level_up(
+        grade=latest.grade,
+        criteria_snapshot=snapshot,
+        open_findings=open_findings,
+        posture_findings=posture_checks,
+    )
+    last_assessment = _build_last_assessment(latest, tools)
+    prior_grade, days_since_change = await _resolve_prior_grade_and_age(db, latest)
+    grade_label_value = _grade_label(latest.grade, prior_grade)
+    grade_caption_value = _grade_caption(
+        current=latest.grade,
+        prior=prior_grade,
+        days_since_change=days_since_change,
+        snapshot=snapshot,
+    )
+
     return DashboardPayload(
         assessment=latest,
         grade=latest.grade,
@@ -439,5 +688,10 @@ async def get_dashboard(db=Depends(get_db)) -> DashboardPayload:
         time_to_close=TimeToCloseSeries(**phase2["time_to_close"]),
         needs_you=NeedsYouCounts(**phase2["needs_you"]),
         grade_history=[GradeHistoryPoint(**p) for p in phase2["grade_history"]],
-        severity_history=SeverityHistory(**phase2["severity_history"]),
+        severity_history=severity_history_obj,
+        open_by_severity=open_by_severity,
+        level_up=level_up,
+        last_assessment=last_assessment,
+        grade_label=grade_label_value,
+        grade_caption=grade_caption_value,
     )

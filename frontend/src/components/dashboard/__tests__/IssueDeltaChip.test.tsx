@@ -37,4 +37,44 @@ describe('<IssueDeltaChip />', () => {
     // muted-error tone.
     expect(chip.getAttribute('style')).toMatch(/158, 63, 78/)
   })
+
+  // ── IMPL-0009 — count mode ────────────────────────────────────────────
+
+  describe('mode="count"', () => {
+    it('renders a zero value with the remove icon and neutral tone', () => {
+      render(<IssueDeltaChip mode="count" value={0} />)
+      const chip = screen.getByTestId('issue-delta-chip')
+      expect(chip).toHaveTextContent('— wk')
+      expect(chip.textContent).toMatch(/remove/)
+      expect(chip.getAttribute('style')).toMatch(/surface-container-high/)
+    })
+
+    it('renders a negative value (lowerIsBetter default) as good (tertiary)', () => {
+      render(<IssueDeltaChip mode="count" value={-5} />)
+      const chip = screen.getByTestId('issue-delta-chip')
+      expect(chip.textContent).toMatch(/trending_down/)
+      expect(chip).toHaveTextContent('−5 · wk')
+      expect(chip.getAttribute('style')).toMatch(/tertiary-container/)
+    })
+
+    it('renders a positive value as bad (muted error) and prefixes with +', () => {
+      render(<IssueDeltaChip mode="count" value={3} />)
+      const chip = screen.getByTestId('issue-delta-chip')
+      expect(chip.textContent).toMatch(/trending_up/)
+      expect(chip).toHaveTextContent('+3 · wk')
+      expect(chip.getAttribute('style')).toMatch(/158, 63, 78/)
+    })
+
+    it('honours lowerIsBetter=false (positive is good)', () => {
+      render(<IssueDeltaChip mode="count" value={4} lowerIsBetter={false} />)
+      expect(screen.getByTestId('issue-delta-chip').getAttribute('style')).toMatch(
+        /tertiary-container/,
+      )
+    })
+
+    it('respects custom suffix', () => {
+      render(<IssueDeltaChip mode="count" value={0} suffix="mo" />)
+      expect(screen.getByTestId('issue-delta-chip')).toHaveTextContent('— mo')
+    })
+  })
 })

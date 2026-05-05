@@ -8,32 +8,27 @@
  */
 
 import type React from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router'
 import {
+  useAssessmentStatus,
   useDashboard,
   useFixPostureCheck,
   useMarkSummarySeen,
   useRunAssessment,
 } from '@/api/dashboard'
-import type {
-  DashboardPayload,
-  PostureFixableCheck,
-  PostureFixParams,
-} from '@/api/dashboard'
+import type { DashboardPayload, PostureFixableCheck } from '@/api/dashboard'
 import { onboardingApi } from '@/api/onboarding'
-import AssessmentInProgressView from '@/components/dashboard/AssessmentInProgressView'
+import AssessmentRunningCard from '@/components/dashboard/AssessmentRunningCard'
 import AssessmentSummary from '@/components/dashboard/AssessmentSummary'
 import IssueGradeHero, {
   type GradeLetter,
 } from '@/components/dashboard/IssueGradeHero'
-import IssueGradeHistoryChart from '@/components/dashboard/IssueGradeHistoryChart'
-import IssueMetricCard from '@/components/dashboard/IssueMetricCard'
-import IssueNeedsYouLine from '@/components/dashboard/IssueNeedsYouLine'
-import PostureCard, {
-  type PostureFeedback,
-} from '@/components/dashboard/PostureCard'
+import LastAssessmentPanel from '@/components/dashboard/LastAssessmentPanel'
+import LevelUpPanel from '@/components/dashboard/LevelUpPanel'
+import OpenBySeverityCard from '@/components/dashboard/OpenBySeverityCard'
+import PreviousAssessmentCard from '@/components/dashboard/PreviousAssessmentCard'
 import CompletionCelebration from '@/components/completion/CompletionCelebration'
 import SummaryActionPanel from '@/components/completion/SummaryActionPanel'
 import ErrorBoundary from '@/components/ErrorBoundary'
@@ -211,10 +206,22 @@ function RunAssessmentButton({
 }
 
 function RunningDashboard({ data }: { data: DashboardPayload }) {
+  const navigate = useNavigate()
   const repoName = repoNameFromUrl(data.assessment?.repo_url)
-  const headline = data.assessment?.completed_at
-    ? 'Re-assessing your repository'
-    : 'Assessment in progress'
+  const assessmentId = data.assessment?.id ?? null
+  const { data: status } = useAssessmentStatus(assessmentId)
+
+  const tools = (status?.tools ?? []).map((t) => ({
+    id: t.id,
+    label: humanizeToolLabel(t.label, t.version),
+    icon: t.icon,
+    state: t.state,
+    result: t.result,
+  }))
+  const steps = status?.steps ?? []
+  const progressPct = status?.progress_pct ?? 0
+  const previous = status?.previous_assessment ?? null
+
   return (
     <PageShell
       title="Overview"
@@ -228,14 +235,40 @@ function RunningDashboard({ data }: { data: DashboardPayload }) {
       }
     >
       {data.assessment && (
-        <AssessmentInProgressView
-          assessmentId={data.assessment.id}
-          headline={headline}
-          startedAt={data.assessment.started_at ?? null}
-        />
+        <div className="opensec-fade-in">
+          <AssessmentRunningCard
+            repoUrl={data.assessment.repo_url ?? null}
+            startedAt={data.assessment.started_at ?? null}
+            progressPct={progressPct}
+            steps={steps}
+            tools={tools}
+            onViewLiveLog={() => navigate('/settings/integrations')}
+            onConfigureScanners={() => navigate('/settings/integrations')}
+          />
+          {previous && (
+            <PreviousAssessmentCard
+              info={{
+                assessment_id: previous.assessment_id,
+                grade: previous.grade,
+                open_count: previous.open_count,
+                commit_sha: previous.commit_sha,
+                finished_at: previous.finished_at,
+                report_href: previous.report_href,
+              }}
+            />
+          )}
+        </div>
       )}
     </PageShell>
   )
+}
+
+function humanizeToolLabel(label: string, version: string | null | undefined): string {
+  // ``label`` already includes the version when the engine wrote one. When
+  // the label is bare and we have a version, surface it inline.
+  if (!version || version === 'unknown') return label
+  if (label.includes(version)) return label
+  return `${label} ${version}`
 }
 
 function EmptyDashboard() {
@@ -302,50 +335,10 @@ function useAckOnboardingOnce(data: DashboardPayload | undefined): void {
 function ReportCard({ data }: { data: DashboardPayload }) {
   const navigate = useNavigate()
   const fixMutation = useFixPostureCheck()
-  const [postureFeedback, setPostureFeedback] = useState<PostureFeedback | null>(
-    null,
-  )
-  // Live agent runs keyed by check_name so the inline strip can poll status.
-  // Keeps the PostureCard stateless — we thread the workspace_id into the row.
-  const [activeWorkspaceIds, setActiveWorkspaceIds] = useState<
-    Partial<Record<PostureFixableCheck, string>>
-  >({})
+  const reassessMutation = useRunAssessment()
+  const queryClient = useQueryClient()
 
   const repoName = repoNameFromUrl(data.assessment?.repo_url)
-
-  const handleGenerate = (
-    checkName: PostureFixableCheck,
-    params?: PostureFixParams,
-  ) => {
-    setPostureFeedback(null)
-    fixMutation.mutate({ checkName, params }, {
-      onSuccess: (resp) => {
-        setActiveWorkspaceIds((prev) => ({
-          ...prev,
-          [checkName]: resp.workspace_id,
-        }))
-        setPostureFeedback({
-          kind: 'success',
-          checkName,
-          message:
-            `Agent workspace ${resp.workspace_id} is running — we'll update the ` +
-            'row below when the draft PR opens.',
-        })
-      },
-      onError: (err) => {
-        const msg = err instanceof Error ? err.message : 'Unknown error'
-        setPostureFeedback({
-          kind: 'error',
-          checkName,
-          message: msg.includes('No repo registered')
-            ? 'Run an assessment first — we need a repo to open the PR against.'
-            : msg.includes('vault') || msg.includes('token')
-              ? 'GitHub integration not configured. Open Settings to add a PAT.'
-              : msg,
-        })
-      },
-    })
-  }
 
   // Only celebrate at grade A with a live completion row. The backend already
   // suppresses stale completion_ids when the current snapshot no longer meets
@@ -356,15 +349,40 @@ function ReportCard({ data }: { data: DashboardPayload }) {
       : null
 
   const grade = (data.grade ?? null) as GradeLetter | null
-  const heroLabel = heroLabelFromGrade(grade)
-  const heroCaption = heroCopyFromState(data)
+  const heroLabel = data.grade_label ?? heroLabelFromGrade(grade)
+  const heroCaption = data.grade_caption ?? heroCopyFromState(data)
 
-  const openIssues = data.open_issues
-  const timeToClose = data.time_to_close
-  const needsYou = data.needs_you ?? {
-    plans_waiting: 0,
-    prs_ready: 0,
-    critical_todo: 0,
+  const openBySeverity = (data.open_by_severity ?? []) as Array<{
+    kind: 'critical' | 'high' | 'medium' | 'low'
+    count: number
+    weekly_delta: number
+  }>
+
+  const handleAutoFix = async (checkNames: string[]) => {
+    // Fan out parallel POST /api/posture/fix/{check_name}. Existing 409 guard
+    // returns "already running"; surface that as a no-op rather than an error.
+    await Promise.allSettled(
+      checkNames.map((name) =>
+        fixMutation.mutateAsync({ checkName: name as PostureFixableCheck }),
+      ),
+    )
+    queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+  }
+
+  const handleReassess = () => {
+    const repoUrl = data.assessment?.repo_url ?? null
+    if (!repoUrl) return
+    reassessMutation.mutate(repoUrl, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      },
+    })
+  }
+
+  const handleShareReport = () => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      void navigator.clipboard.writeText(window.location.href)
+    }
   }
 
   return (
@@ -372,102 +390,119 @@ function ReportCard({ data }: { data: DashboardPayload }) {
       title="Overview"
       subtitle={repoName}
       actions={
-        <RunAssessmentButton
-          repoUrl={data.assessment?.repo_url ?? null}
-          running={false}
-          variant="rerun"
-        />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            data-testid="dashboard-share-report"
+            onClick={handleShareReport}
+            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold text-on-surface-variant hover:bg-surface-container"
+          >
+            <span
+              className="material-symbols-outlined"
+              style={{ fontSize: 14 }}
+              aria-hidden
+            >
+              share
+            </span>
+            Share report
+          </button>
+          <RunAssessmentButton
+            repoUrl={data.assessment?.repo_url ?? null}
+            running={false}
+            variant="rerun"
+          />
+        </div>
       }
     >
       {completionBlock}
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-4 opensec-fade-in">
         <IssueGradeHero
           letter={grade}
           label={heroLabel}
           caption={heroCaption}
           onOpenReview={() => navigate('/issues?section=review')}
-          onViewRubric={() => navigate('/findings')}
         />
 
-        <IssueNeedsYouLine
-          plansWaiting={needsYou.plans_waiting ?? 0}
-          prsReady={needsYou.prs_ready ?? 0}
-          criticalTodo={needsYou.critical_todo ?? 0}
-          onOpenReview={() => navigate('/issues?section=review')}
-        />
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <IssueMetricCard
-            label="Open issues"
-            value={String(openIssues?.current ?? 0)}
-            deltaPct={openIssues?.delta_pct_30d ?? 0}
-            lowerIsBetter
-            series={openIssues?.history ?? []}
-            footnote={openIssuesFootnote(data)}
+        <div className="grid gap-4 md:grid-cols-[380px_1fr]">
+          <OpenBySeverityCard
+            rows={openBySeverity}
+            onSelectSeverity={(kind) => navigate(`/issues?severity=${kind}`)}
           />
-          <IssueMetricCard
-            label="Time to close"
-            value={formatDurationShort(timeToClose?.current_seconds ?? null)}
-            deltaPct={timeToClose?.delta_pct_30d ?? 0}
-            lowerIsBetter
-            series={timeToClose?.history ?? []}
-            accent="tertiary"
-          />
+          {data.level_up ? (
+            <LevelUpPanel
+              data={{
+                current: data.level_up.current as 'A' | 'B' | 'C' | 'D' | 'F',
+                next: (data.level_up.next ?? null) as
+                  | 'A'
+                  | 'B'
+                  | 'C'
+                  | 'D'
+                  | 'F'
+                  | null,
+                summary: data.level_up.summary ?? '',
+                gates: (data.level_up.gates ?? []).map((g) => ({
+                  id: g.id,
+                  label: g.label,
+                  detail: g.detail,
+                  current: g.current,
+                  target: g.target,
+                  unit: g.unit,
+                  status: g.status,
+                  action_label: g.action_label,
+                  action_href: g.action_href,
+                  auto_fixable_check_names: g.auto_fixable_check_names ?? [],
+                })),
+              }}
+              onNavigate={(href) => navigate(href)}
+              onAutoFix={handleAutoFix}
+              onViewRubric={() =>
+                document
+                  .querySelector<HTMLDialogElement>(
+                    '[data-testid="issue-grade-hero-rubric-dialog"]',
+                  )
+                  ?.showModal?.()
+              }
+            />
+          ) : (
+            <section
+              data-testid="level-up-empty"
+              className="rounded-2xl border border-outline-variant p-6 flex items-center justify-center text-on-surface-variant text-[13px]"
+              style={{ background: 'var(--surface-container-lowest, #ffffff)' }}
+            >
+              No grade yet — run an assessment to see your path forward.
+            </section>
+          )}
         </div>
 
-        <section
-          data-testid="issue-grade-history-section"
-          className="rounded-2xl"
-          style={{
-            background: 'var(--surface-container-lowest, #ffffff)',
-            border: '1px solid var(--outline-variant, #abb3b7)',
-          }}
-        >
-          <header className="flex items-center justify-between px-6 pt-5 pb-3 flex-wrap gap-3">
-            <div>
-              <h2 className="font-headline font-extrabold text-[18px] text-on-surface">
-                Open issues over time
-              </h2>
-              <p className="text-[12px] text-on-surface-variant mt-0.5">
-                Stacked by severity. The dotted line marks the most recent
-                grade change.
-              </p>
-            </div>
-            <div className="flex items-center gap-3 text-[11px]">
-              {[
-                { label: 'Critical', color: 'var(--error, #9e3f4e)' },
-                { label: 'High', color: 'rgb(199,128,52)' },
-                { label: 'Medium', color: 'var(--secondary, #595e78)' },
-                { label: 'Low', color: 'var(--tertiary, #575e78)' },
-              ].map((l) => (
-                <span
-                  key={l.label}
-                  className="inline-flex items-center gap-1.5 text-on-surface-variant"
-                >
-                  <span
-                    className="rounded-sm"
-                    style={{ width: 10, height: 10, background: l.color }}
-                  />
-                  {l.label}
-                </span>
-              ))}
-            </div>
-          </header>
-          <div className="px-3 pb-4">
-            <IssueGradeHistoryChart
-              severityHistory={data.severity_history ?? null}
-              gradeHistory={data.grade_history ?? []}
-            />
-          </div>
-        </section>
-
-        <PostureCard
-          data={data}
-          onGenerate={handleGenerate}
-          pending={fixMutation.isPending}
-          feedback={postureFeedback}
-          activeWorkspaceIds={activeWorkspaceIds}
-        />
+        {data.last_assessment ? (
+          <LastAssessmentPanel
+            data={{
+              repo_url: data.last_assessment.repo_url ?? data.assessment?.repo_url ?? '',
+              finished_at: data.last_assessment.finished_at,
+              duration_ms: data.last_assessment.duration_ms,
+              commit_sha: data.last_assessment.commit_sha,
+              branch: data.last_assessment.branch,
+              scanned_files: data.last_assessment.scanned_files,
+              scanned_deps: data.last_assessment.scanned_deps,
+              scanners: (data.last_assessment.scanners ?? []) as Array<{
+                id: string
+                label: string
+                version?: string | null
+                icon?: string | null
+                ran?: string | null
+                scope?: string | null
+                duration_ms?: number | null
+                result?: {
+                  kind: 'findings_count' | 'pass_count'
+                  value: number
+                  text: string
+                } | null
+              }>,
+            }}
+            onReassess={handleReassess}
+            reassessing={reassessMutation.isPending}
+          />
+        ) : null}
       </div>
     </PageShell>
   )
@@ -510,35 +545,6 @@ function heroCopyFromState(data: DashboardPayload): string {
     }
   }
   return parts.join(' ')
-}
-
-function openIssuesFootnote(data: DashboardPayload): string | undefined {
-  const counts = data.vulnerabilities?.by_severity
-  if (!counts) return undefined
-  const segments: string[] = []
-  const order: Array<['critical' | 'high' | 'medium' | 'low', string]> = [
-    ['critical', 'Critical'],
-    ['high', 'High'],
-    ['medium', 'Medium'],
-    ['low', 'Low'],
-  ]
-  order.forEach(([key, label]) => {
-    const v = counts[key] ?? 0
-    if (v > 0) segments.push(`${v} ${label}`)
-  })
-  return segments.length > 0 ? segments.join(' · ') : undefined
-}
-
-function formatDurationShort(seconds: number | null | undefined): string {
-  if (seconds === null || seconds === undefined) return '—'
-  const totalMinutes = Math.round(seconds / 60)
-  if (totalMinutes < 60) return `${totalMinutes}m`
-  const hours = Math.floor(totalMinutes / 60)
-  const minutes = totalMinutes % 60
-  if (hours < 24) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`
-  const days = Math.floor(hours / 24)
-  const remHours = hours % 24
-  return remHours > 0 ? `${days}d ${remHours}h` : `${days}d`
 }
 
 function repoNameFromUrl(url: string | null | undefined): string {

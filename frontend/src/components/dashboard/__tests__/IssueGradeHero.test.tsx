@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import IssueGradeHero from '../IssueGradeHero'
 
 describe('<IssueGradeHero />', () => {
-  it('renders the letter grade at hero size', () => {
+  it('renders the letter grade at the IMPL-0009 hero size (168px)', () => {
     render(
       <IssueGradeHero
         letter="B"
@@ -11,7 +11,10 @@ describe('<IssueGradeHero />', () => {
         caption="Down 8 issues in the last 30 days."
       />,
     )
-    expect(screen.getByTestId('issue-grade-hero-letter')).toHaveTextContent('B')
+    const letter = screen.getByTestId('issue-grade-hero-letter')
+    expect(letter).toHaveTextContent('B')
+    expect(letter.getAttribute('style')).toMatch(/font-size:\s*168px/)
+    expect(letter.getAttribute('style')).toMatch(/letter-spacing:\s*-0\.04em/)
     expect(screen.getByText('Steady')).toBeInTheDocument()
   })
 
@@ -28,22 +31,37 @@ describe('<IssueGradeHero />', () => {
     expect(letter.getAttribute('style')).toMatch(/opacity:\s*0\.45/)
   })
 
-  it('fires onOpenReview and onViewRubric when CTAs are clicked', () => {
+  it('fires onOpenReview when the primary CTA is clicked', () => {
     const openReview = vi.fn()
-    const viewRubric = vi.fn()
     render(
       <IssueGradeHero
         letter="C"
         label="At risk"
         caption=""
         onOpenReview={openReview}
-        onViewRubric={viewRubric}
       />,
     )
     fireEvent.click(screen.getByText(/open review queue/i))
-    fireEvent.click(screen.getByText(/view grading rubric/i))
     expect(openReview).toHaveBeenCalledTimes(1)
-    expect(viewRubric).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens the rubric dialog when "View grading rubric" is clicked', () => {
+    // jsdom supports <dialog> but showModal is a no-op; use the test ID
+    // and assert the dialog is in the DOM. We exercise the click path so
+    // any error in showModal would surface.
+    render(
+      <IssueGradeHero
+        letter="B"
+        label="Steady"
+        caption=""
+      />,
+    )
+    const dialog = screen.getByTestId('issue-grade-hero-rubric-dialog')
+    expect(dialog.tagName.toLowerCase()).toBe('dialog')
+    expect(dialog).toHaveTextContent('Grading rubric')
+    expect(dialog).toHaveTextContent('15 posture checks')
+    // Trigger and ensure no error.
+    fireEvent.click(screen.getByTestId('issue-grade-hero-view-rubric'))
   })
 
   it('renders a rightSlot when provided', () => {

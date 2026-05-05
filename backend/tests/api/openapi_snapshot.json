@@ -290,6 +290,28 @@
       },
       "Assessment": {
         "properties": {
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch"
+          },
+          "commit_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit Sha"
+          },
           "completed_at": {
             "anyOf": [
               {
@@ -337,6 +359,28 @@
           "repo_url": {
             "title": "Repo Url",
             "type": "string"
+          },
+          "scanned_deps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scanned Deps"
+          },
+          "scanned_files": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scanned Files"
           },
           "started_at": {
             "format": "date-time",
@@ -472,6 +516,16 @@
             "title": "Assessment Id",
             "type": "string"
           },
+          "previous_assessment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PreviousAssessmentInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "progress_pct": {
             "title": "Progress Pct",
             "type": "integer"
@@ -596,8 +650,19 @@
         "type": "object"
       },
       "AssessmentTool": {
-        "description": "Single entry in the ADR-0032 ``tools[]`` payload.\n\nReplaces the parallel ``scanner_versions`` + ``tool_states[]`` payloads\nfrom earlier drafts; the architect's regression test\n``test_dashboard_omits_legacy_scanner_versions`` guards against either of\nthose legacy keys leaking back in.",
+        "description": "Single entry in the ADR-0032 ``tools[]`` payload.\n\nReplaces the parallel ``scanner_versions`` + ``tool_states[]`` payloads\nfrom earlier drafts; the architect's regression test\n``test_dashboard_omits_legacy_scanner_versions`` guards against either of\nthose legacy keys leaking back in.\n\nIMPL-0009 added ``duration_ms``, ``scope``, and ``ran`` for the new\n\"Last assessment\" dashboard panel. All three are optional \u2014 pending\ntools and legacy rows still validate cleanly.",
         "properties": {
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
           "icon": {
             "title": "Icon",
             "type": "string"
@@ -610,6 +675,17 @@
             "title": "Label",
             "type": "string"
           },
+          "ran": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ran"
+          },
           "result": {
             "anyOf": [
               {
@@ -619,6 +695,17 @@
                 "type": "null"
               }
             ]
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
           },
           "state": {
             "enum": [
@@ -1075,7 +1162,7 @@
         "type": "object"
       },
       "DashboardPayload": {
-        "description": "v0.2 dashboard wire shape \u2014 see ADR-0032 for the full design rationale.\n\nPRD-0006 Phase 2 (IMPL-0007 PR-B) adds the trend / needs-you / history\nfields below. They are additive and never alter the v0.2 contract; the\nsnapshot test in ``test_openapi_snapshot.py`` is the regression guard.",
+        "description": "v0.2 dashboard wire shape \u2014 see ADR-0032 for the full design rationale.\n\nPRD-0006 Phase 2 (IMPL-0007 PR-B) adds the trend / needs-you / history\nfields below. They are additive and never alter the v0.2 contract; the\nsnapshot test in ``test_openapi_snapshot.py`` is the regression guard.\n\nIMPL-0009 adds ``open_by_severity``, ``level_up``, ``last_assessment``,\n``grade_label``, ``grade_caption`` for the redesigned dashboard. The Phase 2\nadditions above are kept (deprecated, frontend stops reading them) so the\ncontract remains additive.",
         "properties": {
           "assessment": {
             "anyOf": [
@@ -1133,6 +1220,11 @@
             ],
             "title": "Grade"
           },
+          "grade_caption": {
+            "default": "Run your first assessment to earn a grade.",
+            "title": "Grade Caption",
+            "type": "string"
+          },
           "grade_history": {
             "items": {
               "$ref": "#/components/schemas/GradeHistoryPoint"
@@ -1140,8 +1232,46 @@
             "title": "Grade History",
             "type": "array"
           },
+          "grade_label": {
+            "default": "First scan",
+            "enum": [
+              "Stable",
+              "Rising",
+              "Falling",
+              "First scan"
+            ],
+            "title": "Grade Label",
+            "type": "string"
+          },
+          "last_assessment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastAssessmentInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "level_up": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LevelUp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "needs_you": {
             "$ref": "#/components/schemas/NeedsYouCounts"
+          },
+          "open_by_severity": {
+            "items": {
+              "$ref": "#/components/schemas/OpenBySeverityRow"
+            },
+            "title": "Open By Severity",
+            "type": "array"
           },
           "open_issues": {
             "$ref": "#/components/schemas/OpenIssuesSeries"
@@ -2429,6 +2559,211 @@
         "title": "IssueDerived",
         "type": "object"
       },
+      "LastAssessmentInfo": {
+        "description": "Trust-block summary for the dashboard's \"Last assessment\" panel.",
+        "properties": {
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch"
+          },
+          "commit_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit Sha"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "repo_url": {
+            "title": "Repo Url",
+            "type": "string"
+          },
+          "scanned_deps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scanned Deps"
+          },
+          "scanned_files": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scanned Files"
+          },
+          "scanners": {
+            "items": {
+              "$ref": "#/components/schemas/AssessmentTool"
+            },
+            "title": "Scanners",
+            "type": "array"
+          }
+        },
+        "required": [
+          "repo_url"
+        ],
+        "title": "LastAssessmentInfo",
+        "type": "object"
+      },
+      "LevelUp": {
+        "properties": {
+          "current": {
+            "enum": [
+              "A",
+              "B",
+              "C",
+              "D",
+              "F"
+            ],
+            "title": "Current",
+            "type": "string"
+          },
+          "gates": {
+            "items": {
+              "$ref": "#/components/schemas/LevelUpGate"
+            },
+            "title": "Gates",
+            "type": "array"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "enum": [
+                  "A",
+                  "B",
+                  "C",
+                  "D",
+                  "F"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "current",
+          "summary"
+        ],
+        "title": "LevelUp",
+        "type": "object"
+      },
+      "LevelUpGate": {
+        "properties": {
+          "action_href": {
+            "title": "Action Href",
+            "type": "string"
+          },
+          "action_label": {
+            "title": "Action Label",
+            "type": "string"
+          },
+          "auto_fixable_check_names": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Auto Fixable Check Names",
+            "type": "array"
+          },
+          "current": {
+            "title": "Current",
+            "type": "integer"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ready_to_review",
+              "pr_ready",
+              "in_progress",
+              "auto_fixable",
+              "todo"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "integer"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "detail",
+          "current",
+          "target",
+          "unit",
+          "status",
+          "action_label",
+          "action_href"
+        ],
+        "title": "LevelUpGate",
+        "type": "object"
+      },
       "ListReposRequest": {
         "properties": {
           "github_token": {
@@ -2722,6 +3057,36 @@
         "title": "OnboardingRepoRequest",
         "type": "object"
       },
+      "OpenBySeverityRow": {
+        "description": "One row of the new dashboard's \"Open findings\" card (IMPL-0009).",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "critical",
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "weekly_delta": {
+            "title": "Weekly Delta",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "count",
+          "weekly_delta"
+        ],
+        "title": "OpenBySeverityRow",
+        "type": "object"
+      },
       "OpenIssuesSeries": {
         "properties": {
           "current": {
@@ -2978,6 +3343,70 @@
           "categories"
         ],
         "title": "PostureWire",
+        "type": "object"
+      },
+      "PreviousAssessmentInfo": {
+        "description": "Continuity card on the assessment-running surface (IMPL-0009).\n\nPopulated when at least one prior completed assessment exists so users\ndon't feel data vanished while the new run is in flight.",
+        "properties": {
+          "assessment_id": {
+            "title": "Assessment Id",
+            "type": "string"
+          },
+          "commit_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit Sha"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "enum": [
+                  "A",
+                  "B",
+                  "C",
+                  "D",
+                  "F"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grade"
+          },
+          "open_count": {
+            "default": 0,
+            "title": "Open Count",
+            "type": "integer"
+          },
+          "report_href": {
+            "title": "Report Href",
+            "type": "string"
+          }
+        },
+        "required": [
+          "assessment_id",
+          "report_href"
+        ],
+        "title": "PreviousAssessmentInfo",
         "type": "object"
       },
       "ProviderTestRequest": {

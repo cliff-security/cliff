@@ -492,3 +492,129 @@ def test_criteria_snapshot_10_fields() -> None:
     missing = grading_fields - fields
     assert not missing, f"missing grading criteria fields: {missing}"
     assert snap.met_count() == 0
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# IMPL-0009 — engine instrumentation: duration / scope / ran / commit / counts
+# ──────────────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def planted_repo_with_npm_lockfile(tmp_path: Path) -> Path:
+    """Repo with a tiny package-lock.json so dep-count helpers find something."""
+    (tmp_path / "package-lock.json").write_text(
+        json.dumps(
+            {
+                "name": "demo",
+                "lockfileVersion": 3,
+                "packages": {
+                    "": {"name": "demo", "version": "1.0.0"},
+                    "node_modules/lodash": {"version": "4.17.21"},
+                    "node_modules/axios": {"version": "1.6.0"},
+                    "node_modules/express": {"version": "4.19.0"},
+                },
+            }
+        )
+    )
+    (tmp_path / "package.json").write_text(json.dumps({"name": "demo", "version": "1.0.0"}))
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "index.js").write_text("console.log('hi')\n")
+    return tmp_path
+
+
+@pytest.mark.asyncio
+async def test_engine_emits_three_tools_with_duration_scope_and_ran(
+    planted_repo_with_npm_lockfile: Path,
+) -> None:
+    runner = FakeScannerRunner()
+    cloner = FakeRepoCloner(planted_repo_with_npm_lockfile)
+
+    result = await run_assessment(
+        "https://github.com/acme/demo",
+        gh_client=_gh_client_unable(),
+        runner=runner,
+        cloner=cloner,
+        assessment_id="asm-impl0009-1",
+    )
+
+    assert len(result.tools) == 3
+    by_id = {t.id: t for t in result.tools}
+    for tid in ("trivy", "semgrep", "posture"):
+        tool = by_id[tid]
+        assert tool.duration_ms is not None and tool.duration_ms >= 0, (
+            f"{tid} duration_ms must be set"
+        )
+        assert tool.scope, f"{tid} scope must be a non-empty string"
+        assert tool.ran, f"{tid} ran must be a non-empty string"
+
+
+@pytest.mark.asyncio
+async def test_engine_trivy_row_describes_combined_dependency_and_secret_scan(
+    planted_repo_with_npm_lockfile: Path,
+) -> None:
+    """CEO call 2026-05-04 — Trivy is one invocation labelled accordingly."""
+    runner = FakeScannerRunner()
+    cloner = FakeRepoCloner(planted_repo_with_npm_lockfile)
+
+    result = await run_assessment(
+        "https://github.com/acme/demo",
+        gh_client=_gh_client_unable(),
+        runner=runner,
+        cloner=cloner,
+        assessment_id="asm-impl0009-2",
+    )
+
+    trivy = next(t for t in result.tools if t.id == "trivy")
+    assert trivy.ran == "Dependency + secret scan"
+    assert "git history" in (trivy.scope or "")
+    # Combined findings = vulns + secrets summed into one row (already true,
+    # but re-asserted to lock the contract).
+    assert trivy.result is not None
+    fixture = _trivy_result_from_fixture()
+    assert trivy.result.value == len(fixture.vulnerabilities) + len(fixture.secrets)
+
+
+@pytest.mark.asyncio
+async def test_engine_posture_tool_has_pinned_version(
+    planted_repo_with_npm_lockfile: Path,
+) -> None:
+    """B5: posture has a version constant we set deliberately."""
+    runner = FakeScannerRunner()
+    cloner = FakeRepoCloner(planted_repo_with_npm_lockfile)
+
+    result = await run_assessment(
+        "https://github.com/acme/demo",
+        gh_client=_gh_client_unable(),
+        runner=runner,
+        cloner=cloner,
+        assessment_id="asm-impl0009-3",
+    )
+
+    posture = next(t for t in result.tools if t.id == "posture")
+    assert posture.version == "1.0.0"
+
+
+@pytest.mark.asyncio
+async def test_engine_assessment_result_carries_scope_fields(
+    planted_repo_with_npm_lockfile: Path,
+) -> None:
+    """The AssessmentResult carries branch + counts so the route can persist."""
+    runner = FakeScannerRunner()
+    cloner = FakeRepoCloner(planted_repo_with_npm_lockfile)
+
+    result = await run_assessment(
+        "https://github.com/acme/demo",
+        gh_client=_gh_client_unable(),
+        runner=runner,
+        cloner=cloner,
+        assessment_id="asm-impl0009-4",
+        branch="release/1",
+    )
+
+    assert result.branch == "release/1"
+    assert result.scanned_files is not None and result.scanned_files > 0
+    assert result.scanned_deps is not None and result.scanned_deps >= 3  # 3 npm deps planted
+    # commit_sha is captured opportunistically via ``git rev-parse``; on the
+    # planted (non-git) tmpdir it is ``None``. Real clones pick it up. Assert
+    # the field is reachable as a string-or-None and didn't raise.
+    assert result.commit_sha is None or isinstance(result.commit_sha, str)

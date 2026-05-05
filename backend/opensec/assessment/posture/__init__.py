@@ -68,6 +68,11 @@ ADVISORY_CHECKS: frozenset[PostureCheckName] = frozenset(
     {"signed_commits", "workflow_trigger_scope", "broad_team_permissions"}
 )
 
+# IMPL-0009 — version of the check set surfaced on the dashboard's
+# "Last assessment" panel. Bump deliberately when checks are added,
+# removed, or change semantics.
+POSTURE_CHECKER_VERSION: str = "1.0.0"
+
 ALL_CHECKS: tuple[PostureCheckName, ...] = (
     # repo_configuration
     "branch_protection",
