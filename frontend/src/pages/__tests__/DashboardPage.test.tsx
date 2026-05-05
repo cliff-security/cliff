@@ -84,13 +84,13 @@ describe('<DashboardPage /> — IMPL-0009 surfaces', () => {
     expect(screen.queryByTestId('level-up-panel')).not.toBeInTheDocument()
   })
 
-  it('shows the AssessmentProgressList when assessment is running (state machine preserved)', async () => {
+  it('shows the new assessment-running card when an assessment is in flight (state machine preserved)', async () => {
     setDashboardFixture('assessment-running')
     renderPage()
 
     await waitFor(() =>
       expect(
-        screen.getByRole('list', { name: /assessment progress/i }),
+        screen.getByTestId('assessment-running-card'),
       ).toBeInTheDocument(),
     )
     // The new report-card surface should NOT render in this state.

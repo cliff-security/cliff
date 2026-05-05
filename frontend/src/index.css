@@ -55,3 +55,48 @@
     transition: none !important;
   }
 }
+
+/* IMPL-0009 Assessment-running surface — pulse-dot on active scanner pills,
+ * inline spinner in the hero strip and the step list. Both are gated on
+ * prefers-reduced-motion below. */
+@keyframes opensec-pulse-dot {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%      { transform: scale(0.6); opacity: 0.55; }
+}
+
+@keyframes opensec-spin {
+  to { transform: rotate(360deg); }
+}
+
+.opensec-pulse-dot {
+  animation: opensec-pulse-dot 1.4s ease-in-out infinite;
+  display: inline-block;
+}
+
+.opensec-spinner {
+  border: 2px solid rgba(77, 68, 227, 0.20);
+  border-top-color: var(--primary, #4d44e3);
+  border-radius: 9999px;
+  animation: opensec-spin 0.8s linear infinite;
+  display: inline-block;
+}
+
+/* IMPL-0009 / F10 — running ↔ report state-swap fade. Used on the outer
+ * wrapper of both surfaces so the swap reads as "the view replaced itself"
+ * rather than "the page jumped". 180ms keeps it brisk. */
+@keyframes opensec-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.opensec-fade-in {
+  animation: opensec-fade-in 180ms cubic-bezier(.2, 0, 0, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .opensec-pulse-dot,
+  .opensec-spinner,
+  .opensec-fade-in {
+    animation: none;
+  }
+}

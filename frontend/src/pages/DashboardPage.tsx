@@ -12,6 +12,7 @@ import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router'
 import {
+  useAssessmentStatus,
   useDashboard,
   useFixPostureCheck,
   useMarkSummarySeen,
@@ -19,7 +20,7 @@ import {
 } from '@/api/dashboard'
 import type { DashboardPayload, PostureFixableCheck } from '@/api/dashboard'
 import { onboardingApi } from '@/api/onboarding'
-import AssessmentInProgressView from '@/components/dashboard/AssessmentInProgressView'
+import AssessmentRunningCard from '@/components/dashboard/AssessmentRunningCard'
 import AssessmentSummary from '@/components/dashboard/AssessmentSummary'
 import IssueGradeHero, {
   type GradeLetter,
@@ -27,6 +28,7 @@ import IssueGradeHero, {
 import LastAssessmentPanel from '@/components/dashboard/LastAssessmentPanel'
 import LevelUpPanel from '@/components/dashboard/LevelUpPanel'
 import OpenBySeverityCard from '@/components/dashboard/OpenBySeverityCard'
+import PreviousAssessmentCard from '@/components/dashboard/PreviousAssessmentCard'
 import CompletionCelebration from '@/components/completion/CompletionCelebration'
 import SummaryActionPanel from '@/components/completion/SummaryActionPanel'
 import ErrorBoundary from '@/components/ErrorBoundary'
@@ -204,10 +206,22 @@ function RunAssessmentButton({
 }
 
 function RunningDashboard({ data }: { data: DashboardPayload }) {
+  const navigate = useNavigate()
   const repoName = repoNameFromUrl(data.assessment?.repo_url)
-  const headline = data.assessment?.completed_at
-    ? 'Re-assessing your repository'
-    : 'Assessment in progress'
+  const assessmentId = data.assessment?.id ?? null
+  const { data: status } = useAssessmentStatus(assessmentId)
+
+  const tools = (status?.tools ?? []).map((t) => ({
+    id: t.id,
+    label: humanizeToolLabel(t.label, t.version),
+    icon: t.icon,
+    state: t.state,
+    result: t.result,
+  }))
+  const steps = status?.steps ?? []
+  const progressPct = status?.progress_pct ?? 0
+  const previous = status?.previous_assessment ?? null
+
   return (
     <PageShell
       title="Overview"
@@ -221,14 +235,40 @@ function RunningDashboard({ data }: { data: DashboardPayload }) {
       }
     >
       {data.assessment && (
-        <AssessmentInProgressView
-          assessmentId={data.assessment.id}
-          headline={headline}
-          startedAt={data.assessment.started_at ?? null}
-        />
+        <div className="opensec-fade-in">
+          <AssessmentRunningCard
+            repoUrl={data.assessment.repo_url ?? null}
+            startedAt={data.assessment.started_at ?? null}
+            progressPct={progressPct}
+            steps={steps}
+            tools={tools}
+            onViewLiveLog={() => navigate('/settings/integrations')}
+            onConfigureScanners={() => navigate('/settings/integrations')}
+          />
+          {previous && (
+            <PreviousAssessmentCard
+              info={{
+                assessment_id: previous.assessment_id,
+                grade: previous.grade,
+                open_count: previous.open_count,
+                commit_sha: previous.commit_sha,
+                finished_at: previous.finished_at,
+                report_href: previous.report_href,
+              }}
+            />
+          )}
+        </div>
       )}
     </PageShell>
   )
+}
+
+function humanizeToolLabel(label: string, version: string | null | undefined): string {
+  // ``label`` already includes the version when the engine wrote one. When
+  // the label is bare and we have a version, surface it inline.
+  if (!version || version === 'unknown') return label
+  if (label.includes(version)) return label
+  return `${label} ${version}`
 }
 
 function EmptyDashboard() {
@@ -375,7 +415,7 @@ function ReportCard({ data }: { data: DashboardPayload }) {
       }
     >
       {completionBlock}
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-4 opensec-fade-in">
         <IssueGradeHero
           letter={grade}
           label={heroLabel}
