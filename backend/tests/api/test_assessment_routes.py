@@ -234,3 +234,74 @@ async def test_get_latest_assessment(db_client, fake_engine):
 async def test_get_latest_assessment_empty_returns_404(db_client):
     resp = await db_client.get("/api/assessment/latest")
     assert resp.status_code == 404
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# IMPL-0009 — previous_assessment on the status response.
+# ──────────────────────────────────────────────────────────────────────────
+
+
+async def test_status_previous_assessment_null_on_first_scan(db_client, fake_engine):
+    """First-ever assessment has no prior — previous_assessment is null."""
+    resp = await db_client.post(
+        "/api/assessment/run", json={"repo_url": "https://github.com/a/b"}
+    )
+    aid = resp.json()["assessment_id"]
+    await _drain_background_tasks()
+
+    resp = await db_client.get(f"/api/assessment/status/{aid}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["previous_assessment"] is None
+
+
+async def test_status_previous_assessment_populated_when_prior_exists(db_client):
+    """Second run sees the first as ``previous_assessment``."""
+    from opensec.db.connection import _db
+    from opensec.db.dao.assessment import (
+        create_assessment,
+        set_assessment_result,
+        update_assessment,
+    )
+    from opensec.models import AssessmentCreate, AssessmentUpdate
+
+    snap = _all_criteria_met()
+
+    # Plant a completed prior with a known commit + 2 open findings under it.
+    prior = await create_assessment(_db, AssessmentCreate(repo_url="https://github.com/a/b"))
+    await set_assessment_result(_db, prior.id, grade="C", criteria_snapshot=snap)
+    await update_assessment(_db, prior.id, AssessmentUpdate(commit_sha="deadbee"))
+
+    from opensec.db.repo_finding import create_finding
+    from opensec.models import FindingCreate
+
+    for i in range(2):
+        await create_finding(
+            _db,
+            FindingCreate(
+                source_type="trivy",
+                source_id=f"v-prior-{i}",
+                type="dependency",
+                assessment_id=prior.id,
+                title=f"old vuln {i}",
+                normalized_priority="medium",
+                status="new",
+            ),
+        )
+
+    # Second assessment created in 'running' state — the route reads
+    # previous_assessment regardless of current status.
+    current = await create_assessment(
+        _db, AssessmentCreate(repo_url="https://github.com/a/b")
+    )
+
+    resp = await db_client.get(f"/api/assessment/status/{current.id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    prev = data["previous_assessment"]
+    assert prev is not None
+    assert prev["assessment_id"] == prior.id
+    assert prev["grade"] == "C"
+    assert prev["commit_sha"] == "deadbee"
+    assert prev["open_count"] == 2
+    assert prev["report_href"] == f"/dashboard?assessment_id={prior.id}"

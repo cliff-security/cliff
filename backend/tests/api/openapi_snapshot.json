@@ -516,6 +516,16 @@
             "title": "Assessment Id",
             "type": "string"
           },
+          "previous_assessment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PreviousAssessmentInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "progress_pct": {
             "title": "Progress Pct",
             "type": "integer"
@@ -3333,6 +3343,70 @@
           "categories"
         ],
         "title": "PostureWire",
+        "type": "object"
+      },
+      "PreviousAssessmentInfo": {
+        "description": "Continuity card on the assessment-running surface (IMPL-0009).\n\nPopulated when at least one prior completed assessment exists so users\ndon't feel data vanished while the new run is in flight.",
+        "properties": {
+          "assessment_id": {
+            "title": "Assessment Id",
+            "type": "string"
+          },
+          "commit_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit Sha"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "enum": [
+                  "A",
+                  "B",
+                  "C",
+                  "D",
+                  "F"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grade"
+          },
+          "open_count": {
+            "default": 0,
+            "title": "Open Count",
+            "type": "integer"
+          },
+          "report_href": {
+            "title": "Report Href",
+            "type": "string"
+          }
+        },
+        "required": [
+          "assessment_id",
+          "report_href"
+        ],
+        "title": "PreviousAssessmentInfo",
         "type": "object"
       },
       "ProviderTestRequest": {

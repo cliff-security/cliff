@@ -67,6 +67,21 @@ class AssessmentStep(BaseModel):
     hint: str | None = None
 
 
+class PreviousAssessmentInfo(BaseModel):
+    """Continuity card on the assessment-running surface (IMPL-0009).
+
+    Populated when at least one prior completed assessment exists so users
+    don't feel data vanished while the new run is in flight.
+    """
+
+    assessment_id: str
+    grade: Grade | None = None
+    open_count: int = 0
+    commit_sha: str | None = None
+    finished_at: str | None = None
+    report_href: str  # static template; frontend may ignore
+
+
 class AssessmentStatusResponse(BaseModel):
     assessment_id: str
     status: str
@@ -75,6 +90,8 @@ class AssessmentStatusResponse(BaseModel):
     steps: list[AssessmentStep] = []
     tools: list[AssessmentTool] = []
     summary_seen_at: str | None = None
+    # IMPL-0009 — second-most-recent completed assessment, when one exists.
+    previous_assessment: PreviousAssessmentInfo | None = None
 
 
 class MarkSummarySeenResponse(BaseModel):
@@ -278,6 +295,8 @@ async def get_assessment_status(
         live_tools = get_assessment_tools(assessment_id)
         tools = live_tools or a.tools or _build_running_tools()
 
+    previous = await _previous_assessment_info(db, a.id)
+
     return AssessmentStatusResponse(
         assessment_id=a.id,
         status=a.status,
@@ -286,6 +305,49 @@ async def get_assessment_status(
         steps=_build_steps(step if a.status == "running" else None, a.status),
         tools=tools,
         summary_seen_at=a.summary_seen_at.isoformat() if a.summary_seen_at else None,
+        previous_assessment=previous,
+    )
+
+
+async def _previous_assessment_info(
+    db, current_assessment_id: str
+) -> PreviousAssessmentInfo | None:
+    """Look up the most recent completed assessment that isn't ``current``.
+
+    Used by the assessment-running surface's "Previous assessment" card so
+    the user has continuity while the new scan is in flight.
+    """
+    cursor = await db.execute(
+        "SELECT id, grade, completed_at, commit_sha "
+        "FROM assessment "
+        "WHERE status = 'complete' AND completed_at IS NOT NULL AND id != ? "
+        "ORDER BY completed_at DESC LIMIT 1",
+        (current_assessment_id,),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return None
+    prior_id = row["id"]
+
+    # Open count = findings registered in that scan still in an open status.
+    open_statuses = ("new", "triaged", "in_progress", "remediated")
+    placeholders = ",".join("?" for _ in open_statuses)
+    count_cur = await db.execute(
+        f"SELECT COUNT(*) AS n FROM finding "  # noqa: S608
+        f"WHERE assessment_id = ? AND status IN ({placeholders})",
+        (prior_id, *open_statuses),
+    )
+    count_row = await count_cur.fetchone()
+    open_count = int(count_row["n"]) if count_row else 0
+
+    finished_at = row["completed_at"]
+    return PreviousAssessmentInfo(
+        assessment_id=prior_id,
+        grade=row["grade"],
+        open_count=open_count,
+        commit_sha=row["commit_sha"],
+        finished_at=finished_at if isinstance(finished_at, str) else None,
+        report_href=f"/dashboard?assessment_id={prior_id}",
     )
 
 
