@@ -16,9 +16,11 @@ Settings. That's it.
 
 ## Prerequisites
 
-- macOS 13+ (Intel or Apple Silicon), or **glibc** Linux
-  (Ubuntu 20.04+, Debian 11+, Fedora 38+, RHEL 9+, Arch). Alpine/musl is not
+- macOS 13+ (Intel or Apple Silicon), or **glibc** Linux. Alpine/musl is not
   supported — use Docker instead.
+
+  Continuously tested in CI on every push: macOS, Ubuntu 22.04, Ubuntu 24.04,
+  Debian 12, Fedora latest, Rocky Linux 9, and Arch.
 - `git`, `curl`, and the GitHub CLI `gh` on `PATH`. The remediation agents
   shell out to `gh pr create`, so it is a hard requirement, not optional.
   - macOS: `brew install gh`

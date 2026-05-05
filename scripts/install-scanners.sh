@@ -42,8 +42,14 @@ esac
 
 # Trivy upstream releases are glibc-only. Fail early on musl (Alpine) instead
 # of letting the user hit "file not found" at scan time.
+#
+# Note: capture ldd's output into a variable before grepping. Piping into
+# `grep -q` under `set -o pipefail` makes ldd report a SIGPIPE write error
+# and fails the pipeline even on glibc systems (the "no glibc" branch then
+# fires by mistake).
 if [[ "${OS}" == "Linux" ]] && command -v ldd >/dev/null 2>&1; then
-  if ! ldd --version 2>&1 | grep -qiE 'glibc|gnu libc'; then
+  ldd_version_output="$(ldd --version 2>&1 || true)"
+  if ! grep -qiE 'glibc|gnu libc' <<<"${ldd_version_output}"; then
     echo "error: this installer requires glibc Linux. Alpine/musl is not supported — use the Docker image instead." >&2
     exit 1
   fi
@@ -56,10 +62,25 @@ strip_quarantine() {
   fi
 }
 
+sha256_of() {
+  # Portable across macOS (shasum) and most Linux (sha256sum). Fedora/RHEL
+  # ship coreutils' sha256sum but not the perl shasum, while macOS is the
+  # reverse — try both before failing.
+  local file="$1"
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "${file}" | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "${file}" | awk '{print $1}'
+  else
+    echo "error: neither shasum nor sha256sum available" >&2
+    exit 1
+  fi
+}
+
 verify_sha() {
   local file="$1" expected="$2" name="$3"
   local actual
-  actual="$(shasum -a 256 "${file}" | awk '{print $1}')"
+  actual="$(sha256_of "${file}")"
   if [[ "${actual}" != "${expected}" ]]; then
     if [[ "${VERIFY_MODE}" == "warn" ]]; then
       echo "warn: ${name} sha256 mismatch (expected ${expected}, got ${actual})" >&2
