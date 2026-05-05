@@ -196,12 +196,25 @@ def _try_key_file() -> bytes | None:
 
 
 def resolve_key() -> bytes:
-    """Resolve encryption key via priority chain. Raises CredentialKeyError on failure."""
-    key = _try_keyring()
+    """Resolve encryption key via priority chain. Raises CredentialKeyError on failure.
+
+    Priority order is deliberate: an explicit user-provided key (env var,
+    written by the native installer to ``~/.opensec/config/opensec.env``)
+    must beat any auto-discovered keyring entry. Otherwise:
+
+    * The native installer would write a stable key to its env file but the
+      daemon would generate a different one in the macOS Keychain on first
+      start, then any credentials persisted under the keyring-generated key
+      would be undecryptable after a restart that no longer hits Keychain
+      (e.g. headless cron, CI, ssh session without a login keychain).
+    * Docker users are unaffected: D-Bus / Keychain isn't available in the
+      container so _try_keyring() returned None first either way.
+    """
+    key = _try_env_var()
     if key is not None:
         return key
 
-    key = _try_env_var()
+    key = _try_keyring()
     if key is not None:
         return key
 

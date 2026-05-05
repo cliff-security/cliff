@@ -137,13 +137,6 @@ def _build_env(host: str, port: int) -> dict[str, str]:
     env.setdefault("OPENSEC_SCANNER_BIN_DIR", str(BIN_DIR))
     env["OPENSEC_APP_HOST"] = host
     env["OPENSEC_APP_PORT"] = str(port)
-    # The credential vault probes the system keyring first
-    # (backend/opensec/integrations/vault.py:200). On macOS that triggers a
-    # blocking Keychain access prompt the headless daemon can't answer, so
-    # we force the null backend — the env file's OPENSEC_CREDENTIAL_KEY is
-    # the canonical source for native installs. Users who want OS-keyring
-    # storage can override PYTHON_KEYRING_BACKEND in opensec.env.
-    env.setdefault("PYTHON_KEYRING_BACKEND", "keyring.backends.null.Keyring")
     return env
 
 
