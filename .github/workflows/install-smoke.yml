@@ -1,0 +1,65 @@
+name: install-smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/install-local.sh'
+      - 'scripts/install-opencode.sh'
+      - 'scripts/install-scanners.sh'
+      - 'scripts/build-tarball.sh'
+      - 'cli/opensec_cli/daemon.py'
+      - 'cli/opensec_cli/cli.py'
+      - 'tests/install/smoke.sh'
+      - '.opencode-version'
+      - '.scanner-versions'
+      - '.github/workflows/install-smoke.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/install-local.sh'
+      - 'scripts/install-opencode.sh'
+      - 'scripts/install-scanners.sh'
+      - 'scripts/build-tarball.sh'
+      - 'cli/opensec_cli/daemon.py'
+      - 'cli/opensec_cli/cli.py'
+      - 'tests/install/smoke.sh'
+      - '.opencode-version'
+      - '.scanner-versions'
+      - '.github/workflows/install-smoke.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: install-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    # Run on both Linux and macOS — the two platforms install-local.sh
+    # supports. Catches platform-specific bugs (e.g. macOS Gatekeeper,
+    # Linux libc preflight) before they hit users.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # The smoke script bootstraps uv itself, but pre-installing it on the
+      # runner cuts ~10s off each job and avoids the curl|sh layer.
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: Verify gh + curl + git are present
+        run: |
+          for cmd in gh curl git tar; do
+            command -v "$cmd" >/dev/null || { echo "missing: $cmd"; exit 1; }
+          done
+
+      - name: Run install smoke test
+        run: bash tests/install/smoke.sh

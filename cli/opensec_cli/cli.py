@@ -27,6 +27,15 @@ from opensec_cli.client import (
     VersionMismatchError,
     poll,
 )
+from opensec_cli.daemon import (
+    config_group,
+    doctor_cmd,
+    logs_cmd,
+    restart_cmd,
+    start_cmd,
+    stop_cmd,
+    uninstall_cmd,
+)
 from opensec_cli.output import (
     EXIT_AWAITING_HUMAN,
     EXIT_DAEMON_DOWN,
@@ -107,6 +116,18 @@ def _with_client(fn):
 @click.version_option(__version__, prog_name="opensec")
 def main() -> None:
     pass
+
+
+# Register the daemon-management commands. These run on the local install
+# and don't need a running daemon (`start`, `stop`, `restart`, `logs`,
+# `doctor`, `config`, `uninstall`).
+main.add_command(start_cmd)
+main.add_command(stop_cmd)
+main.add_command(restart_cmd)
+main.add_command(logs_cmd)
+main.add_command(doctor_cmd)
+main.add_command(config_group)
+main.add_command(uninstall_cmd)
 
 
 # ---- 1. status ------------------------------------------------------------

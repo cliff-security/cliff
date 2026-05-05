@@ -83,6 +83,12 @@ fi
 cp "$BINARY" "$INSTALL_DIR/opencode"
 chmod +x "$INSTALL_DIR/opencode"
 
+# Strip macOS quarantine so Gatekeeper doesn't block the freshly-downloaded
+# binary on first run. No-op on Linux and on macOS without the attribute.
+if [[ "$OS" == "darwin" ]] && command -v xattr >/dev/null 2>&1; then
+  xattr -dr com.apple.quarantine "$INSTALL_DIR/opencode" 2>/dev/null || true
+fi
+
 # Verify
 echo "Installed: $("$INSTALL_DIR/opencode" --version 2>/dev/null || echo "$INSTALL_DIR/opencode")"
 echo "Location: $INSTALL_DIR/opencode"
