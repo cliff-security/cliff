@@ -67,7 +67,7 @@ commands so first-run is two commands and a browser tab.
   Phase 2 fields are still emitted (deprecated) so anything reading
   the old shape keeps working.
 
-
+## [0.1.5-alpha] - 2026-05-04
 
 PRD-0006 lands end to end: the Issues page, dashboard, and sidenav are
 rebuilt against the v2 design handoff, the standalone Workspace page is
