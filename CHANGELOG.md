@@ -7,7 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.5-alpha] - 2026-05-04
+## [0.1.6-alpha] - 2026-05-05
+
+Two themes in this release. First, the Dashboard and assessment surfaces
+are rebuilt against the Claude Design v2 handoff so every number on
+screen is real data the engine produces or the backend derives — the
+fake time-to-close sparkline and abstract "open issues over time"
+trend are gone, replaced by a hero grade, open-findings card, derived
+Level-Up gates, and a transparent Last-Assessment panel. Second,
+OpenSec now ships a native `curl | sh` installer for macOS and glibc
+Linux alongside Docker, and the `opensec` CLI grows daemon-management
+commands so first-run is two commands and a browser tab.
+
+### Added
+
+- **Dashboard + assessment redesign (PR #138).** Hero grade letter
+  (168 px Manrope on a primary-container card), open-findings card
+  with stacked severity bar and clickable per-severity rows, derived
+  Level-Up panel with up to four gates (Ready / PR ready /
+  In progress / Auto-fixable / Start) wired to the existing
+  `POST /api/posture/fix/{check_name}` endpoint, and a
+  Last-Assessment panel that shows scanner names, versions, scope,
+  durations, and findings with a sandbox claim. New
+  Assessment-running surface (stepped progress card with scanner
+  credit pills) plus a Previous-assessment continuity card so data
+  doesn't appear to vanish during a fresh scan. Migration `014`
+  adds `commit_sha` / `branch` / `scanned_files` / `scanned_deps`
+  to `assessment`; `AssessmentTool` gains `duration_ms` / `scope` /
+  `ran`; `Posture-Checker` is versioned 1.0.0.
+- **Native macOS + Linux installer alongside Docker (PR #139).**
+  `curl -fsSL …/install-local.sh | sh` now bootstraps `uv` +
+  Python 3.11, downloads the release tarball, installs the backend
+  venv plus `opencode` / `trivy` / `semgrep`, generates
+  `OPENSEC_CREDENTIAL_KEY`, and drops a single `opensec` launcher
+  into `~/.local/bin/`. The CLI gains `start` / `stop` / `restart` /
+  `logs` / `doctor` / `config` / `uninstall`; `doctor` checks every
+  dep + ports + DB + macOS quarantine without starting the daemon
+  and supports `--json` for agents. Docker remains the secondary
+  path for Windows and advanced users.
+
+### Fixed
+
+- **macOS Gatekeeper quarantine on freshly-downloaded binaries
+  (PR #139).** `install-opencode.sh` and `install-scanners.sh` now
+  strip the quarantine attribute so first-run doesn't bounce off
+  Gatekeeper.
+- **Semgrep wrapper survives copy (PR #139).** The Python launcher
+  resolves `pysemgrep` via `__file__`, so the previous copy-based
+  install broke it. Now installed into a `uv` venv with a thin
+  shell wrapper.
+- **Trivy 0.52.0 was deleted upstream (PR #139).** Bumped to 0.70.0
+  to match the Dockerfile.
+
+### Changed
+
+- **Phase 2 dashboard payload extended additively (PR #138).** The
+  wire contract gains `open_by_severity` / `level_up` /
+  `last_assessment` / `grade_label` / `grade_caption`; the prior
+  Phase 2 fields are still emitted (deprecated) so anything reading
+  the old shape keeps working.
+
+
 
 PRD-0006 lands end to end: the Issues page, dashboard, and sidenav are
 rebuilt against the v2 design handoff, the standalone Workspace page is
