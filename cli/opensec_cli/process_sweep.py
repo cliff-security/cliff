@@ -66,16 +66,39 @@ def _truncate(text: str, limit: int = 120) -> str:
 def _listening_ports_by_pid() -> dict[int, list[int]]:
     """Map PID -> list of TCP ports it is LISTENing on.
 
-    psutil.net_connections may raise AccessDenied on macOS without root for
-    sockets owned by other users. Our processes are always launched by the
-    invoking user, so we just swallow the error and fall back to an empty
-    map (the cmdline match will still find owned processes).
+    Two paths:
+      1. Fast path: ``psutil.net_connections(kind="inet")`` — single syscall,
+         covers every process. On Linux as a regular user this works.
+      2. Fallback: ``psutil.net_connections`` raises AccessDenied on macOS for
+         non-root users (it needs ``sudo`` or a privileged helper). In that
+         case we iterate processes individually and call ``proc.net_connections``,
+         which works without root for processes the user owns.
+
+    Either way, returns an empty map if nothing can be inspected. Safety is
+    not affected by this map being incomplete — kill decisions never depend
+    on port info, only on cmdline ownership.
     """
     out: dict[int, list[int]] = {}
     try:
         conns = psutil.net_connections(kind="inet")
     except (psutil.AccessDenied, PermissionError):
+        # macOS fallback: per-process scan.
+        for proc in psutil.process_iter(["pid"]):
+            try:
+                proc_conns = proc.net_connections(kind="inet")
+            except (psutil.AccessDenied, psutil.NoSuchProcess, AttributeError):
+                continue
+            for c in proc_conns:
+                if c.status != psutil.CONN_LISTEN:
+                    continue
+                if c.laddr is None:
+                    continue
+                port = getattr(c.laddr, "port", None)
+                if port is None:
+                    continue
+                out.setdefault(proc.pid, []).append(port)
         return out
+
     for c in conns:
         if c.status != psutil.CONN_LISTEN or c.pid is None:
             continue

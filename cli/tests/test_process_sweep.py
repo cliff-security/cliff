@@ -185,8 +185,10 @@ def test_skips_self_pid(monkeypatch):
 
 
 def test_swallows_net_connections_access_denied(monkeypatch):
-    """psutil.net_connections raises AccessDenied on macOS w/o root — handle it."""
+    """psutil.net_connections raises AccessDenied on macOS w/o root — fallback
+    to per-process scan handles it without crashing."""
     proc = _make_proc(109, [OPENCODE_BIN, "serve"])
+    proc.net_connections.return_value = []
 
     def _raise(kind="inet"):
         raise psutil.AccessDenied(0)
@@ -199,6 +201,58 @@ def test_swallows_net_connections_access_denied(monkeypatch):
     found = find_opensec_processes(OPENSEC_HOME)
     assert len(found) == 1
     assert found[0].ports == ()
+
+
+def test_macos_fallback_finds_owned_process_listening_port(monkeypatch):
+    """When system net_connections is denied, per-process net_connections
+    must take over so we still get the port -> pid mapping for owned procs.
+    Regression test for the bug found during the macOS e2e smoke check."""
+    fake_laddr = _LAddr("127.0.0.1", 4096)
+    listening_conn = _Conn(0, 0, 0, fake_laddr, None, psutil.CONN_LISTEN, None)
+
+    proc = _make_proc(120, [OPENCODE_BIN, "serve", "--port", "4096"])
+    proc.net_connections.return_value = [listening_conn]
+
+    def _denied(kind="inet"):
+        raise psutil.AccessDenied(0)
+
+    monkeypatch.setattr(
+        "opensec_cli.process_sweep.psutil.process_iter",
+        lambda attrs=None: iter([proc]),
+    )
+    monkeypatch.setattr("opensec_cli.process_sweep.psutil.net_connections", _denied)
+    found = find_opensec_processes(OPENSEC_HOME)
+    assert len(found) == 1
+    assert found[0].pid == 120
+    # Critical: per-process fallback recovered the listening port.
+    assert 4096 in found[0].ports
+
+
+def test_macos_fallback_reports_squatter(monkeypatch):
+    """End-to-end equivalent of the macOS gap caught during e2e verification:
+    psutil.net_connections raises AccessDenied; squatter must still be
+    reported via the per-process fallback."""
+    fake_laddr = _LAddr("127.0.0.1", 4150)
+    listening_conn = _Conn(0, 0, 0, fake_laddr, None, psutil.CONN_LISTEN, None)
+
+    squatter_proc = _make_proc(200, ["python3", "-c", "import socket..."])
+    squatter_proc.net_connections.return_value = [listening_conn]
+
+    def _denied(kind="inet"):
+        raise psutil.AccessDenied(0)
+
+    monkeypatch.setattr(
+        "opensec_cli.process_sweep.psutil.process_iter",
+        lambda attrs=None: iter([squatter_proc]),
+    )
+    monkeypatch.setattr("opensec_cli.process_sweep.psutil.net_connections", _denied)
+    monkeypatch.setattr(
+        "opensec_cli.process_sweep.psutil.Process", lambda pid: squatter_proc
+    )
+    squatters = find_port_squatters([4150], owned_pids=set())
+    assert len(squatters) == 1
+    assert squatters[0].pid == 200
+    assert squatters[0].port == 4150
 
 
 # ---------------------------------------------------------------------------
