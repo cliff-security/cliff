@@ -1,8 +1,8 @@
 ---
 name: "Secure Repo"
 description: |
-  Run OpenSec end-to-end on the user's repo from inside Claude Code — install if needed, scan, plan, approve, PR, close. Trigger when the user says "secure this repo", "vibe security", "scan with OpenSec", or asks Claude to drive a remediation flow on a local checkout. Uses the `opensec` CLI (bundled with the OpenSec installer) and `gh` for the PR review/merge step. Hard rule: never auto-approve plans or auto-merge PRs — those are user gates.
-version: "0.1.2"
+  Run OpenSec end-to-end on the user's repo from inside Claude Code — install if needed, scan, plan, approve, PR, close. Trigger when the user says "secure this repo", "vibe security", "scan with OpenSec", or asks Claude to drive a remediation flow on a local checkout. Also handles troubleshooting when OpenSec misbehaves: gathers diagnostics, proposes a fix, and on a real bug drafts a GitHub issue for the user to review. Uses the `opensec` CLI (bundled with the OpenSec installer) and `gh` for the PR review/merge + issue-filing steps. Hard rule: never auto-approve plans, auto-merge PRs, or run any troubleshooting write action without explicit user approval — those are user gates.
+version: "0.1.3"
 category: "security"
 tags: [opensec, security, remediation, vibe-security, agent-cli]
 ---
@@ -20,6 +20,8 @@ This skill wraps the `opensec` CLI (agent-shaped, JSON output, exit codes encode
 3. **Stop on validation failure.** If `opensec approve` exits 2 with `validation.verdict != "ok"`, do not call `close`. Surface the failure reason and stop.
 4. **Never invent IDs.** Only pass IDs the CLI returned. If you don't have one, run `opensec issues` to get one.
 5. **Don't silence version mismatch.** If any command exits 4, stop and tell the user to re-run the install one-liner. Do not try to work around it.
+6. **Never run a troubleshooting write action without approval.** `stop`, `start`, `restart`, `update`, `config set`, `xattr`, or re-running the installer all require an explicit "yes" before you run them. Read-only diagnostics (`doctor`, `logs`, `--check`, `ps`) are fine to run unprompted.
+7. **Never auto-submit a GitHub issue.** Use `gh issue create --web` so it opens the user's browser with the body pre-filled — the user reviews, edits, and clicks Submit. Never call `gh issue create` without `--web` when filing a troubleshooting bug.
 
 ## Exit-code contract
 
@@ -32,7 +34,7 @@ Every command emits one JSON object on stdout (or stderr for errors) and exits w
 | 3 | Daemon unreachable | Run install path |
 | 4 | Version mismatch | Stop, ask user to upgrade |
 | 5 | Scan completed with zero findings | Tell user the repo is clean, stop |
-| 1 | Generic error | Surface the `error.message` and `error.hint` |
+| 1 | Generic error | Enter **Troubleshooting** (below). Don't just print the hint — diagnose. |
 
 ## Workflow
 
@@ -211,6 +213,145 @@ When the loop ends (no more issues, or user stopped), give the user one paragrap
 - Don't ask the CLI for `--verbose` unless something failed and you need detail.
 - Don't re-run `opensec status` between every step — once at the start is enough. Run it again only after an unexpected error.
 - When showing a plan or PR diff, summarize. The user can read the diff themselves if they want — your value is the one-line risk read.
+
+## Troubleshooting
+
+Engage when:
+
+- A `opensec` command in the main flow exits **1** (generic error).
+- A command hangs longer than ~2 minutes with no output.
+- The user says "troubleshoot", "it's broken", "something's wrong", "fix the daemon", "opensec isn't working", or anything similar.
+
+Do **not** engage for exit 2 / 3 / 4 / 5 — those have their own paths above.
+
+The flow is fixed: gather → diagnose → propose → verify → escalate. Don't improvise; follow the playbook.
+
+### A. Gather (read-only — no approval needed)
+
+Run all of these once and keep the output for diagnosis + a possible issue draft:
+
+```bash
+opensec doctor --json
+opensec logs --lines 100 || true
+opensec --version
+opensec update --check || true   # exit 0 = up to date, exit 2 = newer available
+ps -ef | grep -E '(opensec|opencode|uvicorn)' | grep -v grep || true
+uname -a
+```
+
+These are all safe; the user does not need to approve them. Capture stdout + stderr verbatim — you'll reuse it in Phase E.
+
+### B. Diagnose (match signals against the table)
+
+Cross-reference what you found in Phase A against this table. The mapping is **fixed** — don't invent fixes that aren't here. If nothing matches, go straight to Phase E (escalate).
+
+| Signal | Diagnosis | Proposed action |
+|---|---|---|
+| `status` exit 3, no PID file at `~/.opensec/run/opensec.pid` | Daemon was never started | `opensec start --detach` |
+| `status` exit 3, PID file exists but the recorded process is gone | Crashed orphan, ports possibly leaked | `opensec stop` (sweeps owned children) then `opensec start --detach` |
+| `doctor` shows `port.<configured-app-port>` failing | Port conflict | Pick a free port, then `opensec config set OPENSEC_APP_PORT=<port>` and `opensec restart` |
+| `doctor` shows `port.4096` or `port.4100..4102` failing AND status is daemon-down | OpenCode child leaked from a previous crash | `opensec stop` (the sweep reclaims orphans) then `opensec start --detach` |
+| `doctor` shows `opencode` failing with "not found" | OpenCode binary missing or never installed | Re-run the install one-liner |
+| `doctor` shows `opencode.quarantine` failing on macOS | Gatekeeper quarantined the binary | `xattr -dr com.apple.quarantine ~/.opensec/bin/opencode` (and `trivy` / `semgrep` if they show the same) |
+| `doctor` shows `venv` failing | Backend venv corrupt or removed | Re-run the install one-liner |
+| `doctor` shows `credential_key` missing | Encryption key not in env file | Re-run the install one-liner (it generates and persists the key) |
+| `doctor` shows `migrations` failing with a SQLite error | DB schema state is bad | **Bug** — escalate (Phase E). Do not propose deleting the DB without explicit user request — it would lose findings + workspaces. |
+| `update --check` exit 2 (newer release available) AND symptoms could plausibly be a known fix | Out-of-date install | Offer `opensec update` |
+| Logs contain a Python traceback (`Traceback (most recent call last):` or `ERROR  ` lines on every request) | Real bug | Escalate (Phase E) |
+| Doctor entirely clean, command still failing | No diagnosis from signals | Escalate (Phase E) |
+
+### C. Propose + gate
+
+For any write action you've identified, format the proposal as one block:
+
+> **Diagnosis:** <one line — what doctor/logs showed>.
+> **Proposed fix:** `<the exact command(s)>`.
+> **What it changes:** <one line — e.g. "moves OpenSec to port 8001 and restarts the daemon">.
+> **May I proceed?**
+
+Wait for an explicit "yes" / "go" / "do it". Anything ambiguous → ask again.
+
+The list of writes that require approval (recheck before running):
+
+- `opensec start`, `stop`, `restart`, `update`
+- `opensec config set ...`
+- `xattr ...` or any other shell command that mutates the system
+- Re-running the installer
+- **Never** `opensec uninstall` — that removes data and config, and is never an automatic remedy. Only run it if the user explicitly asks to uninstall.
+
+If the user declines, ask if they'd like to file an issue (Phase E) instead.
+
+### D. Verify
+
+After running the approved fix, re-verify before declaring success:
+
+```bash
+opensec doctor --json
+opensec status   # if the fix involved start/restart
+```
+
+- Doctor clean and `status` ready → tell the user "fixed: <one line>" and stop.
+- Doctor still failing on the same check → the fix didn't take. Don't loop. Go to Phase E.
+- A new check is failing → don't chain another guess. Go to Phase E.
+
+### E. Escalate — file a GitHub issue
+
+Engage when: the table didn't match, the fix didn't work, doctor flagged something the table marks as a bug, or logs show a traceback.
+
+Tell the user:
+
+> "I can't fix this from here — it looks like a real bug in OpenSec. Want me to draft a GitHub issue against `galanko/OpenSec` with the diagnostic context I collected? It'll open in your browser pre-filled, so you can review and edit before submitting."
+
+If yes, build a single `gh` command that opens the GitHub compose page in the browser with the body pre-filled. **Always use `--web`.** Never auto-submit.
+
+```bash
+gh issue create --repo galanko/OpenSec --web \
+  --title "[CLI] <one-line summary>" \
+  --body "$(cat <<'EOF'
+## What happened
+<one-line summary of what the user was trying to do and what went wrong>
+
+## Steps to reproduce
+1. <command that failed>
+2. <expected vs. actual>
+
+## Environment
+- OpenSec CLI version: <opensec --version>
+- Latest release: <opensec update --check result>
+- OS: <uname -a>
+
+## Doctor output
+\`\`\`json
+<opensec doctor --json output>
+\`\`\`
+
+## Recent daemon logs (last 100 lines, secrets redacted)
+\`\`\`
+<opensec logs --lines 100, with redaction applied>
+\`\`\`
+
+## What was already tried
+- <each fix that was attempted in Phase C, with its outcome>
+
+---
+_Filed via Claude Code (`secure-repo` skill) — please add anything I missed before submitting._
+EOF
+)"
+```
+
+**Redaction — non-negotiable.** Before pasting logs or doctor output into the body, scrub these patterns (replace value with `[REDACTED]`):
+
+- Lines containing `KEY=`, `TOKEN=`, `SECRET=`, `PASSWORD=`, `Authorization:`, `Bearer `, `_TOKEN`, `_KEY`, `api_key`, `apikey`
+- `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, `OPENSEC_CREDENTIAL_KEY` (these are in `~/.opensec/config/opensec.env`)
+- Anything that looks like a JWT (`eyJ...`), a GitHub PAT (`ghp_...`, `gho_...`, `github_pat_...`), or a generic 40+ char hex string after `=`
+
+If any line is ambiguous (might or might not be a secret), redact it. Better to over-redact than to leak. Show the user the body **as it will be submitted** before running the `gh` command, and offer to remove anything else they don't want public.
+
+### Token discipline for troubleshooting
+
+- Don't dump the full doctor JSON to the chat — extract the failing checks only.
+- Don't paste 100 log lines to the chat — extract the relevant traceback / error window only. The full logs go in the issue body, not the chat.
+- Don't run all the Phase A commands again between attempts — once at the top is enough. If you re-run anything, only re-run the specific check you fixed (e.g. just `opensec doctor --json` after a restart).
 
 ## When in doubt
 
