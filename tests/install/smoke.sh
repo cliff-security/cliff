@@ -143,5 +143,71 @@ if curl -fsS "http://127.0.0.1:${TEST_PORT}/health" >/dev/null 2>&1; then
   exit 1
 fi
 
+# ---- 6. orphan-cleanup scenario --------------------------------------------
+# Simulates a hard crash: start the daemon, SIGKILL the parent so the lifespan
+# cleanup never runs, then run `opensec stop` and verify the OpenCode singleton
+# port (4096) is reclaimed. This is the bug we're fixing — the CLI must sweep
+# for orphans, not just trust the pidfile. Skipped if 4096 was already in use
+# before this scenario started (someone else's opencode on the dev box).
+echo "==> orphan cleanup scenario"
+if "${TEST_HOME}/cli-venv/bin/python" -c "
+import socket, sys
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+try:
+    s.bind(('127.0.0.1', 4096))
+    s.close()
+except OSError:
+    sys.exit(2)
+" ; then
+  OPENSEC_HOME="${TEST_HOME}" "${CLI}" start --detach --port "${TEST_PORT}" >/dev/null
+  parent_pid="$(cat "${TEST_HOME}/run/opensec.pid")"
+  # Give the backend lifespan a moment to spawn the OpenCode singleton.
+  sleep 3
+  # Hard-kill the parent so the lifespan cleanup never runs.
+  kill -9 "${parent_pid}" 2>/dev/null || true
+  sleep 1
+
+  OPENSEC_HOME="${TEST_HOME}" "${CLI}" stop >/dev/null 2>&1 || true
+  sleep 1
+
+  if "${TEST_HOME}/cli-venv/bin/python" -c "
+import socket, sys
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+try:
+    s.bind(('127.0.0.1', 4096))
+except OSError:
+    sys.exit(1)
+" ; then
+    echo "  orphan port 4096 reclaimed"
+  else
+    echo "FAIL: orphan opencode port 4096 still bound after stop"
+    exit 1
+  fi
+else
+  echo "  skipped (port 4096 in use by another process before scenario)"
+fi
+
+# ---- 7. custom-port scenario -----------------------------------------------
+# Persist a different app port via `config set`, restart, and verify the
+# daemon comes up on it. Catches port-pass-through regressions.
+echo "==> custom port via config set"
+ALT_PORT=$((TEST_PORT + 1))
+OPENSEC_HOME="${TEST_HOME}" "${CLI}" config set "OPENSEC_APP_PORT=${ALT_PORT}" >/dev/null
+OPENSEC_HOME="${TEST_HOME}" "${CLI}" start --detach >/dev/null
+
+for _ in 1 2 3 4 5; do
+  if curl -fsS "http://127.0.0.1:${ALT_PORT}/health" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+if ! curl -fsS "http://127.0.0.1:${ALT_PORT}/health" >/dev/null; then
+  echo "FAIL: /health did not respond on alt port ${ALT_PORT}"
+  exit 1
+fi
+echo "  /health on ${ALT_PORT}: ok"
+
+OPENSEC_HOME="${TEST_HOME}" "${CLI}" stop >/dev/null
+
 echo
 echo "OK — installer smoke test passed."

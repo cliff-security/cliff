@@ -40,6 +40,14 @@ from typing import Any
 import click
 
 from opensec_cli.output import EXIT_ERROR, EXIT_OK, emit, emit_error
+from opensec_cli.process_sweep import (
+    OPENCODE_SINGLETON_PORT,
+    WORKSPACE_PORT_RANGE,
+    find_opensec_processes,
+    find_port_squatters,
+    kill_processes,
+    verify_ports_free,
+)
 
 # ---------------------------------------------------------------------------
 # Layout
@@ -57,6 +65,7 @@ LOG_DIR = DATA_DIR / "logs"
 ENV_FILE = CONFIG_DIR / "opensec.env"
 PID_FILE = RUN_DIR / "opensec.pid"
 STATIC_DIR = APP_DIR / "frontend" / "dist"
+CLI_VENV_DIR = OPENSEC_HOME / "cli-venv"
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
@@ -119,6 +128,23 @@ def _port_free(port: int, host: str = DEFAULT_HOST) -> bool:
     finally:
         s.close()
     return True
+
+
+def _configured_app_port() -> int:
+    """Read OPENSEC_APP_PORT from the env file, fall back to DEFAULT_PORT."""
+    env = _read_env_file(ENV_FILE)
+    raw = env.get("OPENSEC_APP_PORT", "").strip()
+    if not raw:
+        return DEFAULT_PORT
+    try:
+        return int(raw)
+    except ValueError:
+        return DEFAULT_PORT
+
+
+def _opensec_ports() -> list[int]:
+    """Every port we care about for the lifecycle: app + opencode singleton + workspace range."""
+    return [_configured_app_port(), OPENCODE_SINGLETON_PORT, *WORKSPACE_PORT_RANGE]
 
 
 def _ensure_dirs() -> None:
@@ -252,36 +278,119 @@ def start_cmd(detach: bool, port: int | None, host: str | None) -> None:
 
 @click.command(name="stop")
 @click.option("--timeout", default=10.0, help="Seconds to wait before SIGKILL.")
-def stop_cmd(timeout: float) -> None:
-    """Stop the running OpenSec server."""
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Skip the SIGTERM grace window — SIGKILL immediately.",
+)
+def stop_cmd(timeout: float, force: bool) -> None:
+    """Stop the running OpenSec server and reclaim any leaked child processes.
+
+    Matching is owner-safe: a process is signalled only if its cmdline
+    identifies it as ours (uvicorn for ``opensec.main:app`` or our installed
+    ``$OPENSEC_HOME/bin/opencode`` binary). Anything else bound to a port we
+    use is reported but never killed.
+    """
+    ports = _opensec_ports()
+
+    # 1. Recorded parent: SIGTERM/SIGKILL via the pidfile path.
     pid = _read_pidfile()
-    if not pid:
+    parent_killed: int | None = None
+    if pid:
+        sig = signal.SIGKILL if force else signal.SIGTERM
+        try:
+            os.kill(pid, sig)
+        except ProcessLookupError:
+            PID_FILE.unlink(missing_ok=True)
+        else:
+            deadline = time.time() + max(timeout, 0.0)
+            while time.time() < deadline and _pid_alive(pid):
+                time.sleep(0.2)
+            if _pid_alive(pid):
+                click.echo(
+                    f"OpenSec did not stop within {timeout}s — sending SIGKILL.",
+                    err=True,
+                )
+                with contextlib.suppress(ProcessLookupError):
+                    os.kill(pid, signal.SIGKILL)
+            PID_FILE.unlink(missing_ok=True)
+            parent_killed = pid
+
+    # 2. Sweep for OpenSec-owned orphans (parent or children still alive).
+    ours = find_opensec_processes(OPENSEC_HOME)
+    if parent_killed is not None:
+        ours = [p for p in ours if p.pid != parent_killed]
+
+    killed: list = []
+    stuck: list = []
+    if ours:
+        for p in ours:
+            ports_str = f" :{','.join(str(x) for x in p.ports)}" if p.ports else ""
+            click.echo(f"  found stale {p.kind} pid={p.pid}{ports_str}")
+        killed, stuck = kill_processes(ours, timeout=timeout, force=force)
+        for p in killed:
+            click.echo(f"  stopped {p.kind} pid={p.pid}")
+
+    # 3. Report (do not signal) any port squatters.
+    owned_pids = {p.pid for p in ours}
+    if parent_killed is not None:
+        owned_pids.add(parent_killed)
+    squatters = find_port_squatters(ports, owned_pids)
+    for s in squatters:
+        click.echo(
+            f"  port {s.port} held by pid {s.pid} (not OpenSec): {s.cmdline}",
+            err=True,
+        )
+
+    # 4. Final state.
+    if parent_killed is None and not ours:
         click.echo("OpenSec is not running.")
         return
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        PID_FILE.unlink(missing_ok=True)
-        click.echo("OpenSec is not running.")
-        return
-    deadline = time.time() + timeout
-    while time.time() < deadline and _pid_alive(pid):
-        time.sleep(0.2)
-    if _pid_alive(pid):
-        click.echo(f"OpenSec did not stop within {timeout}s — sending SIGKILL.", err=True)
-        with contextlib.suppress(ProcessLookupError):
-            os.kill(pid, signal.SIGKILL)
-    PID_FILE.unlink(missing_ok=True)
-    click.echo(f"OpenSec stopped (pid {pid}).")
+
+    # 5. Verify our ports are free (excluding squatter-held ports — those
+    #    aren't our problem to reclaim).
+    still_bound = verify_ports_free(ports)
+    squatter_ports = {s.port for s in squatters}
+    opensec_still_bound = [p for p in still_bound if p not in squatter_ports]
+    if opensec_still_bound or stuck:
+        emit_error(
+            "OpenSec stopped, but some processes resisted shutdown.",
+            code="stop_incomplete",
+            hint=(
+                f"Ports still bound: {opensec_still_bound or 'none'}; "
+                f"PIDs still alive: {[p.pid for p in stuck] or 'none'}. "
+                "Try `opensec stop --force`."
+            ),
+            exit_code=EXIT_ERROR,
+        )
+
+    if parent_killed is not None:
+        click.echo(f"OpenSec stopped (pid {parent_killed}).")
+    else:
+        click.echo("OpenSec stopped.")
 
 
 @click.command(name="restart")
+@click.option("--port", default=None, type=int, help=f"Port to bind (default: {DEFAULT_PORT}).")
+@click.option("--host", default=None, help=f"Host to bind (default: {DEFAULT_HOST}).")
+@click.option("--timeout", default=10.0, help="Seconds to wait before SIGKILL during stop.")
+@click.option("--force", is_flag=True, help="During stop, skip SIGTERM and SIGKILL immediately.")
 @click.pass_context
-def restart_cmd(ctx: click.Context) -> None:
-    """Stop the running server (if any) and start it detached."""
-    if _read_pidfile():
-        ctx.invoke(stop_cmd, timeout=10.0)
-    ctx.invoke(start_cmd, detach=True, port=None, host=None)
+def restart_cmd(
+    ctx: click.Context,
+    port: int | None,
+    host: str | None,
+    timeout: float,
+    force: bool,
+) -> None:
+    """Stop the server (and reclaim leaked children) and start it detached.
+
+    Always runs the enhanced stop first — even with no PID file — to clean
+    up orphans from a previous crash. With no flags, picks up the persistent
+    port/host from ``~/.opensec/config/opensec.env``.
+    """
+    ctx.invoke(stop_cmd, timeout=timeout, force=force)
+    ctx.invoke(start_cmd, detach=True, port=port, host=host)
 
 
 @click.command(name="logs")
@@ -633,16 +742,27 @@ def config_edit() -> None:
 @click.command(name="uninstall")
 @click.option("--keep-data", is_flag=True, help="Preserve ~/.opensec/data/ and ~/.opensec/config/.")
 @click.option("--yes", "-y", is_flag=True, help="Skip the confirmation prompt.")
-def uninstall_cmd(keep_data: bool, yes: bool) -> None:
-    """Remove the local OpenSec install."""
-    pid = _read_pidfile()
-    if pid:
+@click.pass_context
+def uninstall_cmd(ctx: click.Context, keep_data: bool, yes: bool) -> None:
+    """Remove the local OpenSec install.
+
+    Stops the daemon (and any leaked children) first, then removes the
+    install directories. Port squatters are reported but never signalled.
+    """
+    # 1. Always try to stop first — orphans may exist even with no PID file.
+    ctx.invoke(stop_cmd, timeout=10.0, force=yes)
+
+    # 2. After stop, refuse to remove files if any of our processes are
+    #    still alive on our ports. We never rm -rf over a live process.
+    ours = find_opensec_processes(OPENSEC_HOME)
+    if ours:
         emit_error(
-            f"OpenSec is still running (pid {pid}). Run `opensec stop` first.",
+            "OpenSec processes are still running after stop — refusing to remove files.",
             code="still_running",
+            hint=f"PIDs: {[p.pid for p in ours]}. Try `opensec stop --force`.",
         )
 
-    targets: list[Path] = [APP_DIR, BIN_DIR, RUN_DIR]
+    targets: list[Path] = [APP_DIR, BIN_DIR, RUN_DIR, CLI_VENV_DIR]
     if not keep_data:
         targets.extend([DATA_DIR, CONFIG_DIR])
 
@@ -655,6 +775,11 @@ def uninstall_cmd(keep_data: bool, yes: bool) -> None:
                 click.echo(f"  {t}")
         if local_bin.is_symlink() or local_bin.is_file():
             click.echo(f"  {local_bin}")
+        if keep_data:
+            click.echo("\nPreserved (--keep-data):")
+            for t in (DATA_DIR, CONFIG_DIR):
+                if t.exists():
+                    click.echo(f"  {t}")
         if not click.confirm("\nProceed?"):
             click.echo("Aborted.")
             return
