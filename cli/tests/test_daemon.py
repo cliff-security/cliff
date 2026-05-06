@@ -321,6 +321,18 @@ def test_stop_errors_when_processes_resist_shutdown(stop_env):
     assert "stop_incomplete" in res.output
 
 
+def test_stop_succeeds_when_pids_dead_but_ports_linger(stop_env):
+    """Kernel TIME_WAIT after our processes die: warn, don't fail."""
+    home, daemon, state, FoundProcess, _ = stop_env  # noqa: N806
+    state["owned"] = [FoundProcess(pid=5020, kind="opencode", cmdline="...")]
+    state["kills"] = (state["owned"], [])  # all dead
+    state["bound_ports"] = [4096]  # but kernel hasn't released yet
+    runner = CliRunner()
+    res = runner.invoke(daemon.stop_cmd)
+    assert res.exit_code == 0, res.output
+    assert "TIME_WAIT" in res.output
+
+
 def test_stop_succeeds_when_remaining_bound_ports_are_squatter_held(stop_env):
     """Ports still bound by squatters must NOT count against stop."""
     home, daemon, state, FoundProcess, PortSquatter = stop_env  # noqa: N806

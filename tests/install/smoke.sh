@@ -147,9 +147,24 @@ fi
 # Simulates a hard crash: start the daemon, SIGKILL the parent so the lifespan
 # cleanup never runs, then run `opensec stop` and verify the OpenCode singleton
 # port (4096) is reclaimed. This is the bug we're fixing — the CLI must sweep
-# for orphans, not just trust the pidfile. Skipped if 4096 was already in use
-# before this scenario started (someone else's opencode on the dev box).
+# for orphans, not just trust the pidfile.
+#
+# The previous step's stop may have left 4096 in TIME_WAIT. Wait up to 60s for
+# the port to free up before starting; skip the scenario if it never frees
+# (someone else's opencode is squatting it on this dev box).
 echo "==> orphan cleanup scenario"
+for _ in $(seq 1 60); do
+  "${TEST_HOME}/cli-venv/bin/python" -c "
+import socket, sys
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+try:
+    s.bind(('127.0.0.1', 4096)); s.close()
+except OSError:
+    sys.exit(1)
+" && break
+  sleep 1
+done
+
 if "${TEST_HOME}/cli-venv/bin/python" -c "
 import socket, sys
 s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

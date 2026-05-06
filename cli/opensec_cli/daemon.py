@@ -347,21 +347,30 @@ def stop_cmd(timeout: float, force: bool) -> None:
         click.echo("OpenSec is not running.")
         return
 
-    # 5. Verify our ports are free (excluding squatter-held ports — those
-    #    aren't our problem to reclaim).
-    still_bound = verify_ports_free(ports)
-    squatter_ports = {s.port for s in squatters}
-    opensec_still_bound = [p for p in still_bound if p not in squatter_ports]
-    if opensec_still_bound or stuck:
+    # 5. Final outcome.
+    #    - PIDs still alive after our timeout: real failure, exit 1.
+    #    - All our processes dead but ports still bound (kernel TIME_WAIT,
+    #      socket teardown lag): not a failure, just a hint to wait briefly
+    #      before `opensec start`.
+    if stuck:
         emit_error(
-            "OpenSec stopped, but some processes resisted shutdown.",
+            "Some OpenSec processes resisted shutdown.",
             code="stop_incomplete",
             hint=(
-                f"Ports still bound: {opensec_still_bound or 'none'}; "
-                f"PIDs still alive: {[p.pid for p in stuck] or 'none'}. "
+                f"PIDs still alive: {[p.pid for p in stuck]}. "
                 "Try `opensec stop --force`."
             ),
             exit_code=EXIT_ERROR,
+        )
+
+    still_bound = verify_ports_free(ports)
+    squatter_ports = {s.port for s in squatters}
+    opensec_still_bound = [p for p in still_bound if p not in squatter_ports]
+    if opensec_still_bound:
+        click.echo(
+            f"Note: ports {opensec_still_bound} still bound (likely TIME_WAIT). "
+            "If the next `opensec start` fails with port_in_use, wait ~30s and retry.",
+            err=True,
         )
 
     if parent_killed is not None:
