@@ -127,6 +127,29 @@ async def update_assessment(
     return await get_assessment(db, assessment_id)
 
 
+async def reconcile_orphaned_assessments(db: aiosqlite.Connection) -> int:
+    """Mark any ``pending``/``running`` rows as ``failed`` at startup.
+
+    The asyncio task that owns a ``pending``/``running`` row lives in
+    ``app.state.assessment_tasks`` (see ``api/_background.py``) and dies with
+    the process. Any such row at boot is therefore provably orphaned — no
+    live worker can drive it to a terminal state. Idempotent. Returns the
+    number of rows reconciled (for logging).
+    """
+    now_iso = datetime.now(UTC).isoformat()
+    cursor = await db.execute(
+        """
+        UPDATE assessment
+           SET status = 'failed',
+               completed_at = COALESCE(completed_at, ?)
+         WHERE status IN ('pending', 'running')
+        """,
+        (now_iso,),
+    )
+    await db.commit()
+    return cursor.rowcount
+
+
 async def mark_summary_seen(
     db: aiosqlite.Connection, assessment_id: str
 ) -> Assessment | None:

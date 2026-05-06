@@ -79,6 +79,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("Existing database found at %s", db_path)
     await init_db(db_path)
 
+    # Reconcile assessments orphaned by the previous process exit. Background
+    # workers are in-memory asyncio tasks; any ``pending``/``running`` row at
+    # boot is provably orphaned (the worker that owned it died with the
+    # previous process). Without this, a row stuck in ``pending``/``running``
+    # leaves the dashboard rendering ``RunningDashboard`` with a permanently
+    # disabled "Assessment running" button.
+    if db_connection._db is not None:
+        from opensec.db.dao.assessment import reconcile_orphaned_assessments
+
+        reconciled = await reconcile_orphaned_assessments(db_connection._db)
+        if reconciled:
+            logger.info(
+                "Reconciled %d orphaned assessment row(s) to 'failed' on startup",
+                reconciled,
+            )
+
     # Demo mode: seed sample findings on startup
     if settings.demo and db_connection._db is not None:
         from opensec.api.routes.seed import DEMO_FINDINGS

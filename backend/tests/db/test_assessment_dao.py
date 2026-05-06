@@ -172,3 +172,71 @@ async def test_partial_scope_update_leaves_others_alone(db):
     assert second.branch == "release/1"
     assert second.scanned_files == 42
     assert second.scanned_deps is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Startup reconciliation — orphaned pending/running rows from killed workers.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def test_reconcile_orphaned_assessments_marks_pending_and_running_failed(db):
+    from opensec.db.dao.assessment import (
+        create_assessment,
+        get_assessment,
+        reconcile_orphaned_assessments,
+        set_assessment_result,
+        update_assessment,
+    )
+
+    pending = await create_assessment(db, AssessmentCreate(repo_url="https://github.com/a/p"))
+    running = await create_assessment(db, AssessmentCreate(repo_url="https://github.com/a/r"))
+    await update_assessment(db, running.id, AssessmentUpdate(status="running"))
+    done = await create_assessment(db, AssessmentCreate(repo_url="https://github.com/a/c"))
+    await set_assessment_result(
+        db,
+        done.id,
+        grade="A",
+        criteria_snapshot=CriteriaSnapshot(
+            no_critical_vulns=True,
+            posture_checks_passing=5,
+            posture_checks_total=5,
+            security_md_present=True,
+            dependabot_present=True,
+        ),
+    )
+    already_failed = await create_assessment(
+        db, AssessmentCreate(repo_url="https://github.com/a/f")
+    )
+    await update_assessment(db, already_failed.id, AssessmentUpdate(status="failed"))
+
+    n = await reconcile_orphaned_assessments(db)
+    assert n == 2
+
+    p = await get_assessment(db, pending.id)
+    r = await get_assessment(db, running.id)
+    c = await get_assessment(db, done.id)
+    f = await get_assessment(db, already_failed.id)
+
+    # Pending → failed; repo_url is preserved so the dashboard's Re-run button
+    # can pre-fill, and completed_at is stamped.
+    assert p is not None
+    assert p.status == "failed"
+    assert p.repo_url == "https://github.com/a/p"
+    assert p.completed_at is not None
+    # Running → failed.
+    assert r is not None
+    assert r.status == "failed"
+    # Terminal states are untouched.
+    assert c is not None
+    assert c.status == "complete"
+    assert f is not None
+    assert f.status == "failed"
+
+    # Idempotent: a second pass is a no-op.
+    assert await reconcile_orphaned_assessments(db) == 0
+
+
+async def test_reconcile_orphaned_assessments_empty_db(db):
+    from opensec.db.dao.assessment import reconcile_orphaned_assessments
+
+    assert await reconcile_orphaned_assessments(db) == 0
