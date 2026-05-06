@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7-alpha] - 2026-05-06
+
+A stability and lifecycle release. The CLI gains owner-safe daemon
+control and a real `opensec update` command, and the dashboard no
+longer wedges on a stale "Assessment running" state when the previous
+server died mid-scan.
+
+### Added
+
+- **`opensec update` and owner-safe daemon control (PR #141).** New
+  `opensec update` command performs a safe in-place upgrade against
+  GitHub Releases — snapshot via rename, checksummed download,
+  re-run install scripts, doctor, and either restart or roll back;
+  `data/` and `config/` are never touched. `--check`, `--yes`,
+  `--force`, `--version <tag>` are all supported. `stop` /
+  `restart` / `uninstall` now do owner-safe process discovery: a
+  process is signalled only if its cmdline proves it's ours
+  (uvicorn for `opensec.main:app`, or `argv[0]`/exe equals
+  `$OPENSEC_HOME/bin/opencode`). Orphan OpenCode processes on
+  4096 / 4100–4199 are reclaimed; non-OpenSec listeners are
+  reported as squatters but never killed. `OPENSEC_APP_PORT` is
+  now honoured across the lifecycle, not just by `start`.
+
+### Fixed
+
+- **"Re-run assessment" button could stay greyed forever (PR #142).**
+  If the server died mid-scan (update, crash, SIGKILL), the
+  in-process `asyncio` worker died before its `except` block could
+  flip the assessment row to `failed`, leaving it `pending` /
+  `running` and the dashboard rendering a permanently-disabled
+  "Assessment running" button. FastAPI lifespan now calls
+  `reconcile_orphaned_assessments()` right after `init_db()`: any
+  `pending` / `running` row at boot is provably orphaned (its
+  worker died with the previous process) and is marked `failed`.
+  `repo_url` is preserved so the existing fallthrough to
+  `ReportCard` renders an enabled "Re-run assessment". Affected
+  users on 0.1.6-alpha can unstick themselves before upgrading
+  with:
+
+  ```bash
+  sqlite3 ~/.opensec/data/opensec.db \
+    "UPDATE assessment SET status='failed', completed_at=COALESCE(completed_at, datetime('now')) WHERE status IN ('pending','running');"
+  ```
+
 ## [0.1.6-alpha] - 2026-05-05
 
 Two themes in this release. First, the Dashboard and assessment surfaces
