@@ -24,6 +24,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -163,6 +164,89 @@ def fetch_expected_sha256(client: httpx.Client, release: Release) -> str | None:
     return resp.text.strip().split()[0] if resp.text.strip() else None
 
 
+REQUIRED_TARBALL_MEMBERS = (
+    "VERSION",
+    "scripts/install-opencode.sh",
+    "scripts/install-scanners.sh",
+)
+MIN_FREE_BYTES = 500 * 1024 * 1024  # 500 MB pre-flight floor
+SNAPSHOT_RETENTION = 3  # keep N recent snapshots after a successful update
+
+
+def verify_tarball_shape(tarball: Path) -> None:
+    """Open ``tarball`` and confirm it contains the files the updater needs.
+
+    Run BEFORE touching the live install — if the tarball is malformed, we
+    abort cleanly without ever moving the user's app/ aside. Raises
+    ``RuntimeError`` with an actionable message if anything is wrong.
+    """
+    try:
+        with tarfile.open(tarball, "r:gz") as tf:
+            names = set(tf.getnames())
+    except (tarfile.TarError, OSError) as exc:
+        raise RuntimeError(f"tarball is unreadable: {exc}") from exc
+
+    missing = [m for m in REQUIRED_TARBALL_MEMBERS if m not in names]
+    if missing:
+        raise RuntimeError(
+            f"tarball is missing required entries: {missing}. "
+            "This is not a valid OpenSec release."
+        )
+
+
+def check_free_space(path: Path, min_bytes: int = MIN_FREE_BYTES) -> None:
+    """Refuse to update if the filesystem hosting ``path`` has less than
+    ``min_bytes`` free. Catches "I'm out of disk" before we move anything."""
+    target = path if path.exists() else path.parent
+    try:
+        free = shutil.disk_usage(target).free
+    except OSError as exc:
+        raise RuntimeError(f"could not check free disk space at {target}: {exc}") from exc
+    if free < min_bytes:
+        raise RuntimeError(
+            f"insufficient free space at {target}: "
+            f"{free // (1024 * 1024)} MB available, {min_bytes // (1024 * 1024)} MB required"
+        )
+
+
+def robust_rmtree(path: Path) -> Path | None:
+    """Remove ``path``. If anything is left behind, rename the residue out of
+    the way and return the new path. Returns None on a clean removal.
+
+    Used by rollback so that, even if a stray file resists deletion, the
+    snapshot can be renamed back into place without colliding.
+    """
+    if not path.exists():
+        return None
+    with contextlib.suppress(OSError):
+        shutil.rmtree(path)
+    if not path.exists():
+        return None
+    # Couldn't fully remove — get it out of the way.
+    residue = path.with_name(f"{path.name}.broken-{int(time.time())}")
+    try:
+        path.rename(residue)
+    except OSError:
+        return None
+    return residue
+
+
+def list_snapshots(opensec_home: Path, kind: str) -> list[Path]:
+    """List snapshot directories like ``app.bak-...``, newest first by mtime."""
+    pattern = f"{kind}.bak-*"
+    snaps = [p for p in opensec_home.glob(pattern) if p.is_dir()]
+    snaps.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return snaps
+
+
+def prune_snapshots(opensec_home: Path, retain: int = SNAPSHOT_RETENTION) -> None:
+    """Keep the ``retain`` newest snapshots per kind, remove the rest. Best-effort."""
+    for kind in ("app", "bin"):
+        for old in list_snapshots(opensec_home, kind)[retain:]:
+            with contextlib.suppress(OSError):
+                shutil.rmtree(old)
+
+
 def safe_extract(tarball: Path, dest: Path) -> None:
     """Extract ``tarball`` into ``dest``, rejecting any member that escapes ``dest``.
 
@@ -188,9 +272,13 @@ def safe_extract(tarball: Path, dest: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+class UpdateLockBusy(RuntimeError):  # noqa: N818 — distinct exception type, not an Error
+    """Another ``opensec update`` is currently holding the lock."""
+
+
 @contextlib.contextmanager
 def update_lock(lock_path: Path):
-    """flock-based mutex on ``lock_path``. Raises RuntimeError if another
+    """flock-based mutex on ``lock_path``. Raises ``UpdateLockBusy`` if another
     update is in progress."""
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
@@ -198,7 +286,7 @@ def update_lock(lock_path: Path):
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
-            raise RuntimeError("another `opensec update` is in progress") from exc
+            raise UpdateLockBusy("another `opensec update` is in progress") from exc
         os.write(fd, f"{os.getpid()}\n".encode())
         yield
     finally:
@@ -302,8 +390,17 @@ def update_cmd(
         try:
             with update_lock(d.RUN_DIR / "update.lock"):
                 _do_update(client, ctx, d, release, current)
-        except RuntimeError as exc:
+        except UpdateLockBusy as exc:
             emit_error(str(exc), code="update_in_progress", exit_code=EXIT_ERROR)
+        except RuntimeError as exc:
+            # Anything Phase-A raises that isn't lock-busy: live install
+            # was not modified (Phase A runs before the snapshot).
+            emit_error(
+                f"Update aborted before changing the install: {exc}",
+                code="update_aborted",
+                hint="Live install untouched.",
+                exit_code=EXIT_ERROR,
+            )
 
 
 def _do_update(
@@ -313,96 +410,131 @@ def _do_update(
     release: Release,
     current: str,
 ) -> None:
-    """The actual stop/snapshot/download/extract/restart sequence.
+    """Two-phase update: validate first, then swap.
 
-    Split out for testability. ``d`` is the daemon module; we hold a
-    reference because ``OPENSEC_HOME`` is read at import time.
+    Phase A (validate-before-touch) — never modifies the live install:
+      1. Disk-space pre-flight.
+      2. Stop daemon.
+      3. Download tarball into a tempdir.
+      4. Verify SHA-256 against the sidecar (if present).
+      5. Verify the tarball contains the entries we need.
+
+    Phase B (swap) — only runs if Phase A succeeded:
+      6. Snapshot live install with a timestamped suffix (never clobbers).
+      7. Extract.
+      8. Re-run bundled installers.
+      9. Doctor.
+      10. Start daemon.
+
+    On any Phase B failure, ``_rollback`` restores from the snapshot. The
+    rollback survives partial rmtree by renaming residue aside.
     """
-    click.echo("[1/8] stopping daemon")
+    # ----- Phase A: validate before we touch the live install ----------------
+    click.echo("[1/9] checking disk space")
+    check_free_space(d.OPENSEC_HOME)
+
+    click.echo("[2/9] stopping daemon")
     ctx.invoke(d.stop_cmd, timeout=10.0, force=False)
 
-    snap_app = d.OPENSEC_HOME / f"app.bak-{current}"
-    snap_bin = d.OPENSEC_HOME / f"bin.bak-{current}"
-    # Defensive: clear any leftover snapshots from a previous failed update.
-    for path in (snap_app, snap_bin):
-        if path.exists():
-            shutil.rmtree(path, ignore_errors=True)
+    # The tempdir context wraps the entire swap so the tarball stays on disk
+    # for extraction.
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tar_path = Path(tmpdir) / "opensec.tar.gz"
 
-    click.echo(f"[2/8] snapshotting current install -> {snap_app.name}, {snap_bin.name}")
-    if d.APP_DIR.exists():
-        d.APP_DIR.rename(snap_app)
-    if d.BIN_DIR.exists():
-        d.BIN_DIR.rename(snap_bin)
+        click.echo(f"[3/9] downloading {release.tarball_url}")
+        actual_sha = download_tarball(client, release, tar_path)
 
-    rolled_back = False
-
-    def _rollback(reason: str) -> None:
-        nonlocal rolled_back
-        rolled_back = True
-        click.echo(f"  rolling back: {reason}", err=True)
-        if d.APP_DIR.exists():
-            shutil.rmtree(d.APP_DIR, ignore_errors=True)
-        if d.BIN_DIR.exists():
-            shutil.rmtree(d.BIN_DIR, ignore_errors=True)
-        if snap_app.exists():
-            snap_app.rename(d.APP_DIR)
-        if snap_bin.exists():
-            snap_bin.rename(d.BIN_DIR)
-        # Bring the daemon back on the previous version.
-        with contextlib.suppress(SystemExit):
-            ctx.invoke(d.start_cmd, detach=True, port=None, host=None)
-
-    try:
-        click.echo(f"[3/8] downloading {release.tarball_url}")
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tar_path = Path(tmpdir) / "opensec.tar.gz"
-            actual_sha = download_tarball(client, release, tar_path)
-            expected_sha = fetch_expected_sha256(client, release)
-            if expected_sha:
-                if actual_sha.lower() != expected_sha.lower():
-                    raise RuntimeError(
-                        f"tarball SHA-256 mismatch: expected {expected_sha}, got {actual_sha}"
-                    )
-                click.echo("[4/8] checksum verified")
-            else:
-                click.echo(
-                    "[4/8] checksum sidecar absent — skipping (HTTPS transport)",
-                    err=True,
+        expected_sha = fetch_expected_sha256(client, release)
+        if expected_sha:
+            if actual_sha.lower() != expected_sha.lower():
+                emit_error(
+                    "Tarball SHA-256 mismatch — refusing to install.",
+                    code="checksum_mismatch",
+                    hint=f"expected {expected_sha}, got {actual_sha}. Live install untouched.",
+                    exit_code=EXIT_ERROR,
                 )
+            click.echo("[4/9] checksum verified")
+        else:
+            click.echo(
+                "[4/9] checksum sidecar absent — skipping (HTTPS transport)",
+                err=True,
+            )
 
-            click.echo("[5/8] extracting tarball")
+        click.echo("[5/9] verifying tarball contents")
+        try:
+            verify_tarball_shape(tar_path)
+        except RuntimeError as exc:
+            emit_error(
+                f"{exc} Live install untouched.",
+                code="bad_tarball",
+                exit_code=EXIT_ERROR,
+            )
+
+        # ----- Phase B: live install touched here on out --------------------
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        snap_app = d.OPENSEC_HOME / f"app.bak-{current}-{ts}"
+        snap_bin = d.OPENSEC_HOME / f"bin.bak-{current}-{ts}"
+
+        click.echo(f"[6/9] snapshotting -> {snap_app.name}, {snap_bin.name}")
+        if d.APP_DIR.exists():
+            d.APP_DIR.rename(snap_app)
+        if d.BIN_DIR.exists():
+            d.BIN_DIR.rename(snap_bin)
+
+        rolled_back = False
+
+        def _rollback(reason: str) -> None:
+            nonlocal rolled_back
+            rolled_back = True
+            click.echo(f"  rolling back: {reason}", err=True)
+            # Get the new (possibly partial) install out of the way. If
+            # rmtree leaves residue, it gets renamed aside so the snapshot
+            # rename-back has a clear target.
+            for live in (d.APP_DIR, d.BIN_DIR):
+                residue = robust_rmtree(live)
+                if residue is not None:
+                    click.echo(
+                        f"  could not fully remove {live.name}; preserved as {residue.name}",
+                        err=True,
+                    )
+            if snap_app.exists():
+                snap_app.rename(d.APP_DIR)
+            if snap_bin.exists():
+                snap_bin.rename(d.BIN_DIR)
+            with contextlib.suppress(SystemExit):
+                ctx.invoke(d.start_cmd, detach=True, port=None, host=None)
+
+        try:
+            click.echo("[7/9] extracting tarball")
             d.APP_DIR.mkdir(parents=True, exist_ok=True)
             safe_extract(tar_path, d.APP_DIR)
 
-        click.echo("[6/8] re-running bundled installers (opencode + scanners)")
-        d.BIN_DIR.mkdir(parents=True, exist_ok=True)
-        _run_bundled_installers(d)
+            click.echo("[8/9] re-running bundled installers (opencode + scanners)")
+            d.BIN_DIR.mkdir(parents=True, exist_ok=True)
+            _run_bundled_installers(d)
 
-        click.echo("[7/8] running doctor checks")
-        checks = d._gather_doctor_checks()
-        failing = [c["name"] for c in checks if not c["ok"] and not c["warn_only"]]
-        if failing:
-            raise RuntimeError(f"doctor failed: {failing}")
+            click.echo("[9/9] running doctor checks + starting daemon")
+            checks = d._gather_doctor_checks()
+            failing = [c["name"] for c in checks if not c["ok"] and not c["warn_only"]]
+            if failing:
+                raise RuntimeError(f"doctor failed: {failing}")
 
-        click.echo("[8/8] starting daemon")
-        ctx.invoke(d.start_cmd, detach=True, port=None, host=None)
+            ctx.invoke(d.start_cmd, detach=True, port=None, host=None)
 
-    except Exception as exc:
-        _rollback(str(exc))
-        emit_error(
-            f"Update failed and was rolled back to {current}.",
-            code="update_failed",
-            hint=str(exc),
-            exit_code=EXIT_ERROR,
-        )
+        except Exception as exc:
+            _rollback(str(exc))
+            emit_error(
+                f"Update failed and was rolled back to {current}.",
+                code="update_failed",
+                hint=str(exc),
+                exit_code=EXIT_ERROR,
+            )
 
     if rolled_back:
         return
 
-    # Success: clean up snapshots.
-    for path in (snap_app, snap_bin):
-        if path.exists():
-            shutil.rmtree(path, ignore_errors=True)
+    # Success: keep the most recent snapshots, prune older ones.
+    prune_snapshots(d.OPENSEC_HOME, retain=SNAPSHOT_RETENTION)
 
     click.echo(f"\nUpdated {current} -> {release.version}.")
     if not _running_from_managed_venv(d.OPENSEC_HOME):
