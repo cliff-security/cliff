@@ -46,6 +46,7 @@ from opensec_cli.output import (
     emit,
     emit_error,
 )
+from opensec_cli.updater import update_cmd
 
 # ---------------------------------------------------------------------------
 # Shared decorators
@@ -128,6 +129,7 @@ main.add_command(logs_cmd)
 main.add_command(doctor_cmd)
 main.add_command(config_group)
 main.add_command(uninstall_cmd)
+main.add_command(update_cmd)
 
 
 # ---- 1. status ------------------------------------------------------------
