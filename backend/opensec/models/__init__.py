@@ -248,6 +248,12 @@ class IntegrationConfig(BaseModel):
     last_test_result: dict[str, Any] | None = None
     action_tier: int = 0  # 0=read-only, 1=enrichment, 2=mutation
     updated_at: datetime
+    # ADR-0035 / IMPL-0010 — populated only on the github row by the
+    # settings list-integrations endpoint. ``github_app`` means a
+    # github_app_installation row exists for this integration (the
+    # device-flow path); ``pat`` means it doesn't (legacy onboarding).
+    # ``None`` for non-github integrations.
+    auth_method: Literal["github_app", "pat"] | None = None
 
 
 class IntegrationConfigCreate(BaseModel):

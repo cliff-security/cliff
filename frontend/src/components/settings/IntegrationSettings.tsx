@@ -10,10 +10,7 @@ import {
   useTestIntegration,
   useAllIntegrationsHealth,
 } from '@/api/hooks'
-import {
-  useGithubAppStatus,
-  useGithubAppResumeOnReturn,
-} from '@/api/githubApp'
+import { useGithubAppResumeOnReturn } from '@/api/githubApp'
 import type {
   RegistryEntry,
   CredentialField,
@@ -463,20 +460,18 @@ export default function IntegrationSettings() {
   // backend reports it's available, gated on the env var being set.
   const githubEntry = (registry || []).find((r) => r.id === 'github')
   const githubAppAvailable = githubEntry?.github_app_available === true
-  const hasGithubIntegration = (integrations || []).some(
+
+  // Use the synchronous auth_method tag the backend stamps on the github
+  // integration row instead of racing /status. ``github_app`` = the user
+  // already authorized the device flow; ``pat`` = legacy onboarding,
+  // suitable to surface the migration banner to.
+  const githubIntegration = (integrations || []).find(
     (i) => i.provider_name.toLowerCase() === 'github' && i.enabled,
   )
-  // Status query stays disabled by default to avoid noise on first paint.
-  // The migration banner is the only thing that needs to know whether the
-  // App is already connected, so we enable status polling only when both
-  // flags require disambiguation.
-  const { data: githubAppStatus } = useGithubAppStatus({
-    enabled: githubAppAvailable && hasGithubIntegration,
-    intervalMs: 0, // one-shot — terminal logic is in the modal
-  })
-  const onAppFlow = githubAppStatus?.status === 'connected'
   const showMigrationBanner =
-    githubAppAvailable && hasGithubIntegration && !onAppFlow
+    githubAppAvailable &&
+    githubIntegration !== undefined &&
+    githubIntegration.auth_method === 'pat'
 
   // Page-level resume: if the user just came back from a successful
   // App install on github.com, /setup tagged the URL with

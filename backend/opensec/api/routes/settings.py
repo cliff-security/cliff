@@ -309,7 +309,19 @@ async def get_registry_entry_endpoint(entry_id: str):
 
 @router.get("/settings/integrations", response_model=list[IntegrationConfig])
 async def list_integrations_endpoint(db=Depends(get_db)):
-    return await list_integrations(db)
+    rows = await list_integrations(db)
+    # Tag each github row with its auth_method so the frontend can branch
+    # without polling /api/integrations/github/status (race-free, ADR-0035).
+    cursor = await db.execute(
+        "SELECT integration_id FROM github_app_installation"
+    )
+    app_flow_ids = {r["integration_id"] for r in await cursor.fetchall()}
+    for row in rows:
+        if row.provider_name.lower() == "github":
+            row.auth_method = (
+                "github_app" if row.id in app_flow_ids else "pat"
+            )
+    return rows
 
 
 @router.post("/settings/integrations", response_model=IntegrationConfig, status_code=201)

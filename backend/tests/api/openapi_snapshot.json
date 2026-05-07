@@ -2581,6 +2581,21 @@
             "title": "Adapter Type",
             "type": "string"
           },
+          "auth_method": {
+            "anyOf": [
+              {
+                "enum": [
+                  "github_app",
+                  "pat"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth Method"
+          },
           "config": {
             "anyOf": [
               {

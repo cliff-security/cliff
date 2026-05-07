@@ -289,6 +289,9 @@ export interface IntegrationConfigItem {
   config: Record<string, unknown> | null;
   last_test_result: Record<string, unknown> | null;
   updated_at: string;
+  /** ADR-0035 / IMPL-0010 — populated only on the github row.
+   * 'github_app' = device-flow path; 'pat' = legacy PAT onboarding. */
+  auth_method?: 'github_app' | 'pat' | null;
 }
 
 export interface IntegrationConfigCreate {
