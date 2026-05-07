@@ -6,6 +6,7 @@
  * /status endpoint while our backend polls GitHub's token endpoint.
  */
 
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from './client'
 
@@ -126,4 +127,45 @@ export function useGithubAppDisconnect() {
       qc.invalidateQueries({ queryKey: ['integrations'] })
     },
   })
+}
+
+/**
+ * Detects ``?github_setup=complete`` on the current URL (set by the
+ * backend's /setup callback after a successful App install on GitHub),
+ * fires the idempotent /connect once to fetch the in-flight state, and
+ * returns the device-flow response so the page can mount the modal.
+ *
+ * Lives at this layer (not inside the connect button) so the post-
+ * install resume flow works regardless of whether any specific CTA is
+ * currently mounted - e.g. once the install creates an integration row
+ * the catalog button unmounts, but the page still renders, so a
+ * page-level effect is the only safe place.
+ */
+export function useGithubAppResumeOnReturn(): {
+  response: DeviceFlowConnectResponse | null
+  clear: () => void
+} {
+  const connect = useGithubAppConnect()
+  const [response, setResponse] = useState<DeviceFlowConnectResponse | null>(
+    null,
+  )
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('github_setup') !== 'complete') return
+    if (connect.isPending || response) return
+    void (async () => {
+      try {
+        const r = await connect.mutateAsync()
+        setResponse(r)
+      } finally {
+        url.searchParams.delete('github_setup')
+        url.searchParams.delete('integration_id')
+        window.history.replaceState({}, '', url.toString() + window.location.hash)
+      }
+    })()
+    // Fire once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  return { response, clear: () => setResponse(null) }
 }

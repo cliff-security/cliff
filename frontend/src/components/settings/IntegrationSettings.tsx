@@ -10,7 +10,10 @@ import {
   useTestIntegration,
   useAllIntegrationsHealth,
 } from '@/api/hooks'
-import { useGithubAppStatus } from '@/api/githubApp'
+import {
+  useGithubAppStatus,
+  useGithubAppResumeOnReturn,
+} from '@/api/githubApp'
 import type {
   RegistryEntry,
   CredentialField,
@@ -18,6 +21,7 @@ import type {
   IntegrationHealthStatus,
 } from '@/api/client'
 import { GithubAppConnectButton } from './GithubAppConnectButton'
+import { GithubAppDeviceFlowModal } from './GithubAppDeviceFlowModal'
 import { GithubAppMigrationBanner } from './GithubAppMigrationBanner'
 
 // ---------------------------------------------------------------------------
@@ -474,8 +478,22 @@ export default function IntegrationSettings() {
   const showMigrationBanner =
     githubAppAvailable && hasGithubIntegration && !onAppFlow
 
+  // Page-level resume: if the user just came back from a successful
+  // App install on github.com, /setup tagged the URL with
+  // ?github_setup=complete. We fire /connect once (idempotent) and
+  // mount the modal here so it doesn't depend on the catalog button
+  // being rendered (which it isn't, once an integration row exists).
+  const { response: resumedFlow, clear: clearResumedFlow } =
+    useGithubAppResumeOnReturn()
+
+  // Only enabled integrations count as "configured" — a disabled row
+  // (e.g. a github integration created during an in-flight App install
+  // before the access token arrives) must NOT unmount the catalog tile's
+  // Connect button.
   const configuredIds = new Set(
-    (integrations || []).map((i) => i.provider_name.toLowerCase()),
+    (integrations || [])
+      .filter((i) => i.enabled)
+      .map((i) => i.provider_name.toLowerCase()),
   )
 
   const getRegistryForIntegration = (integration: IntegrationConfigItem) =>
@@ -513,6 +531,14 @@ export default function IntegrationSettings() {
           integrationId={getIntegrationForEntry(setupEntry)?.id || null}
           integration={getIntegrationForEntry(setupEntry)}
           onClose={() => setSetupEntry(null)}
+        />
+      )}
+
+      {resumedFlow && (
+        <GithubAppDeviceFlowModal
+          connect={resumedFlow}
+          onDismiss={clearResumedFlow}
+          onTryAgain={clearResumedFlow}
         />
       )}
 

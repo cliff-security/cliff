@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import {
   useGithubAppConnect,
   useGithubAppDisconnect,
@@ -34,29 +34,11 @@ export function GithubAppConnectButton({
     null,
   )
 
-  // Re-open the device-flow modal automatically when GitHub redirects
-  // back with ?github_setup=complete. This is what makes the single-tab
-  // UX feel seamless: the user lands back on Settings and the next
-  // step (authorize on GitHub) immediately appears.
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const url = new URL(window.location.href)
-    if (url.searchParams.get('github_setup') !== 'complete') return
-    if (connect.isPending || response) return
-    void (async () => {
-      try {
-        const r = await connect.mutateAsync()
-        setResponse(r)
-      } finally {
-        url.searchParams.delete('github_setup')
-        url.searchParams.delete('integration_id')
-        window.history.replaceState({}, '', url.toString())
-      }
-    })()
-    // We deliberately fire this once on mount; the connect mutation hook is
-    // stable so the lint exception is intentional.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  // Note: detection of ``?github_setup=complete`` (the post-install
+  // resume) lives at the page level in IntegrationSettings via
+  // useGithubAppResumeOnReturn — the button isn't guaranteed to be
+  // mounted at that point (catalog tile unmounts once an integration
+  // row exists), so the page is the only safe owner of that effect.
 
   const handleClick = async () => {
     const r = await connect.mutateAsync()
