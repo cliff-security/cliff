@@ -149,9 +149,19 @@ def _resolve_frontend_base_url() -> str:
 
 
 def _frontend_redirect(*, status: str, **extra: str) -> str:
-    """Build the post-callback redirect back to the SPA Integrations page."""
+    """Build the post-callback redirect back to the SPA Integrations page.
+
+    The SPA mounts integrations as a section of the Settings page
+    (``<section id="integrations">``), not a separate route — so we
+    target ``/settings`` with the ``#integrations`` anchor for scroll.
+    The ``?github_setup=...`` query param is what
+    ``GithubAppConnectButton`` reads on mount to re-open the modal.
+    """
     params = {"github_setup": status, **extra}
-    return f"{_resolve_frontend_base_url()}/settings/integrations?{urlencode(params)}"
+    return (
+        f"{_resolve_frontend_base_url()}/settings"
+        f"?{urlencode(params)}#integrations"
+    )
 
 
 # ---------------------------------------------------------------------------

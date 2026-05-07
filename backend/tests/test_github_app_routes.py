@@ -192,8 +192,10 @@ async def test_setup_validates_csrf_and_redirects_with_complete_flag(
     )
     assert resp.status_code in {302, 307}
     location = resp.headers["location"]
-    assert "/settings/integrations" in location
+    # Settings page with #integrations anchor — that's where the section lives.
+    assert "/settings?" in location
     assert "github_setup=complete" in location
+    assert location.endswith("#integrations")
     # Dev-mode default: SPA on Vite, not on the FastAPI port.
     assert location.startswith("http://localhost:5173/")
 
@@ -221,7 +223,7 @@ async def test_setup_redirect_honors_explicit_frontend_base_url(
             follow_redirects=False,
         )
     assert resp.headers["location"].startswith(
-        "https://opensec.example/app/settings/integrations"
+        "https://opensec.example/app/settings?"
     )
 
 
