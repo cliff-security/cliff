@@ -189,8 +189,63 @@ async def test_run_assessment_engine_failure_marks_failed(db_client):
 
         a = await get_assessment(_db, aid)
         assert a.status == "failed"
+        # Migration 015 — failure detail is persisted on the row.
+        assert a.error_kind == "internal_error"
+        assert a.error_message
+        assert a.error_details and "boom" in a.error_details
     finally:
         app.dependency_overrides.pop(get_assessment_engine, None)
+
+
+async def test_status_response_carries_error_block_when_failed(db_client):
+    """The status endpoint mirrors the persisted error_* columns into the
+    new ``error`` block + ``repo_url`` so the dashboard can render the
+    failure card without an extra round-trip.
+    """
+    from opensec.assessment.clone import CloneError
+
+    engine = FakeAssessmentEngine(
+        raise_on_run=CloneError("git clone failed for https://github.com/a/d (exit 128)"),
+    )
+    app.dependency_overrides[get_assessment_engine] = lambda: engine
+    try:
+        resp = await db_client.post(
+            "/api/assessment/run", json={"repo_url": "https://github.com/a/d"}
+        )
+        aid = resp.json()["assessment_id"]
+        await _drain_background_tasks()
+
+        status_resp = await db_client.get(f"/api/assessment/status/{aid}")
+        assert status_resp.status_code == 200
+        body = status_resp.json()
+        assert body["status"] == "failed"
+        assert body["repo_url"] == "https://github.com/a/d"
+        err = body["error"]
+        assert err is not None
+        assert err["kind"] == "clone_failed"
+        assert err["failed_step"] == "clone"
+        assert err["message"]
+        assert err["details"] and "exit 128" in err["details"]
+    finally:
+        app.dependency_overrides.pop(get_assessment_engine, None)
+
+
+async def test_status_response_no_error_block_when_complete(
+    db_client, fake_engine
+):
+    """A happy-path assessment must not surface an ``error`` block."""
+    resp = await db_client.post(
+        "/api/assessment/run", json={"repo_url": "https://github.com/a/ok"}
+    )
+    aid = resp.json()["assessment_id"]
+    await _drain_background_tasks()
+
+    status_resp = await db_client.get(f"/api/assessment/status/{aid}")
+    assert status_resp.status_code == 200
+    body = status_resp.json()
+    assert body["status"] == "complete"
+    assert body["error"] is None
+    assert body["repo_url"] == "https://github.com/a/ok"
 
 
 async def test_get_assessment_status(db_client, fake_engine):

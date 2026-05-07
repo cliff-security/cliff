@@ -240,3 +240,163 @@ async def test_reconcile_orphaned_assessments_empty_db(db):
     from opensec.db.dao.assessment import reconcile_orphaned_assessments
 
     assert await reconcile_orphaned_assessments(db) == 0
+
+
+async def test_reconcile_orphaned_stamps_interrupted_failure_detail(db):
+    """Migration 015 — startup reconcile must populate the failure-detail
+    block so the dashboard renders an explanation instead of a silent
+    failed row.
+    """
+    from opensec.db.dao.assessment import (
+        create_assessment,
+        get_assessment,
+        reconcile_orphaned_assessments,
+        update_assessment,
+    )
+
+    pending = await create_assessment(
+        db, AssessmentCreate(repo_url="https://github.com/x/p")
+    )
+    running = await create_assessment(
+        db, AssessmentCreate(repo_url="https://github.com/x/r")
+    )
+    await update_assessment(db, running.id, AssessmentUpdate(status="running"))
+
+    n = await reconcile_orphaned_assessments(db)
+    assert n == 2
+
+    for orig in (pending, running):
+        a = await get_assessment(db, orig.id)
+        assert a is not None
+        assert a.status == "failed"
+        assert a.error_kind == "interrupted"
+        assert a.error_message and "interrupted" in a.error_message.lower()
+
+
+async def test_reconcile_does_not_overwrite_existing_failure_detail(db):
+    """A row that failed cleanly pre-restart keeps its original reason —
+    reconcile only stamps the COALESCE'd default when the column is NULL.
+    """
+    from opensec.db.dao.assessment import (
+        create_assessment,
+        get_assessment,
+        reconcile_orphaned_assessments,
+        update_assessment,
+    )
+
+    a = await create_assessment(
+        db, AssessmentCreate(repo_url="https://github.com/x/c")
+    )
+    await update_assessment(
+        db,
+        a.id,
+        AssessmentUpdate(
+            status="running",
+            error_kind="clone_failed",
+            error_message="Couldn't clone the repository",
+            failed_step="clone",
+        ),
+    )
+
+    await reconcile_orphaned_assessments(db)
+
+    refreshed = await get_assessment(db, a.id)
+    assert refreshed is not None
+    assert refreshed.status == "failed"
+    # Original kind/message survive — reconcile must not stomp them.
+    assert refreshed.error_kind == "clone_failed"
+    assert refreshed.error_message == "Couldn't clone the repository"
+    assert refreshed.failed_step == "clone"
+
+
+async def test_reap_stale_assessments_marks_old_running_rows_failed(db):
+    """Watchdog: any row older than the threshold gets failed/interrupted.
+
+    Simulates the race where a row was created but the asyncio task never
+    drove it to a terminal state. Uses a tiny threshold + a brief sleep so
+    the test is deterministic without time-mocking.
+    """
+    import asyncio as _asyncio
+
+    from opensec.db.dao.assessment import (
+        create_assessment,
+        get_assessment,
+        reap_stale_assessments,
+        update_assessment,
+    )
+
+    fresh = await create_assessment(
+        db, AssessmentCreate(repo_url="https://github.com/x/fresh")
+    )
+    stale = await create_assessment(
+        db, AssessmentCreate(repo_url="https://github.com/x/stale")
+    )
+    await update_assessment(db, stale.id, AssessmentUpdate(status="running"))
+    # Wait long enough that ``stale`` falls past the cutoff but ``fresh`` is
+    # also past — so we use a bigger threshold + short sleep, then run with
+    # a tiny threshold to catch only ``stale`` once we sleep again.
+    await _asyncio.sleep(0.05)
+    # Threshold is 1ms — both rows are older than 1ms, so both get reaped.
+    reaped = await reap_stale_assessments(db, older_than_seconds=0.001)
+    assert reaped == 2
+
+    for orig in (fresh, stale):
+        a = await get_assessment(db, orig.id)
+        assert a is not None
+        assert a.status == "failed"
+        assert a.error_kind == "interrupted"
+        assert a.error_message and "did not finish" in a.error_message.lower()
+
+
+async def test_reap_stale_assessments_skips_recent_rows(db):
+    """A row started inside the window must NOT be reaped."""
+    from opensec.db.dao.assessment import (
+        create_assessment,
+        get_assessment,
+        reap_stale_assessments,
+    )
+
+    a = await create_assessment(
+        db, AssessmentCreate(repo_url="https://github.com/x/recent")
+    )
+    # Threshold 60s; the row is brand new, so it's well inside the window.
+    reaped = await reap_stale_assessments(db, older_than_seconds=60.0)
+    assert reaped == 0
+    refreshed = await get_assessment(db, a.id)
+    assert refreshed is not None
+    assert refreshed.status == "pending"
+
+
+async def test_reap_stale_assessments_ignores_terminal_rows(db, criteria_full):
+    """Already-complete or already-failed rows are untouched."""
+    from opensec.db.dao.assessment import (
+        create_assessment,
+        get_assessment,
+        reap_stale_assessments,
+        set_assessment_result,
+        update_assessment,
+    )
+
+    done = await create_assessment(
+        db, AssessmentCreate(repo_url="https://github.com/x/done")
+    )
+    await set_assessment_result(
+        db, done.id, grade="A", criteria_snapshot=criteria_full
+    )
+    failed = await create_assessment(
+        db, AssessmentCreate(repo_url="https://github.com/x/failed")
+    )
+    await update_assessment(
+        db,
+        failed.id,
+        AssessmentUpdate(status="failed", error_kind="clone_failed"),
+    )
+
+    reaped = await reap_stale_assessments(db, older_than_seconds=0.0)
+    assert reaped == 0
+
+    d = await get_assessment(db, done.id)
+    f = await get_assessment(db, failed.id)
+    assert d is not None and d.status == "complete"
+    assert f is not None and f.status == "failed"
+    assert f.error_kind == "clone_failed"

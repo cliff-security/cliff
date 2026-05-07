@@ -98,4 +98,37 @@ describe('<DashboardPage /> — IMPL-0009 surfaces', () => {
     expect(screen.queryByTestId('open-by-severity-card')).not.toBeInTheDocument()
     expect(screen.queryByTestId('last-assessment-panel')).not.toBeInTheDocument()
   })
+
+  it('renders the AssessmentFailedCard with friendly headline + step copy when status is failed (migration 015)', async () => {
+    setDashboardFixture('assessment-failed')
+    renderPage()
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('assessment-failed-card'),
+      ).toBeInTheDocument(),
+    )
+    expect(
+      screen.getByRole('heading', { name: /couldn't clone the repository/i }),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('assessment-failed-step')).toHaveTextContent(
+      /while cloning the repository/i,
+    )
+    // Technical details ride along, collapsed by default.
+    expect(screen.getByTestId('assessment-failed-details')).not.toHaveAttribute(
+      'open',
+    )
+    expect(
+      screen.getByTestId('assessment-failed-details-pre'),
+    ).toHaveTextContent(/repository not found/i)
+    // Retry CTA is present (mutation is in-place; no need to click for this surface check).
+    expect(screen.getByTestId('assessment-failed-retry')).toBeInTheDocument()
+    // The running + report surfaces must NOT render in this state.
+    expect(
+      screen.queryByTestId('assessment-running-card'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId('issue-grade-hero-letter'),
+    ).not.toBeInTheDocument()
+  })
 })

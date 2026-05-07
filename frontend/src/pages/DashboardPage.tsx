@@ -20,6 +20,9 @@ import {
 } from '@/api/dashboard'
 import type { DashboardPayload, PostureFixableCheck } from '@/api/dashboard'
 import { onboardingApi } from '@/api/onboarding'
+import AssessmentFailedCard, {
+  type AssessmentFailedStep as FailedStepLabel,
+} from '@/components/dashboard/AssessmentFailedCard'
 import AssessmentRunningCard from '@/components/dashboard/AssessmentRunningCard'
 import AssessmentSummary from '@/components/dashboard/AssessmentSummary'
 import IssueGradeHero, {
@@ -78,6 +81,10 @@ function DashboardContent() {
 
   if (data.assessment?.status === 'running' || data.assessment?.status === 'pending') {
     return <RunningDashboard data={data} />
+  }
+
+  if (data.assessment?.status === 'failed') {
+    return <FailedDashboard data={data} />
   }
 
   if (data.assessment == null) {
@@ -269,6 +276,59 @@ function humanizeToolLabel(label: string, version: string | null | undefined): s
   if (!version || version === 'unknown') return label
   if (label.includes(version)) return label
   return `${label} ${version}`
+}
+
+/**
+ * Failed-state branch (migration 015 — failure surfacing). Reads the new
+ * ``error_*`` fields from the dashboard payload (mirrored from the
+ * assessment row) and renders the friendly headline + collapsible details
+ * + one-click retry. Retry re-uses ``POST /assessment/run`` with the prior
+ * ``repo_url`` — no new endpoint, no edit-URL flow.
+ */
+function FailedDashboard({ data }: { data: DashboardPayload }) {
+  const a = data.assessment!
+  const repoName = repoNameFromUrl(a.repo_url ?? null)
+  const reassessMutation = useRunAssessment()
+  const queryClient = useQueryClient()
+
+  const failedStep = (a.failed_step as FailedStepLabel | null | undefined) ?? null
+  const message =
+    a.error_message ?? 'Something went wrong while running the assessment'
+  const details = a.error_details ?? null
+
+  const handleRetry = () => {
+    const repoUrl = a.repo_url ?? null
+    if (!repoUrl) return
+    reassessMutation.mutate(repoUrl, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      },
+    })
+  }
+
+  return (
+    <PageShell
+      title="Overview"
+      subtitle={repoName}
+      actions={
+        <RunAssessmentButton
+          repoUrl={a.repo_url ?? null}
+          running={false}
+          variant="rerun"
+        />
+      }
+    >
+      <div className="opensec-fade-in">
+        <AssessmentFailedCard
+          message={message}
+          failedStep={failedStep}
+          details={details}
+          retrying={reassessMutation.isPending}
+          onRetry={handleRetry}
+        />
+      </div>
+    </PageShell>
+  )
 }
 
 function EmptyDashboard() {

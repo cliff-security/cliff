@@ -179,6 +179,32 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if db_connection._db is not None:
         ingest_task = asyncio.create_task(ingest_worker_loop(db_connection._db))
 
+    # Assessment watchdog — reaps wedged ``pending``/``running`` rows the
+    # outer asyncio.timeout in ``api/_background.py`` couldn't catch (e.g.
+    # the row was inserted but ``asyncio.create_task`` never ran the
+    # worker). Migration 015 — failure surfacing.
+    assessment_watchdog_task: asyncio.Task[None] | None = None
+    if db_connection._db is not None:
+        from opensec.db.dao.assessment import reap_stale_assessments
+
+        async def _assessment_watchdog_loop() -> None:
+            interval_s = settings.assessment_watchdog_interval_seconds
+            stale_after_s = settings.assessment_stale_threshold_seconds
+            while True:
+                await asyncio.sleep(interval_s)
+                try:
+                    reaped = await reap_stale_assessments(
+                        db_connection._db, older_than_seconds=stale_after_s
+                    )
+                    if reaped:
+                        logger.warning(
+                            "assessment watchdog reaped %d stale row(s)", reaped
+                        )
+                except Exception:
+                    logger.exception("assessment watchdog tick failed")
+
+        assessment_watchdog_task = asyncio.create_task(_assessment_watchdog_loop())
+
     yield
 
     logger.info("Shutting down OpenSec...")
@@ -190,6 +216,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         ingest_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await ingest_task
+
+    if assessment_watchdog_task is not None:
+        assessment_watchdog_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await assessment_watchdog_task
 
     await pool.stop_all()
     if app.state.audit_logger is not None:

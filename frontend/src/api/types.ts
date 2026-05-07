@@ -1448,6 +1448,14 @@ export interface components {
             /** Completed At */
             completed_at?: string | null;
             criteria_snapshot?: components["schemas"]["CriteriaSnapshot"] | null;
+            /** Error Details */
+            error_details?: string | null;
+            /** Error Kind */
+            error_kind?: ("clone_failed" | "scanner_failed" | "timeout" | "internal_error" | "interrupted") | null;
+            /** Error Message */
+            error_message?: string | null;
+            /** Failed Step */
+            failed_step?: ("clone" | "detect" | "trivy_vuln" | "trivy_secret" | "semgrep" | "posture" | "descriptions" | "persist" | "unknown") | null;
             /** Grade */
             grade?: ("A" | "B" | "C" | "D" | "F") | null;
             /** Id */
@@ -1479,6 +1487,27 @@ export interface components {
             /** Repo Url */
             repo_url: string;
         };
+        /**
+         * AssessmentError
+         * @description Failure-detail block surfaced on the assessment status response.
+         *
+         *     Populated only when ``status == 'failed'``. The four fields are also
+         *     persisted on the assessment row (migration 015) so a failure outlives
+         *     the in-memory background state and survives a process restart.
+         */
+        AssessmentError: {
+            /** Details */
+            details?: string | null;
+            /** Failed Step */
+            failed_step?: ("clone" | "detect" | "trivy_vuln" | "trivy_secret" | "semgrep" | "posture" | "descriptions" | "persist" | "unknown") | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "clone_failed" | "scanner_failed" | "timeout" | "internal_error" | "interrupted";
+            /** Message */
+            message: string;
+        };
         /** AssessmentLatestResponse */
         AssessmentLatestResponse: {
             assessment: components["schemas"]["Assessment"];
@@ -1508,9 +1537,12 @@ export interface components {
         AssessmentStatusResponse: {
             /** Assessment Id */
             assessment_id: string;
+            error?: components["schemas"]["AssessmentError"] | null;
             previous_assessment?: components["schemas"]["PreviousAssessmentInfo"] | null;
             /** Progress Pct */
             progress_pct: number;
+            /** Repo Url */
+            repo_url?: string | null;
             /** Status */
             status: string;
             /** Step */

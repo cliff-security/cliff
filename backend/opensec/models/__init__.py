@@ -17,6 +17,9 @@ from pydantic import BaseModel, model_validator
 from opensec.models.assessment import (
     Assessment,
     AssessmentCreate,
+    AssessmentError,
+    AssessmentErrorKind,
+    AssessmentFailedStep,
     AssessmentResult,
     AssessmentStatus,
     AssessmentTool,
@@ -423,6 +426,9 @@ __all__ = [
     # Assessment
     "Assessment",
     "AssessmentCreate",
+    "AssessmentError",
+    "AssessmentErrorKind",
+    "AssessmentFailedStep",
     "AssessmentResult",
     "AssessmentStatus",
     "AssessmentTool",

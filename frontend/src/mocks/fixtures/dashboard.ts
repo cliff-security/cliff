@@ -168,6 +168,40 @@ export const assessmentRunningPayload: DashboardPayload = {
   grade_caption: 'Run your first assessment to earn a grade.',
 }
 
+// Migration 015 — failed-state fixture so DashboardPage tests can drive the
+// new FailedDashboard branch. Mirrors the assessment row's error_* columns.
+const failedAssessment: Assessment = {
+  id: 'asmt_failed_001',
+  repo_url: 'https://github.com/acme/fast-markdown',
+  status: 'failed',
+  grade: null,
+  started_at: EARLIER,
+  completed_at: NOW,
+  criteria_snapshot: null,
+  error_kind: 'clone_failed',
+  error_message: "Couldn't clone the repository",
+  error_details:
+    'git clone failed for https://github.com/acme/fast-markdown (exit 128): repository not found',
+  failed_step: 'clone',
+}
+
+export const assessmentFailedPayload: DashboardPayload = {
+  assessment: failedAssessment,
+  completion_id: null,
+  criteria: _criteriaForSnapshot(_emptySnapshot),
+  criteria_snapshot: _emptySnapshot,
+  findings_count_by_priority: {},
+  grade: null,
+  posture_checks: [],
+  posture: null,
+  posture_pass_count: 0,
+  posture_total_count: 0,
+  tools: [],
+  vulnerabilities: null,
+  grade_label: 'First scan',
+  grade_caption: 'Run your first assessment to earn a grade.',
+}
+
 const _snapshotC = {
   ..._emptySnapshot,
   // PRD-0003 v0.2: grade C requires 6–7 of the 10 grade-counting criteria
@@ -640,6 +674,7 @@ export const assessmentStatusSteps: AssessmentStatusResponse[] = [
 
 export type DashboardFixtureName =
   | 'assessment-running'
+  | 'assessment-failed'
   | 'grade-C-with-issues'
   | 'grade-A-completion-holding'
   | 'grade-B-with-history'
@@ -650,6 +685,8 @@ export function getDashboardFixture(
   switch (name) {
     case 'assessment-running':
       return assessmentRunningPayload
+    case 'assessment-failed':
+      return assessmentFailedPayload
     case 'grade-C-with-issues':
       return gradeCWithIssuesPayload
     case 'grade-A-completion-holding':
