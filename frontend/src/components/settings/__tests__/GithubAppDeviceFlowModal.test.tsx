@@ -57,7 +57,7 @@ describe('GithubAppDeviceFlowModal', () => {
 
     expect(await screen.findByText('MNPQ-RSTU')).toBeInTheDocument()
     expect(
-      screen.getByRole('link', { name: /open authorization page/i }),
+      screen.getByRole('link', { name: /authorize on github/i }),
     ).toHaveAttribute('href', 'https://github.com/login/device')
     expect(screen.getByLabelText(/copy code/i)).toBeInTheDocument()
   })

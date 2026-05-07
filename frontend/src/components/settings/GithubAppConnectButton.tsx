@@ -9,11 +9,17 @@ import { GithubAppDeviceFlowModal } from './GithubAppDeviceFlowModal'
 /**
  * Single-button entry point for the GitHub App + Device Flow onboarding.
  *
- * Flow:
- * 1. Click "Connect GitHub" → POST /connect.
- * 2. Open the App install URL in a new tab so the user can pick repos.
- * 3. Open the device-flow modal so the user can also enter the user_code.
- * 4. Modal polls /status; on 'connected' it auto-dismisses.
+ * Single-tab UX (deliberate — multi-tab is confusing):
+ * 1. Click button → POST /connect → navigate this tab to the GitHub
+ *    install URL.
+ * 2. User picks repos on github.com and clicks Install.
+ * 3. GitHub redirects to /api/integrations/github/setup, which 302s
+ *    back to /settings?github_setup=complete#integrations.
+ * 4. This component re-mounts, the useEffect detects the query param,
+ *    re-fetches the in-flight state via /connect (idempotent), and
+ *    opens the modal with the user code + a prominent "Authorize on
+ *    GitHub" CTA.
+ * 5. Modal polls /status; on 'connected' it auto-dismisses.
  */
 export function GithubAppConnectButton({
   className = '',
@@ -29,7 +35,9 @@ export function GithubAppConnectButton({
   )
 
   // Re-open the device-flow modal automatically when GitHub redirects
-  // back with ?github_setup=complete.
+  // back with ?github_setup=complete. This is what makes the single-tab
+  // UX feel seamless: the user lands back on Settings and the next
+  // step (authorize on GitHub) immediately appears.
   useEffect(() => {
     if (typeof window === 'undefined') return
     const url = new URL(window.location.href)
@@ -52,9 +60,12 @@ export function GithubAppConnectButton({
 
   const handleClick = async () => {
     const r = await connect.mutateAsync()
-    setResponse(r)
     if (typeof window !== 'undefined') {
-      window.open(r.install_url, '_blank', 'noopener,noreferrer')
+      // Same-tab navigation. After the user installs on github.com,
+      // GitHub will redirect back to our setup endpoint, which 302s
+      // back here with ?github_setup=complete; the useEffect picks it
+      // up and opens the modal automatically.
+      window.location.href = r.install_url
     }
   }
 

@@ -87,52 +87,64 @@ export function GithubAppDeviceFlowModal({
 
         {!terminal && (
           <>
-            <div className="rounded-xl bg-surface-container-low p-4 text-center">
-              <p className="text-xs uppercase tracking-wider text-on-surface-variant mb-2">
-                Your one-time code
+            {/* Step 1 — copy the code */}
+            <div className="rounded-xl bg-surface-container-low p-5">
+              <p className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant mb-3">
+                Step 1 · Copy this code
               </p>
-              <div className="flex items-center justify-center gap-3">
-                <code className="font-mono text-3xl font-bold tracking-[0.3em] text-on-surface">
+              <div className="flex items-center justify-between gap-3">
+                <code className="font-mono text-3xl font-bold tracking-[0.3em] text-on-surface select-all">
                   {connect.user_code}
                 </code>
                 <button
                   type="button"
                   aria-label="Copy code"
                   onClick={handleCopyCode}
-                  className="rounded-md p-2 text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-surface-container-lowest px-3 py-2 text-xs font-semibold text-on-surface-variant hover:text-on-surface transition-colors"
                 >
-                  <span className="material-symbols-outlined text-base">
+                  <span className="material-symbols-outlined text-sm">
                     content_copy
                   </span>
+                  Copy
                 </button>
               </div>
             </div>
 
-            <div className="mt-4 flex flex-col gap-3">
+            {/* Step 2 — authorize on GitHub (the prominent action) */}
+            <div className="mt-3 rounded-xl bg-surface-container-low p-5">
+              <p className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant mb-3">
+                Step 2 · Paste it on GitHub to authorize
+              </p>
               <a
                 href={connect.verification_uri}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-on-primary hover:bg-primary/90 transition-colors"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-5 py-3 text-base font-semibold text-on-primary hover:bg-primary/90 transition-colors"
               >
-                <span className="material-symbols-outlined text-base">
+                <span className="material-symbols-outlined text-xl">
                   open_in_new
                 </span>
-                Open authorization page
+                Authorize on GitHub
               </a>
-              <p className="text-xs text-on-surface-variant text-center">
-                Code expires in{' '}
-                <span className="font-mono font-semibold">{timer}</span>
-                {status && (
-                  <>
-                    {' · '}
-                    <span aria-live="polite">
-                      {statusLabel(status.status)}
-                    </span>
-                  </>
-                )}
+              <p className="text-xs text-on-surface-variant mt-3 text-center">
+                Opens <span className="font-mono">github.com/login/device</span>{' '}
+                in a new tab. Paste the code above, click Authorize, and come
+                back here — we'll detect it automatically.
               </p>
             </div>
+
+            <p className="mt-4 text-xs text-on-surface-variant text-center">
+              Code expires in{' '}
+              <span className="font-mono font-semibold">{timer}</span>
+              {status && (
+                <>
+                  {' · '}
+                  <span aria-live="polite">
+                    {statusLabel(status.status)}
+                  </span>
+                </>
+              )}
+            </p>
           </>
         )}
 
