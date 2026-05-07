@@ -36,6 +36,22 @@ class Settings(BaseSettings):
     # Credential vault
     credential_key: str = ""  # Base64-encoded 32-byte AES key (or set OPENSEC_CREDENTIAL_KEY)
 
+    # GitHub App + Device Flow onboarding (ADR-0035, IMPL-0010). Both values
+    # are PUBLIC — safe to default in source. The placeholders below should
+    # be replaced with the real client_id / slug once the GitHub App is
+    # registered. Override via OPENSEC_GITHUB_APP_CLIENT_ID and
+    # OPENSEC_GITHUB_APP_SLUG. Leave empty to disable the App onboarding
+    # surface (PAT remains the only path).
+    github_app_client_id: str = "Iv23liGitHubAppClientId"
+    github_app_slug: str = "opensec"
+
+    # Public base URL of this OpenSec instance. Used to construct the
+    # GitHub App ``setup_url`` callback target and to build the post-install
+    # redirect back to the frontend Integrations page. Honor with
+    # OPENSEC_BASE_URL when running behind a reverse proxy or on a
+    # non-default port.
+    base_url: str = "http://localhost:8000"
+
     # Audit logging
     audit_retention_days: int = 90
 

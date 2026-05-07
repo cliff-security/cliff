@@ -51,6 +51,12 @@ class RegistryEntry(BaseModel):
     toolsets: dict[str, list[str]] | None = None  # action_tier -> toolset names
     default_action_tier: int = 0  # 0=read-only, 1=enrichment, 2=mutation
 
+    # ADR-0035 / IMPL-0010 — set by the registry endpoint at request time
+    # for the github entry, when the GitHub App + Device Flow onboarding
+    # surface is available (env ``OPENSEC_GITHUB_APP_CLIENT_ID`` is set).
+    # Stays ``False`` for every other entry.
+    github_app_available: bool = False
+
 
 # ---------------------------------------------------------------------------
 # Registry loader

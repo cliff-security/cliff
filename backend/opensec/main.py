@@ -26,6 +26,7 @@ from opensec.api.routes import (
     completion,
     dashboard,
     findings,
+    github_app,
     health,
     messages,
     onboarding,
@@ -260,6 +261,7 @@ app.include_router(sidebar.router, prefix="/api")
 app.include_router(seed.router, prefix="/api")
 app.include_router(settings_routes.router, prefix="/api")
 app.include_router(audit.router, prefix="/api")
+app.include_router(github_app.router, prefix="/api")
 
 # EXEC-0002 contract stubs — routers registered so the OpenAPI schema is
 # stable. Bodies raise NotImplementedError; real logic ships in Sessions B/C.
