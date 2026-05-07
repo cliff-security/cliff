@@ -452,3 +452,74 @@ class DeviceFlowOrchestrator:
             return 0
         delta = (expires - self._now_dt()).total_seconds()
         return max(int(delta), 0)
+
+
+# ---------------------------------------------------------------------------
+# Refresh helper (Phase 5)
+# ---------------------------------------------------------------------------
+
+
+async def refresh_user_access_token(
+    *,
+    db: aiosqlite.Connection,
+    vault: CredentialVault,
+    audit: AuditLogger,
+    client: GithubAppClientProtocol,
+    integration_id: str,
+) -> str | None:
+    """Refresh the user access token in place. Returns the new token, or
+    ``None`` when no refresh token is stored for *integration_id*.
+
+    On the success path the new access token (and any new refresh token)
+    are re-encrypted into the vault under the same keys the MCP gateway
+    already substitutes - workspaces stay oblivious.
+
+    Any exception from the GitHub client is re-raised after marking the
+    installation row ``polling_status='error'`` with
+    ``polling_error='needs_reconnect'``, so the UI can surface a
+    "reconnect required" affordance.
+    """
+    if not await vault.has_credential(integration_id, GITHUB_REFRESH_KEY):
+        return None
+    refresh_token = await vault.retrieve(integration_id, GITHUB_REFRESH_KEY)
+
+    try:
+        result = await client.refresh_access_token(refresh_token=refresh_token)  # type: ignore[attr-defined]
+    except Exception:
+        await gh_repo.update_polling_status(
+            db,
+            integration_id,
+            status="error",
+            error="needs_reconnect",
+        )
+        await audit.log(
+            AuditEvent(
+                event_type="github_app.token_refresh_failed",
+                integration_id=integration_id,
+                provider_name="github",
+                status="error",
+            )
+        )
+        raise
+
+    if result.kind != "success" or not result.access_token:
+        await gh_repo.update_polling_status(
+            db,
+            integration_id,
+            status="error",
+            error="needs_reconnect",
+        )
+        return None
+
+    await vault.store(integration_id, GITHUB_TOKEN_KEY, result.access_token)
+    if result.refresh_token:
+        await vault.store(integration_id, GITHUB_REFRESH_KEY, result.refresh_token)
+    await audit.log(
+        AuditEvent(
+            event_type="github_app.token_refreshed",
+            integration_id=integration_id,
+            provider_name="github",
+            status="success",
+        )
+    )
+    return result.access_token
