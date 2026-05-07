@@ -4013,6 +4013,20 @@
         "title": "RepoAgentStatus",
         "type": "object"
       },
+      "RepoUrlRequest": {
+        "description": "Body for the App-flow connect step: only ``repo_url`` \u2014 the token\nlives in the vault.",
+        "properties": {
+          "repo_url": {
+            "title": "Repo Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo_url"
+        ],
+        "title": "RepoUrlRequest",
+        "type": "object"
+      },
       "RunAllResponse": {
         "properties": {
           "message": {
@@ -5944,6 +5958,24 @@
     "/api/integrations/github/connect": {
       "post": {
         "operationId": "connect_api_integrations_github_connect_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "return_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Return To"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -5954,6 +5986,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Connect",
@@ -6145,6 +6187,26 @@
         ]
       }
     },
+    "/api/onboarding/github/repos/from-vault": {
+      "post": {
+        "description": "List repos using the GitHub user access token already stored in the vault.\n\nSister endpoint to ``POST /onboarding/github/repos`` \u2014 same response\nshape, but the token comes from the vault (post-device-flow) instead\nof the request body. 422 with ``code=\"not_connected\"`` if no GitHub\nintegration is connected yet.",
+        "operationId": "list_github_repos_from_vault_api_onboarding_github_repos_from_vault_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Github Repos From Vault",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
     "/api/onboarding/repo": {
       "post": {
         "description": "Register a repo and kick off the initial assessment.\n\nReturns ``OnboardingRepoResponse`` on success. On hard probe failures\nreturns a ``JSONResponse`` with ``{detail, code}`` at 422 \u2014 the SPA\nbranches on ``code`` (e.g. ``missing_repo_scope``).",
@@ -6180,6 +6242,46 @@
           }
         },
         "summary": "Connect Repo",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
+    "/api/onboarding/repo/from-vault": {
+      "post": {
+        "description": "Sister of ``POST /onboarding/repo`` for the GitHub App + Device Flow path.\n\nBody shape: ``{ \"repo_url\": str }`` \u2014 no token, since the user\naccess token already lives in the credential vault. The probe + the\nintegration-config update use the vault token; the credential is\nre-stored under its existing key (no-op rewrite) to keep the\nupsert helper honest.",
+        "operationId": "connect_repo_from_vault_api_onboarding_repo_from_vault_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepoUrlRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Connect Repo From Vault",
         "tags": [
           "onboarding"
         ]
