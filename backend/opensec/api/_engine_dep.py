@@ -67,8 +67,19 @@ async def _github_token_from_integration() -> str | None:
     if _db is None:
         return None
     integrations = await list_integrations(_db)
-    github = next((i for i in integrations if i.adapter_type == "github"), None)
-    if github is None or not github.enabled:
+    # Match by provider_name case-insensitively so the lookup works
+    # whether the row was created by the PAT onboarding ("GitHub") or
+    # the GitHub App + Device Flow path ("GitHub" too, post-alignment;
+    # a lowercase legacy row from an earlier dev DB also resolves).
+    github = next(
+        (
+            i
+            for i in integrations
+            if i.provider_name.lower() == "github" and i.enabled
+        ),
+        None,
+    )
+    if github is None:
         return None
 
     vault = getattr(app.state, "vault", None)

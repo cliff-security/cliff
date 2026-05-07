@@ -102,8 +102,15 @@ async def _upsert_github_integration(
     instead of creating a duplicate.
     """
     integrations = await list_integrations(db)
+    # Case-insensitive match keeps the PAT and GitHub App rows in
+    # lockstep — both paths target the same singleton row.
     existing = next(
-        (i for i in integrations if i.adapter_type == GITHUB_ADAPTER_TYPE), None
+        (
+            i
+            for i in integrations
+            if i.provider_name.lower() == GITHUB_PROVIDER_NAME.lower()
+        ),
+        None,
     )
 
     config = {

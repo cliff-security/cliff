@@ -244,15 +244,19 @@ async def delete(db: aiosqlite.Connection, integration_id: str) -> bool:
 async def list_other_enabled_github_integrations(
     db: aiosqlite.Connection, *, exclude_id: str
 ) -> list[IntegrationConfig]:
-    """Return every other enabled integration_config row with provider_name='github'.
+    """Return every other enabled integration_config row with provider_name='GitHub'.
 
-    Used by the orchestrator after a successful App connect to archive the
-    legacy PAT integration (set ``enabled=False`` — never delete).
+    Used by the orchestrator after a successful App connect to archive
+    the legacy PAT integration (set ``enabled=False`` — never delete).
+    Match the casing the rest of the codebase uses (the PAT path stores
+    ``provider_name='GitHub'``); a case-insensitive comparison handles
+    legacy lowercase rows from earlier dev DBs without needing a
+    migration.
     """
     cursor = await db.execute(
         """
         SELECT * FROM integration_config
-        WHERE provider_name = 'github' AND enabled = 1 AND id != ?
+        WHERE LOWER(provider_name) = 'github' AND enabled = 1 AND id != ?
         ORDER BY updated_at DESC
         """,
         (exclude_id,),

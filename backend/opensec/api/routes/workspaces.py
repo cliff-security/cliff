@@ -78,7 +78,11 @@ async def _resolve_repo_env_vars(
         return env_vars
 
     github = next(
-        (i for i in integrations if i.provider_name == "GitHub" and i.enabled),
+        (
+            i
+            for i in integrations
+            if i.provider_name.lower() == "github" and i.enabled
+        ),
         None,
     )
 
@@ -118,7 +122,11 @@ async def _resolve_github_repo_url(db: aiosqlite.Connection) -> str | None:
         logger.warning("Failed to list integrations for snapshot", exc_info=True)
         return None
     github = next(
-        (i for i in integrations if i.provider_name == "GitHub" and i.enabled),
+        (
+            i
+            for i in integrations
+            if i.provider_name.lower() == "github" and i.enabled
+        ),
         None,
     )
     if github is None or not github.config:

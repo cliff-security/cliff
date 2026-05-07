@@ -48,8 +48,14 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/integrations/github", tags=["github-app"])
 
-GITHUB_PROVIDER = "github"
-GITHUB_ADAPTER = "finding_source"
+# These MUST match the constants used by routes/onboarding.py
+# (GITHUB_ADAPTER_TYPE, GITHUB_PROVIDER_NAME). Every downstream consumer
+# (_engine_dep.py, workspaces.py, executor.py, connection_tester.py)
+# looks up the GitHub integration by these exact values; a mismatch
+# would silently make the assessment + workspace-clone paths run
+# unauthenticated even though the device flow succeeded.
+GITHUB_PROVIDER = "GitHub"
+GITHUB_ADAPTER = "github"
 GITHUB_MANUAL_REVOKE_URL = "https://github.com/settings/applications"
 
 
