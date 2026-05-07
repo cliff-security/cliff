@@ -224,6 +224,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await assessment_watchdog_task
 
     await pool.stop_all()
+    gh_orchestrator = getattr(app.state, "github_app_orchestrator", None)
+    if gh_orchestrator is not None:
+        await gh_orchestrator.stop_all()
     if app.state.audit_logger is not None:
         await app.state.audit_logger.stop()
     await opencode_client.close()

@@ -48,11 +48,20 @@ class Settings(BaseSettings):
     github_app_slug: str = "opensec-local-test"
 
     # Public base URL of this OpenSec instance. Used to construct the
-    # GitHub App ``setup_url`` callback target and to build the post-install
-    # redirect back to the frontend Integrations page. Honor with
-    # OPENSEC_BASE_URL when running behind a reverse proxy or on a
-    # non-default port.
+    # GitHub App ``setup_url`` callback target. Honor with OPENSEC_BASE_URL
+    # when running behind a reverse proxy or on a non-default port.
     base_url: str = "http://localhost:8000"
+
+    # Public base URL of the frontend SPA. In production the backend
+    # serves the built SPA from ``static_dir`` on the same origin, so
+    # ``base_url`` works for both API and SPA. In dev the SPA runs on
+    # Vite (``:5173``) while the API runs on FastAPI (``:8000``), so we
+    # need to redirect post-install callbacks to the Vite origin.
+    # Empty (default) means "auto-detect": if ``static_dir`` is set,
+    # use ``base_url`` (same-origin); otherwise fall back to the Vite
+    # dev convention ``http://localhost:5173``. Override via
+    # OPENSEC_FRONTEND_BASE_URL when neither default fits.
+    frontend_base_url: str = ""
 
     # Audit logging
     audit_retention_days: int = 90

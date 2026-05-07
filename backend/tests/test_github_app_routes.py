@@ -68,10 +68,14 @@ async def app_state(db_client):  # noqa: ARG001 — depends on db_client to ensu
     await audit.start()
     app.state.vault = vault
     app.state.audit_logger = audit
+    # Cached orchestrator must be cleared between tests — it captures the
+    # previous test's vault/audit references and would write to a closed db.
+    app.state.github_app_orchestrator = None
     yield
     await audit.stop()
     app.state.vault = None
     app.state.audit_logger = None
+    app.state.github_app_orchestrator = None
 
 
 @pytest.fixture
@@ -190,6 +194,35 @@ async def test_setup_validates_csrf_and_redirects_with_complete_flag(
     location = resp.headers["location"]
     assert "/settings/integrations" in location
     assert "github_setup=complete" in location
+    # Dev-mode default: SPA on Vite, not on the FastAPI port.
+    assert location.startswith("http://localhost:5173/")
+
+
+@pytest.mark.asyncio
+async def test_setup_redirect_honors_explicit_frontend_base_url(
+    db_client: AsyncClient,
+    patched_app_settings,  # noqa: ARG001
+    patched_client_factory,  # noqa: ARG001
+):
+    from unittest.mock import patch as _patch
+
+    from opensec.config import settings
+
+    connect_resp = await db_client.post("/api/integrations/github/connect")
+    csrf_state = connect_resp.json()["install_url"].rsplit("state=", 1)[1]
+    with _patch.object(settings, "frontend_base_url", "https://opensec.example/app"):
+        resp = await db_client.get(
+            "/api/integrations/github/setup",
+            params={
+                "installation_id": "1",
+                "setup_action": "install",
+                "state": csrf_state,
+            },
+            follow_redirects=False,
+        )
+    assert resp.headers["location"].startswith(
+        "https://opensec.example/app/settings/integrations"
+    )
 
 
 @pytest.mark.asyncio

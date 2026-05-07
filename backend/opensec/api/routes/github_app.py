@@ -78,6 +78,30 @@ def _build_orchestrator(
     )
 
 
+def _get_orchestrator(
+    request: Request,
+    db: aiosqlite.Connection,
+    vault: CredentialVault,
+    audit: AuditLogger,
+) -> DeviceFlowOrchestrator:
+    """Process-singleton orchestrator stored on ``app.state``.
+
+    Why a singleton: the orchestrator owns an in-memory map of running
+    polling tasks keyed by integration_id. If we built a fresh
+    orchestrator per request, ``start()`` would spawn a new task on
+    every /connect (orphaning the previous one) and ``disconnect``
+    would never find a task to cancel. One instance per process keeps
+    the lifecycle clean — and lets the FakeClient transport survive
+    across requests in tests too.
+    """
+    existing = getattr(request.app.state, "github_app_orchestrator", None)
+    if existing is not None:
+        return existing
+    orchestrator = _build_orchestrator(db, vault, audit)
+    request.app.state.github_app_orchestrator = orchestrator
+    return orchestrator
+
+
 def _require_app_configured() -> None:
     if not settings.github_app_client_id or not settings.github_app_slug:
         raise HTTPException(
@@ -108,10 +132,26 @@ def _install_url(csrf_state: str) -> str:
     )
 
 
+def _resolve_frontend_base_url() -> str:
+    """Pick the right origin for the post-install redirect.
+
+    Priority:
+    1. Explicit override via ``OPENSEC_FRONTEND_BASE_URL``.
+    2. ``OPENSEC_STATIC_DIR`` set → backend serves the SPA on the same
+       origin as the API → use ``base_url``.
+    3. Neither set → assume Vite dev convention on ``:5173``.
+    """
+    if settings.frontend_base_url:
+        return settings.frontend_base_url.rstrip("/")
+    if settings.static_dir:
+        return settings.base_url.rstrip("/")
+    return "http://localhost:5173"
+
+
 def _frontend_redirect(*, status: str, **extra: str) -> str:
     """Build the post-callback redirect back to the SPA Integrations page."""
     params = {"github_setup": status, **extra}
-    return f"{settings.base_url.rstrip('/')}/settings/integrations?{urlencode(params)}"
+    return f"{_resolve_frontend_base_url()}/settings/integrations?{urlencode(params)}"
 
 
 # ---------------------------------------------------------------------------
@@ -167,8 +207,13 @@ async def connect(
     vault, audit = _require_vault_and_audit(request)
 
     integration_id = await _resolve_or_create_app_integration(db)
-    orchestrator = _build_orchestrator(db, vault, audit)
+    orchestrator = _get_orchestrator(request, db, vault, audit)
     started = await orchestrator.initiate(integration_id)
+    # Spawn (or re-attach to) the background polling loop so the access
+    # token is fetched as soon as the user authorizes on github.com —
+    # without this the /status endpoint would never advance off
+    # device_pending. Idempotent.
+    await orchestrator.start(integration_id)
 
     return DeviceFlowConnectResponse(
         user_code=started.user_code,
@@ -189,7 +234,7 @@ async def setup_callback(
 ) -> RedirectResponse:
     _require_app_configured()
     vault, audit = _require_vault_and_audit(request)
-    orchestrator = _build_orchestrator(db, vault, audit)
+    orchestrator = _get_orchestrator(request, db, vault, audit)
     try:
         await orchestrator.attach_installation(
             csrf_state=state, installation_id=installation_id
@@ -245,7 +290,7 @@ async def disconnect(
     )
     row = await cursor.fetchone()
     if row is not None:
-        orchestrator = _build_orchestrator(db, vault, audit)
+        orchestrator = _get_orchestrator(request, db, vault, audit)
         await orchestrator.disconnect(row["integration_id"])
 
     return DeviceFlowDisconnectResponse(
@@ -280,5 +325,8 @@ async def _tick_poll_for_test() -> None:
         "SELECT integration_id FROM github_app_installation"
     )
     for row in await cursor.fetchall():
-        orchestrator = _build_orchestrator(db, vault, audit)
+        orchestrator = getattr(fastapi_app.state, "github_app_orchestrator", None)
+        if orchestrator is None:
+            orchestrator = _build_orchestrator(db, vault, audit)
+            fastapi_app.state.github_app_orchestrator = orchestrator
         await orchestrator.run_poll_step(row["integration_id"])
