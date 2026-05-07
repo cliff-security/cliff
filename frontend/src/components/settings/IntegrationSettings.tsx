@@ -614,10 +614,24 @@ export default function IntegrationSettings() {
                     </div>
                     {entry.status === 'available' && !configured && (
                       entry.id === 'github' && entry.github_app_available ? (
-                        <GithubAppConnectButton
-                          label="Connect"
-                          className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs font-semibold text-on-primary hover:bg-primary/90 transition-colors disabled:opacity-60"
-                        />
+                        <div className="flex flex-col items-end gap-1">
+                          <GithubAppConnectButton
+                            label="Connect"
+                            className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs font-semibold text-on-primary hover:bg-primary/90 transition-colors disabled:opacity-60"
+                          />
+                          {/* PAT fallback for users who'd rather paste a
+                              token (security policy, restricted org App
+                              install permissions, etc). Same setup panel
+                              the legacy flow uses. */}
+                          <button
+                            type="button"
+                            onClick={() => setSetupEntry(entry)}
+                            className="text-[10px] text-on-surface-variant hover:text-on-surface underline decoration-dotted underline-offset-2"
+                            data-testid="github-prefer-pat"
+                          >
+                            Use a token instead
+                          </button>
+                        </div>
                       ) : (
                         <button
                           onClick={() => setSetupEntry(entry)}
