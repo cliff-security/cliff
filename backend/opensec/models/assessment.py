@@ -17,6 +17,47 @@ from pydantic import BaseModel
 AssessmentStatus = Literal["pending", "running", "complete", "failed"]
 Grade = Literal["A", "B", "C", "D", "F"]
 
+# Machine codes for the failure-detail block (migration 015). The frontend
+# renders a static friendly headline + step label per kind; details surface
+# the captured stderr/exception.
+AssessmentErrorKind = Literal[
+    "clone_failed",
+    "scanner_failed",
+    "timeout",
+    "internal_error",
+    "interrupted",
+]
+
+# Step the engine was executing at the moment of failure. ``clone`` is
+# emitted by the runner when ``RepoCloner.clone`` raises (the engine itself
+# only emits ``detect`` before the clone returns); the rest mirror the v0.2
+# step keys in ``api/routes/assessment.py``.
+AssessmentFailedStep = Literal[
+    "clone",
+    "detect",
+    "trivy_vuln",
+    "trivy_secret",
+    "semgrep",
+    "posture",
+    "descriptions",
+    "persist",
+    "unknown",
+]
+
+
+class AssessmentError(BaseModel):
+    """Failure-detail block surfaced on the assessment status response.
+
+    Populated only when ``status == 'failed'``. The four fields are also
+    persisted on the assessment row (migration 015) so a failure outlives
+    the in-memory background state and survives a process restart.
+    """
+
+    kind: AssessmentErrorKind
+    message: str
+    failed_step: AssessmentFailedStep | None = None
+    details: str | None = None
+
 
 class CriteriaSnapshot(BaseModel):
     """Ten-criteria snapshot persisted at completion time.
@@ -130,6 +171,12 @@ class AssessmentUpdate(BaseModel):
     branch: str | None = None
     scanned_files: int | None = None
     scanned_deps: int | None = None
+    # Migration 015 — failure detail. Set together when the background
+    # runner catches an exception or the watchdog reaps a stale row.
+    error_kind: AssessmentErrorKind | None = None
+    error_message: str | None = None
+    error_details: str | None = None
+    failed_step: AssessmentFailedStep | None = None
 
 
 class Assessment(BaseModel):
@@ -147,6 +194,11 @@ class Assessment(BaseModel):
     branch: str | None = None
     scanned_files: int | None = None
     scanned_deps: int | None = None
+    # Migration 015 — populated only when ``status == 'failed'``.
+    error_kind: AssessmentErrorKind | None = None
+    error_message: str | None = None
+    error_details: str | None = None
+    failed_step: AssessmentFailedStep | None = None
 
 
 class AssessmentResult(BaseModel):

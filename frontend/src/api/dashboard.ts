@@ -41,6 +41,12 @@ export type PostureCheckStatus = 'pass' | 'fail' | 'advisory' | 'unknown'
 // table per ADR-0027. The dashboard ships them as ``Finding[]``; the
 // PostureCard projects to its row-render view inline.
 export type Finding = components['schemas']['Finding']
+// Migration 015 — failure-detail enums + block. Re-exported from the
+// generated OpenAPI types so consumers can import a single named type
+// rather than chase the components['schemas'] indirection.
+export type AssessmentError = components['schemas']['AssessmentError']
+export type AssessmentErrorKind = AssessmentError['kind']
+export type AssessmentFailedStep = NonNullable<AssessmentError['failed_step']>
 export type DashboardPayload = components['schemas']['DashboardPayload'] & {
   posture_checks?: Finding[]
 }

@@ -51,6 +51,11 @@ def _row_to_assessment(row: aiosqlite.Row) -> Assessment:
         branch=_safe_get(row, "branch"),
         scanned_files=_safe_get(row, "scanned_files"),
         scanned_deps=_safe_get(row, "scanned_deps"),
+        # Migration 015 — failure detail (only set when status == 'failed').
+        error_kind=_safe_get(row, "error_kind"),
+        error_message=_safe_get(row, "error_message"),
+        error_details=_safe_get(row, "error_details"),
+        failed_step=_safe_get(row, "failed_step"),
     )
 
 
@@ -135,19 +140,75 @@ async def reconcile_orphaned_assessments(db: aiosqlite.Connection) -> int:
     the process. Any such row at boot is therefore provably orphaned — no
     live worker can drive it to a terminal state. Idempotent. Returns the
     number of rows reconciled (for logging).
+
+    Migration 015 — also stamps the failure-detail block so the dashboard
+    renders an explanation ("Assessment was interrupted (the server
+    restarted)") instead of a silent ``failed`` row. Only stamps rows that
+    don't already have an ``error_kind`` so a row that failed cleanly
+    pre-restart keeps its original reason.
     """
     now_iso = datetime.now(UTC).isoformat()
     cursor = await db.execute(
         """
         UPDATE assessment
            SET status = 'failed',
-               completed_at = COALESCE(completed_at, ?)
+               completed_at = COALESCE(completed_at, ?),
+               error_kind = COALESCE(error_kind, 'interrupted'),
+               error_message = COALESCE(
+                   error_message,
+                   'Assessment was interrupted (the server restarted)'
+               )
          WHERE status IN ('pending', 'running')
         """,
         (now_iso,),
     )
     await db.commit()
     return cursor.rowcount
+
+
+async def reap_stale_assessments(
+    db: aiosqlite.Connection, *, older_than_seconds: float
+) -> int:
+    """Watchdog companion to :func:`reconcile_orphaned_assessments`.
+
+    Reconcile runs once at startup and catches process-restart orphans. This
+    runs on a periodic loop while the daemon is up, catching the second
+    failure mode — a row that was inserted but whose ``asyncio.create_task``
+    worker never executed (event-loop death, race between INSERT and
+    schedule, etc.). Any ``pending``/``running`` row whose ``started_at`` is
+    older than ``older_than_seconds`` is provably wedged: the per-step
+    timeouts in :mod:`opensec.assessment.engine` cap each phase well below
+    that threshold, and the outer
+    :data:`opensec.api._background.ASSESSMENT_RUN_TIMEOUT_S` caps the run
+    itself, so a healthy task would have transitioned by now.
+
+    Idempotent. Returns the number of rows reaped (for logging).
+    """
+    now = datetime.now(UTC)
+    cutoff = (now - _timedelta_seconds(older_than_seconds)).isoformat()
+    cursor = await db.execute(
+        """
+        UPDATE assessment
+           SET status = 'failed',
+               completed_at = COALESCE(completed_at, ?),
+               error_kind = COALESCE(error_kind, 'interrupted'),
+               error_message = COALESCE(
+                   error_message,
+                   'Assessment did not finish in time and was halted'
+               )
+         WHERE status IN ('pending', 'running')
+           AND started_at < ?
+        """,
+        (now.isoformat(), cutoff),
+    )
+    await db.commit()
+    return cursor.rowcount
+
+
+def _timedelta_seconds(seconds: float):  # noqa: ANN202 — local convenience
+    from datetime import timedelta
+
+    return timedelta(seconds=seconds)
 
 
 async def mark_summary_seen(

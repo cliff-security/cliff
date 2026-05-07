@@ -44,6 +44,15 @@ class Settings(BaseSettings):
     opencode_port_range_end: int = 4199
     workspace_idle_timeout_seconds: int = 600
 
+    # Assessment watchdog (migration 015 — failure surfacing). The watchdog
+    # ticks every ``interval`` seconds and reaps any pending/running row
+    # whose ``started_at`` is older than ``stale_threshold``. Threshold is
+    # comfortably above the per-run hard timeout in
+    # ``ASSESSMENT_RUN_TIMEOUT_S`` (10 min) so a healthy task always wins
+    # the race against the watchdog.
+    assessment_watchdog_interval_seconds: int = 60
+    assessment_stale_threshold_seconds: int = 900
+
     # Paths
     repo_root: Path = _find_repo_root()
     data_dir: Path = Path(os.getenv("OPENSEC_DATA_DIR", ""))

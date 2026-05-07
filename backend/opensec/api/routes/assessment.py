@@ -40,6 +40,7 @@ from opensec.db.repo_finding import (
 from opensec.models import (
     Assessment,
     AssessmentCreate,
+    AssessmentError,
     AssessmentStatus,
     AssessmentTool,
     AssessmentToolResult,
@@ -92,6 +93,11 @@ class AssessmentStatusResponse(BaseModel):
     summary_seen_at: str | None = None
     # IMPL-0009 — second-most-recent completed assessment, when one exists.
     previous_assessment: PreviousAssessmentInfo | None = None
+    # Migration 015 — populated only when ``status == 'failed'``. Mirrors
+    # the ``error_*`` columns on the assessment row so the dashboard can
+    # render the failure card without an extra round-trip.
+    error: AssessmentError | None = None
+    repo_url: str | None = None
 
 
 class MarkSummarySeenResponse(BaseModel):
@@ -297,6 +303,16 @@ async def get_assessment_status(
 
     previous = await _previous_assessment_info(db, a.id)
 
+    error_block: AssessmentError | None = None
+    if a.status == "failed" and a.error_kind is not None:
+        error_block = AssessmentError(
+            kind=a.error_kind,
+            message=a.error_message
+            or "Something went wrong while running the assessment",
+            failed_step=a.failed_step,
+            details=a.error_details,
+        )
+
     return AssessmentStatusResponse(
         assessment_id=a.id,
         status=a.status,
@@ -306,6 +322,8 @@ async def get_assessment_status(
         tools=tools,
         summary_seen_at=a.summary_seen_at.isoformat() if a.summary_seen_at else None,
         previous_assessment=previous,
+        error=error_block,
+        repo_url=a.repo_url,
     )
 
 

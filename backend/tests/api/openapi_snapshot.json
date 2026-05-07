@@ -334,6 +334,68 @@
               }
             ]
           },
+          "error_details": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Details"
+          },
+          "error_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "clone_failed",
+                  "scanner_failed",
+                  "timeout",
+                  "internal_error",
+                  "interrupted"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Kind"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "failed_step": {
+            "anyOf": [
+              {
+                "enum": [
+                  "clone",
+                  "detect",
+                  "trivy_vuln",
+                  "trivy_secret",
+                  "semgrep",
+                  "posture",
+                  "descriptions",
+                  "persist",
+                  "unknown"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Step"
+          },
           "grade": {
             "anyOf": [
               {
@@ -446,6 +508,65 @@
         "title": "AssessmentCreate",
         "type": "object"
       },
+      "AssessmentError": {
+        "description": "Failure-detail block surfaced on the assessment status response.\n\nPopulated only when ``status == 'failed'``. The four fields are also\npersisted on the assessment row (migration 015) so a failure outlives\nthe in-memory background state and survives a process restart.",
+        "properties": {
+          "details": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "failed_step": {
+            "anyOf": [
+              {
+                "enum": [
+                  "clone",
+                  "detect",
+                  "trivy_vuln",
+                  "trivy_secret",
+                  "semgrep",
+                  "posture",
+                  "descriptions",
+                  "persist",
+                  "unknown"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Step"
+          },
+          "kind": {
+            "enum": [
+              "clone_failed",
+              "scanner_failed",
+              "timeout",
+              "internal_error",
+              "interrupted"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "message"
+        ],
+        "title": "AssessmentError",
+        "type": "object"
+      },
       "AssessmentLatestResponse": {
         "properties": {
           "assessment": {
@@ -516,6 +637,16 @@
             "title": "Assessment Id",
             "type": "string"
           },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssessmentError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "previous_assessment": {
             "anyOf": [
               {
@@ -529,6 +660,17 @@
           "progress_pct": {
             "title": "Progress Pct",
             "type": "integer"
+          },
+          "repo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo Url"
           },
           "status": {
             "title": "Status",
