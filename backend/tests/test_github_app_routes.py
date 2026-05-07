@@ -201,6 +201,62 @@ async def test_setup_validates_csrf_and_redirects_with_complete_flag(
 
 
 @pytest.mark.asyncio
+async def test_connect_with_return_to_redirects_back_after_install(
+    db_client: AsyncClient,
+    patched_app_settings,  # noqa: ARG001
+    patched_client_factory,  # noqa: ARG001
+):
+    """Onboarding kicks off /connect with return_to=/onboarding/connect; the
+    setup callback must honor that path instead of bouncing through Settings."""
+    connect_resp = await db_client.post(
+        "/api/integrations/github/connect?return_to=/onboarding/connect"
+    )
+    csrf_state = connect_resp.json()["install_url"].rsplit("state=", 1)[1]
+
+    resp = await db_client.get(
+        "/api/integrations/github/setup",
+        params={
+            "installation_id": "42",
+            "setup_action": "install",
+            "state": csrf_state,
+        },
+        follow_redirects=False,
+    )
+    location = resp.headers["location"]
+    assert "/onboarding/connect" in location
+    assert "github_setup=complete" in location
+    # No #integrations anchor on the onboarding path.
+    assert "#integrations" not in location
+
+
+@pytest.mark.asyncio
+async def test_connect_with_unknown_return_to_falls_back_to_default(
+    db_client: AsyncClient,
+    patched_app_settings,  # noqa: ARG001
+    patched_client_factory,  # noqa: ARG001
+):
+    """Open-redirect defense: any return_to outside the allow-list is
+    silently dropped and the default /settings path is used."""
+    connect_resp = await db_client.post(
+        "/api/integrations/github/connect?return_to=https://evil.example.com/"
+    )
+    csrf_state = connect_resp.json()["install_url"].rsplit("state=", 1)[1]
+
+    resp = await db_client.get(
+        "/api/integrations/github/setup",
+        params={
+            "installation_id": "1",
+            "setup_action": "install",
+            "state": csrf_state,
+        },
+        follow_redirects=False,
+    )
+    location = resp.headers["location"]
+    assert "evil.example.com" not in location
+    assert "/settings?" in location
+
+
+@pytest.mark.asyncio
 async def test_setup_redirect_honors_explicit_frontend_base_url(
     db_client: AsyncClient,
     patched_app_settings,  # noqa: ARG001

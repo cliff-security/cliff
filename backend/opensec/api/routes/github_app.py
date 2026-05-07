@@ -57,6 +57,41 @@ router = APIRouter(prefix="/integrations/github", tags=["github-app"])
 GITHUB_PROVIDER = "GitHub"
 GITHUB_ADAPTER = "github"
 GITHUB_MANUAL_REVOKE_URL = "https://github.com/settings/applications"
+DEFAULT_RETURN_PATH = "/settings"
+
+# Allow-list for return_to paths we'll redirect to after a successful App
+# install. Any value POSTed to /connect must match one of these prefixes
+# verbatim — otherwise it's silently dropped and the default is used.
+# Prevents an attacker from coercing the redirect to an arbitrary site.
+_ALLOWED_RETURN_PATHS: tuple[str, ...] = (
+    "/settings",
+    "/onboarding/connect",
+)
+
+
+def _sanitize_return_path(value: str | None) -> str:
+    """Validate that *value* is a known onboarding/settings path."""
+    if not value:
+        return DEFAULT_RETURN_PATH
+    if not value.startswith("/"):
+        return DEFAULT_RETURN_PATH
+    for prefix in _ALLOWED_RETURN_PATHS:
+        if value == prefix or value.startswith(prefix + "?") or value.startswith(prefix + "#"):
+            return value
+    return DEFAULT_RETURN_PATH
+
+
+# In-memory map csrf_state -> return path. Lifetime = process lifetime.
+# Acceptable because the device-flow window is at most 15 minutes; if
+# the process restarts mid-flow the user lands on the default path,
+# which is still a valid recovery point. Keeps the schema migration-free.
+def _return_paths(request: Request) -> dict[str, str]:
+    state = request.app.state
+    existing = getattr(state, "github_app_return_paths", None)
+    if existing is None:
+        existing = {}
+        state.github_app_return_paths = existing
+    return existing
 
 
 # ---------------------------------------------------------------------------
@@ -154,20 +189,37 @@ def _resolve_frontend_base_url() -> str:
     return "http://localhost:5173"
 
 
-def _frontend_redirect(*, status: str, **extra: str) -> str:
-    """Build the post-callback redirect back to the SPA Integrations page.
+def _frontend_redirect(return_path: str, *, status: str, **extra: str) -> str:
+    """Build the post-callback redirect back to the SPA.
 
-    The SPA mounts integrations as a section of the Settings page
-    (``<section id="integrations">``), not a separate route — so we
-    target ``/settings`` with the ``#integrations`` anchor for scroll.
+    *return_path* is a sanitized SPA-relative path (e.g. ``/settings``
+    or ``/onboarding/connect``). Anchors and query params on the path
+    are preserved when present; otherwise we add the section anchor
+    for /settings so the browser scrolls to the integrations section.
     The ``?github_setup=...`` query param is what
-    ``GithubAppConnectButton`` reads on mount to re-open the modal.
+    ``useGithubAppResumeOnReturn`` reads on mount to re-open the modal.
     """
     params = {"github_setup": status, **extra}
-    return (
-        f"{_resolve_frontend_base_url()}/settings"
-        f"?{urlencode(params)}#integrations"
-    )
+    base = _resolve_frontend_base_url()
+
+    # Split off any pre-existing query/hash so we layer ours on top
+    # without colliding.
+    path_only = return_path
+    existing_hash = ""
+    if "#" in path_only:
+        path_only, existing_hash = path_only.split("#", 1)
+        existing_hash = f"#{existing_hash}"
+    if "?" in path_only:
+        # Drop the user-supplied query — our params are the only ones
+        # the resume hook cares about.
+        path_only = path_only.split("?", 1)[0]
+
+    # Default scroll anchor for the settings page (where the
+    # integrations section lives). Onboarding pages keep no anchor.
+    if not existing_hash and path_only == "/settings":
+        existing_hash = "#integrations"
+
+    return f"{base}{path_only}?{urlencode(params)}{existing_hash}"
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +269,9 @@ async def _resolve_or_create_app_integration(db: aiosqlite.Connection) -> str:
 
 @router.post("/connect", response_model=DeviceFlowConnectResponse)
 async def connect(
-    request: Request, db: aiosqlite.Connection = Depends(get_db)
+    request: Request,
+    return_to: str | None = Query(default=None),
+    db: aiosqlite.Connection = Depends(get_db),
 ) -> DeviceFlowConnectResponse:
     _require_app_configured()
     vault, audit = _require_vault_and_audit(request)
@@ -230,6 +284,12 @@ async def connect(
     # without this the /status endpoint would never advance off
     # device_pending. Idempotent.
     await orchestrator.start(integration_id)
+
+    # Stash a sanitized return path keyed by CSRF state. The setup
+    # callback reads it post-install and redirects there instead of the
+    # default /settings, so the App flow seamlessly returns the user to
+    # whichever page (onboarding, settings) started the flow.
+    _return_paths(request)[started.csrf_state] = _sanitize_return_path(return_to)
 
     return DeviceFlowConnectResponse(
         user_code=started.user_code,
@@ -251,17 +311,19 @@ async def setup_callback(
     _require_app_configured()
     vault, audit = _require_vault_and_audit(request)
     orchestrator = _get_orchestrator(request, db, vault, audit)
+    return_path = _return_paths(request).pop(state, DEFAULT_RETURN_PATH)
     try:
         await orchestrator.attach_installation(
             csrf_state=state, installation_id=installation_id
         )
     except InstallationCsrfMismatchError:
         return RedirectResponse(
-            _frontend_redirect(status="error", reason="csrf"),
+            _frontend_redirect(return_path, status="error", reason="csrf"),
             status_code=302,
         )
     return RedirectResponse(
-        _frontend_redirect(status="complete"), status_code=302
+        _frontend_redirect(return_path, status="complete"),
+        status_code=302,
     )
 
 

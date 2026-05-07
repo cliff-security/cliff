@@ -6,6 +6,13 @@ import ConnectionResultCard from '@/components/onboarding/ConnectionResultCard'
 import RepoPicker from '@/components/onboarding/RepoPicker'
 import WizardNav from '@/components/onboarding/WizardNav'
 import TokenHowToDialog from '@/components/completion/TokenHowToDialog'
+import { GithubAppConnectButton } from '@/components/settings/GithubAppConnectButton'
+import { GithubAppDeviceFlowModal } from '@/components/settings/GithubAppDeviceFlowModal'
+import {
+  useGithubAppStatus,
+  useGithubAppResumeOnReturn,
+} from '@/api/githubApp'
+import { useRegistry } from '@/api/hooks'
 import {
   onboardingApi,
   OnboardingApiError,
@@ -56,6 +63,53 @@ export default function ConnectRepo() {
   const [manualOpen, setManualOpen] = useState(false)
   const [manualUrl, setManualUrl] = useState('')
 
+  // GitHub App + Device Flow integration (ADR-0035, IMPL-0010).
+  // The registry tells us whether the App onboarding surface is wired
+  // up on this instance; the status query tells us whether *this user*
+  // has already authorized the App. If both are true we skip straight
+  // to the repo picker using the vault token; if only the first is
+  // true we render an "Install OpenSec on a repo" primary CTA with a
+  // small "Use a personal access token instead" fallback link.
+  const { data: registry } = useRegistry()
+  const githubAppAvailable =
+    registry?.find((r) => r.id === 'github')?.github_app_available === true
+  const { data: ghAppStatus } = useGithubAppStatus({
+    enabled: githubAppAvailable,
+  })
+  const ghAppConnected = ghAppStatus?.status === 'connected'
+  const { response: resumedFlow, clear: clearResumedFlow } =
+    useGithubAppResumeOnReturn()
+  const [authMode, setAuthMode] = useState<'app' | 'pat'>(
+    githubAppAvailable ? 'app' : 'pat',
+  )
+  // Flip authMode once the registry resolves (default before the fetch
+  // is 'pat'; if the App turns out to be available we switch to 'app').
+  useEffect(() => {
+    if (githubAppAvailable && authMode === 'pat' && !state.kind.includes('Pat')) {
+      setAuthMode('app')
+    }
+    // We deliberately reset only on registry-availability change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [githubAppAvailable])
+
+  // When the user is already connected via App, list repos from the vault
+  // and jump straight to the picker.
+  useEffect(() => {
+    if (authMode !== 'app') return
+    if (!ghAppConnected) return
+    if (state.kind !== 'enterToken') return
+    setState({ kind: 'listingRepos' })
+    void (async () => {
+      try {
+        const { repos } = await onboardingApi.listReposFromVault()
+        setState({ kind: 'pickRepo', repos })
+      } catch (err) {
+        setState({ kind: 'tokenError', error: toOnboardingError(err) })
+      }
+    })()
+    // Run when connected status flips on.
+  }, [authMode, ghAppConnected, state.kind])
+
   // Auto-advance to AI config once the verified card has registered.
   // A dependency on ``state.kind`` is enough — ``setTimeout`` cleanup
   // kicks in if the user hits "Change" during the window.
@@ -90,10 +144,13 @@ export default function ConnectRepo() {
   async function verifyAndConnect(repoUrl: string, repos: RepoOption[]) {
     setState({ kind: 'verifyingPick', repos, chosen: repoUrl })
     try {
-      const response = await onboardingApi.connectRepo({
-        repo_url: repoUrl,
-        github_token: token,
-      })
+      const response =
+        authMode === 'app'
+          ? await onboardingApi.connectRepoFromVault(repoUrl)
+          : await onboardingApi.connectRepo({
+              repo_url: repoUrl,
+              github_token: token,
+            })
       onboardingStorage.set('assessmentId', response.assessment_id)
       onboardingStorage.set('repoUrl', response.repo_url)
       setState({ kind: 'verified', response })
@@ -121,12 +178,21 @@ export default function ConnectRepo() {
 
   return (
     <OnboardingShell step={1}>
+      {resumedFlow && (
+        <GithubAppDeviceFlowModal
+          connect={resumedFlow}
+          onDismiss={clearResumedFlow}
+          onTryAgain={clearResumedFlow}
+        />
+      )}
+
       <h1 className="font-headline text-3xl font-extrabold text-on-surface mb-2">
         Connect your project
       </h1>
       <p className="text-on-surface-variant mb-8">
-        Point OpenSec at the repository you'd like to secure. We use a personal
-        access token so every change lands as a draft pull request you review.
+        {authMode === 'app'
+          ? 'Install OpenSec on the repository you’d like to secure. Every change lands as a draft pull request you review.'
+          : 'Point OpenSec at the repository you’d like to secure. We use a personal access token so every change lands as a draft pull request you review.'}
       </p>
 
       {state.kind === 'verified' ? (
@@ -285,6 +351,42 @@ export default function ConnectRepo() {
                 </button>
               </form>
             )}
+          </div>
+        </div>
+      ) : authMode === 'app' && state.kind === 'enterToken' ? (
+        <div data-testid="connect-app-flow">
+          <div className="rounded-2xl bg-surface-container-lowest shadow-sm p-6 mb-4">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-10 h-10 rounded-lg bg-surface-container-low flex items-center justify-center flex-shrink-0">
+                <span className="material-symbols-outlined text-primary">
+                  rocket_launch
+                </span>
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-on-surface">
+                  Install the OpenSec GitHub App
+                </p>
+                <p className="text-xs text-on-surface-variant mt-1">
+                  One-click install on github.com — pick the repo, authorize
+                  this device, you’re done. No tokens to manage.
+                </p>
+              </div>
+            </div>
+            <GithubAppConnectButton
+              label="Install OpenSec on a repo"
+              returnTo="/onboarding/connect"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-5 py-3 text-base font-semibold text-on-primary hover:bg-primary/90 transition-colors disabled:opacity-60"
+            />
+          </div>
+          <div className="text-center">
+            <button
+              type="button"
+              onClick={() => setAuthMode('pat')}
+              className="text-xs font-semibold text-on-surface-variant hover:text-on-surface px-2 py-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              data-testid="prefer-pat-link"
+            >
+              Prefer a personal access token? Use one →
+            </button>
           </div>
         </div>
       ) : (

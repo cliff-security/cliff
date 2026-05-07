@@ -24,9 +24,17 @@ import { GithubAppDeviceFlowModal } from './GithubAppDeviceFlowModal'
 export function GithubAppConnectButton({
   className = '',
   label = 'Connect GitHub',
+  returnTo,
 }: {
   className?: string
   label?: string
+  /**
+   * SPA path to land on after the install + authorize round-trip
+   * completes. Used by the onboarding flow to keep the user on
+   * /onboarding/connect instead of bouncing through Settings.
+   * Defaults to /settings (server-side).
+   */
+  returnTo?: string
 }) {
   const connect = useGithubAppConnect()
   const disconnect = useGithubAppDisconnect()
@@ -41,7 +49,7 @@ export function GithubAppConnectButton({
   // row exists), so the page is the only safe owner of that effect.
 
   const handleClick = async () => {
-    const r = await connect.mutateAsync()
+    const r = await connect.mutateAsync({ returnTo })
     if (typeof window !== 'undefined') {
       // Same-tab navigation. After the user installs on github.com,
       // GitHub will redirect back to our setup endpoint, which 302s

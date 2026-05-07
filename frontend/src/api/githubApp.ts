@@ -50,11 +50,20 @@ export interface DeviceFlowDisconnectResponse {
 // ---------------------------------------------------------------------------
 
 export const githubAppApi = {
-  connect: () =>
-    request<DeviceFlowConnectResponse>('/api/integrations/github/connect', {
-      method: 'POST',
-      body: '{}',
-    }),
+  /**
+   * Initiate (or resume) the device flow.
+   * Pass *returnTo* to make the post-install redirect target a specific
+   * SPA path (e.g. '/onboarding/connect'). Defaults to /settings.
+   */
+  connect: (opts?: { returnTo?: string }) => {
+    const qs = opts?.returnTo
+      ? `?return_to=${encodeURIComponent(opts.returnTo)}`
+      : ''
+    return request<DeviceFlowConnectResponse>(
+      `/api/integrations/github/connect${qs}`,
+      { method: 'POST', body: '{}' },
+    )
+  },
   status: () =>
     request<DeviceFlowStatusResponse>('/api/integrations/github/status'),
   disconnect: () =>
@@ -71,7 +80,7 @@ export const githubAppApi = {
 export function useGithubAppConnect() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: () => githubAppApi.connect(),
+    mutationFn: (opts?: { returnTo?: string }) => githubAppApi.connect(opts),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['github-app', 'status'] })
     },
@@ -156,7 +165,7 @@ export function useGithubAppResumeOnReturn(): {
     if (connect.isPending || response) return
     void (async () => {
       try {
-        const r = await connect.mutateAsync()
+        const r = await connect.mutateAsync({})
         setResponse(r)
       } finally {
         url.searchParams.delete('github_setup')

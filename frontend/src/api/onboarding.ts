@@ -96,6 +96,20 @@ export const onboardingApi = {
   listRepos: (req: ListReposRequest) =>
     postJson<ListReposResponse>('/api/onboarding/github/repos', req),
 
+  // GitHub App + Device Flow path (ADR-0035, IMPL-0010): the user has
+  // already authorized the App and the user access token lives in the
+  // vault, so these endpoints take only the repo URL.
+  listReposFromVault: () =>
+    postJson<ListReposResponse>(
+      '/api/onboarding/github/repos/from-vault',
+      {},
+    ),
+
+  connectRepoFromVault: (repo_url: string) =>
+    postJson<OnboardingRepoResponse>('/api/onboarding/repo/from-vault', {
+      repo_url,
+    }),
+
   complete: (req: OnboardingCompleteRequest) =>
     postJson<OnboardingCompleteResponse>('/api/onboarding/complete', req),
 }
