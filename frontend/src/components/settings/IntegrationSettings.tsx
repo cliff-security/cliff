@@ -10,12 +10,15 @@ import {
   useTestIntegration,
   useAllIntegrationsHealth,
 } from '@/api/hooks'
+import { useGithubAppStatus } from '@/api/githubApp'
 import type {
   RegistryEntry,
   CredentialField,
   IntegrationConfigItem,
   IntegrationHealthStatus,
 } from '@/api/client'
+import { GithubAppConnectButton } from './GithubAppConnectButton'
+import { GithubAppMigrationBanner } from './GithubAppMigrationBanner'
 
 // ---------------------------------------------------------------------------
 // Utilities
@@ -452,6 +455,25 @@ export default function IntegrationSettings() {
   )
   const [setupEntry, setSetupEntry] = useState<RegistryEntry | null>(null)
 
+  // ADR-0035 / IMPL-0010 — show the App-flow surface only when the
+  // backend reports it's available, gated on the env var being set.
+  const githubEntry = (registry || []).find((r) => r.id === 'github')
+  const githubAppAvailable = githubEntry?.github_app_available === true
+  const hasGithubIntegration = (integrations || []).some(
+    (i) => i.provider_name.toLowerCase() === 'github' && i.enabled,
+  )
+  // Status query stays disabled by default to avoid noise on first paint.
+  // The migration banner is the only thing that needs to know whether the
+  // App is already connected, so we enable status polling only when both
+  // flags require disambiguation.
+  const { data: githubAppStatus } = useGithubAppStatus({
+    enabled: githubAppAvailable && hasGithubIntegration,
+    intervalMs: 0, // one-shot — terminal logic is in the modal
+  })
+  const onAppFlow = githubAppStatus?.status === 'connected'
+  const showMigrationBanner =
+    githubAppAvailable && hasGithubIntegration && !onAppFlow
+
   const configuredIds = new Set(
     (integrations || []).map((i) => i.provider_name.toLowerCase()),
   )
@@ -493,6 +515,8 @@ export default function IntegrationSettings() {
           onClose={() => setSetupEntry(null)}
         />
       )}
+
+      {showMigrationBanner && <GithubAppMigrationBanner />}
 
       {/* Configured integrations */}
       {(integrations || []).length > 0 && (
@@ -563,12 +587,19 @@ export default function IntegrationSettings() {
                       ))}
                     </div>
                     {entry.status === 'available' && !configured && (
-                      <button
-                        onClick={() => setSetupEntry(entry)}
-                        className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
-                      >
-                        Set up
-                      </button>
+                      entry.id === 'github' && entry.github_app_available ? (
+                        <GithubAppConnectButton
+                          label="Connect"
+                          className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs font-semibold text-on-primary hover:bg-primary/90 transition-colors disabled:opacity-60"
+                        />
+                      ) : (
+                        <button
+                          onClick={() => setSetupEntry(entry)}
+                          className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
+                        >
+                          Set up
+                        </button>
+                      )
                     )}
                     {configured && (
                       <span className="text-xs text-green-600 font-medium flex items-center gap-1">

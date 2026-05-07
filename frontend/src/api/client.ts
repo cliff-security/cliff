@@ -329,6 +329,10 @@ export interface RegistryEntry {
   capabilities: string[];
   docs_url: string | null;
   mcp_config: Record<string, unknown> | null;
+  /** ADR-0035 / IMPL-0010 — true on the github entry when the
+   * shared GitHub App + Device Flow onboarding surface is configured
+   * on this instance. Stays false for every other entry. */
+  github_app_available?: boolean;
 }
 
 export interface CredentialInfo {
