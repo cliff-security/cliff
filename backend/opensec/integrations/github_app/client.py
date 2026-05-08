@@ -26,6 +26,12 @@ class GitHubDeviceFlowError(RuntimeError):
     """Unexpected response from GitHub during the device flow."""
 
 
+class GitHubDeviceFlowTransientError(GitHubDeviceFlowError):
+    """Subset of :class:`GitHubDeviceFlowError` for recoverable failures
+    (HTTP 429 / 5xx). The orchestrator retries on next poll tick rather
+    than marking the row terminal."""
+
+
 @dataclass(frozen=True)
 class DeviceCodeResponse:
     device_code: str
@@ -131,6 +137,10 @@ class GitHubDeviceFlowClient:
                 headers={"Accept": "application/json"},
             )
         if resp.status_code != 200:
+            if resp.status_code == 429 or 500 <= resp.status_code < 600:
+                raise GitHubDeviceFlowTransientError(
+                    f"token poll transient: HTTP {resp.status_code} {resp.text}"
+                )
             raise GitHubDeviceFlowError(
                 f"token poll failed: HTTP {resp.status_code} {resp.text}"
             )

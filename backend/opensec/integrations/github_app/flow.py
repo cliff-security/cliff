@@ -37,13 +37,28 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Protocol
 
+import httpx
+
 from opensec.db import repo_integration
 from opensec.integrations.audit import AuditEvent
 from opensec.integrations.github_app import repo as gh_repo
+from opensec.integrations.github_app.client import GitHubDeviceFlowTransientError
 from opensec.integrations.github_app.models import (
     GithubAppInstallationCreate,
 )
 from opensec.models import IntegrationConfigUpdate
+
+# Errors we treat as transient — the polling loop swallows them and
+# retries on the next tick rather than marking the row terminal. The
+# 15-minute device-code window bounds the total retry duration. Anything
+# outside this set is treated as a programmer/auth error and terminates.
+_TRANSIENT_ERRORS: tuple[type[BaseException], ...] = (
+    httpx.TimeoutException,
+    httpx.ConnectError,
+    httpx.NetworkError,
+    httpx.RemoteProtocolError,
+    GitHubDeviceFlowTransientError,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -249,14 +264,34 @@ class DeviceFlowOrchestrator:
         client = self._client_factory()
         try:
             result = await client.poll_token(device_code=device_code)
-        except Exception as exc:  # noqa: BLE001 — orchestrator catches any client error
-            logger.warning("poll_token raised for %s: %s", integration_id, exc)
+        except _TRANSIENT_ERRORS as exc:
+            # Network blip / GitHub 429 / 5xx — these are recoverable.
+            # Don't terminate: log, leave status as-is, the next tick on
+            # the polling loop will retry. The 15-minute device-code
+            # window bounds how long we keep retrying.
+            logger.info(
+                "poll_token transient failure for %s (%s); will retry on next tick",
+                integration_id,
+                exc.__class__.__name__,
+            )
+            return
+        except Exception as exc:  # noqa: BLE001 — anything else is terminal
+            logger.warning(
+                "poll_token unrecoverable failure for %s: %s", integration_id, exc
+            )
             await self._terminate(integration_id, status="error", error=str(exc))
             return
 
         await self._apply_poll_result(record, result, client)
 
     async def disconnect(self, integration_id: str) -> None:
+        # Order matters: disable the integration_config FIRST so no
+        # downstream consumer (workspaces.py, _engine_dep, etc.) can
+        # pick up the row in a half-deleted state where the credentials
+        # are gone but ``enabled`` is still ``True``.
+        await repo_integration.update_integration(
+            self._db, integration_id, IntegrationConfigUpdate(enabled=False)
+        )
         await self.stop(integration_id)
         with contextlib.suppress(KeyError):
             await self._vault.delete(integration_id, GITHUB_TOKEN_KEY)
@@ -265,9 +300,6 @@ class DeviceFlowOrchestrator:
         with contextlib.suppress(KeyError):
             await self._vault.delete(integration_id, GITHUB_DEVICE_CODE_KEY)
         await gh_repo.delete(self._db, integration_id)
-        await repo_integration.update_integration(
-            self._db, integration_id, IntegrationConfigUpdate(enabled=False)
-        )
         await self._audit.log(
             AuditEvent(
                 event_type="github_app.disconnect",

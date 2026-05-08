@@ -3053,13 +3053,17 @@
       "ListReposRequest": {
         "properties": {
           "github_token": {
-            "title": "Github Token",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Github Token"
           }
         },
-        "required": [
-          "github_token"
-        ],
         "title": "ListReposRequest",
         "type": "object"
       },
@@ -3328,8 +3332,15 @@
       "OnboardingRepoRequest": {
         "properties": {
           "github_token": {
-            "title": "Github Token",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Github Token"
           },
           "repo_url": {
             "title": "Repo Url",
@@ -3337,8 +3348,7 @@
           }
         },
         "required": [
-          "repo_url",
-          "github_token"
+          "repo_url"
         ],
         "title": "OnboardingRepoRequest",
         "type": "object"
@@ -4026,20 +4036,6 @@
           "started_at"
         ],
         "title": "RepoAgentStatus",
-        "type": "object"
-      },
-      "RepoUrlRequest": {
-        "description": "Body for the App-flow connect step: only ``repo_url`` \u2014 the token\nlives in the vault.",
-        "properties": {
-          "repo_url": {
-            "title": "Repo Url",
-            "type": "string"
-          }
-        },
-        "required": [
-          "repo_url"
-        ],
-        "title": "RepoUrlRequest",
         "type": "object"
       },
       "RunAllResponse": {
@@ -6164,7 +6160,7 @@
     },
     "/api/onboarding/github/repos": {
       "post": {
-        "description": "Return the repos a PAT can reach, for onboarding's picker step.\n\nThe token is **not** persisted here \u2014 only on a successful call to\n``POST /onboarding/repo``. Avoids dangling vault entries when the user\nabandons the flow at the picker.\n\nAuth/scope failures return 422 ``{code: \"invalid_token\"}``. Network and\nGitHub 5xx return 502 \u2014 onboarding's manual-URL fallback covers this.",
+        "description": "Return the repos the active GitHub auth can reach, for onboarding's picker.\n\nToken resolution: explicit ``github_token`` body wins (legacy PAT\nflow), otherwise the route reads the App-flow user access token\nfrom the vault. The token is **not** persisted here \u2014 only on a\nsuccessful call to ``POST /onboarding/repo``.\n\nAuth/scope failures return 422 ``{code: \"invalid_token\"}``. Network and\nGitHub 5xx return 502 \u2014 onboarding's manual-URL fallback covers this.",
         "operationId": "list_github_repos_api_onboarding_github_repos_post",
         "requestBody": {
           "content": {
@@ -6197,26 +6193,6 @@
           }
         },
         "summary": "List Github Repos",
-        "tags": [
-          "onboarding"
-        ]
-      }
-    },
-    "/api/onboarding/github/repos/from-vault": {
-      "post": {
-        "description": "List repos using the GitHub user access token already stored in the vault.\n\nSister endpoint to ``POST /onboarding/github/repos`` \u2014 same response\nshape, but the token comes from the vault (post-device-flow) instead\nof the request body. 422 with ``code=\"not_connected\"`` if no GitHub\nintegration is connected yet.",
-        "operationId": "list_github_repos_from_vault_api_onboarding_github_repos_from_vault_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "List Github Repos From Vault",
         "tags": [
           "onboarding"
         ]
@@ -6257,46 +6233,6 @@
           }
         },
         "summary": "Connect Repo",
-        "tags": [
-          "onboarding"
-        ]
-      }
-    },
-    "/api/onboarding/repo/from-vault": {
-      "post": {
-        "description": "Sister of ``POST /onboarding/repo`` for the GitHub App + Device Flow path.\n\nBody shape: ``{ \"repo_url\": str }`` \u2014 no token, since the user\naccess token already lives in the credential vault. The probe + the\nintegration-config update use the vault token; the credential is\nre-stored under its existing key (no-op rewrite) to keep the\nupsert helper honest.",
-        "operationId": "connect_repo_from_vault_api_onboarding_repo_from_vault_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RepoUrlRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Connect Repo From Vault",
         "tags": [
           "onboarding"
         ]

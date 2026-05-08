@@ -443,6 +443,54 @@ async def test_poll_step_unexpected_error_marks_error(
 
 
 @pytest.mark.asyncio
+async def test_poll_step_transient_network_error_does_not_terminate(
+    orchestrator: DeviceFlowOrchestrator,
+    db: aiosqlite.Connection,
+    fake_client: FakeGitHubClient,
+    integration_id: str,
+):
+    """A transient httpx error (timeout, connect failure, GitHub 5xx) must
+    NOT mark the row terminal — the poll loop's next tick gets to retry
+    within the 15-minute device-code window."""
+    import httpx
+
+    await orchestrator.initiate(integration_id)
+
+    async def transient_poll(*, device_code: str):  # noqa: ARG001
+        raise httpx.ConnectError("dns blip")
+
+    fake_client.poll_token = transient_poll  # type: ignore[assignment]
+    await orchestrator.run_poll_step(integration_id)
+
+    record = await gh_repo.get_for_integration(db, integration_id)
+    assert record is not None
+    # Status stays in the pre-poll state, not flipped to "error".
+    assert record.polling_status == "installation_pending"
+
+
+@pytest.mark.asyncio
+async def test_poll_step_transient_github_5xx_does_not_terminate(
+    orchestrator: DeviceFlowOrchestrator,
+    db: aiosqlite.Connection,
+    fake_client: FakeGitHubClient,
+    integration_id: str,
+):
+    from opensec.integrations.github_app.client import GitHubDeviceFlowTransientError
+
+    await orchestrator.initiate(integration_id)
+
+    async def transient_poll(*, device_code: str):  # noqa: ARG001
+        raise GitHubDeviceFlowTransientError("HTTP 503")
+
+    fake_client.poll_token = transient_poll  # type: ignore[assignment]
+    await orchestrator.run_poll_step(integration_id)
+
+    record = await gh_repo.get_for_integration(db, integration_id)
+    assert record is not None
+    assert record.polling_status == "installation_pending"
+
+
+@pytest.mark.asyncio
 async def test_poll_step_after_device_code_expiry_marks_expired(
     orchestrator: DeviceFlowOrchestrator,
     db: aiosqlite.Connection,

@@ -190,9 +190,11 @@ export default function ConnectRepo() {
         Connect your project
       </h1>
       <p className="text-on-surface-variant mb-8">
-        {authMode === 'app'
-          ? 'Install OpenSec on the repository you’d like to secure. Every change lands as a draft pull request you review.'
-          : 'Point OpenSec at the repository you’d like to secure. We use a personal access token so every change lands as a draft pull request you review.'}
+        {authMode === 'app' && ghAppConnected
+          ? 'Pick the repository to secure. We’ll clone it and start scanning right after.'
+          : authMode === 'app'
+            ? 'Install OpenSec on the repository you’d like to secure. Every change lands as a draft pull request you review.'
+            : 'Point OpenSec at the repository you’d like to secure. We use a personal access token so every change lands as a draft pull request you review.'}
       </p>
 
       {state.kind === 'verified' ? (
@@ -259,13 +261,31 @@ export default function ConnectRepo() {
             <p className="text-sm text-on-surface-variant">
               Pick the repository to secure.
             </p>
-            <button
-              type="button"
-              onClick={resetToTokenEntry}
-              className="text-xs font-semibold text-on-surface-variant hover:text-on-surface px-2 py-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-            >
-              Use a different token
-            </button>
+            {/* "Reset" affordance: in App mode the user might want to
+                reinstall on a different account or fall back to a PAT;
+                in PAT mode they might want to retype the token. We
+                offer the right copy + behaviour for each. */}
+            {authMode === 'app' ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode('pat')
+                  resetToTokenEntry()
+                }}
+                className="text-xs font-semibold text-on-surface-variant hover:text-on-surface px-2 py-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                data-testid="switch-to-pat"
+              >
+                Use a personal access token instead
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={resetToTokenEntry}
+                className="text-xs font-semibold text-on-surface-variant hover:text-on-surface px-2 py-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              >
+                Use a different token
+              </button>
+            )}
           </div>
 
           <RepoPicker

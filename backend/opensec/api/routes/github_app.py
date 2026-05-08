@@ -14,7 +14,9 @@ so workspaces transparently keep working without any agent-side change.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from typing import TYPE_CHECKING
 from urllib.parse import quote, urlencode
 
@@ -81,17 +83,60 @@ def _sanitize_return_path(value: str | None) -> str:
     return DEFAULT_RETURN_PATH
 
 
-# In-memory map csrf_state -> return path. Lifetime = process lifetime.
+# In-memory map csrf_state -> (return_path, expires_at). Process-lifetime.
 # Acceptable because the device-flow window is at most 15 minutes; if
 # the process restarts mid-flow the user lands on the default path,
 # which is still a valid recovery point. Keeps the schema migration-free.
-def _return_paths(request: Request) -> dict[str, str]:
+#
+# Each entry is bounded by ``RETURN_PATH_TTL_SECONDS`` so an abandoned
+# /connect (user never installs) doesn't leak memory under repeated
+# clicks. ``MAX_RETURN_PATHS`` is a hard cap on entry count as a
+# secondary defense against pathological abuse.
+RETURN_PATH_TTL_SECONDS = 30 * 60  # comfortably above the 15-minute device-code window
+MAX_RETURN_PATHS = 256
+
+
+def _return_paths(request: Request) -> dict[str, tuple[str, float]]:
     state = request.app.state
     existing = getattr(state, "github_app_return_paths", None)
     if existing is None:
         existing = {}
         state.github_app_return_paths = existing
     return existing
+
+
+def _evict_expired_return_paths(paths: dict[str, tuple[str, float]]) -> None:
+    """Drop entries past their TTL. Called on every read/write so the
+    map self-heals without a separate sweeper task."""
+    now = time.time()
+    stale = [k for k, (_, expires_at) in paths.items() if expires_at <= now]
+    for key in stale:
+        paths.pop(key, None)
+
+
+def _stash_return_path(request: Request, csrf_state: str, path: str) -> None:
+    paths = _return_paths(request)
+    _evict_expired_return_paths(paths)
+    # Hard cap (defense in depth): drop the oldest entries if we're at
+    # the cap. Wouldn't trigger under normal use but stops a malicious
+    # client from blowing memory by spamming /connect.
+    if len(paths) >= MAX_RETURN_PATHS:
+        # Drop the oldest-expiring entries to make room.
+        ordered = sorted(paths, key=lambda k: paths[k][1])
+        drop_count = max(1, len(paths) - MAX_RETURN_PATHS + 1)
+        for key in ordered[:drop_count]:
+            paths.pop(key, None)
+    paths[csrf_state] = (path, time.time() + RETURN_PATH_TTL_SECONDS)
+
+
+def _pop_return_path(request: Request, csrf_state: str) -> str:
+    paths = _return_paths(request)
+    _evict_expired_return_paths(paths)
+    entry = paths.pop(csrf_state, None)
+    if entry is None:
+        return DEFAULT_RETURN_PATH
+    path, _ = entry
+    return path
 
 
 # ---------------------------------------------------------------------------
@@ -167,8 +212,11 @@ def _require_vault_and_audit(request: Request) -> tuple[CredentialVault, AuditLo
 
 
 def _install_url(csrf_state: str) -> str:
+    # Quote the slug too — the value comes from env (trusted by intent),
+    # but defending against a typo with ``/`` or ``?`` in it is free.
+    slug = quote(settings.github_app_slug, safe="")
     return (
-        f"https://github.com/apps/{settings.github_app_slug}"
+        f"https://github.com/apps/{slug}"
         f"/installations/new?state={quote(csrf_state, safe='')}"
     )
 
@@ -227,14 +275,35 @@ def _frontend_redirect(return_path: str, *, status: str, **extra: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _connect_lock(request: Request) -> asyncio.Lock:
+    """Process-singleton lock guarding _resolve_or_create_app_integration.
+
+    Two concurrent /connect calls (rapid double-click) would otherwise
+    both miss the SELECT-then-INSERT check and create duplicate
+    integration_config rows for ``provider_name='GitHub'``. Single-user
+    mode is single-process, so an asyncio.Lock is sufficient. (For
+    SaaS multi-user we'd need a DB-level UNIQUE partial index — out
+    of scope for this PR.)
+    """
+    state = request.app.state
+    existing = getattr(state, "github_app_connect_lock", None)
+    if existing is None:
+        existing = asyncio.Lock()
+        state.github_app_connect_lock = existing
+    return existing
+
+
 async def _resolve_or_create_app_integration(db: aiosqlite.Connection) -> str:
     """Find the singleton App-onboarded github integration, creating one if needed.
 
     The PAT integration (if any) lives as a separate row and is left
     untouched until a successful App connect archives it via
     DeviceFlowOrchestrator.
+
+    Caller must hold ``_connect_lock(request)`` to make the
+    SELECT-then-INSERT atomic across concurrent /connect calls.
     """
-    existing = await db.execute(
+    cursor = await db.execute(
         """
         SELECT integration_config.id
         FROM integration_config
@@ -245,7 +314,7 @@ async def _resolve_or_create_app_integration(db: aiosqlite.Connection) -> str:
         """,
         (GITHUB_PROVIDER,),
     )
-    row = await existing.fetchone()
+    row = await cursor.fetchone()
     if row is not None:
         return row["id"]
 
@@ -276,9 +345,10 @@ async def connect(
     _require_app_configured()
     vault, audit = _require_vault_and_audit(request)
 
-    integration_id = await _resolve_or_create_app_integration(db)
-    orchestrator = _get_orchestrator(request, db, vault, audit)
-    started = await orchestrator.initiate(integration_id)
+    async with _connect_lock(request):
+        integration_id = await _resolve_or_create_app_integration(db)
+        orchestrator = _get_orchestrator(request, db, vault, audit)
+        started = await orchestrator.initiate(integration_id)
     # Spawn (or re-attach to) the background polling loop so the access
     # token is fetched as soon as the user authorizes on github.com —
     # without this the /status endpoint would never advance off
@@ -289,7 +359,7 @@ async def connect(
     # callback reads it post-install and redirects there instead of the
     # default /settings, so the App flow seamlessly returns the user to
     # whichever page (onboarding, settings) started the flow.
-    _return_paths(request)[started.csrf_state] = _sanitize_return_path(return_to)
+    _stash_return_path(request, started.csrf_state, _sanitize_return_path(return_to))
 
     return DeviceFlowConnectResponse(
         user_code=started.user_code,
@@ -305,13 +375,21 @@ async def setup_callback(
     request: Request,
     state: str = Query(...),
     installation_id: int = Query(...),
-    setup_action: str = Query("install"),  # noqa: ARG001 — accepted from GitHub
+    # GitHub sends ``setup_action`` ∈ {"install", "update"}. ``install``
+    # is the first time the user installs OpenSec on the account;
+    # ``update`` fires when they revisit the App page and reconfigure
+    # repos. We honour both, but tag the redirect so the SPA can show
+    # different copy ("Connected" vs "Configuration updated").
+    setup_action: str = Query("install"),
     db: aiosqlite.Connection = Depends(get_db),
 ) -> RedirectResponse:
     _require_app_configured()
     vault, audit = _require_vault_and_audit(request)
     orchestrator = _get_orchestrator(request, db, vault, audit)
-    return_path = _return_paths(request).pop(state, DEFAULT_RETURN_PATH)
+    return_path = _pop_return_path(request, state)
+
+    redirect_status = "updated" if setup_action == "update" else "complete"
+
     try:
         await orchestrator.attach_installation(
             csrf_state=state, installation_id=installation_id
@@ -322,7 +400,7 @@ async def setup_callback(
             status_code=302,
         )
     return RedirectResponse(
-        _frontend_redirect(return_path, status="complete"),
+        _frontend_redirect(return_path, status=redirect_status),
         status_code=302,
     )
 
@@ -361,10 +439,22 @@ async def status(
 async def disconnect(
     request: Request, db: aiosqlite.Connection = Depends(get_db)
 ) -> DeviceFlowDisconnectResponse:
+    # Deliberately NOT gated on _require_app_configured: if the operator
+    # unsets OPENSEC_GITHUB_APP_CLIENT_ID after a user has connected, we
+    # still want the cleanup path to work so they aren't stranded with a
+    # non-refreshable token in the vault.
     vault, audit = _require_vault_and_audit(request)
 
+    # Deterministic ordering: prefer the most-recently-connected row, then
+    # most-recently-touched. With the singleton invariant only one row
+    # exists in single-user mode; the ordering is defense in depth for
+    # forward-compatibility with multi-install SaaS.
     cursor = await db.execute(
-        "SELECT integration_id FROM github_app_installation LIMIT 1"
+        """
+        SELECT integration_id FROM github_app_installation
+        ORDER BY connected_at DESC, updated_at DESC
+        LIMIT 1
+        """
     )
     row = await cursor.fetchone()
     if row is not None:

@@ -73,6 +73,32 @@ async def test_connect_repo_empty_url_returns_422(db_client, fake_engine):
     assert resp.status_code == 422
 
 
+async def test_connect_repo_without_token_returns_not_connected_when_vault_empty(
+    db_client, fake_engine,
+):
+    """ADR-0035 collapsed endpoints: omitting ``github_token`` falls back
+    to the vault. With no integration set up, that 422s with
+    ``code=not_connected`` so the SPA can prompt the user to connect."""
+    resp = await db_client.post(
+        "/api/onboarding/repo",
+        json={"repo_url": "https://github.com/a/b"},
+    )
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body.get("code") == "not_connected"
+
+
+async def test_list_github_repos_without_token_returns_not_connected_when_vault_empty(
+    db_client,
+):
+    resp = await db_client.post(
+        "/api/onboarding/github/repos",
+        json={},
+    )
+    assert resp.status_code == 422
+    assert resp.json().get("code") == "not_connected"
+
+
 async def test_complete_onboarding_happy_path(db_client, fake_engine):
     run = await db_client.post(
         "/api/onboarding/repo",
@@ -300,13 +326,16 @@ async def test_list_repos_401_returns_invalid_token(db_client):
     assert resp.json()["code"] == "invalid_token"
 
 
-async def test_list_repos_empty_token_returns_invalid_token(db_client):
+async def test_list_repos_empty_token_returns_not_connected(db_client):
+    """ADR-0035: an empty/whitespace token now falls through to the vault.
+    With nothing in the vault, the route returns ``code=not_connected``
+    so the SPA can prompt the user to run /connect first."""
     resp = await db_client.post(
         "/api/onboarding/github/repos",
         json={"github_token": "   "},
     )
     assert resp.status_code == 422
-    assert resp.json()["code"] == "invalid_token"
+    assert resp.json()["code"] == "not_connected"
 
 
 async def test_list_repos_network_failure_returns_502(db_client):

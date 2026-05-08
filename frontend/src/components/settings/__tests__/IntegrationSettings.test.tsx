@@ -61,6 +61,12 @@ function setupHandlers(opts: {
       'http://localhost:5173/api/integrations/github/status',
       () => HttpResponse.json(null, { status: 404 }),
     ),
+    // The ConfiguredCard fetches credentials per integration row; stub
+    // an empty list so a configured row can render without a 404 noise.
+    http.get(
+      'http://localhost:5173/api/settings/integrations/:id/credentials',
+      () => HttpResponse.json([]),
+    ),
   )
 }
 
@@ -96,13 +102,16 @@ describe('IntegrationSettings — GitHub App branching', () => {
       integrations: [
         {
           id: 'pat-row',
-          adapter_type: 'finding_source',
-          provider_name: 'github',
+          adapter_type: 'github',
+          provider_name: 'GitHub',
           enabled: true,
           config: null,
           last_test_result: null,
           action_tier: 0,
           updated_at: new Date().toISOString(),
+          // The backend stamps auth_method='pat' for PAT-onboarded
+          // rows; the banner gate keys off it (no /status race).
+          auth_method: 'pat',
         },
       ],
     })

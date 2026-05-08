@@ -161,16 +161,35 @@ export function useGithubAppResumeOnReturn(): {
   useEffect(() => {
     if (typeof window === 'undefined') return
     const url = new URL(window.location.href)
-    if (url.searchParams.get('github_setup') !== 'complete') return
+    const setupStatus = url.searchParams.get('github_setup')
+    // 'complete' = first install, open the device-flow modal.
+    // 'updated' = user reconfigured an existing install, no modal needed
+    //             (already authorized). Just clean the URL silently.
+    // Anything else = ignore.
+    if (setupStatus !== 'complete' && setupStatus !== 'updated') return
     if (connect.isPending || response) return
+
+    const cleanUrl = () => {
+      url.searchParams.delete('github_setup')
+      url.searchParams.delete('integration_id')
+      url.searchParams.delete('reason')
+      // ``url.toString()`` already serialises the hash from the original
+      // URL — appending ``window.location.hash`` would double it
+      // (#integrations#integrations).
+      window.history.replaceState({}, '', url.toString())
+    }
+
+    if (setupStatus === 'updated') {
+      cleanUrl()
+      return
+    }
+
     void (async () => {
       try {
         const r = await connect.mutateAsync({})
         setResponse(r)
       } finally {
-        url.searchParams.delete('github_setup')
-        url.searchParams.delete('integration_id')
-        window.history.replaceState({}, '', url.toString() + window.location.hash)
+        cleanUrl()
       }
     })()
     // Fire once on mount.

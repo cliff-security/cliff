@@ -46,7 +46,11 @@ router = APIRouter(prefix="/onboarding", tags=["onboarding"])
 
 class OnboardingRepoRequest(BaseModel):
     repo_url: str
-    github_token: str
+    # Optional. When omitted, the route falls back to the GitHub user
+    # access token already stored in the vault (App + Device Flow path,
+    # ADR-0035). The legacy PAT-paste flow continues to pass the token
+    # in the body — both paths funnel through the same upsert helper.
+    github_token: str | None = None
 
 
 class VerifiedRepo(BaseModel):
@@ -257,7 +261,22 @@ async def connect_repo(
     if not repo_url:
         raise HTTPException(status_code=422, detail="repo_url must not be empty")
 
-    probed = await _probe_repo_metadata(repo_url, request.github_token)
+    # Resolve the token: explicit body wins (legacy PAT path), otherwise
+    # fall back to the vault (App + Device Flow path).
+    token = (request.github_token or "").strip()
+    if not token:
+        vault_token = await _get_app_vault_token(http_request, db)
+        if not vault_token:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": "GitHub is not connected on this instance.",
+                    "code": "not_connected",
+                },
+            )
+        token = vault_token
+
+    probed = await _probe_repo_metadata(repo_url, token)
 
     # Hard failure — the user must fix the URL or token before we touch the
     # vault or schedule a scan. The SPA reads ``code`` from the top-level
@@ -270,12 +289,11 @@ async def connect_repo(
 
     verified = probed  # VerifiedRepo or None (soft network failure)
 
-    # Store the PAT through the same path the Integrations settings page uses —
+    # Store the token through the same path the Integrations settings page uses —
     # single source of truth. "Solve a finding" + posture-fix spawner both
-    # read from this row later.
-    await _upsert_github_integration(
-        db, http_request, request.github_token, repo_url, verified
-    )
+    # read from this row later. Idempotent rewrite of the same vault key
+    # when the token came from the vault.
+    await _upsert_github_integration(db, http_request, token, repo_url, verified)
 
     assessment = await create_assessment(db, AssessmentCreate(repo_url=repo_url))
     schedule_assessment_run(http_request.app, db, engine, assessment.id, repo_url)
@@ -290,7 +308,10 @@ async def connect_repo(
 
 
 class ListReposRequest(BaseModel):
-    github_token: str
+    # Optional. When omitted, the route falls back to the GitHub user
+    # access token already stored in the vault (App + Device Flow path,
+    # ADR-0035). Mirrors OnboardingRepoRequest.
+    github_token: str | None = None
 
 
 class RepoOption(BaseModel):
@@ -315,22 +336,31 @@ class ListReposResponse(BaseModel):
 @router.post("/github/repos")
 async def list_github_repos(
     request: ListReposRequest,
+    http_request: FastAPIRequest,
+    db=Depends(get_db),
 ):
-    """Return the repos a PAT can reach, for onboarding's picker step.
+    """Return the repos the active GitHub auth can reach, for onboarding's picker.
 
-    The token is **not** persisted here — only on a successful call to
-    ``POST /onboarding/repo``. Avoids dangling vault entries when the user
-    abandons the flow at the picker.
+    Token resolution: explicit ``github_token`` body wins (legacy PAT
+    flow), otherwise the route reads the App-flow user access token
+    from the vault. The token is **not** persisted here — only on a
+    successful call to ``POST /onboarding/repo``.
 
     Auth/scope failures return 422 ``{code: "invalid_token"}``. Network and
     GitHub 5xx return 502 — onboarding's manual-URL fallback covers this.
     """
-    token = request.github_token.strip()
+    token = (request.github_token or "").strip()
     if not token:
-        return JSONResponse(
-            status_code=422,
-            content={"detail": "github_token must not be empty", "code": "invalid_token"},
-        )
+        vault_token = await _get_app_vault_token(http_request, db)
+        if not vault_token:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": "GitHub is not connected on this instance.",
+                    "code": "not_connected",
+                },
+            )
+        token = vault_token
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as http:
@@ -414,85 +444,11 @@ async def _get_app_vault_token(http_request: FastAPIRequest, db) -> str | None:
         return None
 
 
-@router.post("/github/repos/from-vault")
-async def list_github_repos_from_vault(
-    http_request: FastAPIRequest, db=Depends(get_db)
-):
-    """List repos using the GitHub user access token already stored in the vault.
-
-    Sister endpoint to ``POST /onboarding/github/repos`` — same response
-    shape, but the token comes from the vault (post-device-flow) instead
-    of the request body. 422 with ``code="not_connected"`` if no GitHub
-    integration is connected yet.
-    """
-    token = await _get_app_vault_token(http_request, db)
-    if not token:
-        return JSONResponse(
-            status_code=422,
-            content={
-                "detail": "GitHub is not connected on this instance.",
-                "code": "not_connected",
-            },
-        )
-    return await list_github_repos(ListReposRequest(github_token=token))
-
-
-class RepoUrlRequest(BaseModel):
-    """Body for the App-flow connect step: only ``repo_url`` — the token
-    lives in the vault."""
-
-    repo_url: str
-
-
-@router.post("/repo/from-vault")
-async def connect_repo_from_vault(
-    request: RepoUrlRequest,
-    http_request: FastAPIRequest,
-    db=Depends(get_db),
-    engine: AssessmentEngineProtocol = Depends(get_assessment_engine),
-):
-    """Sister of ``POST /onboarding/repo`` for the GitHub App + Device Flow path.
-
-    Body shape: ``{ "repo_url": str }`` — no token, since the user
-    access token already lives in the credential vault. The probe + the
-    integration-config update use the vault token; the credential is
-    re-stored under its existing key (no-op rewrite) to keep the
-    upsert helper honest.
-    """
-    repo_url = request.repo_url.strip()
-    if not repo_url:
-        raise HTTPException(status_code=422, detail="repo_url must not be empty")
-
-    token = await _get_app_vault_token(http_request, db)
-    if not token:
-        return JSONResponse(
-            status_code=422,
-            content={
-                "detail": "GitHub is not connected on this instance.",
-                "code": "not_connected",
-            },
-        )
-
-    probed = await _probe_repo_metadata(repo_url, token)
-    if isinstance(probed, _ProbeError):
-        return JSONResponse(
-            status_code=422,
-            content={"detail": probed.message, "code": probed.code},
-        )
-
-    verified = probed  # VerifiedRepo or None
-
-    # Reuse the same upsert path as the PAT flow — same row, same vault
-    # key. Idempotent: the App row already exists, this just refreshes
-    # the repo_url config and re-stores the credential under the same
-    # key (no-op rewrite when the value matches).
-    await _upsert_github_integration(db, http_request, token, repo_url, verified)
-
-    assessment = await create_assessment(db, AssessmentCreate(repo_url=repo_url))
-    schedule_assessment_run(http_request.app, db, engine, assessment.id, repo_url)
-    return OnboardingRepoResponse(
-        assessment_id=assessment.id, repo_url=repo_url, verified=verified
-    )
+# NOTE: ``/onboarding/github/repos/from-vault`` and ``/onboarding/repo/from-vault``
+# used to live here as separate endpoints. They were collapsed into the
+# original ``/repos`` and ``/repo`` routes by making ``github_token``
+# optional — when absent, both routes fall back to the App-flow user
+# access token already in the vault. Single happy path, half the code.
 
 
 @router.post("/complete", response_model=OnboardingCompleteResponse)
