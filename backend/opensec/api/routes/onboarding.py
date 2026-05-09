@@ -424,22 +424,24 @@ async def _get_app_vault_token(http_request: FastAPIRequest, db) -> str | None:
     ``code="not_connected"`` so the SPA can prompt the user to run the
     Connect flow first.
     """
-    integrations = await list_integrations(db)
-    github = next(
-        (
-            i
-            for i in integrations
-            if i.provider_name.lower() == GITHUB_PROVIDER_NAME.lower() and i.enabled
-        ),
-        None,
+    # Targeted SELECT — avoids loading every integration row just to
+    # find the one we care about.
+    cursor = await db.execute(
+        """
+        SELECT id FROM integration_config
+        WHERE LOWER(provider_name) = LOWER(?) AND enabled = 1
+        ORDER BY updated_at DESC LIMIT 1
+        """,
+        (GITHUB_PROVIDER_NAME,),
     )
-    if github is None:
+    row = await cursor.fetchone()
+    if row is None:
         return None
     vault = getattr(http_request.app.state, "vault", None)
     if vault is None:
         return None
     try:
-        return await vault.retrieve(github.id, GITHUB_TOKEN_KEY)
+        return await vault.retrieve(row["id"], GITHUB_TOKEN_KEY)
     except Exception:
         return None
 

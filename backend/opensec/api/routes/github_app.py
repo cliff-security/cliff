@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -109,9 +109,10 @@ def _evict_expired_return_paths(paths: dict[str, tuple[str, float]]) -> None:
     """Drop entries past their TTL. Called on every read/write so the
     map self-heals without a separate sweeper task."""
     now = time.time()
-    stale = [k for k, (_, expires_at) in paths.items() if expires_at <= now]
-    for key in stale:
-        paths.pop(key, None)
+    fresh = {k: v for k, v in paths.items() if v[1] > now}
+    if len(fresh) != len(paths):
+        paths.clear()
+        paths.update(fresh)
 
 
 def _stash_return_path(request: Request, csrf_state: str, path: str) -> None:
@@ -380,7 +381,7 @@ async def setup_callback(
     # ``update`` fires when they revisit the App page and reconfigure
     # repos. We honour both, but tag the redirect so the SPA can show
     # different copy ("Connected" vs "Configuration updated").
-    setup_action: str = Query("install"),
+    setup_action: Literal["install", "update"] = Query("install"),
     db: aiosqlite.Connection = Depends(get_db),
 ) -> RedirectResponse:
     _require_app_configured()

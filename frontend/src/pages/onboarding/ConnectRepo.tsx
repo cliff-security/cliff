@@ -176,6 +176,16 @@ export default function ConnectRepo() {
     setManualUrl('')
   }
 
+  function subline(): string {
+    if (authMode === 'app' && ghAppConnected) {
+      return 'Pick the repository to secure. We’ll clone it and start scanning right after.'
+    }
+    if (authMode === 'app') {
+      return 'Install OpenSec on the repository you’d like to secure. Every change lands as a draft pull request you review.'
+    }
+    return 'Point OpenSec at the repository you’d like to secure. We use a personal access token so every change lands as a draft pull request you review.'
+  }
+
   return (
     <OnboardingShell step={1}>
       {resumedFlow && (
@@ -189,13 +199,7 @@ export default function ConnectRepo() {
       <h1 className="font-headline text-3xl font-extrabold text-on-surface mb-2">
         Connect your project
       </h1>
-      <p className="text-on-surface-variant mb-8">
-        {authMode === 'app' && ghAppConnected
-          ? 'Pick the repository to secure. We’ll clone it and start scanning right after.'
-          : authMode === 'app'
-            ? 'Install OpenSec on the repository you’d like to secure. Every change lands as a draft pull request you review.'
-            : 'Point OpenSec at the repository you’d like to secure. We use a personal access token so every change lands as a draft pull request you review.'}
-      </p>
+      <p className="text-on-surface-variant mb-8">{subline()}</p>
 
       {state.kind === 'verified' ? (
         <div

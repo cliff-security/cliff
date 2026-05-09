@@ -6064,6 +6064,10 @@
             "required": false,
             "schema": {
               "default": "install",
+              "enum": [
+                "install",
+                "update"
+              ],
               "title": "Setup Action",
               "type": "string"
             }

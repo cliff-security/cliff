@@ -37,28 +37,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Protocol
 
-import httpx
-
 from opensec.db import repo_integration
 from opensec.integrations.audit import AuditEvent
 from opensec.integrations.github_app import repo as gh_repo
-from opensec.integrations.github_app.client import GitHubDeviceFlowTransientError
+from opensec.integrations.github_app.client import TRANSIENT_ERRORS as _TRANSIENT_ERRORS
 from opensec.integrations.github_app.models import (
     GithubAppInstallationCreate,
 )
 from opensec.models import IntegrationConfigUpdate
-
-# Errors we treat as transient — the polling loop swallows them and
-# retries on the next tick rather than marking the row terminal. The
-# 15-minute device-code window bounds the total retry duration. Anything
-# outside this set is treated as a programmer/auth error and terminates.
-_TRANSIENT_ERRORS: tuple[type[BaseException], ...] = (
-    httpx.TimeoutException,
-    httpx.ConnectError,
-    httpx.NetworkError,
-    httpx.RemoteProtocolError,
-    GitHubDeviceFlowTransientError,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -293,12 +279,15 @@ class DeviceFlowOrchestrator:
             self._db, integration_id, IntegrationConfigUpdate(enabled=False)
         )
         await self.stop(integration_id)
-        with contextlib.suppress(KeyError):
-            await self._vault.delete(integration_id, GITHUB_TOKEN_KEY)
-        with contextlib.suppress(KeyError):
-            await self._vault.delete(integration_id, GITHUB_REFRESH_KEY)
-        with contextlib.suppress(KeyError):
-            await self._vault.delete(integration_id, GITHUB_DEVICE_CODE_KEY)
+        # Vault deletes are independent — fan them out and swallow
+        # individual misses (a key may not exist if the user disconnects
+        # before the device flow completed).
+        await asyncio.gather(
+            self._vault.delete(integration_id, GITHUB_TOKEN_KEY),
+            self._vault.delete(integration_id, GITHUB_REFRESH_KEY),
+            self._vault.delete(integration_id, GITHUB_DEVICE_CODE_KEY),
+            return_exceptions=True,
+        )
         await gh_repo.delete(self._db, integration_id)
         await self._audit.log(
             AuditEvent(

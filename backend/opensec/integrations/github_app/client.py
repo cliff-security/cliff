@@ -32,6 +32,18 @@ class GitHubDeviceFlowTransientError(GitHubDeviceFlowError):
     than marking the row terminal."""
 
 
+# Errors the orchestrator should treat as transient — retry on next
+# tick rather than marking the row terminal. Defined here next to the
+# raising classes so the contract lives in one place; the orchestrator
+# just imports and uses the tuple.
+TRANSIENT_ERRORS: tuple[type[BaseException], ...] = (
+    httpx.TimeoutException,
+    httpx.NetworkError,  # superclass of ConnectError, ReadError, WriteError
+    httpx.RemoteProtocolError,
+    GitHubDeviceFlowTransientError,
+)
+
+
 @dataclass(frozen=True)
 class DeviceCodeResponse:
     device_code: str
