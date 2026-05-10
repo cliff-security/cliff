@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   useGithubAppStatus,
   type DeviceFlowConnectResponse,
@@ -13,6 +13,8 @@ import {
  * Design system: tonal layering, no `1px solid` borders, sentence case,
  * Material Symbols for icons.
  */
+const COUNTDOWN_VISIBLE_BELOW_MS = 2 * 60 * 1000  // start showing under 2 min
+
 export function GithubAppDeviceFlowModal({
   connect,
   onDismiss,
@@ -24,9 +26,6 @@ export function GithubAppDeviceFlowModal({
 }) {
   const { data: status } = useGithubAppStatus({ enabled: true })
 
-  // Local 15-minute countdown anchored to the connect response. Updates
-  // every second so the user sees a live timer; backend remains the
-  // source of truth for actual expiry via the polling status.
   const [expiresAtMs] = useState(() => Date.now() + connect.expires_in * 1000)
   const [remainingMs, setRemainingMs] = useState(connect.expires_in * 1000)
   useEffect(() => {
@@ -36,6 +35,23 @@ export function GithubAppDeviceFlowModal({
     return () => window.clearInterval(id)
   }, [expiresAtMs])
 
+  // Tab-return detection: when the user clicks "Authorize on GitHub"
+  // we open a new tab; once they come back we know they at least
+  // attempted the authorize step and the modal should reflect that
+  // instead of generic "Waiting for authorization...".
+  const [authorizeOpened, setAuthorizeOpened] = useState(false)
+  const [returnedFromAuthorize, setReturnedFromAuthorize] = useState(false)
+  useEffect(() => {
+    if (!authorizeOpened) return
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        setReturnedFromAuthorize(true)
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [authorizeOpened])
+
   useEffect(() => {
     if (status?.status === 'connected') {
       // Small delay so the user sees the success state before dismissal.
@@ -44,6 +60,19 @@ export function GithubAppDeviceFlowModal({
     }
     return undefined
   }, [status?.status, onDismiss])
+
+  // Move focus to the modal heading on mount + Escape to dismiss. Both
+  // are basic dialog hygiene that screen readers + keyboard users
+  // depend on.
+  const headingRef = useRef<HTMLHeadingElement | null>(null)
+  useEffect(() => {
+    headingRef.current?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onDismiss()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onDismiss])
 
   const remainingMinutes = Math.floor(remainingMs / 60_000)
   const remainingSeconds = Math.floor((remainingMs % 60_000) / 1000)
@@ -57,6 +86,14 @@ export function GithubAppDeviceFlowModal({
   const handleCopyCode = () => {
     void navigator.clipboard?.writeText(connect.user_code)
   }
+
+  // GitHub's /login/device page accepts ``?user_code=AAAA-BBBB`` to
+  // pre-fill the input. With this the user lands on a one-click
+  // Authorize page — no copy/paste needed. Single biggest UX win we
+  // could make in this flow.
+  const authorizeUrl = `${connect.verification_uri}?user_code=${encodeURIComponent(
+    connect.user_code,
+  )}`
 
   return (
     <div
@@ -75,32 +112,57 @@ export function GithubAppDeviceFlowModal({
           <div className="flex-1">
             <h3
               id="github-device-flow-title"
-              className="text-lg font-semibold tracking-tight text-on-surface"
+              ref={headingRef}
+              tabIndex={-1}
+              className="text-lg font-semibold tracking-tight text-on-surface focus:outline-none"
             >
               Authorize OpenSec on this device
             </h3>
             <p className="text-sm text-on-surface-variant mt-1">
-              Open GitHub and enter the code below to finish connecting.
+              Click the button below to confirm on GitHub. We pre-fill the
+              code for you.
             </p>
           </div>
         </div>
 
         {!terminal && (
           <>
-            {/* Step 1 — copy the code */}
-            <div className="rounded-xl bg-surface-container-low p-5">
-              <p className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant mb-3">
-                Step 1 · Copy this code
-              </p>
-              <div className="flex items-center justify-between gap-3">
-                <code className="font-mono text-3xl font-bold tracking-[0.3em] text-on-surface select-all">
+            {/* Step 2 — primary action. Pre-filled URL means the user
+                doesn't need to copy/paste; we keep Step 1 below as a
+                fallback in case the pre-fill ever fails. */}
+            <a
+              href={authorizeUrl}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => setAuthorizeOpened(true)}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 py-4 text-base font-semibold text-on-primary hover:bg-primary/90 transition-colors shadow-sm shadow-primary/20"
+            >
+              <span className="material-symbols-outlined text-xl">
+                open_in_new
+              </span>
+              Authorize on GitHub
+            </a>
+            <p className="text-xs text-on-surface-variant mt-2 text-center">
+              Opens <span className="font-mono">github.com/login/device</span>
+              {' '}with the code already filled in. Click Authorize there,
+              then come back — we'll detect it automatically.
+            </p>
+
+            {/* Step 1 — code, kept as a fallback (some users may want to
+                copy/paste manually if the pre-filled link is blocked). */}
+            <details className="mt-5 rounded-xl bg-surface-container-low p-4">
+              <summary className="cursor-pointer text-xs font-semibold text-on-surface-variant select-none">
+                Need to enter the code manually? Copy it here
+              </summary>
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <code className="font-mono text-2xl font-bold tracking-[0.3em] text-on-surface select-all">
                   {connect.user_code}
                 </code>
                 <button
                   type="button"
                   aria-label="Copy code"
                   onClick={handleCopyCode}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-surface-container-lowest px-3 py-2 text-xs font-semibold text-on-surface-variant hover:text-on-surface transition-colors"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-surface-container-lowest px-3 py-2 text-xs font-semibold text-on-surface-variant hover:text-on-surface transition-colors min-h-[36px]"
                 >
                   <span className="material-symbols-outlined text-sm">
                     content_copy
@@ -108,39 +170,19 @@ export function GithubAppDeviceFlowModal({
                   Copy
                 </button>
               </div>
-            </div>
+            </details>
 
-            {/* Step 2 — authorize on GitHub (the prominent action) */}
-            <div className="mt-3 rounded-xl bg-surface-container-low p-5">
-              <p className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant mb-3">
-                Step 2 · Paste it on GitHub to authorize
-              </p>
-              <a
-                href={connect.verification_uri}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-5 py-3 text-base font-semibold text-on-primary hover:bg-primary/90 transition-colors"
-              >
-                <span className="material-symbols-outlined text-xl">
-                  open_in_new
-                </span>
-                Authorize on GitHub
-              </a>
-              <p className="text-xs text-on-surface-variant mt-3 text-center">
-                Opens <span className="font-mono">github.com/login/device</span>{' '}
-                in a new tab. Paste the code above, click Authorize, and come
-                back here — we'll detect it automatically.
-              </p>
-            </div>
-
-            <p className="mt-4 text-xs text-on-surface-variant text-center">
-              Code expires in{' '}
-              <span className="font-mono font-semibold">{timer}</span>
-              {status && (
+            <p
+              className="mt-4 text-xs text-on-surface-variant text-center"
+              aria-live="polite"
+            >
+              <span>{statusLabel(status?.status, returnedFromAuthorize)}</span>
+              {remainingMs < COUNTDOWN_VISIBLE_BELOW_MS && (
                 <>
                   {' · '}
-                  <span aria-live="polite">
-                    {statusLabel(status.status)}
+                  <span aria-live="off">
+                    Expires in{' '}
+                    <span className="font-mono font-semibold">{timer}</span>
                   </span>
                 </>
               )}
@@ -182,7 +224,7 @@ export function GithubAppDeviceFlowModal({
               onClick={onDismiss}
               className="rounded-md px-3 py-1.5 text-xs text-on-surface-variant hover:text-on-surface transition-colors"
             >
-              Continue in background
+              Cancel
             </button>
           </div>
         )}
@@ -191,18 +233,27 @@ export function GithubAppDeviceFlowModal({
   )
 }
 
-function statusLabel(status: string | undefined): string {
+function statusLabel(
+  status: string | undefined,
+  returnedFromAuthorize: boolean,
+): string {
+  // Prefer the "you came back from GitHub" cue when we have it — it's
+  // the most reassuring copy in the window between authorize-click and
+  // the next polling tick that catches the access token.
+  if (returnedFromAuthorize && status !== 'connected') {
+    return 'Confirming with GitHub…'
+  }
   switch (status) {
     case 'installation_pending':
-      return 'Waiting for install...'
+      return 'Waiting for install…'
     case 'device_pending':
-      return 'Waiting for authorization...'
+      return 'Waiting for authorization…'
     case 'rate_limited':
-      return 'Slowing down...'
+      return 'Slowing down…'
     case 'connected':
       return 'Connected'
     default:
-      return 'Polling...'
+      return 'Getting your device code ready…'
   }
 }
 

@@ -254,6 +254,10 @@ class IntegrationConfig(BaseModel):
     # device-flow path); ``pat`` means it doesn't (legacy onboarding).
     # ``None`` for non-github integrations.
     auth_method: Literal["github_app", "pat"] | None = None
+    # GitHub login the user authorized as. Only populated for
+    # auth_method='github_app' rows; surfaced in the Settings card so
+    # the user can tell which account/org is currently connected.
+    github_login: str | None = None
 
 
 class IntegrationConfigCreate(BaseModel):

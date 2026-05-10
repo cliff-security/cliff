@@ -10,7 +10,10 @@ import {
   useTestIntegration,
   useAllIntegrationsHealth,
 } from '@/api/hooks'
-import { useGithubAppResumeOnReturn } from '@/api/githubApp'
+import {
+  useGithubAppDisconnect,
+  useGithubAppResumeOnReturn,
+} from '@/api/githubApp'
 import type {
   RegistryEntry,
   CredentialField,
@@ -349,9 +352,38 @@ function ConfiguredCard({
   health: IntegrationHealthStatus | undefined
 }) {
   const deleteIntegration = useDeleteIntegration()
+  const githubAppDisconnect = useGithubAppDisconnect()
   const testIntegration = useTestIntegration()
   const { data: credentials } = useCredentials(integration.id)
   const [testing, setTesting] = useState(false)
+
+  const isGithubAppRow = integration.auth_method === 'github_app'
+
+  const handleDisconnect = async () => {
+    const label = isGithubAppRow ? 'the GitHub App' : `the ${integration.provider_name} integration`
+    const confirmed = window.confirm(
+      `Disconnect ${label}? Workspaces that depend on it will stop until you reconnect.` +
+        (isGithubAppRow
+          ? '\n\nThis only removes the local connection. To revoke OpenSec on GitHub, visit github.com/settings/applications afterwards.'
+          : ''),
+    )
+    if (!confirmed) return
+    if (isGithubAppRow) {
+      try {
+        const r = await githubAppDisconnect.mutateAsync()
+        if (typeof window !== 'undefined' && r.manual_revoke_url) {
+          // Open the revoke page in a new tab so the user has a one-click
+          // path to fully revoke the App on GitHub's side too.
+          window.open(r.manual_revoke_url, '_blank', 'noopener,noreferrer')
+        }
+      } catch {
+        // Fall through — local cleanup is best-effort, the integrations
+        // list will refresh and reflect any partial state.
+      }
+    } else {
+      deleteIntegration.mutate(integration.id)
+    }
+  }
 
   const handleTest = async () => {
     setTesting(true)
@@ -378,8 +410,24 @@ function ConfiguredCard({
 
         {/* Name + health status */}
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold text-on-surface">
-            {integration.provider_name}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-semibold text-on-surface">
+              {integration.provider_name}
+            </span>
+            {/* Provenance pill: tells the user at a glance whether
+                this integration is App-flow or PAT-flow, and (for App
+                flow) which GitHub identity it's bound to. */}
+            {isGithubAppRow && integration.github_login && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                <span className="material-symbols-outlined text-[12px]">verified</span>
+                GitHub App · @{integration.github_login}
+              </span>
+            )}
+            {integration.auth_method === 'pat' && (
+              <span className="inline-flex items-center rounded-full bg-surface-container-lowest px-2 py-0.5 text-[11px] font-medium text-on-surface-variant">
+                Personal access token
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-3 mt-0.5">
             <span className="text-xs text-on-surface-variant">
@@ -403,12 +451,14 @@ function ConfiguredCard({
           <HealthIndicator health={health} />
         </div>
 
-        {/* Test button */}
+        {/* Test button — min 36px touch target, comfortably above icon-
+            only minimum without competing with the disconnect action. */}
         <button
           onClick={handleTest}
           disabled={testing}
-          className="p-1.5 text-on-surface-variant hover:text-primary rounded-md transition-all"
+          className="inline-flex items-center justify-center min-w-[36px] min-h-[36px] text-on-surface-variant hover:text-primary rounded-md transition-all"
           title="Test connection"
+          aria-label="Test connection"
         >
           <span
             className={`material-symbols-outlined text-base ${
@@ -419,13 +469,16 @@ function ConfiguredCard({
           </span>
         </button>
 
-        {/* Delete button */}
+        {/* Disconnect button — labelled (not icon-only) since it's
+            destructive, with a confirmation dialog and proper App-flow
+            cleanup path when the row is github_app-backed. */}
         <button
-          onClick={() => deleteIntegration.mutate(integration.id)}
-          className="p-1.5 text-on-surface-variant hover:text-error rounded-md transition-colors"
-          title="Remove integration"
+          onClick={handleDisconnect}
+          className="inline-flex items-center gap-1.5 min-h-[36px] rounded-md px-2.5 py-1.5 text-xs font-semibold text-on-surface-variant hover:text-error hover:bg-error/5 transition-colors"
+          aria-label="Disconnect integration"
         >
-          <span className="material-symbols-outlined text-base">delete</span>
+          <span className="material-symbols-outlined text-base">link_off</span>
+          Disconnect
         </button>
       </div>
 
@@ -537,6 +590,43 @@ export default function IntegrationSettings() {
         />
       )}
 
+      {/* Post-connect "what next" callout. Shows when the App-flow row
+          is connected but no repo_url has been picked yet — that's the
+          state a user lands in if they connected from /settings instead
+          of /onboarding/connect. Without this they're left wondering
+          "ok, now what?". */}
+      {githubIntegration?.auth_method === 'github_app' &&
+        !githubIntegration?.config?.repo_url && (
+          <div className="rounded-xl bg-tertiary-container/30 px-4 py-3 mb-4 flex items-center justify-between gap-3">
+            <div className="min-w-0 flex items-start gap-3">
+              <span className="material-symbols-outlined text-tertiary mt-0.5">
+                arrow_forward
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-on-surface">
+                  You're connected
+                  {githubIntegration.github_login
+                    ? ` as @${githubIntegration.github_login}`
+                    : ''}
+                  . Pick a repo to start scanning.
+                </p>
+                <p className="text-xs text-on-surface-variant mt-0.5">
+                  We'll clone it and run the assessment right after.
+                </p>
+              </div>
+            </div>
+            <a
+              href="/onboarding/connect"
+              className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-on-primary hover:bg-primary/90 transition-colors"
+            >
+              Pick a repo
+              <span className="material-symbols-outlined text-base">
+                arrow_forward
+              </span>
+            </a>
+          </div>
+        )}
+
       {showMigrationBanner && <GithubAppMigrationBanner />}
 
       {/* Configured integrations */}
@@ -609,19 +699,20 @@ export default function IntegrationSettings() {
                     </div>
                     {entry.status === 'available' && !configured && (
                       entry.id === 'github' && entry.github_app_available ? (
-                        <div className="flex flex-col items-end gap-1">
+                        <div className="flex flex-col items-end gap-1.5">
                           <GithubAppConnectButton
                             label="Connect"
-                            className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs font-semibold text-on-primary hover:bg-primary/90 transition-colors disabled:opacity-60"
+                            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-on-primary hover:bg-primary/90 transition-colors disabled:opacity-60"
                           />
                           {/* PAT fallback for users who'd rather paste a
                               token (security policy, restricted org App
-                              install permissions, etc). Same setup panel
-                              the legacy flow uses. */}
+                              install permissions, etc). text-xs (12px)
+                              keeps it secondary without crossing into
+                              dark-pattern hidden-link territory. */}
                           <button
                             type="button"
                             onClick={() => setSetupEntry(entry)}
-                            className="text-[10px] text-on-surface-variant hover:text-on-surface underline decoration-dotted underline-offset-2"
+                            className="text-xs text-on-surface-variant hover:text-on-surface underline decoration-dotted underline-offset-2 px-1 py-0.5"
                             data-testid="github-prefer-pat"
                           >
                             Use a token instead

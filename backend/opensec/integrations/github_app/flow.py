@@ -332,7 +332,17 @@ class DeviceFlowOrchestrator:
                 "device_pending",
             }:
                 return
-            interval = record.polling_interval_seconds or 5
+            # Tighter poll cadence after the user has installed (and is
+            # therefore actively waiting on the github.com/login/device
+            # screen). GitHub's ``slow_down`` will push us back if we
+            # exceed the limit. Pre-install we stick to the GitHub-
+            # supplied default — the user is still on a different page.
+            stored = record.polling_interval_seconds or 5
+            interval = (
+                min(stored, 2)
+                if record.polling_status == "device_pending"
+                else stored
+            )
             await self._clock.sleep(float(interval))
             await self.run_poll_step(integration_id)
 

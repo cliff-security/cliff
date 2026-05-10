@@ -28,7 +28,8 @@ export function GithubAppMigrationBanner() {
           </p>
           <p className="text-xs text-on-surface-variant mt-0.5">
             One-click install, no token to manage. Your existing token keeps
-            working until you switch.
+            working until you switch — and we'll keep it in storage afterwards
+            in case you want to switch back.
           </p>
         </div>
       </div>

@@ -292,6 +292,9 @@ export interface IntegrationConfigItem {
   /** ADR-0035 / IMPL-0010 — populated only on the github row.
    * 'github_app' = device-flow path; 'pat' = legacy PAT onboarding. */
   auth_method?: 'github_app' | 'pat' | null;
+  /** GitHub login the user authorized as. Populated only for
+   *  auth_method='github_app' rows. */
+  github_login?: string | null;
 }
 
 export interface IntegrationConfigCreate {

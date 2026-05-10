@@ -2613,6 +2613,17 @@
             "title": "Enabled",
             "type": "boolean"
           },
+          "github_login": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Github Login"
+          },
           "id": {
             "title": "Id",
             "type": "string"

@@ -310,17 +310,21 @@ async def get_registry_entry_endpoint(entry_id: str):
 @router.get("/settings/integrations", response_model=list[IntegrationConfig])
 async def list_integrations_endpoint(db=Depends(get_db)):
     rows = await list_integrations(db)
-    # Tag each github row with its auth_method so the frontend can branch
-    # without polling /api/integrations/github/status (race-free, ADR-0035).
+    # Tag each github row with its auth_method + github_login so the
+    # frontend can branch without polling /api/integrations/github/status
+    # (race-free, ADR-0035) AND show "Connected as @<login>" without an
+    # extra round-trip.
     cursor = await db.execute(
-        "SELECT integration_id FROM github_app_installation"
+        "SELECT integration_id, github_login FROM github_app_installation"
     )
-    app_flow_ids = {r["integration_id"] for r in await cursor.fetchall()}
+    app_flow_meta = {r["integration_id"]: r["github_login"] for r in await cursor.fetchall()}
     for row in rows:
         if row.provider_name.lower() == "github":
-            row.auth_method = (
-                "github_app" if row.id in app_flow_ids else "pat"
-            )
+            if row.id in app_flow_meta:
+                row.auth_method = "github_app"
+                row.github_login = app_flow_meta[row.id]
+            else:
+                row.auth_method = "pat"
     return rows
 
 

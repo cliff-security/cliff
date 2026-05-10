@@ -401,6 +401,12 @@ export default function ConnectRepo() {
               returnTo="/onboarding/connect"
               className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-5 py-3 text-base font-semibold text-on-primary hover:bg-primary/90 transition-colors disabled:opacity-60"
             />
+            {/* Set the expectation that GitHub may sudo-mode prompt for
+                a password — not under our control, but a "wait, where am
+                I?" moment if the user wasn't warned. */}
+            <p className="text-[11px] text-on-surface-variant mt-2 text-center">
+              GitHub may ask you to re-enter your password to confirm the install.
+            </p>
           </div>
           <div className="text-center">
             <button
