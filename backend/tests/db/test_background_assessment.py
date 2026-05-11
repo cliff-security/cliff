@@ -89,6 +89,40 @@ class TestClassifyAssessmentFailure:
         )
         assert step == "unknown"
 
+    def test_file_not_found_with_filename_names_the_missing_binary(self):
+        """Missing scanner binary surfaces ``trivy`` (or whichever) at the
+        headline level so the user can run ``scripts/install-scanners.sh``
+        without expanding the technical-details disclosure."""
+        exc = FileNotFoundError(2, "No such file or directory", "trivy")
+        kind, message, step = classify_assessment_failure(
+            exc, live_step="trivy_vuln"
+        )
+        assert kind == "internal_error"
+        assert "trivy" in message
+        assert "install-scanners.sh" in message
+        assert step == "trivy_vuln"
+
+    def test_file_not_found_without_filename_falls_back_to_message_parse(self):
+        """Some glibc/uvloop combos raise FileNotFoundError without setting
+        ``filename``. The classifier must still produce a useful headline."""
+        exc = FileNotFoundError("[Errno 2] No such file or directory: 'semgrep'")
+        _kind, message, _step = classify_assessment_failure(
+            exc, live_step="semgrep"
+        )
+        assert "semgrep" in message
+        assert "install-scanners.sh" in message
+
+    def test_file_not_found_with_no_signal_uses_generic_headline(self):
+        """If neither ``filename`` nor a parseable message is present we fall
+        back to a generic 'binary missing' headline rather than letting it
+        slip through to 'Something went wrong'."""
+        exc = FileNotFoundError("opaque")
+        _kind, message, _step = classify_assessment_failure(
+            exc, live_step="trivy_vuln"
+        )
+        assert "scanner binary" in message.lower()
+        assert "install-scanners.sh" in message
+
     def test_missing_live_step_is_unknown(self):
         _kind, _msg, step = classify_assessment_failure(
             RuntimeError("kaboom"),
