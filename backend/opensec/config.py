@@ -36,6 +36,33 @@ class Settings(BaseSettings):
     # Credential vault
     credential_key: str = ""  # Base64-encoded 32-byte AES key (or set OPENSEC_CREDENTIAL_KEY)
 
+    # GitHub App + Device Flow onboarding (ADR-0035, IMPL-0010). Both values
+    # are PUBLIC by GitHub's design — the client_id appears in every device
+    # code request, and the slug is in the public install URL. Safe to ship
+    # in source. The actual secrets (client_secret + private key) are never
+    # used by self-hosted instances and never leave our infrastructure.
+    # Override via OPENSEC_GITHUB_APP_CLIENT_ID and OPENSEC_GITHUB_APP_SLUG.
+    # Leave empty to disable the App onboarding surface (PAT remains the
+    # only path).
+    github_app_client_id: str = "Iv23lio5AYwdYwkcI90e"
+    github_app_slug: str = "opensec-local-test"
+
+    # Public base URL of this OpenSec instance. Used to construct the
+    # GitHub App ``setup_url`` callback target. Honor with OPENSEC_BASE_URL
+    # when running behind a reverse proxy or on a non-default port.
+    base_url: str = "http://localhost:8000"
+
+    # Public base URL of the frontend SPA. In production the backend
+    # serves the built SPA from ``static_dir`` on the same origin, so
+    # ``base_url`` works for both API and SPA. In dev the SPA runs on
+    # Vite (``:5173``) while the API runs on FastAPI (``:8000``), so we
+    # need to redirect post-install callbacks to the Vite origin.
+    # Empty (default) means "auto-detect": if ``static_dir`` is set,
+    # use ``base_url`` (same-origin); otherwise fall back to the Vite
+    # dev convention ``http://localhost:5173``. Override via
+    # OPENSEC_FRONTEND_BASE_URL when neither default fits.
+    frontend_base_url: str = ""
+
     # Audit logging
     audit_retention_days: int = 90
 

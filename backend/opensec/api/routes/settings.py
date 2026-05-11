@@ -11,6 +11,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from opensec.config import settings as app_settings
 from opensec.db.connection import get_db
 from opensec.db.repo_integration import (
     create_integration,
@@ -270,10 +271,26 @@ async def delete_api_key(provider: str, db=Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 
+def _github_app_available() -> bool:
+    """ADR-0035: True when the shared GitHub App + Device Flow onboarding
+    surface is configured on this instance (env ``OPENSEC_GITHUB_APP_CLIENT_ID``
+    and ``OPENSEC_GITHUB_APP_SLUG`` both non-empty)."""
+    return bool(
+        app_settings.github_app_client_id and app_settings.github_app_slug
+    )
+
+
+def _enrich_registry_entry(entry: RegistryEntry) -> RegistryEntry:
+    """Set ``github_app_available`` on the github entry; pass others through."""
+    if entry.id == "github":
+        return entry.model_copy(update={"github_app_available": _github_app_available()})
+    return entry
+
+
 @router.get("/settings/integrations/registry", response_model=list[RegistryEntry])
 async def list_registry():
     """List all available integrations from the builtin registry."""
-    return load_registry()
+    return [_enrich_registry_entry(e) for e in load_registry()]
 
 
 @router.get("/settings/integrations/registry/{entry_id}", response_model=RegistryEntry)
@@ -282,7 +299,7 @@ async def get_registry_entry_endpoint(entry_id: str):
     entry = get_registry_entry(entry_id)
     if entry is None:
         raise HTTPException(status_code=404, detail="Registry entry not found")
-    return entry
+    return _enrich_registry_entry(entry)
 
 
 # ---------------------------------------------------------------------------
@@ -292,7 +309,23 @@ async def get_registry_entry_endpoint(entry_id: str):
 
 @router.get("/settings/integrations", response_model=list[IntegrationConfig])
 async def list_integrations_endpoint(db=Depends(get_db)):
-    return await list_integrations(db)
+    rows = await list_integrations(db)
+    # Tag each github row with its auth_method + github_login so the
+    # frontend can branch without polling /api/integrations/github/status
+    # (race-free, ADR-0035) AND show "Connected as @<login>" without an
+    # extra round-trip.
+    cursor = await db.execute(
+        "SELECT integration_id, github_login FROM github_app_installation"
+    )
+    app_flow_meta = {r["integration_id"]: r["github_login"] for r in await cursor.fetchall()}
+    for row in rows:
+        if row.provider_name.lower() == "github":
+            if row.id in app_flow_meta:
+                row.auth_method = "github_app"
+                row.github_login = app_flow_meta[row.id]
+            else:
+                row.auth_method = "pat"
+    return rows
 
 
 @router.post("/settings/integrations", response_model=IntegrationConfig, status_code=201)

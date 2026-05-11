@@ -69,6 +69,7 @@ Claude scans the repo, opens a workspace per finding, and walks you through plan
 ## Learn more
 
 - [Architecture overview](docs/architecture/overview.md)
+- [Connect a GitHub repo](docs/guides/setup-github-app.md) — one-click GitHub App + device flow
 - [ADRs](docs/adr/) — every significant decision
 - [Roadmap](ROADMAP.md)
 - [Contributing](.github/CONTRIBUTING.md)

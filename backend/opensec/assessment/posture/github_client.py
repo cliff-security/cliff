@@ -4,14 +4,23 @@ We intentionally do not depend on PyGithub — three endpoints and a token is
 all we need. On 403/404/429 we return a sentinel `UnableToVerify`, not raise,
 so a PAT without admin scope degrades rather than failing the whole
 assessment (ADR-0025 risk row).
+
+Token refresh hook (IMPL-0010): when a ``refresh_callback`` is supplied,
+a 401 response triggers exactly one refresh-and-retry. The callback is
+expected to return a fresh access token (or ``None`` when refresh is
+impossible). Used by GitHub App user access tokens so a workspace doesn't
+fail simply because the token rotated since it was minted.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Mapping
 
 GITHUB_API = "https://api.github.com"
 
@@ -47,10 +56,12 @@ class GithubClient:
         *,
         token: str | None = None,
         timeout: float = 10.0,
+        refresh_callback: Callable[[], Awaitable[str | None]] | None = None,
     ) -> None:
         self._http = http
         self._token = token
         self._timeout = timeout
+        self._refresh_callback = refresh_callback
 
     def _headers(self) -> dict[str, str]:
         headers = {
@@ -61,15 +72,45 @@ class GithubClient:
             headers["Authorization"] = f"Bearer {self._token}"
         return headers
 
+    async def _get(
+        self, url: str, *, params: Mapping[str, str] | None = None
+    ) -> httpx.Response:
+        """Wrapper around ``self._http.get`` with one-shot 401 refresh retry.
+
+        Behavior:
+        - When no ``refresh_callback`` is set, behaves exactly like the
+          underlying ``self._http.get(...)`` (single attempt).
+        - On a 401 response with a callback set, awaits the callback,
+          updates ``self._token`` if a fresh token comes back, and retries
+          the call exactly once. If the callback returns ``None`` or the
+          retry also returns 401, the 401 response is surfaced as-is — the
+          caller (existing methods) will map it to ``UnableToVerify``.
+        """
+        kwargs: dict[str, Any] = {
+            "headers": self._headers(),
+            "timeout": self._timeout,
+        }
+        if params is not None:
+            kwargs["params"] = params
+
+        response = await self._http.get(url, **kwargs)
+        if response.status_code != 401 or self._refresh_callback is None:
+            return response
+
+        new_token = await self._refresh_callback()
+        if not new_token:
+            return response
+        self._token = new_token
+        kwargs["headers"] = self._headers()
+        return await self._http.get(url, **kwargs)
+
     async def get_repo_info(
         self, owner: str, repo: str
     ) -> dict[str, Any] | UnableToVerify:
         """Fetch minimal repo metadata — used by the onboarding connect step."""
         url = f"{GITHUB_API}/repos/{owner}/{repo}"
         try:
-            response = await self._http.get(
-                url, headers=self._headers(), timeout=self._timeout
-            )
+            response = await self._get(url)
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             return UnableToVerify(reason=f"network: {exc.__class__.__name__}")
 
@@ -85,9 +126,7 @@ class GithubClient:
     ) -> dict[str, Any] | UnableToVerify | None:
         url = f"{GITHUB_API}/repos/{owner}/{repo}/branches/{branch}/protection"
         try:
-            response = await self._http.get(
-                url, headers=self._headers(), timeout=self._timeout
-            )
+            response = await self._get(url)
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             return UnableToVerify(reason=f"network: {exc.__class__.__name__}")
 
@@ -113,9 +152,7 @@ class GithubClient:
         url = f"{GITHUB_API}/repos/{owner}/{repo}/collaborators"
         params = {"affiliation": "direct", "per_page": "100"}
         try:
-            response = await self._http.get(
-                url, headers=self._headers(), params=params, timeout=self._timeout
-            )
+            response = await self._get(url, params=params)
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             return UnableToVerify(reason=f"network: {exc.__class__.__name__}")
 
@@ -148,9 +185,7 @@ class GithubClient:
             if url is None:
                 break
             try:
-                response = await self._http.get(
-                    url, headers=self._headers(), timeout=self._timeout
-                )
+                response = await self._get(url)
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 return UnableToVerify(reason=f"network: {exc.__class__.__name__}")
 
@@ -185,9 +220,7 @@ class GithubClient:
         url = f"{GITHUB_API}/users/{login}/events"
         params = {"per_page": "1"}
         try:
-            response = await self._http.get(
-                url, headers=self._headers(), params=params, timeout=self._timeout
-            )
+            response = await self._get(url, params=params)
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             return UnableToVerify(reason=f"network: {exc.__class__.__name__}")
 
@@ -211,9 +244,7 @@ class GithubClient:
         url = f"{GITHUB_API}/repos/{owner}/{repo}/commits"
         params = {"sha": branch, "per_page": str(limit)}
         try:
-            response = await self._http.get(
-                url, headers=self._headers(), params=params, timeout=self._timeout
-            )
+            response = await self._get(url, params=params)
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             return UnableToVerify(reason=f"network: {exc.__class__.__name__}")
 

@@ -289,6 +289,12 @@ export interface IntegrationConfigItem {
   config: Record<string, unknown> | null;
   last_test_result: Record<string, unknown> | null;
   updated_at: string;
+  /** ADR-0035 / IMPL-0010 — populated only on the github row.
+   * 'github_app' = device-flow path; 'pat' = legacy PAT onboarding. */
+  auth_method?: 'github_app' | 'pat' | null;
+  /** GitHub login the user authorized as. Populated only for
+   *  auth_method='github_app' rows. */
+  github_login?: string | null;
 }
 
 export interface IntegrationConfigCreate {
@@ -329,6 +335,10 @@ export interface RegistryEntry {
   capabilities: string[];
   docs_url: string | null;
   mcp_config: Record<string, unknown> | null;
+  /** ADR-0035 / IMPL-0010 — true on the github entry when the
+   * shared GitHub App + Device Flow onboarding surface is configured
+   * on this instance. Stays false for every other entry. */
+  github_app_available?: boolean;
 }
 
 export interface CredentialInfo {

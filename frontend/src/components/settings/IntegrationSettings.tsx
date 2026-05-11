@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   useIntegrations,
   useCreateIntegration,
@@ -10,12 +11,21 @@ import {
   useTestIntegration,
   useAllIntegrationsHealth,
 } from '@/api/hooks'
+import {
+  useGithubAppDisconnect,
+  useGithubAppResumeOnReturn,
+  useGithubAppStatus,
+} from '@/api/githubApp'
 import type {
   RegistryEntry,
   CredentialField,
   IntegrationConfigItem,
   IntegrationHealthStatus,
 } from '@/api/client'
+import { GithubAppConnectButton } from './GithubAppConnectButton'
+import { GithubAppDeviceFlowModal } from './GithubAppDeviceFlowModal'
+import { GithubAppMigrationBanner } from './GithubAppMigrationBanner'
+import { RepoPickerDialog } from '@/components/repo/RepoPickerDialog'
 
 // ---------------------------------------------------------------------------
 // Utilities
@@ -345,9 +355,38 @@ function ConfiguredCard({
   health: IntegrationHealthStatus | undefined
 }) {
   const deleteIntegration = useDeleteIntegration()
+  const githubAppDisconnect = useGithubAppDisconnect()
   const testIntegration = useTestIntegration()
   const { data: credentials } = useCredentials(integration.id)
   const [testing, setTesting] = useState(false)
+
+  const isGithubAppRow = integration.auth_method === 'github_app'
+
+  const handleDisconnect = async () => {
+    const label = isGithubAppRow ? 'the GitHub App' : `the ${integration.provider_name} integration`
+    const confirmed = window.confirm(
+      `Disconnect ${label}? Workspaces that depend on it will stop until you reconnect.` +
+        (isGithubAppRow
+          ? '\n\nThis only removes the local connection. To revoke OpenSec on GitHub, visit github.com/settings/applications afterwards.'
+          : ''),
+    )
+    if (!confirmed) return
+    if (isGithubAppRow) {
+      try {
+        const r = await githubAppDisconnect.mutateAsync()
+        if (typeof window !== 'undefined' && r.manual_revoke_url) {
+          // Open the revoke page in a new tab so the user has a one-click
+          // path to fully revoke the App on GitHub's side too.
+          window.open(r.manual_revoke_url, '_blank', 'noopener,noreferrer')
+        }
+      } catch {
+        // Fall through — local cleanup is best-effort, the integrations
+        // list will refresh and reflect any partial state.
+      }
+    } else {
+      deleteIntegration.mutate(integration.id)
+    }
+  }
 
   const handleTest = async () => {
     setTesting(true)
@@ -374,8 +413,24 @@ function ConfiguredCard({
 
         {/* Name + health status */}
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold text-on-surface">
-            {integration.provider_name}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-semibold text-on-surface">
+              {integration.provider_name}
+            </span>
+            {/* Provenance pill: tells the user at a glance whether
+                this integration is App-flow or PAT-flow, and (for App
+                flow) which GitHub identity it's bound to. */}
+            {isGithubAppRow && integration.github_login && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                <span className="material-symbols-outlined text-[12px]">verified</span>
+                GitHub App · @{integration.github_login}
+              </span>
+            )}
+            {integration.auth_method === 'pat' && (
+              <span className="inline-flex items-center rounded-full bg-surface-container-lowest px-2 py-0.5 text-[11px] font-medium text-on-surface-variant">
+                Personal access token
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-3 mt-0.5">
             <span className="text-xs text-on-surface-variant">
@@ -399,12 +454,14 @@ function ConfiguredCard({
           <HealthIndicator health={health} />
         </div>
 
-        {/* Test button */}
+        {/* Test button — min 36px touch target, comfortably above icon-
+            only minimum without competing with the disconnect action. */}
         <button
           onClick={handleTest}
           disabled={testing}
-          className="p-1.5 text-on-surface-variant hover:text-primary rounded-md transition-all"
+          className="inline-flex items-center justify-center min-w-[36px] min-h-[36px] text-on-surface-variant hover:text-primary rounded-md transition-all"
           title="Test connection"
+          aria-label="Test connection"
         >
           <span
             className={`material-symbols-outlined text-base ${
@@ -415,13 +472,16 @@ function ConfiguredCard({
           </span>
         </button>
 
-        {/* Delete button */}
+        {/* Disconnect button — labelled (not icon-only) since it's
+            destructive, with a confirmation dialog and proper App-flow
+            cleanup path when the row is github_app-backed. */}
         <button
-          onClick={() => deleteIntegration.mutate(integration.id)}
-          className="p-1.5 text-on-surface-variant hover:text-error rounded-md transition-colors"
-          title="Remove integration"
+          onClick={handleDisconnect}
+          className="inline-flex items-center gap-1.5 min-h-[36px] rounded-md px-2.5 py-1.5 text-xs font-semibold text-on-surface-variant hover:text-error hover:bg-error/5 transition-colors"
+          aria-label="Disconnect integration"
         >
-          <span className="material-symbols-outlined text-base">delete</span>
+          <span className="material-symbols-outlined text-base">link_off</span>
+          Disconnect
         </button>
       </div>
 
@@ -452,8 +512,61 @@ export default function IntegrationSettings() {
   )
   const [setupEntry, setSetupEntry] = useState<RegistryEntry | null>(null)
 
+  // ADR-0035 / IMPL-0010 — show the App-flow surface only when the
+  // backend reports it's available, gated on the env var being set.
+  const githubEntry = (registry || []).find((r) => r.id === 'github')
+  const githubAppAvailable = githubEntry?.github_app_available === true
+
+  // Use the synchronous auth_method tag the backend stamps on the github
+  // integration row instead of racing /status. ``github_app`` = the user
+  // already authorized the device flow; ``pat`` = legacy onboarding,
+  // suitable to surface the migration banner to.
+  const githubIntegration = (integrations || []).find(
+    (i) => i.provider_name.toLowerCase() === 'github' && i.enabled,
+  )
+  const showMigrationBanner =
+    githubAppAvailable &&
+    githubIntegration !== undefined &&
+    githubIntegration.auth_method === 'pat'
+
+  // Page-level resume: if the user just came back from a successful
+  // App install on github.com, /setup tagged the URL with
+  // ?github_setup=complete. We fire /connect once (idempotent) and
+  // mount the modal here so it doesn't depend on the catalog button
+  // being rendered (which it isn't, once an integration row exists).
+  const {
+    response: resumedFlow,
+    clear: clearResumedFlow,
+    resume: resumeGithubAppFlow,
+  } = useGithubAppResumeOnReturn()
+  // Detect a backend in-flight row (installation_pending /
+  // device_pending) — the user clicked Connect but didn't finish
+  // authorising. Surfaces a "Resume install" CTA on the GitHub
+  // catalog tile instead of letting them re-click Connect into a
+  // navigate-to-Configure-page loop. The same hook backs the
+  // onboarding page, so the user gets consistent recovery there.
+  const { data: ghAppStatus } = useGithubAppStatus({ enabled: true })
+  const ghAppInflight =
+    ghAppStatus?.status === 'installation_pending' ||
+    ghAppStatus?.status === 'device_pending'
+
+  // Inline repo-picker dialog. Replaces the old "Pick a repo →
+  // /onboarding/connect" anchor that used to dump users back into the
+  // wizard (and re-prompt them through the AI step). Opens the same
+  // ``RepoPickerFlow`` the wizard uses, but in a modal scoped to this
+  // page so the user stays in Settings and we just refresh the
+  // integration row on success.
+  const [repoPickerOpen, setRepoPickerOpen] = useState(false)
+  const qc = useQueryClient()
+
+  // Only enabled integrations count as "configured" — a disabled row
+  // (e.g. a github integration created during an in-flight App install
+  // before the access token arrives) must NOT unmount the catalog tile's
+  // Connect button.
   const configuredIds = new Set(
-    (integrations || []).map((i) => i.provider_name.toLowerCase()),
+    (integrations || [])
+      .filter((i) => i.enabled)
+      .map((i) => i.provider_name.toLowerCase()),
   )
 
   const getRegistryForIntegration = (integration: IntegrationConfigItem) =>
@@ -493,6 +606,68 @@ export default function IntegrationSettings() {
           onClose={() => setSetupEntry(null)}
         />
       )}
+
+      {resumedFlow && (
+        <GithubAppDeviceFlowModal
+          connect={resumedFlow}
+          onDismiss={clearResumedFlow}
+          onTryAgain={clearResumedFlow}
+        />
+      )}
+
+      {/* Post-connect "what next" callout. Shows when the App-flow row
+          is connected but no repo_url has been picked yet — that's the
+          state a user lands in if they connected from /settings instead
+          of /onboarding/connect. Without this they're left wondering
+          "ok, now what?". */}
+      {githubIntegration?.auth_method === 'github_app' &&
+        !githubIntegration?.config?.repo_url && (
+          <div className="rounded-xl bg-tertiary-container/30 px-4 py-3 mb-4 flex items-center justify-between gap-3">
+            <div className="min-w-0 flex items-start gap-3">
+              <span className="material-symbols-outlined text-tertiary mt-0.5">
+                arrow_forward
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-on-surface">
+                  You're connected
+                  {githubIntegration.github_login
+                    ? ` as @${githubIntegration.github_login}`
+                    : ''}
+                  . Pick a repo to start scanning.
+                </p>
+                <p className="text-xs text-on-surface-variant mt-0.5">
+                  We'll clone it and run the assessment right after.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setRepoPickerOpen(true)}
+              className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-on-primary hover:bg-primary/90 transition-colors"
+              data-testid="settings-pick-repo"
+            >
+              Pick a repo
+              <span className="material-symbols-outlined text-base">
+                arrow_forward
+              </span>
+            </button>
+          </div>
+        )}
+
+      <RepoPickerDialog
+        open={repoPickerOpen}
+        onClose={() => setRepoPickerOpen(false)}
+        onConnected={() => {
+          setRepoPickerOpen(false)
+          // Pull the new repo_url onto the integration card without a
+          // page refresh — also nudge the health row so the user sees
+          // a fresh check rather than the pre-pick stale state.
+          qc.invalidateQueries({ queryKey: ['integrations'] })
+          qc.invalidateQueries({ queryKey: ['integrations-health'] })
+        }}
+      />
+
+      {showMigrationBanner && <GithubAppMigrationBanner />}
 
       {/* Configured integrations */}
       {(integrations || []).length > 0 && (
@@ -563,12 +738,55 @@ export default function IntegrationSettings() {
                       ))}
                     </div>
                     {entry.status === 'available' && !configured && (
-                      <button
-                        onClick={() => setSetupEntry(entry)}
-                        className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
-                      >
-                        Set up
-                      </button>
+                      entry.id === 'github' && entry.github_app_available ? (
+                        <div className="flex flex-col items-end gap-1.5">
+                          {ghAppInflight ? (
+                            // Backend has an in-flight row from a
+                            // previous /connect that didn't complete
+                            // (App-already-installed → Configure path,
+                            // user closed tab, etc). Re-clicking
+                            // Connect would loop them back through the
+                            // same install URL; show "Resume install"
+                            // instead so one click opens the modal.
+                            <button
+                              type="button"
+                              onClick={() => void resumeGithubAppFlow()}
+                              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-on-primary hover:bg-primary/90 transition-colors"
+                              data-testid="github-resume-install"
+                            >
+                              <span className="material-symbols-outlined text-base">
+                                play_arrow
+                              </span>
+                              Resume install
+                            </button>
+                          ) : (
+                            <GithubAppConnectButton
+                              label="Connect"
+                              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-on-primary hover:bg-primary/90 transition-colors disabled:opacity-60"
+                            />
+                          )}
+                          {/* PAT fallback for users who'd rather paste a
+                              token (security policy, restricted org App
+                              install permissions, etc). text-xs (12px)
+                              keeps it secondary without crossing into
+                              dark-pattern hidden-link territory. */}
+                          <button
+                            type="button"
+                            onClick={() => setSetupEntry(entry)}
+                            className="text-xs text-on-surface-variant hover:text-on-surface underline decoration-dotted underline-offset-2 px-1 py-0.5"
+                            data-testid="github-prefer-pat"
+                          >
+                            Use a token instead
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setSetupEntry(entry)}
+                          className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
+                        >
+                          Set up
+                        </button>
+                      )
                     )}
                     {configured && (
                       <span className="text-xs text-green-600 font-medium flex items-center gap-1">

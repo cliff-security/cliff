@@ -1480,6 +1480,135 @@
         "title": "DashboardPayload",
         "type": "object"
       },
+      "DeviceFlowConnectResponse": {
+        "properties": {
+          "expires_in": {
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "install_url": {
+            "title": "Install Url",
+            "type": "string"
+          },
+          "interval": {
+            "title": "Interval",
+            "type": "integer"
+          },
+          "user_code": {
+            "title": "User Code",
+            "type": "string"
+          },
+          "verification_uri": {
+            "title": "Verification Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_code",
+          "verification_uri",
+          "expires_in",
+          "interval",
+          "install_url"
+        ],
+        "title": "DeviceFlowConnectResponse",
+        "type": "object"
+      },
+      "DeviceFlowDisconnectResponse": {
+        "properties": {
+          "manual_revoke_url": {
+            "title": "Manual Revoke Url",
+            "type": "string"
+          },
+          "status": {
+            "const": "disconnected",
+            "default": "disconnected",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "manual_revoke_url"
+        ],
+        "title": "DeviceFlowDisconnectResponse",
+        "type": "object"
+      },
+      "DeviceFlowStatusResponse": {
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "github_login": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Github Login"
+          },
+          "installation_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Installation Id"
+          },
+          "status": {
+            "enum": [
+              "installation_pending",
+              "device_pending",
+              "connected",
+              "expired",
+              "denied",
+              "rate_limited",
+              "error"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "user_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Code"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "DeviceFlowStatusResponse",
+        "type": "object"
+      },
       "ExecuteAgentRequest": {
         "description": "Optional body for ``POST /workspaces/{id}/agents/{type}/execute``.\n\nPRD-0006 Phase 2 / IMPL-0007 \u00a7B4 \u2014 adds ``user_note`` for the planner's\nRefine flow. Other agent types accept the body but ignore the note.",
         "properties": {
@@ -2452,6 +2581,21 @@
             "title": "Adapter Type",
             "type": "string"
           },
+          "auth_method": {
+            "anyOf": [
+              {
+                "enum": [
+                  "github_app",
+                  "pat"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth Method"
+          },
           "config": {
             "anyOf": [
               {
@@ -2468,6 +2612,17 @@
             "default": true,
             "title": "Enabled",
             "type": "boolean"
+          },
+          "github_login": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Github Login"
           },
           "id": {
             "title": "Id",
@@ -2909,13 +3064,17 @@
       "ListReposRequest": {
         "properties": {
           "github_token": {
-            "title": "Github Token",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Github Token"
           }
         },
-        "required": [
-          "github_token"
-        ],
         "title": "ListReposRequest",
         "type": "object"
       },
@@ -3184,8 +3343,15 @@
       "OnboardingRepoRequest": {
         "properties": {
           "github_token": {
-            "title": "Github Token",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Github Token"
           },
           "repo_url": {
             "title": "Repo Url",
@@ -3193,8 +3359,7 @@
           }
         },
         "required": [
-          "repo_url",
-          "github_token"
+          "repo_url"
         ],
         "title": "OnboardingRepoRequest",
         "type": "object"
@@ -3681,6 +3846,11 @@
               }
             ],
             "title": "Docs Url"
+          },
+          "github_app_available": {
+            "default": false,
+            "title": "Github App Available",
+            "type": "boolean"
           },
           "icon": {
             "default": "extension",
@@ -5807,6 +5977,185 @@
         ]
       }
     },
+    "/api/integrations/github/connect": {
+      "post": {
+        "operationId": "connect_api_integrations_github_connect_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "return_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Return To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceFlowConnectResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Connect",
+        "tags": [
+          "github-app"
+        ]
+      }
+    },
+    "/api/integrations/github/disconnect": {
+      "post": {
+        "operationId": "disconnect_api_integrations_github_disconnect_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceFlowDisconnectResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Disconnect",
+        "tags": [
+          "github-app"
+        ]
+      }
+    },
+    "/api/integrations/github/poll-now": {
+      "post": {
+        "description": "Force an immediate poll tick + return the resulting status.\n\nThe background polling loop honors GitHub's stored interval (5s\nminimum, often higher after a ``slow_down``). When the user clicks\nAuthorize and comes back to OpenSec, they shouldn't have to wait\nfor the next scheduled tick \u2014 the SPA hits this endpoint on the\nvisibility-change event so the modal flips to Connected within\none round-trip instead of up to a minute.",
+        "operationId": "poll_now_api_integrations_github_poll_now_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceFlowStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Poll Now",
+        "tags": [
+          "github-app"
+        ]
+      }
+    },
+    "/api/integrations/github/setup": {
+      "get": {
+        "operationId": "setup_callback_api_integrations_github_setup_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "state",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "installation_id",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "title": "Installation Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "setup_action",
+            "required": false,
+            "schema": {
+              "default": "install",
+              "enum": [
+                "install",
+                "update"
+              ],
+              "title": "Setup Action",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Setup Callback",
+        "tags": [
+          "github-app"
+        ]
+      }
+    },
+    "/api/integrations/github/status": {
+      "get": {
+        "operationId": "status_api_integrations_github_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceFlowStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Status",
+        "tags": [
+          "github-app"
+        ]
+      }
+    },
     "/api/onboarding/complete": {
       "post": {
         "description": "Mark onboarding as complete once the first assessment finishes.",
@@ -5851,7 +6200,7 @@
     },
     "/api/onboarding/github/repos": {
       "post": {
-        "description": "Return the repos a PAT can reach, for onboarding's picker step.\n\nThe token is **not** persisted here \u2014 only on a successful call to\n``POST /onboarding/repo``. Avoids dangling vault entries when the user\nabandons the flow at the picker.\n\nAuth/scope failures return 422 ``{code: \"invalid_token\"}``. Network and\nGitHub 5xx return 502 \u2014 onboarding's manual-URL fallback covers this.",
+        "description": "Return the repos the active GitHub auth can reach, for onboarding's picker.\n\nToken resolution: explicit ``github_token`` body wins (legacy PAT\nflow), otherwise the route reads the App-flow user access token\nfrom the vault. The token is **not** persisted here \u2014 only on a\nsuccessful call to ``POST /onboarding/repo``.\n\nAuth/scope failures return 422 ``{code: \"invalid_token\"}``. Network and\nGitHub 5xx return 502 \u2014 onboarding's manual-URL fallback covers this.",
         "operationId": "list_github_repos_api_onboarding_github_repos_post",
         "requestBody": {
           "content": {

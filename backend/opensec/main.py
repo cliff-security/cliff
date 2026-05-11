@@ -26,6 +26,7 @@ from opensec.api.routes import (
     completion,
     dashboard,
     findings,
+    github_app,
     health,
     messages,
     onboarding,
@@ -223,6 +224,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await assessment_watchdog_task
 
     await pool.stop_all()
+    gh_orchestrator = getattr(app.state, "github_app_orchestrator", None)
+    if gh_orchestrator is not None:
+        await gh_orchestrator.stop_all()
     if app.state.audit_logger is not None:
         await app.state.audit_logger.stop()
     await opencode_client.close()
@@ -260,6 +264,7 @@ app.include_router(sidebar.router, prefix="/api")
 app.include_router(seed.router, prefix="/api")
 app.include_router(settings_routes.router, prefix="/api")
 app.include_router(audit.router, prefix="/api")
+app.include_router(github_app.router, prefix="/api")
 
 # EXEC-0002 contract stubs — routers registered so the OpenAPI schema is
 # stable. Bodies raise NotImplementedError; real logic ships in Sessions B/C.

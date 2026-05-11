@@ -10,7 +10,9 @@ const BASE = ''
 
 export interface OnboardingRepoRequest {
   repo_url: string
-  github_token: string
+  /** Optional. Omitted by the App + Device Flow path — when absent
+   *  the backend reads the user access token from the vault. */
+  github_token?: string
 }
 
 /** Display-only metadata for the verified-connection card (frame 1.3).
@@ -31,7 +33,9 @@ export interface OnboardingRepoResponse {
 }
 
 export interface ListReposRequest {
-  github_token: string
+  /** Optional. Omitted by the App + Device Flow path — when absent
+   *  the backend reads the user access token from the vault. */
+  github_token?: string
 }
 
 /** One row in the onboarding repo picker. ``can_push`` mirrors GitHub's
@@ -95,6 +99,17 @@ export const onboardingApi = {
 
   listRepos: (req: ListReposRequest) =>
     postJson<ListReposResponse>('/api/onboarding/github/repos', req),
+
+  // GitHub App + Device Flow path (ADR-0035, IMPL-0010): the user has
+  // already authorized the App and the user access token lives in the
+  // vault, so these helpers omit the token from the request — the
+  // backend route detects the missing field and falls back to the
+  // vault token.
+  listReposFromVault: () =>
+    postJson<ListReposResponse>('/api/onboarding/github/repos', {}),
+
+  connectRepoFromVault: (repo_url: string) =>
+    postJson<OnboardingRepoResponse>('/api/onboarding/repo', { repo_url }),
 
   complete: (req: OnboardingCompleteRequest) =>
     postJson<OnboardingCompleteResponse>('/api/onboarding/complete', req),
