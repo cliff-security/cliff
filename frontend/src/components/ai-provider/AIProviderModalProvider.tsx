@@ -3,25 +3,14 @@
  *
  * Eliminates prop-drilling — the modal is mounted once in AppLayout,
  * any agent button can call useOpenAIProvider().open() to surface it.
+ *
+ * The hook + context object live in ``aiProviderModalContext.ts`` so
+ * Fast Refresh's `only-export-components` rule stays happy on this file.
  */
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useState,
-  type ReactNode,
-} from 'react'
+import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { AIProviderModal } from './AIProviderModal'
-
-interface ContextValue {
-  open: () => void
-  close: () => void
-  isOpen: boolean
-}
-
-const Ctx = createContext<ContextValue | null>(null)
+import { AIProviderModalContext } from './aiProviderModalContext'
 
 export function AIProviderModalProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false)
@@ -32,26 +21,9 @@ export function AIProviderModalProvider({ children }: { children: ReactNode }) {
   const value = useMemo(() => ({ open, close, isOpen }), [open, close, isOpen])
 
   return (
-    <Ctx.Provider value={value}>
+    <AIProviderModalContext.Provider value={value}>
       {children}
       <AIProviderModal open={isOpen} onClose={close} />
-    </Ctx.Provider>
+    </AIProviderModalContext.Provider>
   )
-}
-
-export function useOpenAIProvider(): ContextValue {
-  const ctx = useContext(Ctx)
-  if (ctx === null) {
-    // Tolerant fallback so non-wrapped tests don't blow up.
-    return {
-      open: () => {
-        // no-op — provider missing
-      },
-      close: () => {
-        // no-op
-      },
-      isOpen: false,
-    }
-  }
-  return ctx
 }

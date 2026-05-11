@@ -32,22 +32,25 @@ type View =
   | 'byok'
   | 'connected-success'
 
-export function AIProviderModal({ open, onClose, onConnected }: Props) {
-  const [view, setView] = useState<View>('picking-method')
+export function AIProviderModal(props: Props) {
+  if (!props.open) return null
+  // Remount the inner panel each time the modal opens so picker state
+  // can't leak across sessions. Avoids a setState-in-effect reset.
+  return <AIProviderModalInner {...props} />
+}
+
+function AIProviderModalInner({ open, onClose, onConnected }: Props) {
+  // Tracks any explicit navigation the user has done inside the modal.
+  // When null, the view is *derived* from autodetect's outcome — that
+  // keeps us out of setState-in-effect territory while preserving the
+  // "show the detected card unless the user moved on" behavior.
+  const [userOverride, setUserOverride] = useState<View | null>(null)
   const autodetect = useAutodetect(open)
   const adopt = useAdopt()
 
-  // When the modal opens and an env-shaped detection is fresh, prefer
-  // the detected-pending-adoption card. The dedicated banner handles
-  // out-of-modal adoption.
-  useEffect(() => {
-    if (!open) return
-    if (autodetect.data?.found) {
-      setView('detected')
-    } else {
-      setView('picking-method')
-    }
-  }, [open, autodetect.data?.found])
+  const view: View =
+    userOverride ??
+    (autodetect.data?.found ? 'detected' : 'picking-method')
 
   // Close on Esc.
   useEffect(() => {
@@ -63,8 +66,6 @@ export function AIProviderModal({ open, onClose, onConnected }: Props) {
     onConnected?.()
     onClose()
   }, [onConnected, onClose])
-
-  if (!open) return null
 
   return (
     <div
@@ -86,7 +87,7 @@ export function AIProviderModal({ open, onClose, onConnected }: Props) {
               await adopt.mutateAsync()
               handleConnected()
             }}
-            onDecline={() => setView('picking-method')}
+            onDecline={() => setUserOverride('picking-method')}
             adopting={adopt.isPending}
             error={
               adopt.error instanceof Error ? adopt.error.message : null
@@ -96,8 +97,8 @@ export function AIProviderModal({ open, onClose, onConnected }: Props) {
 
         {view === 'picking-method' && (
           <PickingMethodPanel
-            onPickOpenRouter={() => setView('openrouter')}
-            onPickBYOK={() => setView('byok')}
+            onPickOpenRouter={() => setUserOverride('openrouter')}
+            onPickBYOK={() => setUserOverride('byok')}
             onClose={onClose}
           />
         )}
@@ -105,7 +106,7 @@ export function AIProviderModal({ open, onClose, onConnected }: Props) {
         {view === 'openrouter' && (
           <OpenRouterConnectFlow
             onConnected={handleConnected}
-            onSwitchToBYOK={() => setView('byok')}
+            onSwitchToBYOK={() => setUserOverride('byok')}
             onClose={onClose}
           />
         )}
@@ -114,7 +115,7 @@ export function AIProviderModal({ open, onClose, onConnected }: Props) {
           <DirectBYOKForm
             initialProvider="anthropic"
             onConnected={handleConnected}
-            onCancel={() => setView('picking-method')}
+            onCancel={() => setUserOverride('picking-method')}
           />
         )}
       </div>

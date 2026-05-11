@@ -19,7 +19,9 @@ contain key material.
 
 from __future__ import annotations
 
+import ipaddress
 import logging
+from urllib.parse import urlparse
 
 import httpx
 
@@ -28,6 +30,65 @@ from opensec.ai.models import AIProvider, ValidationResult
 logger = logging.getLogger(__name__)
 
 _TIMEOUT_SECONDS = 5.0
+
+
+# ---------------------------------------------------------------------------
+# Custom-endpoint URL validation — SSRF defense
+# ---------------------------------------------------------------------------
+#
+# The "custom" provider lets the user supply a base URL for an
+# OpenAI-compatible endpoint. Even though OpenSec is single-user
+# self-hosted, we still refuse to probe loopback / private / link-local
+# / multicast / reserved addresses (and non-http(s) schemes) so a
+# misconfigured BYOK can't be used to scan the host's internal network
+# from the backend's network position. The validator is the only place
+# in the codebase that fetches a user-supplied URL.
+
+
+class CustomEndpointRejectedError(ValueError):
+    """Raised when a user-supplied custom endpoint URL fails sanity checks."""
+
+
+def _ensure_safe_custom_url(base_url: str) -> str:
+    """Validate *base_url* and return the cleaned URL.
+
+    Rejects non-http(s) schemes and any host that resolves to a
+    loopback / private / link-local / multicast / reserved address.
+    Hostnames that aren't bare IPs are accepted on the assumption that
+    DNS resolves to a public address — we cannot guarantee that without
+    pre-resolving, which would add a TOCTOU window between check and
+    request. The trade-off matches the threat model: a user
+    deliberately pointing OpenSec at their own internal API server.
+    """
+    parsed = urlparse(base_url)
+    if parsed.scheme not in ("http", "https"):
+        msg = "Custom base URL must use http:// or https://"
+        raise CustomEndpointRejectedError(msg)
+    if not parsed.hostname:
+        msg = "Custom base URL is missing a host."
+        raise CustomEndpointRejectedError(msg)
+
+    host = parsed.hostname.lower()
+    if host in ("localhost", "ip6-localhost", "ip6-loopback"):
+        msg = "Custom base URL must not point at the local machine."
+        raise CustomEndpointRejectedError(msg)
+
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+    if ip is not None and (
+        ip.is_loopback
+        or ip.is_private
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    ):
+        msg = "Custom base URL must not point at a private or loopback address."
+        raise CustomEndpointRejectedError(msg)
+
+    return base_url
 
 
 def _classify_status(status: int) -> str | None:
@@ -130,7 +191,15 @@ async def validate_custom(
     api_key: str, base_url: str, model: str | None = None
 ) -> ValidationResult:
     """OpenAI-compatible probe against a user-supplied base URL."""
-    url = base_url.rstrip("/") + "/chat/completions"
+    try:
+        safe_base = _ensure_safe_custom_url(base_url)
+    except CustomEndpointRejectedError as exc:
+        return ValidationResult(
+            ok=False,
+            error_code="no_access",
+            error_message=str(exc),
+        )
+    url = safe_base.rstrip("/") + "/chat/completions"
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
             resp = await client.post(

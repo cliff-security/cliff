@@ -8,6 +8,7 @@ provider's auth surface. Validators must classify outcomes into the typed
 from __future__ import annotations
 
 import httpx
+import pytest
 
 from opensec.ai import validators
 
@@ -178,6 +179,52 @@ async def test_validate_custom_strips_trailing_slash(httpx_mock) -> None:
 # ---------------------------------------------------------------------------
 # dispatcher
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Custom-endpoint SSRF guard
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "bad_url",
+    [
+        "ftp://example.com/v1",  # non-http(s) scheme
+        "file:///etc/passwd",  # non-http(s) scheme
+        "http://localhost/v1",  # loopback by name
+        "http://127.0.0.1/v1",  # loopback by ip
+        "http://127.0.0.5:8080/v1",  # loopback /8
+        "http://[::1]/v1",  # ipv6 loopback
+        "http://10.0.0.1/v1",  # private
+        "http://192.168.1.1/v1",  # private
+        "http://172.16.0.1/v1",  # private
+        "http://169.254.169.254/latest",  # AWS metadata link-local
+        "http://0.0.0.0/v1",  # unspecified
+        "http:///no-host",  # missing host
+    ],
+)
+async def test_custom_endpoint_rejects_unsafe_urls(bad_url: str) -> None:
+    result = await validators.validate(
+        "custom", "sk-x", base_url=bad_url, model="gpt-x"
+    )
+    assert result.ok is False
+    assert result.error_code == "no_access"
+
+
+async def test_custom_endpoint_accepts_public_https(httpx_mock) -> None:
+    httpx_mock.add_response(
+        url="https://api.example.com/v1/chat/completions",
+        method="POST",
+        status_code=200,
+        json={"choices": []},
+    )
+    result = await validators.validate(
+        "custom",
+        "sk-x",
+        base_url="https://api.example.com/v1",
+        model="gpt-x",
+    )
+    assert result.ok is True
 
 
 async def test_dispatcher_routes_to_anthropic(httpx_mock) -> None:

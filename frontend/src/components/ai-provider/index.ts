@@ -1,8 +1,6 @@
 export { AIProviderModal } from './AIProviderModal'
-export {
-  AIProviderModalProvider,
-  useOpenAIProvider,
-} from './AIProviderModalProvider'
+export { AIProviderModalProvider } from './AIProviderModalProvider'
+export { useOpenAIProvider } from './aiProviderModalContext'
 export { AutoDetectBanner } from './AutoDetectBanner'
 export { AIProviderStatus } from './AIProviderStatus'
 export { AIMigrationBanner } from './MigrationBanner'

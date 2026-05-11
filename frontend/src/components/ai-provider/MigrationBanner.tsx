@@ -2,9 +2,14 @@
  * One-time banner shown to existing paste-flow users (IMPL-0011 G8).
  *
  * Auto-hides 30 days after first render. Dismissible immediately.
+ *
+ * Visibility is seeded once at mount via a lazy initializer (the only
+ * place we're allowed to consult ``Date.now()`` + ``localStorage``
+ * cleanly under react-hooks/purity). Subsequent updates happen via
+ * the explicit dismiss handler, not an effect.
  */
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useAIProviderStatus } from '@/api/aiProvider'
 
 const SHOWN_AT_KEY = 'opensec.aiMigrationBanner.firstShownAt'
@@ -17,35 +22,33 @@ interface Props {
   onTryNewSetup: () => void
 }
 
+function computeInitiallyVisible(hasLegacyKeys: boolean): boolean {
+  if (!hasLegacyKeys) return false
+  if (typeof window === 'undefined') return false
+  if (window.localStorage.getItem(DISMISSED_KEY) === '1') return false
+
+  const now = Date.now()
+  const shownAtRaw = window.localStorage.getItem(SHOWN_AT_KEY)
+  if (shownAtRaw === null) {
+    // First-time render — stamp now and show.
+    window.localStorage.setItem(SHOWN_AT_KEY, String(now))
+    return true
+  }
+  const shownAt = Number(shownAtRaw)
+  if (!Number.isFinite(shownAt)) {
+    window.localStorage.setItem(SHOWN_AT_KEY, String(now))
+    return true
+  }
+  return now - shownAt <= THIRTY_DAYS_MS
+}
+
 export function AIMigrationBanner({ hasLegacyKeys, onTryNewSetup }: Props) {
   const status = useAIProviderStatus()
-  const [visible, setVisible] = useState(false)
+  const [visible, setVisible] = useState(() =>
+    computeInitiallyVisible(hasLegacyKeys),
+  )
 
-  useEffect(() => {
-    if (!hasLegacyKeys) return
-    if (status.data?.state === 'connected') return
-    if (window.localStorage.getItem(DISMISSED_KEY) === '1') return
-
-    const shownAtRaw = window.localStorage.getItem(SHOWN_AT_KEY)
-    const now = Date.now()
-    if (shownAtRaw === null) {
-      window.localStorage.setItem(SHOWN_AT_KEY, String(now))
-      setVisible(true)
-      return
-    }
-    const shownAt = Number(shownAtRaw)
-    if (!Number.isFinite(shownAt)) {
-      window.localStorage.setItem(SHOWN_AT_KEY, String(now))
-      setVisible(true)
-      return
-    }
-    if (now - shownAt > THIRTY_DAYS_MS) {
-      setVisible(false)
-      return
-    }
-    setVisible(true)
-  }, [hasLegacyKeys, status.data?.state])
-
+  if (status.data?.state === 'connected') return null
   if (!visible) return null
 
   const dismiss = () => {
