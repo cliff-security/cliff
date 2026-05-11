@@ -1,15 +1,30 @@
-# Pinned scanner binaries (ADR-0028).
+# Pinned scanner versions (ADR-0028).
 #
-# Format:  <name> <version> <sha256-of-extracted-binary>
+# Format:  <name> <version>
 #
-# `scripts/install-scanners.sh` downloads each binary from its upstream
-# release artifact, extracts the platform-specific archive, and verifies the
-# SHA256 of the binary on disk against this file. In strict mode (default)
-# any mismatch aborts; OPENSEC_SCANNER_VERIFY=warn lets local devs proceed
-# after a manual rebuild.
+# Integrity is verified at install time against upstream-published artefacts,
+# not against locally-recorded SHAs:
 #
-# To refresh: download the upstream binary, run `shasum -a 256 bin/<name>`
-# and copy the hex digest in here. Bump the version field at the same time.
+# - trivy:   we download ``trivy_<version>_checksums.txt`` from the GitHub
+#            release (published and signed by aquasec/trivy CI), grep out
+#            the row for the platform-specific archive we just downloaded,
+#            and verify before extracting. A single ``.scanner-versions``
+#            SHA can never work here — every platform tarball has a
+#            different digest, and locally-pinned digests would need a
+#            row per (os, arch) combination.
+#
+# - semgrep: installed via pip from PyPI into a private venv. Integrity
+#            comes from PyPI's per-wheel digests + TLS pin; the previously
+#            recorded "binary SHA" was actually the SHA of a dynamically
+#            generated wrapper script (always different) and was therefore
+#            meaningless. We instead verify by running ``semgrep --version``
+#            and asserting it matches the pinned version.
+#
+# To bump:
+#   1. Bump the version below.
+#   2. Run ``scripts/install-scanners.sh`` once to confirm the upstream
+#      checksums file still verifies clean.
+#   3. Commit the bump.
 
-trivy 0.70.0 0000000000000000000000000000000000000000000000000000000000000000
-semgrep 1.70.0 0000000000000000000000000000000000000000000000000000000000000000
+trivy 0.70.0
+semgrep 1.70.0

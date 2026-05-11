@@ -156,11 +156,65 @@ def classify_assessment_failure(
             step,
         )
 
+    if isinstance(exc, FileNotFoundError):
+        # ``asyncio.create_subprocess_exec`` raises this when the scanner
+        # binary isn't on disk. Without a special branch the user sees a
+        # generic "Something went wrong" headline and has to expand the
+        # technical-details disclosure to learn that ``trivy`` is missing
+        # — which is one of the most actionable failure modes we have
+        # (run scripts/install-scanners.sh and you're back). Surface it
+        # at the headline level.
+        missing = (
+            exc.filename
+            or _missing_binary_from_message(str(exc))
+            or _binary_for_step(step)
+        )
+        if missing:
+            headline = (
+                f"Scanner binary {missing!r} is missing — re-run "
+                f"scripts/install-scanners.sh"
+            )
+        else:
+            headline = (
+                "A scanner binary is missing — re-run "
+                "scripts/install-scanners.sh"
+            )
+        return ("internal_error", headline, step)
+
     return (
         "internal_error",
         "Something went wrong while running the assessment",
         step,
     )
+
+
+def _missing_binary_from_message(message: str) -> str | None:
+    """Best-effort extract of the missing-binary name from a FileNotFoundError.
+
+    ``asyncio.create_subprocess_exec`` may raise
+    ``FileNotFoundError(2, 'No such file or directory')`` *without* a
+    ``filename`` attribute set (Linux + uvloop on some glibc versions);
+    in that case the only signal is the message text. Returns ``None``
+    when nothing useful can be parsed.
+    """
+    import re
+
+    match = re.search(r"['\"]([^'\"]+)['\"]", message)
+    return match.group(1) if match else None
+
+
+# Map an engine step back to the scanner binary it was about to launch.
+# Last-resort source of truth when ``FileNotFoundError`` carries neither
+# a ``filename`` attribute nor a parseable message body.
+_STEP_TO_BINARY: dict[AssessmentFailedStep, str] = {
+    "trivy_vuln": "trivy",
+    "trivy_secret": "trivy",
+    "semgrep": "semgrep",
+}
+
+
+def _binary_for_step(step: AssessmentFailedStep) -> str | None:
+    return _STEP_TO_BINARY.get(step)
 
 
 def _coerce_failed_step(value: str | None) -> AssessmentFailedStep:
