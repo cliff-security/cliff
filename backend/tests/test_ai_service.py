@@ -1,0 +1,249 @@
+"""Tests for AIIntegrationService (IMPL-0011 Phase A5)."""
+
+from __future__ import annotations
+
+import os
+from typing import TYPE_CHECKING
+
+import pytest
+
+from opensec.ai import catalog
+from opensec.ai.service import AIIntegrationService
+from opensec.db.connection import close_db, init_db
+from opensec.integrations.vault import CredentialVault
+
+if TYPE_CHECKING:
+    import aiosqlite
+
+    from opensec.integrations.audit import AuditEvent
+
+
+@pytest.fixture(autouse=True)
+def _reset_catalog_state():
+    catalog._reset_for_tests()
+    yield
+    catalog._reset_for_tests()
+
+
+@pytest.fixture
+async def db():
+    conn = await init_db(":memory:")
+    yield conn
+    await close_db()
+
+
+@pytest.fixture
+def vault_key() -> bytes:
+    return os.urandom(32)
+
+
+@pytest.fixture
+def vault(db: aiosqlite.Connection, vault_key: bytes) -> CredentialVault:
+    return CredentialVault(db, key=vault_key)
+
+
+class _StubAudit:
+    """Captures audit events for assertions — async-compatible with AuditLogger."""
+
+    def __init__(self) -> None:
+        self.events: list[AuditEvent] = []
+
+    async def log(self, event: AuditEvent) -> None:
+        self.events.append(event)
+
+
+@pytest.fixture
+def audit() -> _StubAudit:
+    return _StubAudit()
+
+
+@pytest.fixture
+def service(
+    db: aiosqlite.Connection, vault: CredentialVault, audit: _StubAudit
+) -> AIIntegrationService:
+    return AIIntegrationService(db, vault, audit_logger=audit)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# get_active / get_status
+# ---------------------------------------------------------------------------
+
+
+async def test_get_active_returns_none_when_empty(service: AIIntegrationService) -> None:
+    assert await service.get_active() is None
+
+
+async def test_get_status_unconfigured(service: AIIntegrationService) -> None:
+    status = await service.get_status()
+    assert status.state == "unconfigured"
+    assert status.provider is None
+
+
+# ---------------------------------------------------------------------------
+# save_byok
+# ---------------------------------------------------------------------------
+
+
+async def test_save_byok_persists_and_round_trips_key(
+    service: AIIntegrationService, vault: CredentialVault
+) -> None:
+    record = await service.save_byok("anthropic", "sk-ant-realkey-12345")
+    assert record.provider == "anthropic"
+    assert record.source == "byok"
+
+    env = await service.resolve_env_for_workspace()
+    assert env == {"ANTHROPIC_API_KEY": "sk-ant-realkey-12345"}
+
+
+async def test_save_byok_with_base_url_persists_metadata(
+    service: AIIntegrationService,
+) -> None:
+    record = await service.save_byok(
+        "custom", "sk-anything", base_url="https://my-llm.example/v1"
+    )
+    assert record.provider == "custom"
+    assert record.metadata == {"base_url": "https://my-llm.example/v1"}
+
+
+async def test_save_byok_emits_audit_event(
+    service: AIIntegrationService, audit: _StubAudit
+) -> None:
+    await service.save_byok("anthropic", "sk-ant-key")
+    events = [e for e in audit.events if e.event_type == "ai_integration.connect"]
+    assert len(events) == 1
+    assert events[0].provider_name == "ai:anthropic"
+    assert events[0].verb == "byok"
+
+
+# ---------------------------------------------------------------------------
+# adopt_detected
+# ---------------------------------------------------------------------------
+
+
+async def test_adopt_detected_records_source_path(
+    service: AIIntegrationService,
+) -> None:
+    record = await service.adopt_detected(
+        "anthropic", "sk-ant-detected", "ANTHROPIC_API_KEY env"
+    )
+    assert record.source == "autodetect"
+    assert record.metadata == {"source_path": "ANTHROPIC_API_KEY env"}
+
+
+async def test_adopt_audit_event_includes_source_path(
+    service: AIIntegrationService, audit: _StubAudit
+) -> None:
+    await service.adopt_detected(
+        "anthropic", "sk-ant-detected", "~/.claude/.credentials.json"
+    )
+    events = [e for e in audit.events if e.event_type == "ai_integration.adopt"]
+    assert len(events) == 1
+    assert events[0].verb == "~/.claude/.credentials.json"
+
+
+# ---------------------------------------------------------------------------
+# complete_oauth
+# ---------------------------------------------------------------------------
+
+
+async def test_complete_oauth_stores_metadata(service: AIIntegrationService) -> None:
+    record = await service.complete_oauth(
+        "openrouter", "sk-or-abcd", metadata={"user_email": "a@b.co"}
+    )
+    assert record.provider == "openrouter"
+    assert record.source == "openrouter-oauth"
+    assert record.metadata == {"user_email": "a@b.co"}
+
+
+# ---------------------------------------------------------------------------
+# resolve_env_for_workspace
+# ---------------------------------------------------------------------------
+
+
+async def test_resolve_env_returns_empty_when_unconfigured(
+    service: AIIntegrationService,
+) -> None:
+    assert await service.resolve_env_for_workspace() == {}
+
+
+async def test_resolve_env_uses_correct_env_var_per_provider(
+    service: AIIntegrationService,
+) -> None:
+    await service.save_byok("openai", "sk-openai-key")
+    env = await service.resolve_env_for_workspace()
+    assert env == {"OPENAI_API_KEY": "sk-openai-key"}
+
+
+# ---------------------------------------------------------------------------
+# Reconnect / replace
+# ---------------------------------------------------------------------------
+
+
+async def test_save_byok_replaces_prior_row_for_same_provider(
+    service: AIIntegrationService,
+) -> None:
+    await service.save_byok("anthropic", "sk-ant-first")
+    await service.save_byok("anthropic", "sk-ant-second")
+
+    env = await service.resolve_env_for_workspace()
+    assert env == {"ANTHROPIC_API_KEY": "sk-ant-second"}
+
+
+async def test_switching_providers_replaces_active(
+    service: AIIntegrationService,
+) -> None:
+    await service.save_byok("anthropic", "sk-ant-key")
+    await service.save_byok("openrouter", "sk-or-key")
+
+    active = await service.get_active()
+    assert active is not None
+    assert active.provider == "openrouter"
+
+
+# ---------------------------------------------------------------------------
+# disconnect
+# ---------------------------------------------------------------------------
+
+
+async def test_disconnect_clears_state(service: AIIntegrationService) -> None:
+    await service.save_byok("anthropic", "sk-ant-key")
+    removed = await service.disconnect()
+    assert removed is True
+    assert await service.get_active() is None
+    assert await service.resolve_env_for_workspace() == {}
+
+
+async def test_disconnect_is_idempotent(service: AIIntegrationService) -> None:
+    assert await service.disconnect() is False  # nothing to remove
+
+
+async def test_disconnect_emits_audit_event(
+    service: AIIntegrationService, audit: _StubAudit
+) -> None:
+    await service.save_byok("anthropic", "sk-ant-key")
+    await service.disconnect()
+    events = [e for e in audit.events if e.event_type == "ai_integration.disconnect"]
+    assert len(events) == 1
+
+
+# ---------------------------------------------------------------------------
+# Status with override
+# ---------------------------------------------------------------------------
+
+
+async def test_get_status_surfaces_active_override(
+    service: AIIntegrationService, monkeypatch
+) -> None:
+    monkeypatch.setenv("OPENSEC_AI_MODEL_OVERRIDE_ANTHROPIC", "claude-opus-4-1")
+    await service.save_byok("anthropic", "sk-ant-key")
+    status = await service.get_status()
+    assert status.state == "connected"
+    assert status.override_model == "claude-opus-4-1"
+
+
+async def test_get_status_no_override_returns_none(
+    service: AIIntegrationService,
+) -> None:
+    await service.save_byok("anthropic", "sk-ant-key")
+    status = await service.get_status()
+    assert status.override_model is None
