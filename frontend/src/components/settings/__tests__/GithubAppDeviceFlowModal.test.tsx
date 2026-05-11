@@ -55,15 +55,14 @@ describe('GithubAppDeviceFlowModal', () => {
       ),
     )
 
-    // Code is in the DOM (inside a collapsed <details> as a fallback).
+    // Code is shown prominently — GitHub doesn't honour ?user_code=
+    // pre-fill, so the user has to paste it themselves.
     expect(await screen.findByText('MNPQ-RSTU')).toBeInTheDocument()
-    // Authorize link now pre-fills the user_code so the user lands on a
-    // one-click Authorize page instead of having to copy/paste.
-    const link = screen.getByRole('link', { name: /authorize on github/i })
-    expect(link.getAttribute('href')).toContain(
-      'https://github.com/login/device',
-    )
-    expect(link.getAttribute('href')).toContain('user_code=MNPQ-RSTU')
+    // Step 2 button — combined "copy + open GitHub" action. Anchor's
+    // href points at the bare verification_uri (no query params); the
+    // copy happens inside the click handler.
+    const link = screen.getByRole('link', { name: /copy code & open github/i })
+    expect(link.getAttribute('href')).toBe('https://github.com/login/device')
     expect(screen.getByLabelText(/copy code/i)).toBeInTheDocument()
   })
 

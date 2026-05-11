@@ -10,8 +10,18 @@ import {
  * terminal state arrives, then either dismisses (success) or surfaces
  * the error with a "Try again" affordance.
  *
- * Design system: tonal layering, no `1px solid` borders, sentence case,
- * Material Symbols for icons.
+ * GitHub does NOT honour ``?user_code=`` for pre-filling the device
+ * page (we tested it — the param is stripped on the redirect to
+ * /select_account). The best we can do is:
+ *
+ *   1. Show the code prominently in big mono type.
+ *   2. Auto-copy it to the clipboard the moment the user clicks
+ *      Authorize, so on the github.com page they paste with one
+ *      keystroke instead of typing 8 chars.
+ *   3. Tell them clearly that we copied it for them.
+ *
+ * Design system: tonal layering, no `1px solid` borders, sentence
+ * case, Material Symbols for icons.
  */
 const COUNTDOWN_VISIBLE_BELOW_MS = 2 * 60 * 1000  // start showing under 2 min
 
@@ -41,6 +51,7 @@ export function GithubAppDeviceFlowModal({
   // instead of generic "Waiting for authorization...".
   const [authorizeOpened, setAuthorizeOpened] = useState(false)
   const [returnedFromAuthorize, setReturnedFromAuthorize] = useState(false)
+  const [copied, setCopied] = useState(false)
   useEffect(() => {
     if (!authorizeOpened) return
     const onVisibility = () => {
@@ -83,17 +94,28 @@ export function GithubAppDeviceFlowModal({
     || status?.status === 'error'
     || remainingMs <= 0
 
-  const handleCopyCode = () => {
-    void navigator.clipboard?.writeText(connect.user_code)
+  const copyCode = async () => {
+    try {
+      await navigator.clipboard?.writeText(connect.user_code)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Clipboard write can fail (insecure context, permission); the
+      // code is still visible on screen so the user can copy manually.
+    }
   }
 
-  // GitHub's /login/device page accepts ``?user_code=AAAA-BBBB`` to
-  // pre-fill the input. With this the user lands on a one-click
-  // Authorize page — no copy/paste needed. Single biggest UX win we
-  // could make in this flow.
-  const authorizeUrl = `${connect.verification_uri}?user_code=${encodeURIComponent(
-    connect.user_code,
-  )}`
+  const handleAuthorize = () => {
+    // Copy code → open authorize tab. Order matters: writeText must
+    // happen synchronously inside the click handler to count as a
+    // user gesture.
+    void copyCode()
+    setAuthorizeOpened(true)
+    // ``window.open`` is also gated by user gesture; keep this on the
+    // synchronous path of the click handler. Fallback href on the link
+    // covers cases where the popup blocker still trips.
+    window.open(connect.verification_uri, '_blank', 'noopener,noreferrer')
+  }
 
   return (
     <div
@@ -119,58 +141,72 @@ export function GithubAppDeviceFlowModal({
               Authorize OpenSec on this device
             </h3>
             <p className="text-sm text-on-surface-variant mt-1">
-              Click the button below to confirm on GitHub. We pre-fill the
-              code for you.
+              Two steps: copy the code, paste it on GitHub. We'll handle the
+              copy for you when you click Authorize.
             </p>
           </div>
         </div>
 
         {!terminal && (
           <>
-            {/* Step 2 — primary action. Pre-filled URL means the user
-                doesn't need to copy/paste; we keep Step 1 below as a
-                fallback in case the pre-fill ever fails. */}
-            <a
-              href={authorizeUrl}
-              target="_blank"
-              rel="noreferrer"
-              onClick={() => setAuthorizeOpened(true)}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 py-4 text-base font-semibold text-on-primary hover:bg-primary/90 transition-colors shadow-sm shadow-primary/20"
-            >
-              <span className="material-symbols-outlined text-xl">
-                open_in_new
-              </span>
-              Authorize on GitHub
-            </a>
-            <p className="text-xs text-on-surface-variant mt-2 text-center">
-              Opens <span className="font-mono">github.com/login/device</span>
-              {' '}with the code already filled in. Click Authorize there,
-              then come back — we'll detect it automatically.
-            </p>
-
-            {/* Step 1 — code, kept as a fallback (some users may want to
-                copy/paste manually if the pre-filled link is blocked). */}
-            <details className="mt-5 rounded-xl bg-surface-container-low p-4">
-              <summary className="cursor-pointer text-xs font-semibold text-on-surface-variant select-none">
-                Need to enter the code manually? Copy it here
-              </summary>
-              <div className="mt-3 flex items-center justify-between gap-3">
-                <code className="font-mono text-2xl font-bold tracking-[0.3em] text-on-surface select-all">
+            {/* Step 1 — the code, prominently displayed. Clicking the
+                Copy button copies it manually; clicking Authorize below
+                also copies + opens GitHub. */}
+            <div className="rounded-xl bg-surface-container-low p-5">
+              <p className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant mb-3">
+                Step 1 · Your one-time code
+              </p>
+              <div className="flex items-center justify-between gap-3">
+                <code className="font-mono text-3xl font-bold tracking-[0.3em] text-on-surface select-all">
                   {connect.user_code}
                 </code>
                 <button
                   type="button"
                   aria-label="Copy code"
-                  onClick={handleCopyCode}
+                  onClick={copyCode}
                   className="inline-flex items-center gap-1.5 rounded-md bg-surface-container-lowest px-3 py-2 text-xs font-semibold text-on-surface-variant hover:text-on-surface transition-colors min-h-[36px]"
                 >
                   <span className="material-symbols-outlined text-sm">
-                    content_copy
+                    {copied ? 'check' : 'content_copy'}
                   </span>
-                  Copy
+                  {copied ? 'Copied' : 'Copy'}
                 </button>
               </div>
-            </details>
+            </div>
+
+            {/* Step 2 — opens GitHub AND copies the code (one click,
+                two effects). */}
+            <div className="mt-3 rounded-xl bg-surface-container-low p-5">
+              <p className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant mb-3">
+                Step 2 · Paste it on GitHub to authorize
+              </p>
+              <a
+                href={connect.verification_uri}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => {
+                  // Drive the click through our handler so the copy +
+                  // window.open both fire as part of the gesture. We
+                  // still rely on the anchor's href as a fallback if
+                  // popup blockers cancel the explicit open.
+                  e.preventDefault()
+                  handleAuthorize()
+                }}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 py-4 text-base font-semibold text-on-primary hover:bg-primary/90 transition-colors shadow-sm shadow-primary/20"
+              >
+                <span className="material-symbols-outlined text-xl">
+                  open_in_new
+                </span>
+                Copy code &amp; open GitHub
+              </a>
+              <p className="text-xs text-on-surface-variant mt-3 text-center">
+                Opens <span className="font-mono">github.com/login/device</span>
+                {' '}in a new tab. Sign in if needed, click Continue, then
+                paste the code (<span className="font-mono">⌘V</span> /{' '}
+                <span className="font-mono">Ctrl+V</span>) and click Authorize.
+                Come back here — we'll detect it automatically.
+              </p>
+            </div>
 
             <p
               className="mt-4 text-xs text-on-surface-variant text-center"
