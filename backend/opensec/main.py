@@ -17,9 +17,11 @@ from fastapi.staticfiles import StaticFiles
 
 from opensec.agents.executor import AgentExecutor
 from opensec.agents.template_engine import AgentTemplateEngine
+from opensec.ai import catalog as ai_catalog
 from opensec.api.routes import (
     agent_execution,
     agent_runs,
+    ai_integrations,
     assessment,
     audit,
     chat,
@@ -71,6 +73,10 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Start OpenCode on startup, stop on shutdown."""
     logger.info("Starting OpenSec...")
+    # Surface any active AI model override at boot so operators see them
+    # in stdout/stderr (ADR-0036 — performance may vary if a non-default
+    # model is in use).
+    ai_catalog.log_override_warnings_once()
     # Initialize persistence layer.
     db_path = settings.resolve_data_dir() / "opensec.db"
     first_run = not db_path.exists()
@@ -265,6 +271,7 @@ app.include_router(seed.router, prefix="/api")
 app.include_router(settings_routes.router, prefix="/api")
 app.include_router(audit.router, prefix="/api")
 app.include_router(github_app.router, prefix="/api")
+app.include_router(ai_integrations.router, prefix="/api")
 
 # EXEC-0002 contract stubs — routers registered so the OpenAPI schema is
 # stable. Bodies raise NotImplementedError; real logic ships in Sessions B/C.
