@@ -332,17 +332,17 @@ class DeviceFlowOrchestrator:
                 "device_pending",
             }:
                 return
-            # Tighter poll cadence after the user has installed (and is
-            # therefore actively waiting on the github.com/login/device
-            # screen). GitHub's ``slow_down`` will push us back if we
-            # exceed the limit. Pre-install we stick to the GitHub-
-            # supplied default — the user is still on a different page.
-            stored = record.polling_interval_seconds or 5
-            interval = (
-                min(stored, 2)
-                if record.polling_status == "device_pending"
-                else stored
-            )
+            # Honor GitHub's stored interval verbatim. We tried being
+            # cleverer here (forcing a 2s tick during device_pending to
+            # cut post-Authorize latency) and got immediately punished:
+            # GitHub returns ``slow_down`` when polled faster than the
+            # advertised interval, ``_apply_poll_result`` raises the
+            # stored interval, and the override left us polling at 2s
+            # forever — so the stored interval kept escalating
+            # (5 → 30 → 60 → 155s). The latency win is recovered via
+            # the /poll-now nudge endpoint the SPA hits on tab-return
+            # from the Authorize page.
+            interval = record.polling_interval_seconds or 5
             await self._clock.sleep(float(interval))
             await self.run_poll_step(integration_id)
 

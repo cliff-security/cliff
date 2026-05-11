@@ -6047,6 +6047,28 @@
         ]
       }
     },
+    "/api/integrations/github/poll-now": {
+      "post": {
+        "description": "Force an immediate poll tick + return the resulting status.\n\nThe background polling loop honors GitHub's stored interval (5s\nminimum, often higher after a ``slow_down``). When the user clicks\nAuthorize and comes back to OpenSec, they shouldn't have to wait\nfor the next scheduled tick \u2014 the SPA hits this endpoint on the\nvisibility-change event so the modal flips to Connected within\none round-trip instead of up to a minute.",
+        "operationId": "poll_now_api_integrations_github_poll_now_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceFlowStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Poll Now",
+        "tags": [
+          "github-app"
+        ]
+      }
+    },
     "/api/integrations/github/setup": {
       "get": {
         "operationId": "setup_callback_api_integrations_github_setup_get",

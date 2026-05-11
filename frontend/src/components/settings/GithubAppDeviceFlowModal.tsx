@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  useGithubAppPollNow,
   useGithubAppStatus,
   type DeviceFlowConnectResponse,
 } from '@/api/githubApp'
@@ -35,6 +36,7 @@ export function GithubAppDeviceFlowModal({
   onTryAgain: () => void
 }) {
   const { data: status } = useGithubAppStatus({ enabled: true })
+  const pollNow = useGithubAppPollNow()
 
   const [expiresAtMs] = useState(() => Date.now() + connect.expires_in * 1000)
   const [remainingMs, setRemainingMs] = useState(connect.expires_in * 1000)
@@ -57,10 +59,19 @@ export function GithubAppDeviceFlowModal({
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
         setReturnedFromAuthorize(true)
+        // Nudge the backend to poll RIGHT NOW instead of waiting up
+        // to the GitHub-supplied interval (5-60s after a slow_down).
+        // The mutation is fire-and-forget; if it errors the regular
+        // background poll loop still catches up on its own schedule.
+        pollNow.mutate()
       }
     }
     document.addEventListener('visibilitychange', onVisibility)
     return () => document.removeEventListener('visibilitychange', onVisibility)
+    // pollNow's identity is stable per render; depending on it would
+    // re-arm the listener on every keystroke. Linter exception is
+    // intentional.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authorizeOpened])
 
   useEffect(() => {

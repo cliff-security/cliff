@@ -66,6 +66,15 @@ export const githubAppApi = {
   },
   status: () =>
     request<DeviceFlowStatusResponse>('/api/integrations/github/status'),
+  /** Force an immediate poll tick on the backend and return the
+   * resulting status. Used after the user clicks Authorize on
+   * github.com so we don't wait for the next scheduled poll
+   * (which can be 5-60s out depending on GitHub's slow_down). */
+  pollNow: () =>
+    request<DeviceFlowStatusResponse>(
+      '/api/integrations/github/poll-now',
+      { method: 'POST', body: '{}' },
+    ),
   disconnect: () =>
     request<DeviceFlowDisconnectResponse>(
       '/api/integrations/github/disconnect',
@@ -126,6 +135,20 @@ export function useGithubAppStatus(opts: {
     },
   })
 }
+
+export function useGithubAppPollNow() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => githubAppApi.pollNow(),
+    onSuccess: (data) => {
+      // Push the poll result straight into the cache so the modal's
+      // useGithubAppStatus picks it up without waiting for its next
+      // refetch interval.
+      qc.setQueryData(['github-app', 'status'], data)
+    },
+  })
+}
+
 
 export function useGithubAppDisconnect() {
   const qc = useQueryClient()

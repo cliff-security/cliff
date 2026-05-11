@@ -436,6 +436,49 @@ async def status(
     )
 
 
+@router.post("/poll-now", response_model=DeviceFlowStatusResponse)
+async def poll_now(
+    request: Request, db: aiosqlite.Connection = Depends(get_db)
+) -> DeviceFlowStatusResponse:
+    """Force an immediate poll tick + return the resulting status.
+
+    The background polling loop honors GitHub's stored interval (5s
+    minimum, often higher after a ``slow_down``). When the user clicks
+    Authorize and comes back to OpenSec, they shouldn't have to wait
+    for the next scheduled tick — the SPA hits this endpoint on the
+    visibility-change event so the modal flips to Connected within
+    one round-trip instead of up to a minute.
+    """
+    _require_app_configured()
+    vault, audit = _require_vault_and_audit(request)
+
+    cursor = await db.execute(
+        """
+        SELECT integration_id FROM github_app_installation
+        ORDER BY updated_at DESC LIMIT 1
+        """
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="No GitHub App flow in progress")
+
+    integration_id = row["integration_id"]
+    orchestrator = _get_orchestrator(request, db, vault, audit)
+    # Run a single poll step out-of-band. Idempotent on terminal rows.
+    await orchestrator.run_poll_step(integration_id)
+
+    record = await gh_repo.get_for_integration(db, integration_id)
+    assert record is not None
+    return DeviceFlowStatusResponse(
+        status=record.polling_status,
+        user_code=record.user_code,
+        expires_at=record.device_code_expires_at,
+        installation_id=record.installation_id,
+        github_login=record.github_login,
+        error=record.polling_error,
+    )
+
+
 @router.post("/disconnect", response_model=DeviceFlowDisconnectResponse)
 async def disconnect(
     request: Request, db: aiosqlite.Connection = Depends(get_db)
