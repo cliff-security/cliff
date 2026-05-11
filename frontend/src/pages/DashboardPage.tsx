@@ -19,6 +19,10 @@ import {
   useRunAssessment,
 } from '@/api/dashboard'
 import type { DashboardPayload, PostureFixableCheck } from '@/api/dashboard'
+import {
+  AutoDetectBanner,
+  useOpenAIProvider,
+} from '@/components/ai-provider'
 import { onboardingApi } from '@/api/onboarding'
 import AssessmentFailedCard, {
   type AssessmentFailedStep as FailedStepLabel,
@@ -397,6 +401,7 @@ function ReportCard({ data }: { data: DashboardPayload }) {
   const fixMutation = useFixPostureCheck()
   const reassessMutation = useRunAssessment()
   const queryClient = useQueryClient()
+  const { open: openAIProvider } = useOpenAIProvider()
 
   const repoName = repoNameFromUrl(data.assessment?.repo_url)
 
@@ -476,6 +481,7 @@ function ReportCard({ data }: { data: DashboardPayload }) {
     >
       {completionBlock}
       <div className="flex flex-col gap-4 opensec-fade-in">
+        <AutoDetectBanner onConfigureManually={openAIProvider} />
         <IssueGradeHero
           letter={grade}
           label={heroLabel}

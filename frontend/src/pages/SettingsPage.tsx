@@ -2,12 +2,32 @@ import ProviderSettings from '@/components/settings/ProviderSettings'
 import IntegrationSettings from '@/components/settings/IntegrationSettings'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import PageShell from '@/components/PageShell'
+import {
+  AIProviderStatus,
+  useOpenAIProvider,
+} from '@/components/ai-provider'
 
 export default function SettingsPage() {
+  const { open: openAIProvider } = useOpenAIProvider()
   return (
     <ErrorBoundary fallbackTitle="Settings error" fallbackSubtitle="Something went wrong loading settings.">
     <PageShell title="Settings" subtitle="Configure providers, integrations, and preferences.">
       <div className="pb-24">
+        <section id="ai-provider" className="mb-12">
+          <div className="mb-4">
+            <h2 className="text-2xl font-bold tracking-tight text-on-surface mb-2">
+              AI provider
+            </h2>
+            <p className="text-sm text-on-surface-variant">
+              The model powering finding enrichment and fix planning.
+            </p>
+          </div>
+          <AIProviderStatus
+            onConnect={openAIProvider}
+            onSwitchProvider={openAIProvider}
+          />
+        </section>
+        <hr className="border-outline-variant/20 my-12" />
         <ProviderSettings />
         <hr className="border-outline-variant/20 my-12" />
         <IntegrationSettings />

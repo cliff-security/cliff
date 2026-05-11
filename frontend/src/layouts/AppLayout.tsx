@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router'
 import SideNav from '@/components/layout/SideNav'
+import { AIProviderModalProvider } from '@/components/ai-provider'
 
 /**
  * App chrome — ``SideNav`` in flow on the left, ``<Outlet />`` for the page.
@@ -17,11 +18,13 @@ import SideNav from '@/components/layout/SideNav'
  */
 export default function AppLayout() {
   return (
-    <div className="flex min-h-screen overflow-x-clip">
-      <SideNav />
-      <main className="flex-1 min-w-0 overflow-x-hidden">
-        <Outlet />
-      </main>
-    </div>
+    <AIProviderModalProvider>
+      <div className="flex min-h-screen overflow-x-clip">
+        <SideNav />
+        <main className="flex-1 min-w-0 overflow-x-hidden">
+          <Outlet />
+        </main>
+      </div>
+    </AIProviderModalProvider>
   )
 }
