@@ -23,11 +23,18 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
-from opensec.ai import autodetect, validators
+from opensec.ai import autodetect, openrouter_oauth, validators
 from opensec.ai.models import (
     AIStatus,
     AutodetectResponse,
     BYOKRequest,
+    OpenRouterStartResponse,
+    OpenRouterStatusResponse,
+)
+from opensec.ai.openrouter_oauth import (
+    OAuthExchangeError,
+    OAuthSession,
+    Port3000UnavailableError,
 )
 from opensec.ai.service import AIIntegrationService
 from opensec.db.connection import get_db
@@ -102,6 +109,91 @@ async def autodetect_adopt(
     service = _get_service(request, db)
     await service.adopt_detected(detected.provider, detected.raw_key, detected.source)
     return await service.get_status()
+
+
+# ---------------------------------------------------------------------------
+# OpenRouter OAuth (Tier 2)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/openrouter/start", response_model=OpenRouterStartResponse)
+async def openrouter_start(
+    request: Request, db: aiosqlite.Connection = Depends(get_db)
+) -> OpenRouterStartResponse:
+    """Begin an OAuth PKCE handshake.
+
+    Mints a session, starts a one-shot listener on port 3000, returns the
+    auth URL the frontend should open in a new tab.
+    """
+    store = openrouter_oauth.get_store()
+    session = store.create()
+    _, challenge = openrouter_oauth.generate_pkce_pair()
+    # Recompute verifier+challenge as a *pair* — the store generated a
+    # verifier but the challenge is needed too; recompute both atomically
+    # and rebind the session verifier.
+    verifier, challenge = openrouter_oauth.generate_pkce_pair()
+    session.verifier = verifier
+
+    service = _get_service(request, db)
+
+    async def _on_callback(s: OAuthSession, code: str, _state: str) -> None:
+        try:
+            data = await openrouter_oauth.exchange_code(code, s.verifier)
+        except OAuthExchangeError as exc:
+            s.status = "error"
+            s.detail = str(exc)
+            return
+        api_key = data["key"]
+        metadata: dict = {}
+        for field in ("user_id", "user_email", "label"):
+            if field in data and data[field]:
+                metadata[field] = data[field]
+        try:
+            await service.complete_oauth(
+                "openrouter", api_key, metadata=metadata or None
+            )
+        except Exception as exc:  # noqa: BLE001 — surface any DB/vault failure as error
+            s.status = "error"
+            s.detail = f"Could not persist key: {exc}"
+            return
+        s.status = "connected"
+        s.result_metadata = metadata
+        # Wipe the raw key from session memory.
+        s.result_key = None
+
+    try:
+        await openrouter_oauth.start_listener(session, on_callback=_on_callback)
+    except Port3000UnavailableError as exc:
+        store.remove(session.session_id)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "port_3000_in_use",
+                "message": (
+                    "Port 3000 is needed for a secure handshake with OpenRouter. "
+                    "Close the app using port 3000 and try again, or set up your "
+                    "own API key instead."
+                ),
+            },
+        ) from exc
+
+    auth_url = openrouter_oauth.build_auth_url(challenge, session.state)
+    return OpenRouterStartResponse(auth_url=auth_url, session_id=session.session_id)
+
+
+@router.get("/openrouter/status", response_model=OpenRouterStatusResponse)
+async def openrouter_status(session_id: str) -> OpenRouterStatusResponse:
+    """Frontend polls this every ~1s while a session is in flight."""
+    store = openrouter_oauth.get_store()
+    session = store.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Unknown session_id.")
+
+    # Once we've gone terminal we can free the listener.
+    if session.is_terminal:
+        await openrouter_oauth.stop_listener(session)
+
+    return OpenRouterStatusResponse(status=session.status, detail=session.detail)
 
 
 # ---------------------------------------------------------------------------
