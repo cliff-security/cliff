@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 AIProvider = Literal["openrouter", "anthropic", "openai", "custom"]
 AISource = Literal["autodetect", "openrouter-oauth", "byok"]
@@ -132,14 +132,16 @@ class OpenRouterStatusResponse(BaseModel):
 
 
 class BYOKRequest(BaseModel):
+    """Inbound payload for ``POST /api/integrations/ai/byok``.
+
+    ``api_key`` is a ``SecretStr`` so the value is redacted in every
+    Pydantic-rendered context — model_dump (without explicit unwrap),
+    validation errors, repr, logging. Call sites that need the raw key
+    must use ``api_key.get_secret_value()`` explicitly; that explicit
+    unwrap is the only place we want to deal with the raw string.
+    """
+
     provider: AIProvider
-    api_key: str = Field(..., min_length=1)
+    api_key: SecretStr = Field(..., min_length=1)
     base_url: str | None = None
     model: str | None = None
-
-    def __repr__(self) -> str:  # pragma: no cover — trivial
-        return (
-            f"BYOKRequest(provider={self.provider!r}, "
-            "api_key=<redacted>, "
-            f"base_url={self.base_url!r}, model={self.model!r})"
-        )

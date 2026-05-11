@@ -19,8 +19,10 @@ contain key material.
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import logging
+import socket
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse, urlunparse
@@ -54,20 +56,74 @@ class CustomEndpointRejectedError(ValueError):
     """Raised when a user-supplied custom endpoint URL fails sanity checks."""
 
 
-def _safe_custom_chat_url(base_url: str) -> str:
+_PRIVATE_HOST_NAMES = frozenset(
+    {"localhost", "ip6-localhost", "ip6-loopback"}
+)
+
+
+def _ip_is_unsafe(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Return True if *ip* should not be reachable from the validator."""
+    return (
+        ip.is_loopback
+        or ip.is_private
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
+
+
+async def _resolve_host_addresses(
+    host: str,
+) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    """Resolve *host* via DNS in a thread; return parsed IPs.
+
+    Raises ``CustomEndpointRejectedError`` if the host cannot be resolved.
+    Runs the blocking ``getaddrinfo`` call in a worker thread so the
+    event loop stays responsive. We don't use ``loop.getaddrinfo`` so
+    tests can monkeypatch the synchronous ``socket.getaddrinfo``
+    deterministically.
+    """
+    def _lookup() -> list[tuple]:
+        return socket.getaddrinfo(host, None)
+
+    try:
+        infos = await asyncio.to_thread(_lookup)
+    except socket.gaierror as exc:
+        msg = f"Custom base URL host {host!r} could not be resolved."
+        raise CustomEndpointRejectedError(msg) from exc
+
+    addrs: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
+    for _family, _type, _proto, _canon, sockaddr in infos:
+        try:
+            addrs.append(ipaddress.ip_address(sockaddr[0]))
+        except (ValueError, IndexError):
+            continue
+    if not addrs:
+        msg = f"Custom base URL host {host!r} resolved to no usable addresses."
+        raise CustomEndpointRejectedError(msg)
+    return addrs
+
+
+async def _safe_custom_chat_url(base_url: str) -> str:
     """Validate *base_url* and return a freshly rebuilt ``…/chat/completions`` URL.
 
-    Rejects non-http(s) schemes and any host that resolves to a
-    loopback / private / link-local / multicast / reserved address.
-    Hostnames that aren't bare IPs are accepted on the assumption that
-    DNS resolves to a public address — we cannot guarantee that without
-    pre-resolving, which would add a TOCTOU window between check and
-    request. The threat model is a user deliberately pointing OpenSec
-    at their own internal API server.
+    Two-layer SSRF defense:
 
-    Returns a URL **reconstructed from the validated scheme + netloc**
-    so that downstream `httpx` callers receive a value whose taint
-    chain is broken from the raw user input.
+    1. Lexical: reject non-http(s) schemes, empty hosts, and bare-IP
+       hosts that fall in loopback / private / link-local / multicast /
+       reserved / unspecified ranges.
+    2. **DNS-aware**: resolve hostnames via ``socket.getaddrinfo`` and
+       reject if **any** resolved address is in the same unsafe set.
+       This closes the DNS-rebinding window where a public-looking
+       hostname has an A/AAAA record pointing at the host's internal
+       network. There is still a tiny TOCTOU between resolve and
+       connect, but it's much narrower than the previous
+       "hostname accepted without resolution" stance.
+
+    Returns a URL **reconstructed via urlunparse** from validated parts
+    so downstream ``httpx`` callers receive a value whose taint chain
+    is broken from the raw user input (CodeQL sanitizer pattern).
     """
     parsed = urlparse(base_url)
     if parsed.scheme not in ("http", "https"):
@@ -78,24 +134,38 @@ def _safe_custom_chat_url(base_url: str) -> str:
         raise CustomEndpointRejectedError(msg)
 
     host = parsed.hostname.lower()
-    if host in ("localhost", "ip6-localhost", "ip6-loopback"):
+    if host in _PRIVATE_HOST_NAMES:
         msg = "Custom base URL must not point at the local machine."
         raise CustomEndpointRejectedError(msg)
 
     try:
-        ip = ipaddress.ip_address(host)
+        bare_ip: ipaddress.IPv4Address | ipaddress.IPv6Address | None = (
+            ipaddress.ip_address(host)
+        )
     except ValueError:
-        ip = None
-    if ip is not None and (
-        ip.is_loopback
-        or ip.is_private
-        or ip.is_link_local
-        or ip.is_multicast
-        or ip.is_reserved
-        or ip.is_unspecified
-    ):
-        msg = "Custom base URL must not point at a private or loopback address."
-        raise CustomEndpointRejectedError(msg)
+        bare_ip = None
+
+    if bare_ip is not None:
+        if _ip_is_unsafe(bare_ip):
+            msg = (
+                "Custom base URL must not point at a private or loopback "
+                "address."
+            )
+            raise CustomEndpointRejectedError(msg)
+    else:
+        # Hostname — resolve via DNS and reject if *any* resolved IP
+        # falls in an unsafe range. The check is done here, before the
+        # outbound HTTP request; the brief window between resolve and
+        # connect can in theory be raced by a hostile resolver, but
+        # the probe doesn't reflect response bodies so there is no
+        # exfil channel even if it is.
+        for addr in await _resolve_host_addresses(host):
+            if _ip_is_unsafe(addr):
+                msg = (
+                    f"Custom base URL host {host!r} resolves to a private "
+                    "or loopback address."
+                )
+                raise CustomEndpointRejectedError(msg)
 
     # Rebuild from validated parts. Constraining the scheme to a literal
     # known-safe pair + a verified-non-private host is what breaks the
@@ -104,9 +174,6 @@ def _safe_custom_chat_url(base_url: str) -> str:
     netloc = host
     if parsed.port is not None:
         netloc = f"{host}:{parsed.port}"
-    # Strip any trailing /chat/completions the user may have already
-    # included, then append it ourselves so the final path is
-    # statically anchored.
     user_path = parsed.path.rstrip("/")
     if user_path.endswith("/chat/completions"):
         user_path = user_path[: -len("/chat/completions")]
@@ -201,7 +268,7 @@ async def validate_custom(
 ) -> ValidationResult:
     """OpenAI-compatible probe against a user-supplied base URL."""
     try:
-        url = _safe_custom_chat_url(base_url)
+        url = await _safe_custom_chat_url(base_url)
     except CustomEndpointRejectedError as exc:
         return ValidationResult(
             ok=False,

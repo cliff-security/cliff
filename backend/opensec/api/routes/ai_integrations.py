@@ -210,9 +210,10 @@ async def byok(
     db: aiosqlite.Connection = Depends(get_db),
 ) -> AIStatus:
     """Validate + persist a directly-pasted API key."""
+    raw_key = body.api_key.get_secret_value()
     validation = await validators.validate(
         body.provider,
-        body.api_key,
+        raw_key,
         base_url=body.base_url,
         model=body.model,
     )
@@ -226,7 +227,7 @@ async def byok(
         )
 
     service = _get_service(request, db)
-    await service.save_byok(body.provider, body.api_key, base_url=body.base_url)
+    await service.save_byok(body.provider, raw_key, base_url=body.base_url)
     return await service.get_status()
 
 

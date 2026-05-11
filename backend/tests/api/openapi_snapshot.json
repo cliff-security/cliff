@@ -1035,11 +1035,14 @@
         "type": "object"
       },
       "BYOKRequest": {
+        "description": "Inbound payload for ``POST /api/integrations/ai/byok``.\n\n``api_key`` is a ``SecretStr`` so the value is redacted in every\nPydantic-rendered context \u2014 model_dump (without explicit unwrap),\nvalidation errors, repr, logging. Call sites that need the raw key\nmust use ``api_key.get_secret_value()`` explicitly; that explicit\nunwrap is the only place we want to deal with the raw string.",
         "properties": {
           "api_key": {
+            "format": "password",
             "minLength": 1,
             "title": "Api Key",
-            "type": "string"
+            "type": "string",
+            "writeOnly": true
           },
           "base_url": {
             "anyOf": [

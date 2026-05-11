@@ -148,7 +148,12 @@ async def test_validate_custom_requires_base_url() -> None:
     assert result.error_code == "no_access"
 
 
-async def test_validate_custom_happy_path(httpx_mock) -> None:
+async def test_validate_custom_happy_path(httpx_mock, monkeypatch) -> None:
+    monkeypatch.setattr(
+        validators.socket,
+        "getaddrinfo",
+        lambda host, port: [(2, 1, 6, "", ("8.8.8.8", 0))],
+    )
     httpx_mock.add_response(
         url="https://my-llm.example/v1/chat/completions",
         method="POST",
@@ -164,7 +169,12 @@ async def test_validate_custom_happy_path(httpx_mock) -> None:
     assert result.ok is True
 
 
-async def test_validate_custom_strips_trailing_slash(httpx_mock) -> None:
+async def test_validate_custom_strips_trailing_slash(httpx_mock, monkeypatch) -> None:
+    monkeypatch.setattr(
+        validators.socket,
+        "getaddrinfo",
+        lambda host, port: [(2, 1, 6, "", ("8.8.8.8", 0))],
+    )
     httpx_mock.add_response(
         url="https://my-llm.example/v1/chat/completions",
         method="POST",
@@ -211,7 +221,14 @@ async def test_custom_endpoint_rejects_unsafe_urls(bad_url: str) -> None:
     assert result.error_code == "no_access"
 
 
-async def test_custom_endpoint_accepts_public_https(httpx_mock) -> None:
+async def test_custom_endpoint_accepts_public_https(httpx_mock, monkeypatch) -> None:
+    # Force the resolver to return a public IP for the hostname so the
+    # DNS-aware check passes deterministically.
+    monkeypatch.setattr(
+        validators.socket,
+        "getaddrinfo",
+        lambda host, port: [(2, 1, 6, "", ("8.8.8.8", 0))],
+    )
     httpx_mock.add_response(
         url="https://api.example.com/v1/chat/completions",
         method="POST",
@@ -225,6 +242,97 @@ async def test_custom_endpoint_accepts_public_https(httpx_mock) -> None:
         model="gpt-x",
     )
     assert result.ok is True
+
+
+# ---------------------------------------------------------------------------
+# DNS-aware SSRF (rebinding) check
+# ---------------------------------------------------------------------------
+
+
+async def test_custom_endpoint_rejects_dns_to_private_ip(monkeypatch) -> None:
+    """A public-looking hostname that resolves to a private IP is rejected."""
+    monkeypatch.setattr(
+        validators.socket,
+        "getaddrinfo",
+        lambda host, port: [(2, 1, 6, "", ("10.0.0.1", 0))],
+    )
+    result = await validators.validate(
+        "custom",
+        "sk-x",
+        base_url="https://rebind.example.com/v1",
+        model="gpt-x",
+    )
+    assert result.ok is False
+    assert result.error_code == "no_access"
+
+
+async def test_custom_endpoint_rejects_dns_to_aws_metadata(monkeypatch) -> None:
+    monkeypatch.setattr(
+        validators.socket,
+        "getaddrinfo",
+        lambda host, port: [(2, 1, 6, "", ("169.254.169.254", 0))],
+    )
+    result = await validators.validate(
+        "custom",
+        "sk-x",
+        base_url="https://metadata.example/v1",
+        model="gpt-x",
+    )
+    assert result.ok is False
+    assert result.error_code == "no_access"
+
+
+async def test_custom_endpoint_rejects_dns_to_ipv6_loopback(monkeypatch) -> None:
+    monkeypatch.setattr(
+        validators.socket,
+        "getaddrinfo",
+        lambda host, port: [(10, 1, 6, "", ("::1", 0, 0, 0))],
+    )
+    result = await validators.validate(
+        "custom",
+        "sk-x",
+        base_url="https://v6.example/v1",
+        model="gpt-x",
+    )
+    assert result.ok is False
+    assert result.error_code == "no_access"
+
+
+async def test_custom_endpoint_rejects_when_any_resolved_ip_is_private(
+    monkeypatch,
+) -> None:
+    """Mixed A-record set: one public + one private → still rejected."""
+    monkeypatch.setattr(
+        validators.socket,
+        "getaddrinfo",
+        lambda host, port: [
+            (2, 1, 6, "", ("8.8.8.8", 0)),
+            (2, 1, 6, "", ("192.168.1.1", 0)),
+        ],
+    )
+    result = await validators.validate(
+        "custom",
+        "sk-x",
+        base_url="https://mixed.example/v1",
+        model="gpt-x",
+    )
+    assert result.ok is False
+    assert result.error_code == "no_access"
+
+
+async def test_custom_endpoint_rejects_unresolvable_host(monkeypatch) -> None:
+    def _explode(*_args, **_kwargs):
+        raise validators.socket.gaierror("no such host")
+
+    monkeypatch.setattr(validators.socket, "getaddrinfo", _explode)
+    result = await validators.validate(
+        "custom",
+        "sk-x",
+        base_url="https://does-not-exist.example/v1",
+        model="gpt-x",
+    )
+    assert result.ok is False
+    assert result.error_code == "no_access"
 
 
 async def test_dispatcher_routes_to_anthropic(httpx_mock) -> None:
