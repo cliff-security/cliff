@@ -13,6 +13,7 @@ import {
 import {
   useGithubAppDisconnect,
   useGithubAppResumeOnReturn,
+  useGithubAppStatus,
 } from '@/api/githubApp'
 import type {
   RegistryEntry,
@@ -531,8 +532,21 @@ export default function IntegrationSettings() {
   // ?github_setup=complete. We fire /connect once (idempotent) and
   // mount the modal here so it doesn't depend on the catalog button
   // being rendered (which it isn't, once an integration row exists).
-  const { response: resumedFlow, clear: clearResumedFlow } =
-    useGithubAppResumeOnReturn()
+  const {
+    response: resumedFlow,
+    clear: clearResumedFlow,
+    resume: resumeGithubAppFlow,
+  } = useGithubAppResumeOnReturn()
+  // Detect a backend in-flight row (installation_pending /
+  // device_pending) — the user clicked Connect but didn't finish
+  // authorising. Surfaces a "Resume install" CTA on the GitHub
+  // catalog tile instead of letting them re-click Connect into a
+  // navigate-to-Configure-page loop. The same hook backs the
+  // onboarding page, so the user gets consistent recovery there.
+  const { data: ghAppStatus } = useGithubAppStatus({ enabled: true })
+  const ghAppInflight =
+    ghAppStatus?.status === 'installation_pending' ||
+    ghAppStatus?.status === 'device_pending'
 
   // Only enabled integrations count as "configured" — a disabled row
   // (e.g. a github integration created during an in-flight App install
@@ -700,10 +714,31 @@ export default function IntegrationSettings() {
                     {entry.status === 'available' && !configured && (
                       entry.id === 'github' && entry.github_app_available ? (
                         <div className="flex flex-col items-end gap-1.5">
-                          <GithubAppConnectButton
-                            label="Connect"
-                            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-on-primary hover:bg-primary/90 transition-colors disabled:opacity-60"
-                          />
+                          {ghAppInflight ? (
+                            // Backend has an in-flight row from a
+                            // previous /connect that didn't complete
+                            // (App-already-installed → Configure path,
+                            // user closed tab, etc). Re-clicking
+                            // Connect would loop them back through the
+                            // same install URL; show "Resume install"
+                            // instead so one click opens the modal.
+                            <button
+                              type="button"
+                              onClick={() => void resumeGithubAppFlow()}
+                              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-on-primary hover:bg-primary/90 transition-colors"
+                              data-testid="github-resume-install"
+                            >
+                              <span className="material-symbols-outlined text-base">
+                                play_arrow
+                              </span>
+                              Resume install
+                            </button>
+                          ) : (
+                            <GithubAppConnectButton
+                              label="Connect"
+                              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-on-primary hover:bg-primary/90 transition-colors disabled:opacity-60"
+                            />
+                          )}
                           {/* PAT fallback for users who'd rather paste a
                               token (security policy, restricted org App
                               install permissions, etc). text-xs (12px)

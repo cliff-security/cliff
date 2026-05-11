@@ -77,8 +77,20 @@ export default function ConnectRepo() {
     enabled: githubAppAvailable,
   })
   const ghAppConnected = ghAppStatus?.status === 'connected'
-  const { response: resumedFlow, clear: clearResumedFlow } =
-    useGithubAppResumeOnReturn()
+  const {
+    response: resumedFlow,
+    clear: clearResumedFlow,
+    resume: resumeGithubAppFlow,
+  } = useGithubAppResumeOnReturn()
+  // ``installation_pending`` and ``device_pending`` mean a previous
+  // /connect created a row but the device flow never finished — most
+  // commonly because GitHub diverted to Configure (App already
+  // installed) and never fired our setup_url callback. We surface a
+  // "Resume install" callout instead of opening the modal silently
+  // (which would feel unprompted).
+  const ghAppInflight =
+    ghAppStatus?.status === 'installation_pending' ||
+    ghAppStatus?.status === 'device_pending'
   const [authMode, setAuthMode] = useState<'app' | 'pat'>(
     githubAppAvailable ? 'app' : 'pat',
   )
@@ -414,35 +426,86 @@ export default function ConnectRepo() {
         </div>
       ) : authMode === 'app' && state.kind === 'enterToken' ? (
         <div data-testid="connect-app-flow">
-          <div className="rounded-2xl bg-surface-container-lowest shadow-sm p-6 mb-4">
-            <div className="flex items-start gap-3 mb-4">
-              <div className="w-10 h-10 rounded-lg bg-surface-container-low flex items-center justify-center flex-shrink-0">
-                <span className="material-symbols-outlined text-primary">
-                  rocket_launch
+          {ghAppInflight ? (
+            // Resume affordance — replaces the Install card when there's
+            // an in-flight backend row (e.g. the user clicked Install,
+            // GitHub diverted to Configure because the App is already
+            // installed, and they came back without a setup_url
+            // callback firing). Surfaced as an explicit click target
+            // rather than auto-opening the modal — surprise modals on
+            // page load feel unprompted.
+            <div
+              className="rounded-2xl bg-surface-container-lowest shadow-sm p-6 mb-4"
+              data-testid="connect-app-flow-resume"
+            >
+              <div className="flex items-start gap-3 mb-4">
+                <div className="w-10 h-10 rounded-lg bg-surface-container-low flex items-center justify-center flex-shrink-0">
+                  <span className="material-symbols-outlined text-primary">
+                    schedule
+                  </span>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-on-surface">
+                    Pick up where you left off
+                  </p>
+                  <p className="text-xs text-on-surface-variant mt-1">
+                    You started installing OpenSec but didn't finish
+                    authorising this device. Resume to see your code
+                    again, or start fresh if something went wrong.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void resumeGithubAppFlow()}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-5 py-3 text-base font-semibold text-on-primary hover:bg-primary/90 transition-colors"
+              >
+                <span className="material-symbols-outlined text-base">
+                  play_arrow
                 </span>
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-on-surface">
-                  Install the OpenSec GitHub App
-                </p>
-                <p className="text-xs text-on-surface-variant mt-1">
-                  One-click install on github.com — pick the repo, authorize
-                  this device, you’re done. No tokens to manage.
-                </p>
-              </div>
+                Resume install
+              </button>
+              <a
+                href="/settings#integrations"
+                className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low transition-colors"
+              >
+                <span className="material-symbols-outlined text-base">
+                  restart_alt
+                </span>
+                Start over (disconnect &amp; restart)
+              </a>
             </div>
-            <GithubAppConnectButton
-              label="Install OpenSec on a repo"
-              returnTo="/onboarding/connect"
-              className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-5 py-3 text-base font-semibold text-on-primary hover:bg-primary/90 transition-colors disabled:opacity-60"
-            />
-            {/* Set the expectation that GitHub may sudo-mode prompt for
-                a password — not under our control, but a "wait, where am
-                I?" moment if the user wasn't warned. */}
-            <p className="text-[11px] text-on-surface-variant mt-2 text-center">
-              GitHub may ask you to re-enter your password to confirm the install.
-            </p>
-          </div>
+          ) : (
+            <div className="rounded-2xl bg-surface-container-lowest shadow-sm p-6 mb-4">
+              <div className="flex items-start gap-3 mb-4">
+                <div className="w-10 h-10 rounded-lg bg-surface-container-low flex items-center justify-center flex-shrink-0">
+                  <span className="material-symbols-outlined text-primary">
+                    rocket_launch
+                  </span>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-on-surface">
+                    Install the OpenSec GitHub App
+                  </p>
+                  <p className="text-xs text-on-surface-variant mt-1">
+                    One-click install on github.com — pick the repo, authorize
+                    this device, you’re done. No tokens to manage.
+                  </p>
+                </div>
+              </div>
+              <GithubAppConnectButton
+                label="Install OpenSec on a repo"
+                returnTo="/onboarding/connect"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-5 py-3 text-base font-semibold text-on-primary hover:bg-primary/90 transition-colors disabled:opacity-60"
+              />
+              {/* Set the expectation that GitHub may sudo-mode prompt for
+                  a password — not under our control, but a "wait, where am
+                  I?" moment if the user wasn't warned. */}
+              <p className="text-[11px] text-on-surface-variant mt-2 text-center">
+                GitHub may ask you to re-enter your password to confirm the install.
+              </p>
+            </div>
+          )}
           <div className="text-center">
             <button
               type="button"
