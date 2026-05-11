@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import ipaddress
 import logging
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 
@@ -49,16 +49,20 @@ class CustomEndpointRejectedError(ValueError):
     """Raised when a user-supplied custom endpoint URL fails sanity checks."""
 
 
-def _ensure_safe_custom_url(base_url: str) -> str:
-    """Validate *base_url* and return the cleaned URL.
+def _safe_custom_chat_url(base_url: str) -> str:
+    """Validate *base_url* and return a freshly rebuilt ``…/chat/completions`` URL.
 
     Rejects non-http(s) schemes and any host that resolves to a
     loopback / private / link-local / multicast / reserved address.
     Hostnames that aren't bare IPs are accepted on the assumption that
     DNS resolves to a public address — we cannot guarantee that without
     pre-resolving, which would add a TOCTOU window between check and
-    request. The trade-off matches the threat model: a user
-    deliberately pointing OpenSec at their own internal API server.
+    request. The threat model is a user deliberately pointing OpenSec
+    at their own internal API server.
+
+    Returns a URL **reconstructed from the validated scheme + netloc**
+    so that downstream `httpx` callers receive a value whose taint
+    chain is broken from the raw user input.
     """
     parsed = urlparse(base_url)
     if parsed.scheme not in ("http", "https"):
@@ -88,7 +92,21 @@ def _ensure_safe_custom_url(base_url: str) -> str:
         msg = "Custom base URL must not point at a private or loopback address."
         raise CustomEndpointRejectedError(msg)
 
-    return base_url
+    # Rebuild from validated parts. Constraining the scheme to a literal
+    # known-safe pair + a verified-non-private host is what breaks the
+    # SSRF taint flow for static analysis.
+    safe_scheme = "https" if parsed.scheme == "https" else "http"
+    netloc = host
+    if parsed.port is not None:
+        netloc = f"{host}:{parsed.port}"
+    # Strip any trailing /chat/completions the user may have already
+    # included, then append it ourselves so the final path is
+    # statically anchored.
+    user_path = parsed.path.rstrip("/")
+    if user_path.endswith("/chat/completions"):
+        user_path = user_path[: -len("/chat/completions")]
+    safe_path = user_path + "/chat/completions"
+    return urlunparse((safe_scheme, netloc, safe_path, "", "", ""))
 
 
 def _classify_status(status: int) -> str | None:
@@ -192,14 +210,13 @@ async def validate_custom(
 ) -> ValidationResult:
     """OpenAI-compatible probe against a user-supplied base URL."""
     try:
-        safe_base = _ensure_safe_custom_url(base_url)
+        url = _safe_custom_chat_url(base_url)
     except CustomEndpointRejectedError as exc:
         return ValidationResult(
             ok=False,
             error_code="no_access",
             error_message=str(exc),
         )
-    url = safe_base.rstrip("/") + "/chat/completions"
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
             resp = await client.post(
