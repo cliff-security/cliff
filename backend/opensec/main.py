@@ -162,9 +162,47 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.state.context_builder = context_builder
 
-    # Layer 3: Per-workspace process pool
-    pool = WorkspaceProcessPool()
+    # Layer 3: Per-workspace process pool.
+    # IMPL-0011 Phase F2: wire an env resolver so every workspace spawn
+    # automatically picks up the active AI provider key (env var per
+    # provider). Resolver is async + closure-bound to app.state so it
+    # always reads the current vault / db state, even after disconnect.
+    async def _ai_env_resolver() -> dict[str, str]:
+        from opensec.ai.service import AIIntegrationService
+
+        vault = app.state.vault
+        db = db_connection._db
+        if vault is None or db is None:
+            return {}
+        service = AIIntegrationService(
+            db, vault, audit_logger=app.state.audit_logger
+        )
+        try:
+            return await service.resolve_env_for_workspace()
+        except Exception:
+            logger.warning(
+                "AI integration env resolution failed", exc_info=True
+            )
+            return {}
+
+    pool = WorkspaceProcessPool(env_resolver=_ai_env_resolver)
     app.state.process_pool = pool
+
+    # IMPL-0011 Phase F3: register the singleton-restart hook on app.state
+    # so AIIntegrationService instances built per-request can push the
+    # new env into the singleton OpenCode without coupling to main.
+    async def _ai_on_key_change(env: dict[str, str]) -> None:
+        try:
+            opencode_process.set_extra_env(env)
+            if opencode_process.is_running:
+                await opencode_process.restart()
+        except Exception:
+            logger.warning(
+                "Singleton OpenCode restart after AI key change failed",
+                exc_info=True,
+            )
+
+    app.state.ai_on_key_change = _ai_on_key_change
 
     # Agent executor (Layer 5: orchestration)
     app.state.agent_executor = AgentExecutor(pool, context_builder)

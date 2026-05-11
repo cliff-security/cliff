@@ -113,8 +113,14 @@ class WorkspaceContextBuilder:
                     exc_info=True,
                 )
 
-        # 3. Filesystem directory
-        ws_dir = self._dir_manager.create(workspace.id, finding, mcp_servers=mcp_servers)
+        # 3. Filesystem directory — model resolved from the active AI
+        # provider (IMPL-0011 Phase F1). When unconfigured (or vault
+        # missing), pass model=None and let the workspace inherit the
+        # singleton's DB-backed model from the legacy path.
+        model = await self._resolve_active_model(db)
+        ws_dir = self._dir_manager.create(
+            workspace.id, finding, mcp_servers=mcp_servers, model=model
+        )
 
         # 3b. Write workspace integrations manifest
         if ws_integrations:
@@ -134,6 +140,29 @@ class WorkspaceContextBuilder:
 
         logger.info("Created workspace %s at %s", workspace.id, ws_dir.root)
         return await get_workspace(db, workspace.id)  # type: ignore[return-value]
+
+    async def _resolve_active_model(self, db: aiosqlite.Connection) -> str | None:
+        """Return the OpenCode model id for the active AI integration.
+
+        Returns ``None`` if no AI integration is configured — the workspace
+        falls back to the singleton's DB-backed model (legacy paste-flow
+        path). On any error, log + return None so workspace creation
+        never blocks on AI configuration.
+        """
+        try:
+            from opensec.ai import catalog as ai_catalog
+            from opensec.ai import repo as ai_repo
+
+            active = await ai_repo.get_active(db)
+            if active is None:
+                return None
+            return ai_catalog.resolve_model(active.provider)
+        except Exception:
+            logger.warning(
+                "Could not resolve AI model from active integration",
+                exc_info=True,
+            )
+            return None
 
     # ------------------------------------------------------------------
     # Update context

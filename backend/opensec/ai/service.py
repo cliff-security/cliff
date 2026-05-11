@@ -38,6 +38,8 @@ from opensec.integrations.audit import AuditEvent
 from opensec.models import IntegrationConfigCreate
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     import aiosqlite
 
     from opensec.integrations.audit import AuditLogger
@@ -63,10 +65,20 @@ class AIIntegrationService:
         vault: CredentialVault,
         *,
         audit_logger: AuditLogger | None = None,
+        on_key_change: Callable[[dict[str, str]], Awaitable[None]] | None = None,
     ) -> None:
+        """Construct the service.
+
+        ``on_key_change`` (IMPL-0011 Phase F3) — optional async callable
+        invoked after every save / disconnect with the new env-var dict
+        (or ``{}`` after disconnect). Used by ``main.py`` lifespan to
+        push fresh env into the singleton OpenCode process and restart
+        it. Kept optional so unit tests don't need the engine wired up.
+        """
         self._db = db
         self._vault = vault
         self._audit = audit_logger
+        self._on_key_change = on_key_change
 
     # ------------------------------------------------------------------
     # Public reads
@@ -141,6 +153,7 @@ class AIIntegrationService:
             integration_id=record.integration_id,
             verb=source_path,
         )
+        await self._fire_key_change()
         return record
 
     async def save_byok(
@@ -166,6 +179,7 @@ class AIIntegrationService:
             integration_id=record.integration_id,
             verb="byok",
         )
+        await self._fire_key_change()
         return record
 
     async def complete_oauth(
@@ -187,6 +201,7 @@ class AIIntegrationService:
             integration_id=record.integration_id,
             verb="openrouter-oauth",
         )
+        await self._fire_key_change()
         return record
 
     async def disconnect(self) -> bool:
@@ -210,6 +225,7 @@ class AIIntegrationService:
             integration_id=record.integration_id,
             verb=None,
         )
+        await self._fire_key_change()
         return deleted
 
     # ------------------------------------------------------------------
@@ -262,6 +278,23 @@ class AIIntegrationService:
             source,
         )
         return record
+
+    async def _fire_key_change(self) -> None:
+        """Call the on_key_change hook with the current env, if any.
+
+        Never raises — singleton restart failures are non-fatal for the
+        save path; the user can retry from the UI.
+        """
+        if self._on_key_change is None:
+            return
+        env = await self.resolve_env_for_workspace()
+        try:
+            await self._on_key_change(env)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "on_key_change hook raised; singleton may have stale env",
+                exc_info=True,
+            )
 
     async def _audit_log(
         self,
