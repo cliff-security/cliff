@@ -6,7 +6,7 @@
  * /status endpoint while our backend polls GitHub's token endpoint.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from './client'
 
@@ -139,16 +139,27 @@ export function useGithubAppDisconnect() {
 }
 
 /**
- * Detects ``?github_setup=complete`` on the current URL (set by the
- * backend's /setup callback after a successful App install on GitHub),
- * fires the idempotent /connect once to fetch the in-flight state, and
- * returns the device-flow response so the page can mount the modal.
+ * Decides whether to open the device-flow modal on page mount.
+ *
+ * Two triggers, both treated as "resume the in-flight flow":
+ *
+ * 1. ``?github_setup=complete`` on the URL — the backend's /setup
+ *    callback fired after a successful App install on GitHub.
+ * 2. ``/status`` reports an in-flight state (``installation_pending``
+ *    or ``device_pending``) regardless of URL — covers the
+ *    "App was already installed on this user's account, GitHub
+ *    skipped /setup and dropped them on the Configure page" path. If
+ *    the user navigates back to OpenSec without our query param, we
+ *    still know the backend has an open device flow and we should
+ *    show the modal so they can finish authorizing.
+ *
+ * ``?github_setup=updated`` cleans the URL silently (the user
+ * reconfigured an already-connected install — no modal needed).
  *
  * Lives at this layer (not inside the connect button) so the post-
  * install resume flow works regardless of whether any specific CTA is
- * currently mounted - e.g. once the install creates an integration row
- * the catalog button unmounts, but the page still renders, so a
- * page-level effect is the only safe place.
+ * currently mounted - once the install creates an integration row the
+ * catalog button unmounts, but the page still renders.
  */
 export function useGithubAppResumeOnReturn(): {
   response: DeviceFlowConnectResponse | null
@@ -158,16 +169,21 @@ export function useGithubAppResumeOnReturn(): {
   const [response, setResponse] = useState<DeviceFlowConnectResponse | null>(
     null,
   )
+  const triggered = useRef(false)
+
+  // Probe the backend for an in-flight state. Enabled unconditionally —
+  // if there's no flow in progress we get a 404 (mapped to ``null``)
+  // and skip. The status polling continues at 2s after the modal
+  // opens, since the same query key is shared with the modal's hook.
+  const { data: status } = useGithubAppStatus({ enabled: true })
+
   useEffect(() => {
     if (typeof window === 'undefined') return
+    if (triggered.current) return
+    if (connect.isPending || response) return
+
     const url = new URL(window.location.href)
     const setupStatus = url.searchParams.get('github_setup')
-    // 'complete' = first install, open the device-flow modal.
-    // 'updated' = user reconfigured an existing install, no modal needed
-    //             (already authorized). Just clean the URL silently.
-    // Anything else = ignore.
-    if (setupStatus !== 'complete' && setupStatus !== 'updated') return
-    if (connect.isPending || response) return
 
     const cleanUrl = () => {
       url.searchParams.delete('github_setup')
@@ -179,11 +195,22 @@ export function useGithubAppResumeOnReturn(): {
       window.history.replaceState({}, '', url.toString())
     }
 
+    // 'updated' — silent URL cleanup, no modal.
     if (setupStatus === 'updated') {
+      triggered.current = true
       cleanUrl()
       return
     }
 
+    // Trigger the modal if EITHER the URL says we just came back from
+    // a successful install OR the backend already has an in-flight
+    // flow we should resume.
+    const inflight =
+      status?.status === 'installation_pending' ||
+      status?.status === 'device_pending'
+    if (setupStatus !== 'complete' && !inflight) return
+
+    triggered.current = true
     void (async () => {
       try {
         const r = await connect.mutateAsync({})
@@ -192,8 +219,18 @@ export function useGithubAppResumeOnReturn(): {
         cleanUrl()
       }
     })()
-    // Fire once on mount.
+    // We deliberately retrigger when ``status?.status`` arrives so the
+    // backend-only resume case (no query param) still fires once /status
+    // resolves. The ``triggered`` ref guards against double-firing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  return { response, clear: () => setResponse(null) }
+  }, [status?.status])
+
+  return {
+    response,
+    clear: () => {
+      setResponse(null)
+      // Allow a fresh trigger if the user starts a new flow later.
+      triggered.current = false
+    },
+  }
 }

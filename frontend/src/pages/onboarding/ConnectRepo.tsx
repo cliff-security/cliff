@@ -377,6 +377,41 @@ export default function ConnectRepo() {
             )}
           </div>
         </div>
+      ) : authMode === 'app' && state.kind === 'tokenError' ? (
+        <div data-testid="connect-app-flow-error">
+          <InlineErrorCallout
+            title="We couldn't load your repositories"
+            body={
+              <>
+                The GitHub App is connected, but listing your repositories
+                failed. This usually means the install needs to be redone —
+                disconnect from Settings and run Connect again. Or fall back
+                to a personal access token below.
+              </>
+            }
+          />
+          <div className="mt-4 flex flex-col gap-3">
+            <a
+              href="/settings#integrations"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-surface-container-low px-4 py-2.5 text-sm font-semibold text-on-surface hover:bg-surface-container transition-colors"
+            >
+              <span className="material-symbols-outlined text-base">
+                tune
+              </span>
+              Open Settings to disconnect &amp; retry
+            </a>
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode('pat')
+                resetToTokenEntry()
+              }}
+              className="text-xs font-semibold text-on-surface-variant hover:text-on-surface px-2 py-1 rounded text-center"
+            >
+              Or paste a personal access token instead →
+            </button>
+          </div>
+        </div>
       ) : authMode === 'app' && state.kind === 'enterToken' ? (
         <div data-testid="connect-app-flow">
           <div className="rounded-2xl bg-surface-container-lowest shadow-sm p-6 mb-4">
