@@ -11,6 +11,7 @@ https://docs.github.com/en/apps/creating-github-apps/writing-code-with-the-rest-
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Literal
 
@@ -77,6 +78,40 @@ class UserInfo:
     id: int
 
 
+# Cap exception/log payloads at this many characters of body text.
+# Anything longer than ~200 chars is almost certainly a server error
+# page that adds noise without information; verbose echo also lets a
+# misbehaving GitHub API surprise us by reflecting our request fields
+# (e.g. refresh_token) back into our logs / DB. SR-4 in PR #145 review.
+_ERROR_BODY_MAX_CHARS = 200
+
+
+def _safe_error_summary(resp: httpx.Response) -> str:
+    """Build a short, log-safe error summary from a non-2xx response.
+
+    Prefers the standard OAuth error JSON shape (``{"error":"...",
+    "error_description":"..."}``) and falls back to a truncated text body.
+    Never returns more than ``_ERROR_BODY_MAX_CHARS`` characters.
+    """
+    try:
+        body = resp.json()
+    except (ValueError, json.JSONDecodeError):
+        body = None
+    if isinstance(body, dict):
+        err = body.get("error") or body.get("message")
+        desc = body.get("error_description")
+        if err and desc:
+            summary = f"{err}: {desc}"
+        elif err:
+            summary = str(err)
+        else:
+            summary = ""
+        if summary:
+            return summary[:_ERROR_BODY_MAX_CHARS]
+    text = (resp.text or "").strip()
+    return text[:_ERROR_BODY_MAX_CHARS]
+
+
 class GitHubDeviceFlowClient:
     """Async wrapper around GitHub's device-flow endpoints.
 
@@ -119,7 +154,8 @@ class GitHubDeviceFlowClient:
             )
         if resp.status_code != 200:
             raise GitHubDeviceFlowError(
-                f"device_code request failed: HTTP {resp.status_code} {resp.text}"
+                f"device_code request failed: HTTP {resp.status_code} "
+                f"{_safe_error_summary(resp)}"
             )
         body = resp.json()
         try:
@@ -151,10 +187,12 @@ class GitHubDeviceFlowClient:
         if resp.status_code != 200:
             if resp.status_code == 429 or 500 <= resp.status_code < 600:
                 raise GitHubDeviceFlowTransientError(
-                    f"token poll transient: HTTP {resp.status_code} {resp.text}"
+                    f"token poll transient: HTTP {resp.status_code} "
+                    f"{_safe_error_summary(resp)}"
                 )
             raise GitHubDeviceFlowError(
-                f"token poll failed: HTTP {resp.status_code} {resp.text}"
+                f"token poll failed: HTTP {resp.status_code} "
+                f"{_safe_error_summary(resp)}"
             )
         body = resp.json()
 
@@ -202,7 +240,8 @@ class GitHubDeviceFlowClient:
             )
         if resp.status_code != 200:
             raise GitHubDeviceFlowError(
-                f"refresh failed: HTTP {resp.status_code} {resp.text}"
+                f"refresh failed: HTTP {resp.status_code} "
+                f"{_safe_error_summary(resp)}"
             )
         body = resp.json()
         if "access_token" in body:
@@ -230,7 +269,8 @@ class GitHubDeviceFlowClient:
             )
         if resp.status_code != 200:
             raise GitHubDeviceFlowError(
-                f"GET /user failed: HTTP {resp.status_code} {resp.text}"
+                f"GET /user failed: HTTP {resp.status_code} "
+                f"{_safe_error_summary(resp)}"
             )
         body = resp.json()
         try:

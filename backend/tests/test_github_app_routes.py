@@ -396,6 +396,140 @@ async def test_disconnect_is_safe_when_nothing_connected(
 
 
 # ---------------------------------------------------------------------------
+# PR #145 review fixes — guard rails on /connect, /setup, and the
+# same-origin check that protects POST handlers from CSRF.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_connect_409_when_already_connected(
+    db_client: AsyncClient,
+    patched_app_settings,  # noqa: ARG001
+    patched_client_factory,  # noqa: ARG001
+    fake_github_client,  # noqa: ARG001
+):
+    """F1: re-issuing /connect on a connected row must NOT silently nuke it."""
+    from opensec.db import connection as db_connection
+    from opensec.integrations.github_app import repo as gh_repo
+
+    # Drive a full successful flow: connect → attach → poll → connected.
+    connect_resp = await db_client.post("/api/integrations/github/connect")
+    install_url = connect_resp.json()["install_url"]
+    csrf_state = install_url.rsplit("state=", 1)[1]
+    await db_client.get(
+        "/api/integrations/github/setup",
+        params={"state": csrf_state, "installation_id": 7777},
+    )
+    fake_github_client.poll_result = PollTokenResult(
+        kind="success", access_token="ghu_x", refresh_token=None, expires_in=None
+    )
+    await db_client.post("/api/integrations/github/poll-now")
+
+    db = db_connection._db
+    assert db is not None
+    cursor = await db.execute("SELECT integration_id FROM github_app_installation")
+    row = await cursor.fetchone()
+    assert row is not None
+    integration_id = row["integration_id"]
+    record = await gh_repo.get_for_integration(db, integration_id)
+    assert record is not None and record.polling_status == "connected"
+    assert record.installation_id == 7777
+
+    # Calling /connect again on a connected row → 409, row untouched.
+    again = await db_client.post("/api/integrations/github/connect")
+    assert again.status_code == 409
+    record_after = await gh_repo.get_for_integration(db, integration_id)
+    assert record_after is not None
+    assert record_after.polling_status == "connected"
+    assert record_after.installation_id == 7777
+
+
+@pytest.mark.asyncio
+async def test_setup_rejects_negative_installation_id(
+    db_client: AsyncClient,
+    patched_app_settings,  # noqa: ARG001
+    patched_client_factory,  # noqa: ARG001
+):
+    """SR-5: GitHub installation IDs are always positive integers."""
+    connect_resp = await db_client.post("/api/integrations/github/connect")
+    csrf_state = connect_resp.json()["install_url"].rsplit("state=", 1)[1]
+    resp = await db_client.get(
+        "/api/integrations/github/setup",
+        params={"state": csrf_state, "installation_id": -1},
+    )
+    # FastAPI's gt=0 validator returns 422.
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_attach_installation_rejects_replay_with_different_id(
+    db_client: AsyncClient,
+    patched_app_settings,  # noqa: ARG001
+    patched_client_factory,  # noqa: ARG001
+):
+    """SR-2: a captured CSRF state can't be reused to bind a different installation_id."""
+    connect_resp = await db_client.post("/api/integrations/github/connect")
+    csrf_state = connect_resp.json()["install_url"].rsplit("state=", 1)[1]
+
+    # First setup attaches installation 1234.
+    first = await db_client.get(
+        "/api/integrations/github/setup",
+        params={"state": csrf_state, "installation_id": 1234},
+    )
+    assert first.status_code in (302, 200)
+
+    # Replaying with a different installation_id must be rejected — the
+    # /setup route catches the mismatch and redirects with reason=csrf
+    # rather than silently rebinding.
+    replay = await db_client.get(
+        "/api/integrations/github/setup",
+        params={"state": csrf_state, "installation_id": 9999},
+        follow_redirects=False,
+    )
+    assert "reason=csrf" in replay.headers.get("location", "")
+
+
+@pytest.mark.asyncio
+async def test_post_routes_reject_cross_origin_request(
+    db_client: AsyncClient,
+    patched_app_settings,  # noqa: ARG001
+    patched_client_factory,  # noqa: ARG001
+):
+    """SR-1: a browser POST whose Origin doesn't match must be 403'd."""
+    resp = await db_client.post(
+        "/api/integrations/github/connect",
+        headers={"Origin": "https://evil.example"},
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_post_routes_allow_same_origin_request(
+    db_client: AsyncClient,
+    patched_app_settings,  # noqa: ARG001
+    patched_client_factory,  # noqa: ARG001
+):
+    """SR-1: same-origin requests still pass through normally."""
+    # The httpx test client uses ``http://test`` as the base URL.
+    resp = await db_client.post(
+        "/api/integrations/github/connect",
+        headers={"Origin": "http://test"},
+    )
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_post_routes_allow_missing_origin_header(
+    db_client: AsyncClient,
+    patched_app_settings,  # noqa: ARG001
+    patched_client_factory,  # noqa: ARG001
+):
+    """SR-1: curl/CLI without Origin must still work (not a CSRF threat)."""
+    resp = await db_client.post("/api/integrations/github/connect")
+    assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
 # Registry availability flag (settings route enrichment)
 # ---------------------------------------------------------------------------
 

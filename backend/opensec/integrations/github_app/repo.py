@@ -128,19 +128,27 @@ async def get_inflight(
 async def attach_installation_id(
     db: aiosqlite.Connection, *, csrf_state: str, installation_id: int
 ) -> GithubAppInstallation | None:
-    """Record the GitHub-issued installation_id and bump status to device_pending."""
+    """Record the GitHub-issued installation_id and bump status to device_pending.
+
+    Single-shot: refuses to bind if the row is past ``installation_pending``
+    (already attached, already connected, expired, etc.). This blocks
+    a replay where an attacker who once observed a ``csrf_state``
+    POSTs ``/setup?state=…&installation_id=<attacker_install>`` after
+    the legitimate user has already finished — without the guard the
+    UPDATE would no-op via the CASE but the SELECT-after still returns
+    the connected row, masking the failure. SR-2 in PR #145 review.
+    """
     now = _now_iso()
     cursor = await db.execute(
         """
         UPDATE github_app_installation
         SET installation_id = ?,
             installation_completed_at = ?,
-            polling_status = CASE
-                WHEN polling_status = 'installation_pending' THEN 'device_pending'
-                ELSE polling_status
-            END,
+            polling_status = 'device_pending',
             updated_at = ?
         WHERE csrf_state = ?
+          AND polling_status = 'installation_pending'
+          AND installation_id IS NULL
         """,
         (installation_id, now, now, csrf_state),
     )

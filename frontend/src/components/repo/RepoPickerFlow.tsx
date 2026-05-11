@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import RepoPicker from '@/components/onboarding/RepoPicker'
 import InlineErrorCallout from '@/components/onboarding/InlineErrorCallout'
 import {
@@ -67,44 +67,54 @@ export default function RepoPickerFlow({
   const [manualOpen, setManualOpen] = useState(false)
   const [manualUrl, setManualUrl] = useState('')
 
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      try {
-        const { repos } = await onboardingApi.listReposFromVault()
-        if (cancelled) return
-        setState({ kind: 'pickRepo', repos })
-      } catch (err) {
-        if (cancelled) return
-        setState({ kind: 'tokenError', error: toOnboardingError(err) })
-      }
-    })()
-    return () => {
-      cancelled = true
+  // Monotonic request id. Bumped on every load (mount, retry, verify).
+  // Late responses from older requests are ignored — protects against
+  // (a) the component unmounting before fetch settles, (b) the user
+  // clicking "Try again" or picking a different repo while one is in
+  // flight, (c) the manual-URL form submitting while the row-click
+  // verify is still pending. CR-2 in PR #145 review.
+  const requestIdRef = useRef(0)
+
+  useEffect(
+    () => () => {
+      // Bump on unmount so any in-flight resolution is treated as stale.
+      requestIdRef.current += 1
+    },
+    [],
+  )
+
+  const loadRepos = useCallback(async () => {
+    const myId = ++requestIdRef.current
+    setState({ kind: 'listingRepos' })
+    try {
+      const { repos } = await onboardingApi.listReposFromVault()
+      if (requestIdRef.current !== myId) return
+      setState({ kind: 'pickRepo', repos })
+    } catch (err) {
+      if (requestIdRef.current !== myId) return
+      setState({ kind: 'tokenError', error: toOnboardingError(err) })
     }
   }, [])
 
-  async function verifyAndConnect(repoUrl: string, repos: RepoOption[]) {
-    setState({ kind: 'verifyingPick', repos, chosen: repoUrl })
-    try {
-      const response = await onboardingApi.connectRepoFromVault(repoUrl)
-      onConnected(response)
-    } catch (err) {
-      setState({ kind: 'pickError', repos, error: toOnboardingError(err) })
-    }
-  }
+  useEffect(() => {
+    void loadRepos()
+  }, [loadRepos])
 
-  function retry() {
-    setState({ kind: 'listingRepos' })
-    void (async () => {
+  const verifyAndConnect = useCallback(
+    async (repoUrl: string, repos: RepoOption[]) => {
+      const myId = ++requestIdRef.current
+      setState({ kind: 'verifyingPick', repos, chosen: repoUrl })
       try {
-        const { repos } = await onboardingApi.listReposFromVault()
-        setState({ kind: 'pickRepo', repos })
+        const response = await onboardingApi.connectRepoFromVault(repoUrl)
+        if (requestIdRef.current !== myId) return
+        onConnected(response)
       } catch (err) {
-        setState({ kind: 'tokenError', error: toOnboardingError(err) })
+        if (requestIdRef.current !== myId) return
+        setState({ kind: 'pickError', repos, error: toOnboardingError(err) })
       }
-    })()
-  }
+    },
+    [onConnected],
+  )
 
   function handleManualSubmit(e: FormEvent, repos: RepoOption[]) {
     e.preventDefault()
@@ -131,7 +141,12 @@ export default function RepoPickerFlow({
   }
 
   if (state.kind === 'tokenError') {
-    if (renderTokenError) return <>{renderTokenError(state.error, retry)}</>
+    // The arrow body is a closure invoked LATER (from a click handler in
+    // the parent's renderTokenError UI), not during render — the ref
+    // access happens at click time. The lint rule can't see across the
+    // callback boundary; silence it locally.
+    // eslint-disable-next-line react-hooks/refs
+    if (renderTokenError) return <>{renderTokenError(state.error, () => void loadRepos())}</>
     return (
       <div data-testid="repo-flow-token-error">
         <InlineErrorCallout
@@ -146,7 +161,7 @@ export default function RepoPickerFlow({
         <div className="mt-4">
           <button
             type="button"
-            onClick={retry}
+            onClick={() => void loadRepos()}
             className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-on-primary hover:bg-primary/90 transition-colors"
           >
             Try again

@@ -31,6 +31,7 @@ from opensec.integrations.github_app.client import GitHubDeviceFlowClient
 from opensec.integrations.github_app.flow import (
     DeviceFlowOrchestrator,
     InstallationCsrfMismatchError,
+    IntegrationAlreadyConnectedError,
 )
 from opensec.integrations.github_app.models import (
     DeviceFlowConnectResponse,
@@ -72,15 +73,63 @@ _ALLOWED_RETURN_PATHS: tuple[str, ...] = (
 
 
 def _sanitize_return_path(value: str | None) -> str:
-    """Validate that *value* is a known onboarding/settings path."""
+    """Validate that *value* is a known onboarding/settings path.
+
+    Strips any user-supplied ``#fragment`` before allow-list comparison
+    (SR-3 in PR #145 review): a fragment is never meaningful as a
+    return-target and could otherwise be reflected back into the SPA's
+    ``location.hash``.
+    """
     if not value:
         return DEFAULT_RETURN_PATH
     if not value.startswith("/"):
         return DEFAULT_RETURN_PATH
+    if "#" in value:
+        value = value.split("#", 1)[0] or DEFAULT_RETURN_PATH
     for prefix in _ALLOWED_RETURN_PATHS:
-        if value == prefix or value.startswith(prefix + "?") or value.startswith(prefix + "#"):
+        if value == prefix or value.startswith(prefix + "?"):
             return value
     return DEFAULT_RETURN_PATH
+
+
+def _require_same_origin(request: Request) -> None:
+    """Reject mutating requests that didn't originate from a known UI origin.
+
+    Single-user community edition has no auth layer (per project description).
+    On a non-loopback deploy a malicious page in the user's browser could
+    trigger e.g. ``POST /disconnect`` against the user's own OpenSec via
+    cross-site form submission. We block that by requiring the request
+    Origin (or, falling back, Referer) to match either the configured
+    frontend base URL or the request's own host. SR-1 in PR #145 review.
+
+    /setup is intentionally exempt — GitHub redirects there from
+    github.com so an Origin check would always fail. /setup defends
+    instead via the cryptographic ``state`` parameter (SR-2).
+    """
+    origin = request.headers.get("origin") or request.headers.get("referer")
+    if origin is None:
+        # No Origin/Referer means the request didn't come from a browser
+        # context (curl, automation, server-to-server). Those aren't a
+        # CSRF threat — CSRF requires a victim browser session. Allow.
+        return
+    allowed = {
+        _resolve_frontend_base_url().rstrip("/"),
+    }
+    if request.url.hostname:
+        if request.url.port:
+            allowed.add(f"http://{request.url.hostname}:{request.url.port}")
+        else:
+            allowed.add(f"http://{request.url.hostname}")
+    # Compare scheme+host(+port) only — strip path/query/fragment.
+    from urllib.parse import urlparse as _urlparse
+
+    parsed = _urlparse(origin)
+    candidate = f"{parsed.scheme}://{parsed.netloc}"
+    if candidate not in allowed:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Cross-origin request rejected (origin={candidate})",
+        )
 
 
 # In-memory map csrf_state -> (return_path, expires_at). Process-lifetime.
@@ -346,10 +395,16 @@ async def connect(
     _require_app_configured()
     vault, audit = _require_vault_and_audit(request)
 
+    _require_same_origin(request)
     async with _connect_lock(request):
         integration_id = await _resolve_or_create_app_integration(db)
         orchestrator = _get_orchestrator(request, db, vault, audit)
-        started = await orchestrator.initiate(integration_id)
+        try:
+            started = await orchestrator.initiate(integration_id)
+        except IntegrationAlreadyConnectedError as exc:
+            # SR-1 / F1: refuse to silently nuke an active install. Caller
+            # must explicitly /disconnect first.
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
     # Spawn (or re-attach to) the background polling loop so the access
     # token is fetched as soon as the user authorizes on github.com —
     # without this the /status endpoint would never advance off
@@ -374,8 +429,11 @@ async def connect(
 @router.get("/setup")
 async def setup_callback(
     request: Request,
-    state: str = Query(...),
-    installation_id: int = Query(...),
+    state: str = Query(..., min_length=8, max_length=128),
+    # SR-5: reject zero/negative IDs early — GitHub installation IDs are
+    # always positive. Saves us from binding a row to a nonsense value
+    # that GitHub will later refuse anyway.
+    installation_id: int = Query(..., gt=0),
     # GitHub sends ``setup_action`` ∈ {"install", "update"}. ``install``
     # is the first time the user installs OpenSec on the account;
     # ``update`` fires when they revisit the App page and reconfigure
@@ -450,6 +508,7 @@ async def poll_now(
     one round-trip instead of up to a minute.
     """
     _require_app_configured()
+    _require_same_origin(request)
     vault, audit = _require_vault_and_audit(request)
 
     cursor = await db.execute(
@@ -487,6 +546,7 @@ async def disconnect(
     # unsets OPENSEC_GITHUB_APP_CLIENT_ID after a user has connected, we
     # still want the cleanup path to work so they aren't stranded with a
     # non-refreshable token in the vault.
+    _require_same_origin(request)
     vault, audit = _require_vault_and_audit(request)
 
     # Deterministic ordering: prefer the most-recently-connected row, then

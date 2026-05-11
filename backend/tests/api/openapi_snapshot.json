@@ -6078,6 +6078,8 @@
             "name": "state",
             "required": true,
             "schema": {
+              "maxLength": 128,
+              "minLength": 8,
               "title": "State",
               "type": "string"
             }
@@ -6087,6 +6089,7 @@
             "name": "installation_id",
             "required": true,
             "schema": {
+              "exclusiveMinimum": 0,
               "title": "Installation Id",
               "type": "integer"
             }

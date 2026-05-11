@@ -68,9 +68,27 @@ GITHUB_DEVICE_CODE_KEY = "github_device_code"
 
 CSRF_BYTES = 24
 
+# SR-4: cap how many characters of an error message we persist into
+# ``github_app_installation.polling_error``. Anything longer is almost
+# always a server error page that bloats the row without adding signal.
+_POLLING_ERROR_MAX_CHARS = 200
+
 
 class InstallationCsrfMismatchError(RuntimeError):
     """Raised when /setup is hit with a CSRF state we never issued."""
+
+
+class IntegrationAlreadyConnectedError(RuntimeError):
+    """Raised when ``initiate`` is called for a row already in ``connected``.
+
+    Without this guard the existing installation would be silently
+    deleted and a fresh device code issued — which masquerades as a
+    benign "re-auth" but actually nukes ``installation_id`` /
+    ``github_login`` until the user re-completes the device flow. The
+    UI doesn't expose this path (the catalog tile is hidden when the
+    integration is enabled) but a direct API call would otherwise
+    succeed silently.
+    """
 
 
 class GithubAppClientProtocol(Protocol):
@@ -155,6 +173,21 @@ class DeviceFlowOrchestrator:
                 csrf_state=existing.csrf_state,
             )
 
+        # Reject re-initiation against a connected row — silently nuking
+        # an active install would invalidate ``installation_id`` and
+        # ``github_login`` until the user completes a brand-new device
+        # flow, which is a pretty surprising side-effect of POSTing
+        # /connect twice. The UI never reaches this path (it hides the
+        # Connect tile when the row is enabled) but a direct API call
+        # would otherwise succeed silently. The route translates this
+        # into a 409 Conflict.
+        connected = await gh_repo.get_for_integration(self._db, integration_id)
+        if connected is not None and connected.polling_status == "connected":
+            raise IntegrationAlreadyConnectedError(
+                f"integration {integration_id} is already connected as "
+                f"@{connected.github_login or 'unknown'}; disconnect first to re-auth"
+            )
+
         # Wipe any stale terminal row before re-issuing — keeps a single
         # row per integration (UNIQUE constraint also guarantees this).
         await gh_repo.delete(self._db, integration_id)
@@ -211,8 +244,19 @@ class DeviceFlowOrchestrator:
             self._db, csrf_state=csrf_state, installation_id=installation_id
         )
         if record is None:
+            # The strict UPDATE in attach_installation_id refuses to bind
+            # to a row that's already past ``installation_pending`` (SR-2).
+            # That can happen for two legitimate reasons:
+            #  1. The user navigated back / refreshed the /setup callback
+            #     and we've already attached the same installation_id —
+            #     re-load and treat as a no-op.
+            #  2. An attacker is replaying a captured csrf_state with a
+            #     *different* installation_id — must be rejected.
+            existing = await gh_repo.get_by_csrf(self._db, csrf_state)
+            if existing is not None and existing.installation_id == installation_id:
+                return existing
             raise InstallationCsrfMismatchError(
-                f"unknown CSRF state {csrf_state!r}"
+                f"unknown or replayed CSRF state {csrf_state!r}"
             )
         await self._audit.log(
             AuditEvent(
@@ -461,8 +505,13 @@ class DeviceFlowOrchestrator:
     ) -> None:
         with contextlib.suppress(KeyError):
             await self._vault.delete(integration_id, GITHUB_DEVICE_CODE_KEY)
+        # SR-4: cap the persisted error string. Upstream client builders
+        # already truncate before raising, but a different caller (or a
+        # bare ``str(exc)`` path) might pass an unbounded message — the
+        # DB column has no length limit, so do this defensively here too.
+        bounded_error = error if error is None else error[:_POLLING_ERROR_MAX_CHARS]
         await gh_repo.update_polling_status(
-            self._db, integration_id, status=status, error=error  # type: ignore[arg-type]
+            self._db, integration_id, status=status, error=bounded_error  # type: ignore[arg-type]
         )
 
     def _is_expired(self, record: GithubAppInstallation) -> bool:

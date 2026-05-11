@@ -65,6 +65,8 @@ export default function ConnectRepo() {
   const [token, setToken] = useState('')
   const [state, setState] = useState<ConnectState>({ kind: 'enterToken' })
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [manualOpen, setManualOpen] = useState(false)
+  const [manualUrl, setManualUrl] = useState('')
 
   // GitHub App + Device Flow integration (ADR-0035, IMPL-0010).
   // The registry tells us whether the App onboarding surface is wired
@@ -162,9 +164,6 @@ export default function ConnectRepo() {
     onboardingStorage.set('repoUrl', response.repo_url)
     setState({ kind: 'verified', response })
   }
-
-  const [manualOpen, setManualOpen] = useState(false)
-  const [manualUrl, setManualUrl] = useState('')
 
   function handleManualSubmit(e: FormEvent, repos: RepoOption[]) {
     e.preventDefault()
