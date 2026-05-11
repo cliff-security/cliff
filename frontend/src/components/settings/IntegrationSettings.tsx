@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   useIntegrations,
   useCreateIntegration,
@@ -24,6 +25,7 @@ import type {
 import { GithubAppConnectButton } from './GithubAppConnectButton'
 import { GithubAppDeviceFlowModal } from './GithubAppDeviceFlowModal'
 import { GithubAppMigrationBanner } from './GithubAppMigrationBanner'
+import { RepoPickerDialog } from '@/components/repo/RepoPickerDialog'
 
 // ---------------------------------------------------------------------------
 // Utilities
@@ -548,6 +550,15 @@ export default function IntegrationSettings() {
     ghAppStatus?.status === 'installation_pending' ||
     ghAppStatus?.status === 'device_pending'
 
+  // Inline repo-picker dialog. Replaces the old "Pick a repo →
+  // /onboarding/connect" anchor that used to dump users back into the
+  // wizard (and re-prompt them through the AI step). Opens the same
+  // ``RepoPickerFlow`` the wizard uses, but in a modal scoped to this
+  // page so the user stays in Settings and we just refresh the
+  // integration row on success.
+  const [repoPickerOpen, setRepoPickerOpen] = useState(false)
+  const qc = useQueryClient()
+
   // Only enabled integrations count as "configured" — a disabled row
   // (e.g. a github integration created during an in-flight App install
   // before the access token arrives) must NOT unmount the catalog tile's
@@ -629,17 +640,32 @@ export default function IntegrationSettings() {
                 </p>
               </div>
             </div>
-            <a
-              href="/onboarding/connect"
+            <button
+              type="button"
+              onClick={() => setRepoPickerOpen(true)}
               className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-on-primary hover:bg-primary/90 transition-colors"
+              data-testid="settings-pick-repo"
             >
               Pick a repo
               <span className="material-symbols-outlined text-base">
                 arrow_forward
               </span>
-            </a>
+            </button>
           </div>
         )}
+
+      <RepoPickerDialog
+        open={repoPickerOpen}
+        onClose={() => setRepoPickerOpen(false)}
+        onConnected={() => {
+          setRepoPickerOpen(false)
+          // Pull the new repo_url onto the integration card without a
+          // page refresh — also nudge the health row so the user sees
+          // a fresh check rather than the pre-pick stale state.
+          qc.invalidateQueries({ queryKey: ['integrations'] })
+          qc.invalidateQueries({ queryKey: ['integrations-health'] })
+        }}
+      />
 
       {showMigrationBanner && <GithubAppMigrationBanner />}
 

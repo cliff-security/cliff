@@ -123,6 +123,59 @@ describe('IntegrationSettings — GitHub App branching', () => {
     )
   })
 
+  it('opens the in-place repo picker dialog when an App-flow row has no repo_url', async () => {
+    const user = (await import('@testing-library/user-event')).default.setup()
+    setupHandlers({
+      githubAppAvailable: true,
+      integrations: [
+        {
+          id: 'app-row',
+          adapter_type: 'finding_source',
+          provider_name: 'GitHub',
+          enabled: true,
+          config: null,
+          last_test_result: null,
+          action_tier: 0,
+          updated_at: new Date().toISOString(),
+          auth_method: 'github_app',
+          github_login: 'octocat',
+        },
+      ],
+    })
+    server.use(
+      // The dialog lists from the vault on mount.
+      http.post(
+        'http://localhost:5173/api/onboarding/github/repos',
+        () =>
+          HttpResponse.json({
+            repos: [
+              {
+                full_name: 'octocat/hello-world',
+                html_url: 'https://github.com/octocat/hello-world',
+                private: false,
+                default_branch: 'main',
+                can_push: true,
+              },
+            ],
+          }),
+      ),
+    )
+    render(wrap(<IntegrationSettings />))
+
+    const pickButton = await screen.findByTestId('settings-pick-repo')
+    // The button must be a button (not the old anchor that navigated
+    // away to /onboarding/connect and dragged the user back through
+    // the AI step).
+    expect(pickButton.tagName).toBe('BUTTON')
+
+    await user.click(pickButton)
+
+    // Dialog mounts with the shared flow inside; the picker shows the
+    // vault-listed repo.
+    expect(await screen.findByTestId('repo-picker-dialog')).toBeInTheDocument()
+    await screen.findByRole('button', { name: /octocat\/hello-world/i })
+  })
+
   it('does not render the migration banner when App is unavailable', async () => {
     setupHandlers({
       githubAppAvailable: false,
