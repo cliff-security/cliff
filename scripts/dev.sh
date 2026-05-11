@@ -17,8 +17,21 @@ if [[ ! -d "$REPO_ROOT/frontend/node_modules" ]]; then
 fi
 
 # Start backend (FastAPI + OpenCode)
+#
+# ``--reload-dir opensec`` + ``--reload-exclude data/*`` keeps the
+# auto-reloader from waking up on every assessment. The engine
+# clones each target repo into ``data/clones/`` (see
+# ``opensec.api._engine_dep``) and a clone of a Python repo lands
+# dozens of ``.py`` files there mid-run — without this guard the
+# default whole-tree watcher restarts the server and every
+# assessment fails with "Assessment was interrupted (the server
+# restarted)".
 echo "Starting backend on :8000..."
-(cd "$REPO_ROOT/backend" && uv run uvicorn opensec.main:app --reload --port 8000) &
+(cd "$REPO_ROOT/backend" && uv run uvicorn opensec.main:app \
+   --port 8000 \
+   --reload \
+   --reload-dir opensec \
+   --reload-exclude 'data/*') &
 BACKEND_PID=$!
 
 # Start frontend (Vite)
