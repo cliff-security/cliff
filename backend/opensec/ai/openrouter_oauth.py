@@ -25,6 +25,7 @@ import asyncio
 import base64
 import contextlib
 import hashlib
+import hmac
 import logging
 import secrets
 import time
@@ -252,7 +253,7 @@ async def _parse_callback(
         if len(parts) < 2 or parts[0] != "GET":
             return None, None
         target = parts[1]
-    except Exception:
+    except (UnicodeDecodeError, ValueError, IndexError):
         return None, None
     parsed = urllib.parse.urlparse(target)
     if parsed.path != CALLBACK_PATH:
@@ -302,7 +303,11 @@ async def start_listener(
     ) -> None:
         code, state = await _parse_callback(reader)
         try:
-            if code and state and state == session.state:
+            if (
+                code
+                and state
+                and hmac.compare_digest(state, session.state)
+            ):
                 session.auth_code = code
                 await _write_response(writer, 200, _HTML_BODY)
                 await on_callback(session, code, state)

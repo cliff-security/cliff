@@ -21,7 +21,6 @@ import logging
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel
 
 from opensec.ai import autodetect, openrouter_oauth, validators
 from opensec.ai.models import (
@@ -152,9 +151,12 @@ async def openrouter_start(
             await service.complete_oauth(
                 "openrouter", api_key, metadata=metadata or None
             )
-        except Exception as exc:  # noqa: BLE001 — surface any DB/vault failure as error
+        except Exception:  # noqa: BLE001 — log internally; the UI sees a fixed string
+            logger.exception(
+                "Could not persist OpenRouter key after OAuth exchange"
+            )
             s.status = "error"
-            s.detail = f"Could not persist key: {exc}"
+            s.detail = "Could not save the key. Try again or use BYOK."
             return
         s.status = "connected"
         s.result_metadata = metadata
@@ -244,11 +246,6 @@ async def status(
 # ---------------------------------------------------------------------------
 # Disconnect
 # ---------------------------------------------------------------------------
-
-
-class DisconnectResponse(BaseModel):
-    status: str
-    revoke_url: str
 
 
 @router.post("/disconnect")
