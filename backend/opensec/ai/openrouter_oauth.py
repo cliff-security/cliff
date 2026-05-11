@@ -129,8 +129,16 @@ class OAuthSessionStore:
     def __init__(self) -> None:
         self._sessions: dict[str, OAuthSession] = {}
 
-    def create(self) -> OAuthSession:
-        verifier, _ = generate_pkce_pair()  # caller may want challenge separately
+    def create(self) -> tuple[OAuthSession, str]:
+        """Mint a fresh session and return it alongside the PKCE challenge.
+
+        Returning the challenge separately keeps the verifier inside the
+        session (where it belongs) while giving the caller the one value
+        it needs for the auth URL. Also drops any aged-out sessions so
+        the store can't grow unbounded under a bot pounding /start.
+        """
+        self.evict_expired()
+        verifier, challenge = generate_pkce_pair()
         session_id = secrets.token_urlsafe(16)
         state = generate_state()
         record = OAuthSession(
@@ -140,7 +148,7 @@ class OAuthSessionStore:
             created_at=time.monotonic(),
         )
         self._sessions[session_id] = record
-        return record
+        return record, challenge
 
     def get(self, session_id: str) -> OAuthSession | None:
         record = self._sessions.get(session_id)

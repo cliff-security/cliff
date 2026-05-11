@@ -163,27 +163,39 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.context_builder = context_builder
 
     # Layer 3: Per-workspace process pool.
-    # IMPL-0011 Phase F2: wire an env resolver so every workspace spawn
-    # automatically picks up the active AI provider key (env var per
-    # provider). Resolver is async + closure-bound to app.state so it
-    # always reads the current vault / db state, even after disconnect.
-    async def _ai_env_resolver() -> dict[str, str]:
+    # IMPL-0011 Phase F2 + simplify pass: the env injected at every
+    # spawn lives on app.state as a cached dict. The resolver returns
+    # the cache; the key-change hook (below) refreshes it on every
+    # connect/disconnect. Avoids a DB query + vault decrypt on every
+    # workspace spawn — invalidation is free because the same write
+    # path that changes the key already fires this hook.
+    app.state.ai_env_cache = {}
+
+    async def _refresh_ai_env_cache() -> None:
         from opensec.ai.service import AIIntegrationService
 
         vault = app.state.vault
         db = db_connection._db
         if vault is None or db is None:
-            return {}
+            app.state.ai_env_cache = {}
+            return
         service = AIIntegrationService(
             db, vault, audit_logger=app.state.audit_logger
         )
         try:
-            return await service.resolve_env_for_workspace()
+            app.state.ai_env_cache = await service.resolve_env_for_workspace()
         except Exception:
             logger.warning(
-                "AI integration env resolution failed", exc_info=True
+                "AI integration env refresh failed", exc_info=True
             )
-            return {}
+            app.state.ai_env_cache = {}
+
+    # Warm the cache once at boot so the very first workspace spawn
+    # doesn't pay the DB + decrypt round-trip on the critical path.
+    await _refresh_ai_env_cache()
+
+    async def _ai_env_resolver() -> dict[str, str]:
+        return dict(app.state.ai_env_cache)
 
     pool = WorkspaceProcessPool(env_resolver=_ai_env_resolver)
     app.state.process_pool = pool
@@ -192,6 +204,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # so AIIntegrationService instances built per-request can push the
     # new env into the singleton OpenCode without coupling to main.
     async def _ai_on_key_change(env: dict[str, str]) -> None:
+        # Refresh the cached env for the workspace pool — single source
+        # of truth keyed off the service's freshly written state.
+        app.state.ai_env_cache = dict(env)
         try:
             opencode_process.set_extra_env(env)
             if opencode_process.is_running:

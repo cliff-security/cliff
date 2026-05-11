@@ -10,6 +10,7 @@ import {
   useDisconnect,
   type AIStatusResponse,
 } from '@/api/aiProvider'
+import { providerLabel } from './types'
 
 interface Props {
   onSwitchProvider: () => void
@@ -140,7 +141,7 @@ export function AIProviderStatus({ onSwitchProvider, onConnect }: Props) {
 }
 
 function summarize(s: AIStatusResponse): string {
-  const provider = friendly(s.provider)
+  const provider = providerLabel(s.provider)
   const email =
     s.metadata && typeof s.metadata['user_email'] === 'string'
       ? (s.metadata['user_email'] as string)
@@ -159,17 +160,3 @@ function summarize(s: AIStatusResponse): string {
   }
 }
 
-function friendly(provider: string | null): string {
-  switch (provider) {
-    case 'anthropic':
-      return 'Anthropic'
-    case 'openrouter':
-      return 'OpenRouter'
-    case 'openai':
-      return 'OpenAI'
-    case 'custom':
-      return 'a custom provider'
-    default:
-      return 'an AI provider'
-  }
-}

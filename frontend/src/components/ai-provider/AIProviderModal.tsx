@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useAdopt, useAutodetect } from '@/api/aiProvider'
+import { providerLabel } from './types'
 import { DirectBYOKForm } from './DirectBYOKForm'
 import { OpenRouterConnectFlow } from './OpenRouterConnectFlow'
 
@@ -198,7 +199,7 @@ function DetectedPanel({
   adopting: boolean
   error: string | null
 }) {
-  const friendlyProvider = friendlyName(provider)
+  const friendlyProvider = providerLabel(provider)
   return (
     <div className="space-y-6">
       <header>
@@ -244,15 +245,3 @@ function DetectedPanel({
   )
 }
 
-function friendlyName(provider: string): string {
-  switch (provider) {
-    case 'anthropic':
-      return 'Anthropic'
-    case 'openrouter':
-      return 'OpenRouter'
-    case 'openai':
-      return 'OpenAI'
-    default:
-      return provider
-  }
-}

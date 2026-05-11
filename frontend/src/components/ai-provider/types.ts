@@ -10,6 +10,26 @@ import type {
   AISource,
 } from '@/api/aiProvider'
 
+/**
+ * Shared display label for a provider. Used by every component that
+ * surfaces the provider name to the user so the casing + custom-label
+ * stay consistent.
+ */
+export function providerLabel(provider: AIProvider | string | null): string {
+  switch (provider) {
+    case 'anthropic':
+      return 'Anthropic'
+    case 'openrouter':
+      return 'OpenRouter'
+    case 'openai':
+      return 'OpenAI'
+    case 'custom':
+      return 'a custom provider'
+    default:
+      return provider ?? 'an AI provider'
+  }
+}
+
 export type AIProviderState =
   | { kind: 'unconfigured' }
   | {

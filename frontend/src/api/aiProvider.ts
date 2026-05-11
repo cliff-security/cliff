@@ -6,7 +6,7 @@
 
 import { useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { request } from './client'
+import { request, requestVoid } from './client'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -93,17 +93,11 @@ export const aiProviderApi = {
         sessionId,
       )}`,
     ),
-  disconnect: async (): Promise<void> => {
-    const resp = await fetch('/api/integrations/ai/disconnect', {
+  disconnect: () =>
+    requestVoid('/api/integrations/ai/disconnect', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: '{}',
-    })
-    if (!resp.ok) {
-      const text = await resp.text()
-      throw new Error(`${resp.status}: ${text}`)
-    }
-  },
+    }),
 }
 
 // ---------------------------------------------------------------------------
@@ -182,6 +176,9 @@ export function useOpenRouterPolling(
   onTerminal: (status: OpenRouterStatusResponse) => void,
 ) {
   const startedAt = useRef<number | null>(null)
+  // Guards against the terminal-status effect re-firing every time the
+  // parent re-renders with a fresh `onTerminal` callback identity.
+  const lastHandled = useRef<OAuthStatus | null>(null)
   const TIMEOUT_MS = 5 * 60 * 1000
   const qc = useQueryClient()
 
@@ -207,15 +204,17 @@ export function useOpenRouterPolling(
       startedAt.current = Date.now()
     } else if (!sessionId) {
       startedAt.current = null
+      lastHandled.current = null
     }
   }, [sessionId])
 
   useEffect(() => {
     if (!query.data) return
-    if (query.data.status !== 'waiting') {
-      onTerminal(query.data)
-      qc.invalidateQueries({ queryKey: STATUS_KEY })
-    }
+    if (query.data.status === 'waiting') return
+    if (lastHandled.current === query.data.status) return
+    lastHandled.current = query.data.status
+    onTerminal(query.data)
+    qc.invalidateQueries({ queryKey: STATUS_KEY })
   }, [query.data, onTerminal, qc])
 
   return query

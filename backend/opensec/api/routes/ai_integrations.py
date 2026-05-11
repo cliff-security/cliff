@@ -132,13 +132,7 @@ async def openrouter_start(
     auth URL the frontend should open in a new tab.
     """
     store = openrouter_oauth.get_store()
-    session = store.create()
-    _, challenge = openrouter_oauth.generate_pkce_pair()
-    # Recompute verifier+challenge as a *pair* — the store generated a
-    # verifier but the challenge is needed too; recompute both atomically
-    # and rebind the session verifier.
-    verifier, challenge = openrouter_oauth.generate_pkce_pair()
-    session.verifier = verifier
+    session, challenge = store.create()
 
     service = _get_service(request, db)
 

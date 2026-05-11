@@ -93,16 +93,17 @@ def _from_aider_env() -> DetectedKey | None:
         parsed[key.strip()] = value.strip().strip("\"'")
 
     # Honor the same priority order as the env-var scan.
-    for var, provider in (
+    aider_priority: tuple[tuple[str, AIProvider], ...] = (
         ("ANTHROPIC_API_KEY", "anthropic"),
         ("OPENROUTER_API_KEY", "openrouter"),
         ("OPENAI_API_KEY", "openai"),
-    ):
+    )
+    for var, provider in aider_priority:
         raw = parsed.get(var, "").strip()
         if not raw:
             continue
         return DetectedKey(
-            provider=provider,  # type: ignore[arg-type]
+            provider=provider,
             source=f"{path}",
             raw_key=raw,
         )

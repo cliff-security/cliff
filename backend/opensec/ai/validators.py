@@ -21,11 +21,16 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse, urlunparse
 
 import httpx
 
 from opensec.ai.models import AIProvider, ValidationResult
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -109,100 +114,86 @@ def _safe_custom_chat_url(base_url: str) -> str:
     return urlunparse((safe_scheme, netloc, safe_path, "", "", ""))
 
 
-def _classify_status(status: int) -> str | None:
-    if status in (401, 403):
-        return "auth_failed"
-    if status == 404:
-        return "model_not_found"
-    if status == 429:
-        return "rate_limited"
-    return None
+@dataclass(frozen=True)
+class _ProbeSpec:
+    """Per-provider probe shape — single source of truth for the validators."""
+
+    label: str
+    method: str
+    url: str
+    auth_header: Callable[[str], dict[str, str]]
+    body: dict | None = None
+
+
+def _bearer(key: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {key}"}
+
+
+def _anthropic_headers(key: str) -> dict[str, str]:
+    return {"x-api-key": key, "anthropic-version": "2023-06-01"}
+
+
+_PROBES: dict[AIProvider, _ProbeSpec] = {
+    "openrouter": _ProbeSpec(
+        label="OpenRouter",
+        method="GET",
+        url="https://openrouter.ai/api/v1/key",
+        auth_header=_bearer,
+    ),
+    "anthropic": _ProbeSpec(
+        label="Anthropic",
+        method="POST",
+        url="https://api.anthropic.com/v1/messages",
+        auth_header=_anthropic_headers,
+        body={
+            "model": "claude-sonnet-4-6",
+            "max_tokens": 1,
+            "messages": [{"role": "user", "content": "ok"}],
+        },
+    ),
+    "openai": _ProbeSpec(
+        label="OpenAI",
+        method="POST",
+        url="https://api.openai.com/v1/chat/completions",
+        auth_header=_bearer,
+        body={
+            "model": "gpt-5",
+            "max_tokens": 1,
+            "messages": [{"role": "user", "content": "ok"}],
+        },
+    ),
+}
+
+
+async def _probe(spec: _ProbeSpec, api_key: str) -> ValidationResult:
+    """Run one provider probe through the shared error-classification path."""
+    headers = {"content-type": "application/json", **spec.auth_header(api_key)}
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
+            resp = await client.request(
+                spec.method, spec.url, headers=headers, json=spec.body
+            )
+    except (httpx.TimeoutException, httpx.HTTPError):
+        return ValidationResult(
+            ok=False,
+            error_code="network",
+            error_message=(
+                f"Can't reach {spec.label}. Check your internet connection."
+            ),
+        )
+    return _interpret_response(resp, spec.label)
 
 
 async def validate_openrouter(api_key: str) -> ValidationResult:
-    """``GET https://openrouter.ai/api/v1/key`` with bearer auth."""
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
-            resp = await client.get(
-                "https://openrouter.ai/api/v1/key",
-                headers={"Authorization": f"Bearer {api_key}"},
-            )
-    except httpx.TimeoutException:
-        return ValidationResult(
-            ok=False,
-            error_code="network",
-            error_message="Can't reach OpenRouter. Check your internet connection.",
-        )
-    except httpx.HTTPError:
-        return ValidationResult(
-            ok=False,
-            error_code="network",
-            error_message="Can't reach OpenRouter. Check your internet connection.",
-        )
-    return _interpret_response(resp, "OpenRouter")
+    return await _probe(_PROBES["openrouter"], api_key)
 
 
 async def validate_anthropic(api_key: str) -> ValidationResult:
-    """``POST https://api.anthropic.com/v1/messages`` with ``max_tokens: 1``."""
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
-            resp = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": "claude-sonnet-4-6",
-                    "max_tokens": 1,
-                    "messages": [{"role": "user", "content": "ok"}],
-                },
-            )
-    except httpx.TimeoutException:
-        return ValidationResult(
-            ok=False,
-            error_code="network",
-            error_message="Can't reach Anthropic. Check your internet connection.",
-        )
-    except httpx.HTTPError:
-        return ValidationResult(
-            ok=False,
-            error_code="network",
-            error_message="Can't reach Anthropic. Check your internet connection.",
-        )
-    return _interpret_response(resp, "Anthropic")
+    return await _probe(_PROBES["anthropic"], api_key)
 
 
 async def validate_openai(api_key: str) -> ValidationResult:
-    """``POST https://api.openai.com/v1/chat/completions`` with ``max_tokens: 1``."""
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
-            resp = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": "gpt-5",
-                    "max_tokens": 1,
-                    "messages": [{"role": "user", "content": "ok"}],
-                },
-            )
-    except httpx.TimeoutException:
-        return ValidationResult(
-            ok=False,
-            error_code="network",
-            error_message="Can't reach OpenAI. Check your internet connection.",
-        )
-    except httpx.HTTPError:
-        return ValidationResult(
-            ok=False,
-            error_code="network",
-            error_message="Can't reach OpenAI. Check your internet connection.",
-        )
-    return _interpret_response(resp, "OpenAI")
+    return await _probe(_PROBES["openai"], api_key)
 
 
 async def validate_custom(
@@ -217,61 +208,51 @@ async def validate_custom(
             error_code="no_access",
             error_message=str(exc),
         )
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
-            resp = await client.post(
-                url,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": model or "gpt-3.5-turbo",
-                    "max_tokens": 1,
-                    "messages": [{"role": "user", "content": "ok"}],
-                },
-            )
-    except httpx.TimeoutException:
-        return ValidationResult(
-            ok=False,
-            error_code="network",
-            error_message="Can't reach the endpoint. Check your internet connection.",
-        )
-    except httpx.HTTPError:
-        return ValidationResult(
-            ok=False,
-            error_code="network",
-            error_message="Can't reach the endpoint. Check your internet connection.",
-        )
-    return _interpret_response(resp, "the endpoint")
+    custom = _ProbeSpec(
+        label="the endpoint",
+        method="POST",
+        url=url,
+        auth_header=_bearer,
+        body={
+            "model": model or "gpt-3.5-turbo",
+            "max_tokens": 1,
+            "messages": [{"role": "user", "content": "ok"}],
+        },
+    )
+    return await _probe(custom, api_key)
+
+
+# Status-code → (error_code, message_template) lookup. The template receives
+# the provider label so error copy stays consistent across providers without
+# four near-duplicate `if` branches.
+_STATUS_MESSAGES: dict[int, tuple[str, str]] = {
+    401: ("auth_failed", "This key was rejected by {label}."),
+    403: ("auth_failed", "This key was rejected by {label}."),
+    404: (
+        "model_not_found",
+        "The requested model isn't available on this account.",
+    ),
+    429: (
+        "rate_limited",
+        "{label} rate-limited the request. Try again in a minute.",
+    ),
+}
 
 
 def _interpret_response(resp: httpx.Response, label: str) -> ValidationResult:
     if 200 <= resp.status_code < 300:
         return ValidationResult(ok=True)
 
-    code = _classify_status(resp.status_code)
-    if code == "auth_failed":
+    if resp.status_code in _STATUS_MESSAGES:
+        code, template = _STATUS_MESSAGES[resp.status_code]
         return ValidationResult(
             ok=False,
-            error_code="auth_failed",
-            error_message=f"This key was rejected by {label}.",
-        )
-    if code == "rate_limited":
-        return ValidationResult(
-            ok=False,
-            error_code="rate_limited",
-            error_message=f"{label} rate-limited the request. Try again in a minute.",
-        )
-    if code == "model_not_found":
-        return ValidationResult(
-            ok=False,
-            error_code="model_not_found",
-            error_message="The requested model isn't available on this account.",
+            error_code=code,  # type: ignore[arg-type]
+            error_message=template.format(label=label),
         )
 
-    # 400-499 not specifically classified → treat as no-access for billing-style
-    # responses; 500-class as network for retry framing.
+    # 400-499 not specifically classified → treat as no-access for
+    # billing-style responses; 500-class as network for retry framing.
     if 400 <= resp.status_code < 500:
         return ValidationResult(
             ok=False,
@@ -287,14 +268,6 @@ def _interpret_response(resp: httpx.Response, label: str) -> ValidationResult:
     )
 
 
-VALIDATORS = {
-    "openrouter": validate_openrouter,
-    "anthropic": validate_anthropic,
-    "openai": validate_openai,
-    # "custom" is dispatched separately because it needs base_url + model
-}
-
-
 async def validate(
     provider: AIProvider,
     api_key: str,
@@ -302,7 +275,7 @@ async def validate(
     base_url: str | None = None,
     model: str | None = None,
 ) -> ValidationResult:
-    """Dispatch to the appropriate validator. Raises ``ValueError`` on unknown."""
+    """Dispatch to the appropriate validator."""
     if provider == "custom":
         if not base_url:
             return ValidationResult(
@@ -311,4 +284,4 @@ async def validate(
                 error_message="Custom provider requires a base URL.",
             )
         return await validate_custom(api_key, base_url, model)
-    return await VALIDATORS[provider](api_key)
+    return await _probe(_PROBES[provider], api_key)

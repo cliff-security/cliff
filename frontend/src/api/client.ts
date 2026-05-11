@@ -420,7 +420,7 @@ export async function request<T>(
   return resp.json();
 }
 
-async function requestVoid(
+export async function requestVoid(
   path: string,
   init?: RequestInit,
 ): Promise<void> {

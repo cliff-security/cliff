@@ -11,6 +11,7 @@ import {
   useAIProviderStatus,
   useAutodetect,
 } from '@/api/aiProvider'
+import { providerLabel } from './types'
 
 const DISMISS_KEY = 'opensec.aiAutodetectBanner.dismissed'
 
@@ -48,7 +49,7 @@ export function AutoDetectBanner({ onConfigureManually }: Props) {
     }
   }
 
-  const providerName = friendly(autodetect.data.provider)
+  const providerName = providerLabel(autodetect.data.provider)
 
   return (
     <div
@@ -95,15 +96,3 @@ export function AutoDetectBanner({ onConfigureManually }: Props) {
   )
 }
 
-function friendly(provider: string): string {
-  switch (provider) {
-    case 'anthropic':
-      return 'Anthropic'
-    case 'openrouter':
-      return 'OpenRouter'
-    case 'openai':
-      return 'OpenAI'
-    default:
-      return provider
-  }
-}

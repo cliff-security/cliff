@@ -61,7 +61,7 @@ def test_generate_state_is_url_safe() -> None:
 
 def test_session_store_round_trip() -> None:
     store = oauth.OAuthSessionStore()
-    session = store.create()
+    session, _ = store.create()
     assert store.get(session.session_id) is session
 
 
@@ -72,13 +72,13 @@ def test_session_store_returns_none_for_unknown() -> None:
 
 def test_session_store_lookup_by_state() -> None:
     store = oauth.OAuthSessionStore()
-    session = store.create()
+    session, _ = store.create()
     assert store.get_by_state(session.state) is session
 
 
 def test_session_marks_timeout_after_ttl(monkeypatch) -> None:
     store = oauth.OAuthSessionStore()
-    session = store.create()
+    session, _ = store.create()
     # Fast-forward by replacing the monotonic clock used in get().
     future_time = session.created_at + oauth.STATE_TTL_SECONDS + 1
     monkeypatch.setattr(oauth.time, "monotonic", lambda: future_time)
@@ -89,7 +89,7 @@ def test_session_marks_timeout_after_ttl(monkeypatch) -> None:
 
 def test_session_remove() -> None:
     store = oauth.OAuthSessionStore()
-    session = store.create()
+    session, _ = store.create()
     store.remove(session.session_id)
     assert store.get(session.session_id) is None
 
@@ -107,7 +107,7 @@ def _free_port() -> int:
 
 async def test_listener_happy_path_invokes_callback() -> None:
     store = oauth.OAuthSessionStore()
-    session = store.create()
+    session, _ = store.create()
     seen: dict = {}
 
     async def _on_cb(s, code, state):
@@ -138,7 +138,7 @@ async def test_listener_happy_path_invokes_callback() -> None:
 
 async def test_listener_rejects_state_mismatch() -> None:
     store = oauth.OAuthSessionStore()
-    session = store.create()
+    session, _ = store.create()
 
     async def _on_cb(s, code, state):  # should never be called
         pytest.fail("callback fired despite state mismatch")
@@ -161,7 +161,7 @@ async def test_listener_rejects_state_mismatch() -> None:
 
 async def test_listener_port_in_use_raises() -> None:
     store = oauth.OAuthSessionStore()
-    session = store.create()
+    session, _ = store.create()
 
     port = _free_port()
     blocker = await asyncio.start_server(
@@ -180,7 +180,7 @@ async def test_listener_port_in_use_raises() -> None:
 
 async def test_listener_timeout_marks_session() -> None:
     store = oauth.OAuthSessionStore()
-    session = store.create()
+    session, _ = store.create()
 
     async def _on_cb(*_):
         pytest.fail("callback should not fire for timeout test")
