@@ -30,6 +30,41 @@ export function providerLabel(provider: AIProvider | string | null): string {
   }
 }
 
+/**
+ * Material Symbols Outlined icon name for each provider. Used as a
+ * 24px monogram anchor on the picker tiles, the connected card, and
+ * the disconnect dialog. Editorial designs need visual anchors —
+ * a string-only treatment reads as a CRUD admin panel.
+ */
+export function providerIcon(provider: AIProvider | string | null): string {
+  switch (provider) {
+    case 'openrouter':
+      return 'route'
+    case 'anthropic':
+      return 'psychology'
+    case 'openai':
+      return 'auto_awesome'
+    case 'custom':
+      return 'tune'
+    default:
+      return 'smart_toy'
+  }
+}
+
+/**
+ * Short, human-friendly translation of an autodetect source string.
+ * Backend returns raw paths like ``~/.claude/.credentials.json`` —
+ * the picker shows the translation; the literal path is kept as the
+ * `title` attribute for the curious.
+ */
+export function describeAutodetectSource(raw: string): string {
+  if (raw.includes('.claude/.credentials.json')) return 'Claude Code'
+  if (raw.includes('.aider/.env')) return 'Aider'
+  if (raw.includes('.config/openai')) return 'OpenAI CLI'
+  if (raw.endsWith(' env')) return 'your shell environment'
+  return raw
+}
+
 export type AIProviderState =
   | { kind: 'unconfigured' }
   | {

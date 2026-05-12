@@ -277,6 +277,8 @@ async def test_status_connected_after_byok(ai_client, httpx_mock) -> None:
     assert body["state"] == "connected"
     assert body["provider"] == "anthropic"
     assert body["override_model"] is None
+    # Active model surfaced for the Settings card hero treatment.
+    assert body["model"] == "anthropic/claude-sonnet-4-6"
 
 
 async def test_status_surfaces_override_model(

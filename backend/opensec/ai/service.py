@@ -91,11 +91,8 @@ class AIIntegrationService:
         record = await self.get_active()
         if record is None:
             return AIStatus(state="unconfigured")
-        override = (
-            catalog.resolve_model(record.provider)
-            if catalog.has_override(record.provider)
-            else None
-        )
+        active_model = catalog.resolve_model(record.provider)
+        override = active_model if catalog.has_override(record.provider) else None
         return AIStatus(
             state="connected",
             provider=record.provider,
@@ -103,6 +100,7 @@ class AIIntegrationService:
             connected_at=record.connected_at,
             metadata=record.metadata,
             override_model=override,
+            model=active_model,
         )
 
     async def sync_to_opencode(self) -> None:

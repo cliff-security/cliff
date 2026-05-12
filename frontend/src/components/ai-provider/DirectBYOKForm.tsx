@@ -1,13 +1,20 @@
 /**
  * Tier 3 — Direct BYOK form (IMPL-0011 G5).
  *
- * Provider dropdown + deep-linked instructions + password-style input
- * with live validation. Save button stays disabled until validation
- * passes. The "tuned for Claude" subtitle appears for openai + custom.
+ * Provider tiles + deep-linked console + password-style input with live
+ * validation. Save button stays disabled until validation passes. The
+ * "tuned for Claude" subtitle appears for openai + custom.
+ *
+ * Redesigned per design-critique: dropped the dropdown for radio-style
+ * provider tiles (the choice deserves visual weight), collapsed the
+ * "How to get your key" instructions card into one paragraph + the
+ * deep-link button (the steps were redundant with the deep link), and
+ * elevated the cost callout to a calm inline note.
  */
 
 import { useState } from 'react'
 import { useByok, type AIProvider, type BYOKErrorBody } from '@/api/aiProvider'
+import { providerIcon } from './types'
 
 interface Props {
   initialProvider: AIProvider
@@ -20,55 +27,46 @@ interface ProviderInfo {
   consoleUrl: string
   consoleLabel: string
   keyHint: string
-  instructions: string[]
+  blurb: string
 }
 
 const PROVIDERS: Record<AIProvider, ProviderInfo> = {
   anthropic: {
     name: 'Anthropic',
     consoleUrl: 'https://console.anthropic.com/settings/keys',
-    consoleLabel: 'Open Anthropic console',
+    consoleLabel: 'Open the Anthropic console',
     keyHint: 'sk-ant-',
-    instructions: [
-      'Visit the Anthropic console → settings → API keys.',
-      'Click "Create key" and name it OpenSec.',
-      'Paste the key below — it starts with sk-ant-.',
-    ],
+    blurb: 'Generate a key in the Anthropic console and paste it below.',
   },
   openai: {
     name: 'OpenAI',
     consoleUrl: 'https://platform.openai.com/api-keys',
-    consoleLabel: 'Open OpenAI console',
+    consoleLabel: 'Open the OpenAI console',
     keyHint: 'sk-',
-    instructions: [
-      'Visit platform.openai.com → API keys.',
-      'Click "Create new secret key" and name it OpenSec.',
-      'Paste the key below — it starts with sk-.',
-    ],
+    blurb: 'Generate a key in the OpenAI platform console and paste it below.',
   },
   openrouter: {
     name: 'OpenRouter',
     consoleUrl: 'https://openrouter.ai/keys',
     consoleLabel: 'Open OpenRouter keys',
     keyHint: 'sk-or-',
-    instructions: [
-      'Visit openrouter.ai → keys.',
-      'Generate a new key.',
-      'Paste it below.',
-    ],
+    blurb: 'Generate a key in your OpenRouter account and paste it below.',
   },
   custom: {
-    name: 'Custom (OpenAI-compatible)',
+    name: 'Custom endpoint',
     consoleUrl: '',
     consoleLabel: '',
     keyHint: '',
-    instructions: [
-      'Use any OpenAI-compatible endpoint.',
-      'Provide the base URL and a key.',
-      'OpenSec will probe /chat/completions to validate.',
-    ],
+    blurb:
+      'Any OpenAI-compatible endpoint works. Provide the base URL, model id, and a key.',
   },
 }
+
+const TILES: { id: AIProvider; subtitle: string }[] = [
+  { id: 'anthropic', subtitle: 'Recommended' },
+  { id: 'openai', subtitle: 'Tuned for Claude' },
+  { id: 'custom', subtitle: 'OpenAI-compatible' },
+]
 
 export function DirectBYOKForm({
   initialProvider,
@@ -125,100 +123,118 @@ export function DirectBYOKForm({
     <form className="space-y-6" onSubmit={handleSubmit}>
       <div>
         <h2 className="font-headline text-2xl font-semibold text-on-surface">
-          Paste your API key
+          Bring your own key
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-on-surface-variant">
-          Already have a key with a provider? Drop it in.
+          Pick the provider you already have a key with.
         </p>
       </div>
 
-      <div className="space-y-2">
-        <label
-          htmlFor="ai-provider"
-          className="text-sm font-medium text-on-surface"
-        >
-          Provider
-        </label>
-        <select
-          id="ai-provider"
-          value={provider}
-          onChange={(e) => {
-            setProvider(e.target.value as AIProvider)
-            setError(null)
-          }}
-          className="w-full rounded-xl bg-surface-container px-4 py-3 text-sm text-on-surface outline-none focus:bg-surface-container-high"
-        >
-          <option value="anthropic">Anthropic</option>
-          <option value="openai">OpenAI</option>
-          <option value="custom">Custom (OpenAI-compatible)</option>
-        </select>
+      <fieldset className="space-y-3">
+        <legend className="sr-only">Provider</legend>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {TILES.map((t) => {
+            const selected = provider === t.id
+            const tileInfo = PROVIDERS[t.id]
+            return (
+              <button
+                key={t.id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => {
+                  setProvider(t.id)
+                  setError(null)
+                }}
+                className={
+                  selected
+                    ? 'flex h-full flex-col items-start gap-2 rounded-2xl bg-primary-container/60 p-4 text-left text-on-surface ring-2 ring-primary/40 transition'
+                    : 'flex h-full flex-col items-start gap-2 rounded-2xl bg-surface-container-high p-4 text-left text-on-surface transition hover:bg-surface-container-highest'
+                }
+              >
+                <span
+                  className="material-symbols-outlined text-[22px] text-primary"
+                  aria-hidden="true"
+                  style={{
+                    fontVariationSettings: selected
+                      ? "'FILL' 1, 'wght' 500"
+                      : "'FILL' 0, 'wght' 500",
+                  }}
+                >
+                  {providerIcon(t.id)}
+                </span>
+                <span className="font-headline text-sm font-semibold">
+                  {tileInfo.name}
+                </span>
+                <span className="text-xs leading-snug text-on-surface-variant">
+                  {t.subtitle}
+                </span>
+              </button>
+            )
+          })}
+        </div>
         {isOpenAIClass && (
           <p className="text-xs leading-relaxed text-on-surface-variant">
-            OpenSec is tuned for Claude. Your choice should still work, but
+            OpenSec is tuned for Claude. {info.name} should still work, but
             Claude tends to perform better on security reasoning.
           </p>
         )}
-      </div>
+      </fieldset>
 
-      <div className="rounded-2xl bg-surface-container p-5 text-sm leading-relaxed text-on-surface-variant">
-        <p className="font-medium text-on-surface">How to get your key</p>
-        <ol className="mt-2 space-y-1 pl-5 list-decimal">
-          {info.instructions.map((step) => (
-            <li key={step}>{step}</li>
-          ))}
-        </ol>
-        {info.consoleUrl && (
-          <a
-            href={info.consoleUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-3 inline-block text-sm font-medium text-primary hover:underline"
-          >
-            {info.consoleLabel} →
-          </a>
-        )}
+      <div className="flex items-start gap-3 rounded-2xl bg-surface-container-high px-4 py-3 text-sm leading-relaxed text-on-surface-variant">
+        <span
+          className="material-symbols-outlined mt-0.5 flex-shrink-0 text-primary"
+          aria-hidden="true"
+        >
+          info
+        </span>
+        <div className="flex-1 min-w-0">
+          <p>{info.blurb}</p>
+          {info.consoleUrl && (
+            <a
+              href={info.consoleUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 inline-flex items-center gap-1 rounded-full bg-surface px-3 py-1.5 text-xs font-semibold text-primary hover:bg-surface-container"
+            >
+              {info.consoleLabel}
+              <span className="material-symbols-outlined text-[16px]">
+                open_in_new
+              </span>
+            </a>
+          )}
+        </div>
       </div>
 
       {provider === 'custom' && (
-        <div className="space-y-2">
-          <label
-            htmlFor="ai-base-url"
-            className="text-sm font-medium text-on-surface"
-          >
-            Base URL
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="space-y-1.5">
+            <span className="text-sm font-medium text-on-surface">
+              Base URL
+            </span>
+            <input
+              type="url"
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder="https://my-llm.example/v1"
+              className="w-full rounded-xl bg-surface-container-high px-4 py-3 text-sm text-on-surface outline-none focus:bg-surface-container-highest focus:ring-2 focus:ring-primary/30"
+            />
           </label>
-          <input
-            id="ai-base-url"
-            type="url"
-            value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
-            placeholder="https://my-llm.example/v1"
-            className="w-full rounded-xl bg-surface-container px-4 py-3 text-sm text-on-surface outline-none focus:bg-surface-container-high"
-          />
-          <label
-            htmlFor="ai-model"
-            className="text-sm font-medium text-on-surface"
-          >
-            Model
+          <label className="space-y-1.5">
+            <span className="text-sm font-medium text-on-surface">Model</span>
+            <input
+              type="text"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder="llama-3.1-70b"
+              className="w-full rounded-xl bg-surface-container-high px-4 py-3 text-sm text-on-surface outline-none focus:bg-surface-container-highest focus:ring-2 focus:ring-primary/30"
+            />
           </label>
-          <input
-            id="ai-model"
-            type="text"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            placeholder="llama-3.1-70b"
-            className="w-full rounded-xl bg-surface-container px-4 py-3 text-sm text-on-surface outline-none focus:bg-surface-container-high"
-          />
         </div>
       )}
 
-      <div className="space-y-2">
-        <label
-          htmlFor="ai-api-key"
-          className="text-sm font-medium text-on-surface"
-        >
-          API key
-        </label>
+      <label className="block space-y-1.5">
+        <span className="text-sm font-medium text-on-surface">API key</span>
         <input
           id="ai-api-key"
           type="password"
@@ -230,7 +246,7 @@ export function DirectBYOKForm({
             setError(null)
           }}
           placeholder={info.keyHint ? `${info.keyHint}…` : '…'}
-          className="w-full rounded-xl bg-surface-container px-4 py-3 text-sm font-mono text-on-surface outline-none focus:bg-surface-container-high"
+          className="w-full rounded-xl bg-surface-container-high px-4 py-3 text-sm font-mono text-on-surface outline-none focus:bg-surface-container-highest focus:ring-2 focus:ring-primary/30"
         />
         {byok.isPending && (
           <p className="flex items-center gap-2 text-xs text-on-surface-variant">
@@ -246,11 +262,11 @@ export function DirectBYOKForm({
             {error.error_message}
           </p>
         )}
-      </div>
+      </label>
 
-      <p className="rounded-2xl bg-surface-container px-4 py-3 text-xs leading-relaxed text-on-surface-variant">
-        Typical OpenSec workspace run: five to twenty cents. Add five
-        dollars to your provider account for roughly thirty sessions.
+      <p className="text-xs leading-relaxed text-on-surface-variant">
+        Typical session: $0.05 – $0.20. A $5 top-up at your provider covers
+        roughly thirty sessions.
       </p>
 
       <div className="flex justify-end gap-3">
@@ -259,15 +275,15 @@ export function DirectBYOKForm({
           onClick={onCancel}
           className="rounded-full px-5 py-2.5 text-sm font-medium text-on-surface-variant hover:bg-surface-container"
         >
-          Cancel
+          Back
         </button>
         <button
           type="submit"
           data-testid="byok-save"
           disabled={!requiredFieldsFilled || byok.isPending}
-          className="rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary disabled:opacity-60"
+          className="rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-on-primary disabled:opacity-60"
         >
-          {byok.isPending ? 'Validating…' : 'Save'}
+          {byok.isPending ? 'Validating…' : 'Connect'}
         </button>
       </div>
     </form>

@@ -36,6 +36,8 @@ export interface AIStatusResponse {
   connected_at: string | null
   metadata: Record<string, unknown> | null
   override_model: string | null
+  /** Active OpenCode model id, e.g. ``openrouter/anthropic/claude-sonnet-4.6``. */
+  model: string | null
 }
 
 export interface AutodetectResponse {

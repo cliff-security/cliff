@@ -14,7 +14,11 @@
 
 import { useCallback, useState } from 'react'
 import { useAdopt, useAutodetect } from '@/api/aiProvider'
-import { providerLabel } from './types'
+import {
+  describeAutodetectSource,
+  providerIcon,
+  providerLabel,
+} from './types'
 import { DirectBYOKForm } from './DirectBYOKForm'
 import { OpenRouterConnectFlow } from './OpenRouterConnectFlow'
 
@@ -112,39 +116,76 @@ function PickingMethodPanel({
     <div className="space-y-6">
       <header>
         <h2 className="font-headline text-2xl font-semibold text-on-surface">
-          Pick a path
+          How would you like to connect?
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-on-surface-variant">
-          OpenSec uses an AI provider to enrich findings and write fixes.
-          The recommended path is two clicks.
+          OpenSec needs an AI provider to enrich findings and write fixes.
+          Encrypted at rest, never leaves your machine.
         </p>
       </header>
 
-      <button
-        type="button"
-        data-testid="open-openrouter"
-        onClick={onPickOpenRouter}
-        className="group flex w-full items-center justify-between rounded-2xl bg-primary px-6 py-5 text-left text-on-primary shadow-sm transition hover:shadow-md"
-      >
-        <div>
-          <p className="font-headline text-base font-semibold">
-            Connect with OpenRouter
-          </p>
-          <p className="mt-1 text-sm opacity-90">
-            One account, every model. Recommended.
-          </p>
-        </div>
-        <span className="material-symbols-outlined">arrow_forward</span>
-      </button>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <button
+          type="button"
+          data-testid="open-openrouter"
+          onClick={onPickOpenRouter}
+          className="group relative flex h-full flex-col gap-3 rounded-2xl bg-primary p-5 text-left text-on-primary shadow-sm transition hover:shadow-md"
+        >
+          <span className="inline-flex items-center gap-2 self-start rounded-full bg-on-primary/15 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide">
+            Recommended
+          </span>
+          <span
+            className="material-symbols-outlined text-[28px]"
+            aria-hidden="true"
+            style={{ fontVariationSettings: "'FILL' 1, 'wght' 500" }}
+          >
+            {providerIcon('openrouter')}
+          </span>
+          <div className="flex-1">
+            <p className="font-headline text-base font-semibold">
+              Connect with OpenRouter
+            </p>
+            <p className="mt-1 text-sm leading-relaxed opacity-90">
+              Sign in once. Every model, one bill. Two clicks.
+            </p>
+          </div>
+          <span className="inline-flex items-center gap-1 text-sm font-medium opacity-95">
+            Continue
+            <span className="material-symbols-outlined text-[18px]">
+              arrow_forward
+            </span>
+          </span>
+        </button>
 
-      <button
-        type="button"
-        data-testid="open-byok"
-        onClick={onPickBYOK}
-        className="block text-sm font-medium text-primary hover:underline"
-      >
-        I have my own API key →
-      </button>
+        <button
+          type="button"
+          data-testid="open-byok"
+          onClick={onPickBYOK}
+          className="group flex h-full flex-col gap-3 rounded-2xl bg-surface-container-high p-5 text-left text-on-surface transition hover:bg-surface-container-highest"
+        >
+          <span
+            className="material-symbols-outlined text-[28px] text-primary"
+            aria-hidden="true"
+            style={{ fontVariationSettings: "'FILL' 0, 'wght' 500" }}
+          >
+            vpn_key
+          </span>
+          <div className="flex-1">
+            <p className="font-headline text-base font-semibold">
+              I have my own API key
+            </p>
+            <p className="mt-1 text-sm leading-relaxed text-on-surface-variant">
+              Bring an existing Anthropic, OpenAI, or compatible key.
+            </p>
+          </div>
+          <span className="inline-flex items-center gap-1 text-sm font-medium text-primary">
+            Paste it
+            <span className="material-symbols-outlined text-[18px]">
+              arrow_forward
+            </span>
+          </span>
+        </button>
+      </div>
 
       {onDismiss && (
         <div className="flex justify-end pt-2">
@@ -177,18 +218,29 @@ function DetectedPanel({
   error: string | null
 }) {
   const friendlyProvider = providerLabel(provider)
+  const friendlySource = describeAutodetectSource(source)
   return (
     <div className="space-y-6">
-      <header>
-        <h2 className="font-headline text-2xl font-semibold text-on-surface">
-          We found a {friendlyProvider} key in your environment
-        </h2>
-        <p className="mt-2 text-sm leading-relaxed text-on-surface-variant">
-          OpenSec can use it — encrypted at rest, never logged.
-        </p>
-        <p className="mt-2 rounded-xl bg-surface-container px-3 py-2 font-mono text-xs text-on-surface-variant">
-          {source}
-        </p>
+      <header className="flex items-start gap-4">
+        <span
+          className="material-symbols-outlined flex-shrink-0 rounded-2xl bg-primary-container/40 p-3 text-[28px] text-primary"
+          aria-hidden="true"
+          style={{ fontVariationSettings: "'FILL' 1" }}
+        >
+          {providerIcon(provider)}
+        </span>
+        <div className="flex-1 min-w-0">
+          <h2 className="font-headline text-2xl font-semibold text-on-surface">
+            Use your {friendlyProvider} key?
+          </h2>
+          <p
+            className="mt-2 text-sm leading-relaxed text-on-surface-variant"
+            title={source}
+          >
+            We spotted one in <span className="font-medium text-on-surface">{friendlySource}</span>.
+            OpenSec can adopt it — encrypted at rest, never logged.
+          </p>
+        </div>
       </header>
 
       {error && (
@@ -200,22 +252,22 @@ function DetectedPanel({
         </p>
       )}
 
-      <div className="flex justify-end gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <button
           type="button"
           onClick={onDecline}
           className="rounded-full px-5 py-2.5 text-sm font-medium text-on-surface-variant hover:bg-surface-container"
         >
-          No, set up something else
+          Pick a different path
         </button>
         <button
           type="button"
           data-testid="adopt-detected"
           onClick={onAdopt}
           disabled={adopting}
-          className="rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary disabled:opacity-60"
+          className="rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-on-primary disabled:opacity-60"
         >
-          {adopting ? 'Connecting…' : 'Use it'}
+          {adopting ? 'Connecting…' : 'Use this key'}
         </button>
       </div>
     </div>

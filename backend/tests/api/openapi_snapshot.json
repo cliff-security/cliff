@@ -27,6 +27,17 @@
             ],
             "title": "Metadata"
           },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
           "override_model": {
             "anyOf": [
               {

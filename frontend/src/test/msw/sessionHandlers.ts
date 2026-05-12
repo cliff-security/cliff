@@ -33,26 +33,29 @@ interface _AIStubState {
   connected_at: string | null
   metadata: Record<string, unknown> | null
   override_model: string | null
+  model: string | null
 }
 
-let _aiState: _AIStubState = {
+const _AI_UNCONFIGURED: _AIStubState = {
   state: 'unconfigured',
   provider: null,
   source: null,
   connected_at: null,
   metadata: null,
   override_model: null,
+  model: null,
 }
 
+let _aiState: _AIStubState = { ..._AI_UNCONFIGURED }
+
 export function resetAIProviderStub(): void {
-  _aiState = {
-    state: 'unconfigured',
-    provider: null,
-    source: null,
-    connected_at: null,
-    metadata: null,
-    override_model: null,
-  }
+  _aiState = { ..._AI_UNCONFIGURED }
+}
+
+const _MODEL_FOR_PROVIDER: Record<string, string> = {
+  openrouter: 'openrouter/anthropic/claude-sonnet-4.6',
+  anthropic: 'anthropic/claude-sonnet-4-6',
+  openai: 'openai/gpt-5',
 }
 
 export function resetStatusPoll(): void {
@@ -309,30 +312,25 @@ export const sessionHandlers = [
         { status: 400 },
       )
     }
+    const provider = (body.provider ?? 'anthropic') as
+      | 'openrouter'
+      | 'anthropic'
+      | 'openai'
+      | 'custom'
     _aiState = {
       state: 'connected',
-      provider: (body.provider ?? 'anthropic') as
-        | 'openrouter'
-        | 'anthropic'
-        | 'openai'
-        | 'custom',
+      provider,
       source: 'byok',
       connected_at: new Date().toISOString(),
       metadata: null,
       override_model: null,
+      model: _MODEL_FOR_PROVIDER[provider] ?? null,
     }
     return HttpResponse.json(_aiState)
   }),
 
   http.post('/api/integrations/ai/disconnect', () => {
-    _aiState = {
-      state: 'unconfigured',
-      provider: null,
-      source: null,
-      connected_at: null,
-      metadata: null,
-      override_model: null,
-    }
+    _aiState = { ..._AI_UNCONFIGURED }
     return new HttpResponse(null, { status: 204 })
   }),
 

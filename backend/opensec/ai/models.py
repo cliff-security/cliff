@@ -58,6 +58,11 @@ class AIStatus(BaseModel):
     connected_at: str | None = None
     metadata: dict | None = None
     override_model: str | None = None
+    # The active model OpenSec routes through OpenCode for this provider —
+    # either the catalog default or the env-var override. Always populated
+    # when ``state == "connected"`` so the Settings card can surface
+    # "running Claude Sonnet 4.6" without re-resolving on the frontend.
+    model: str | None = None
 
 
 class DetectedKey(BaseModel):
