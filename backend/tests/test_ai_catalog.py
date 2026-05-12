@@ -44,9 +44,15 @@ def test_env_var_names_match_opencode_expectations() -> None:
 
 
 def test_resolve_model_returns_default_when_no_override() -> None:
-    assert catalog.resolve_model("openrouter") == "anthropic/claude-sonnet-4-6"
-    assert catalog.resolve_model("anthropic") == "claude-sonnet-4-6"
-    assert catalog.resolve_model("openai") == "gpt-5"
+    # OpenCode resolves model IDs as <provider>/<model> — for OpenRouter
+    # that means an extra ``openrouter/`` prefix so OpenCode dispatches
+    # via its OpenRouter provider rather than its Anthropic one.
+    assert (
+        catalog.resolve_model("openrouter")
+        == "openrouter/anthropic/claude-sonnet-4.6"
+    )
+    assert catalog.resolve_model("anthropic") == "anthropic/claude-sonnet-4-6"
+    assert catalog.resolve_model("openai") == "openai/gpt-5"
     assert catalog.resolve_model("custom") is None
 
 
@@ -54,12 +60,15 @@ def test_resolve_model_uses_override_when_set(monkeypatch) -> None:
     monkeypatch.setenv("OPENSEC_AI_MODEL_OVERRIDE_ANTHROPIC", "claude-opus-4-1")
     assert catalog.resolve_model("anthropic") == "claude-opus-4-1"
     # Untouched providers stay on their defaults.
-    assert catalog.resolve_model("openrouter") == "anthropic/claude-sonnet-4-6"
+    assert (
+        catalog.resolve_model("openrouter")
+        == "openrouter/anthropic/claude-sonnet-4.6"
+    )
 
 
 def test_resolve_model_ignores_blank_override(monkeypatch) -> None:
     monkeypatch.setenv("OPENSEC_AI_MODEL_OVERRIDE_OPENAI", "   ")
-    assert catalog.resolve_model("openai") == "gpt-5"
+    assert catalog.resolve_model("openai") == "openai/gpt-5"
 
 
 def test_has_override_reflects_env(monkeypatch) -> None:

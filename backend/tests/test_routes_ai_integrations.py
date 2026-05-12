@@ -25,6 +25,22 @@ class _StubAudit:
         self.events.append(event)
 
 
+@pytest.fixture(autouse=True)
+def _stub_opencode_auth_sync(monkeypatch):
+    """Don't try to talk to a real OpenCode `/auth/<provider>` in route tests.
+
+    ``AIIntegrationService._sync_opencode_auth`` PUTs the key into
+    OpenCode's auth.json on every save (so workspace subprocesses can
+    use it). Tests just need the call to no-op so pytest-httpx doesn't
+    intercept it as an unmatched request.
+    """
+    from unittest.mock import AsyncMock
+
+    from opensec.engine.client import opencode_client
+
+    monkeypatch.setattr(opencode_client, "set_auth", AsyncMock(return_value=True))
+
+
 @pytest.fixture
 async def ai_client(monkeypatch, tmp_path):
     """An HTTP client wired with a real vault + stub audit logger.

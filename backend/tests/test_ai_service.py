@@ -241,6 +241,79 @@ async def test_get_status_surfaces_active_override(
     assert status.override_model == "claude-opus-4-1"
 
 
+# ---------------------------------------------------------------------------
+# OpenCode auth.json sync
+# ---------------------------------------------------------------------------
+
+
+async def test_save_byok_pushes_key_to_opencode_auth(
+    service: AIIntegrationService, monkeypatch
+) -> None:
+    """OpenCode 1.3.x reads auth.json over env vars — verify we push."""
+    from unittest.mock import AsyncMock
+
+    from opensec.engine.client import opencode_client
+
+    push = AsyncMock(return_value=True)
+    monkeypatch.setattr(opencode_client, "set_auth", push)
+
+    await service.save_byok("anthropic", "sk-ant-push-target")
+
+    push.assert_awaited_once_with(
+        "anthropic", {"type": "api", "key": "sk-ant-push-target"}
+    )
+
+
+async def test_save_byok_does_not_push_for_custom_provider(
+    service: AIIntegrationService, monkeypatch
+) -> None:
+    from unittest.mock import AsyncMock
+
+    from opensec.engine.client import opencode_client
+
+    push = AsyncMock(return_value=True)
+    monkeypatch.setattr(opencode_client, "set_auth", push)
+
+    await service.save_byok("custom", "sk-x", base_url="https://x.example/v1")
+
+    push.assert_not_awaited()
+
+
+async def test_disconnect_clears_opencode_auth(
+    service: AIIntegrationService, monkeypatch
+) -> None:
+    from unittest.mock import AsyncMock
+
+    from opensec.engine.client import opencode_client
+
+    push = AsyncMock(return_value=True)
+    monkeypatch.setattr(opencode_client, "set_auth", push)
+
+    await service.save_byok("openrouter", "sk-or-disc")
+    push.reset_mock()
+    await service.disconnect()
+
+    # Called once with empty key after disconnect.
+    push.assert_awaited_once_with(
+        "openrouter", {"type": "api", "key": ""}
+    )
+
+
+async def test_save_byok_survives_opencode_unavailable(
+    service: AIIntegrationService, monkeypatch
+) -> None:
+    """The new flow must still persist if OpenCode is unreachable."""
+    from unittest.mock import AsyncMock
+
+    from opensec.engine.client import opencode_client
+
+    push = AsyncMock(side_effect=RuntimeError("opencode down"))
+    monkeypatch.setattr(opencode_client, "set_auth", push)
+
+    record = await service.save_byok("anthropic", "sk-ant-key")
+    assert record.provider == "anthropic"
+
+
 async def test_get_status_no_override_returns_none(
     service: AIIntegrationService,
 ) -> None:

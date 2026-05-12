@@ -105,6 +105,25 @@ class AIIntegrationService:
             override_model=override,
         )
 
+    async def sync_to_opencode(self) -> None:
+        """Push the active integration's key into OpenCode's auth.json.
+
+        Used at app startup to reconcile users who connected *before*
+        the auth.json sync was added — without this they'd boot with
+        an empty auth.json and hit "Missing Authentication header"
+        until they disconnected and reconnected.
+        """
+        record = await self.get_active()
+        if record is None:
+            return
+        try:
+            raw_key = await self._vault.retrieve(
+                record.integration_id, CREDENTIAL_KEY_NAME
+            )
+        except KeyError:
+            return
+        await self._sync_opencode_auth(record.provider, raw_key)
+
     async def resolve_env_for_workspace(self) -> dict[str, str]:
         """Return the env-var dict to inject into a workspace OpenCode subprocess.
 
@@ -225,6 +244,10 @@ class AIIntegrationService:
             integration_id=record.integration_id,
             verb=None,
         )
+        # Clear OpenCode's auth.json entry so a stale key can't keep
+        # authenticating after disconnect. Best-effort, same rationale
+        # as `_sync_opencode_auth`.
+        await self._clear_opencode_auth(record.provider)
         await self._fire_key_change()
         return deleted
 
@@ -272,12 +295,83 @@ class AIIntegrationService:
             source=source,
             metadata=metadata,
         )
+
+        # 4. Sync OpenCode's auth.json. OpenCode 1.3.x reads auth.json
+        # in preference to the documented env var path on the outbound
+        # request — without this push, the workspace and singleton
+        # subprocesses get "Missing Authentication header" from
+        # upstream providers even though OPENROUTER_API_KEY / etc. are
+        # present in their env. We keep the env var injection too
+        # (defense in depth + works on future OpenCode versions that
+        # honor the docs), but this push is what actually authenticates
+        # the calls today.
+        await self._sync_opencode_auth(provider, raw_key)
+
         logger.info(
             "AI integration saved for provider %s via %s",
             provider,
             source,
         )
         return record
+
+    async def _sync_opencode_auth(
+        self, provider: AIProvider, raw_key: str
+    ) -> None:
+        """Best-effort push of *raw_key* into OpenCode's auth.json.
+
+        ``opencode_client`` talks to the singleton on port 4096; auth.json
+        is global so workspace subprocesses pick the change up at their
+        next spawn. Failures are warning-logged; the env-var path
+        remains as a fallback for any OpenCode build that honors it.
+        """
+        # Map my literal to OpenCode's provider id. `custom` users
+        # supply their own provider config; we don't push for them.
+        opencode_id = {
+            "openrouter": "openrouter",
+            "anthropic": "anthropic",
+            "openai": "openai",
+        }.get(provider)
+        if opencode_id is None:
+            return
+        try:
+            from opensec.engine.client import opencode_client
+
+            await opencode_client.set_auth(
+                opencode_id, {"type": "api", "key": raw_key}
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Could not push AI key to OpenCode /auth (env-var path "
+                "will be the only auth source)",
+                exc_info=True,
+            )
+
+    async def _clear_opencode_auth(self, provider: AIProvider) -> None:
+        """Best-effort overwrite of OpenCode's auth.json entry with an empty
+        key, so the disconnected provider can't continue authenticating.
+
+        OpenCode's HTTP API has PUT /auth/<id> but not a delete; pushing
+        ``{"type": "api", "key": ""}`` makes the upstream call fail
+        with a clear "missing credentials" error rather than silently
+        succeed with stale state.
+        """
+        opencode_id = {
+            "openrouter": "openrouter",
+            "anthropic": "anthropic",
+            "openai": "openai",
+        }.get(provider)
+        if opencode_id is None:
+            return
+        try:
+            from opensec.engine.client import opencode_client
+
+            await opencode_client.set_auth(
+                opencode_id, {"type": "api", "key": ""}
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Could not clear OpenCode /auth on disconnect", exc_info=True
+            )
 
     async def _fire_key_change(self) -> None:
         """Call the on_key_change hook with the current env, if any.

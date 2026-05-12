@@ -45,9 +45,9 @@ The model is hidden in the UI across all tiers. OpenSec picks:
 
 | Provider | Default model | Notes |
 |----------|---------------|-------|
-| OpenRouter | `anthropic/claude-sonnet-4-6` | First-class path. |
-| Anthropic direct | `claude-sonnet-4-6` | First-class path. |
-| OpenAI direct | `gpt-5` | Sonnet not available on OpenAI; UI surfaces a one-line "OpenSec is optimized for Claude — Claude tends to perform better on security reasoning. GPT-5 should still work." note at BYOK time and at first agent run. |
+| OpenRouter | `openrouter/anthropic/claude-sonnet-4.6` | First-class path. The `openrouter/` prefix routes the call through OpenCode's OpenRouter provider; the remainder (`anthropic/claude-sonnet-4-6`) is OpenRouter's own model id. |
+| Anthropic direct | `anthropic/claude-sonnet-4-6` | First-class path. |
+| OpenAI direct | `openai/gpt-5` | Sonnet not available on OpenAI; UI surfaces a one-line "OpenSec is optimized for Claude — Claude tends to perform better on security reasoning. GPT-5 should still work." note at BYOK time and at first agent run. |
 | Custom (OpenAI-compatible) | Required field on the BYOK form | User specifies; same "optimized for Claude" note. |
 
 OpenSec is **opinionated about Claude Sonnet 4.6** for the security-reasoning workload. Defaults reflect that.

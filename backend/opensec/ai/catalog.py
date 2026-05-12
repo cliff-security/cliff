@@ -32,24 +32,33 @@ class ProviderInfo:
 
 # Defaults per ADR-0036. Sonnet 4.6 where available; gpt-5 on OpenAI direct
 # (Sonnet isn't served there); custom requires the user to specify a model.
+#
+# Model IDs use OpenCode's ``<provider>/<model-id>`` namespace. For
+# OpenRouter that means an extra ``openrouter/`` prefix in front of
+# OpenRouter's own ``<route-provider>/<model>`` identifier — without it
+# OpenCode would dispatch the call through its own ``anthropic`` provider
+# config (and expect ``ANTHROPIC_API_KEY``).
 _CATALOG: dict[AIProvider, ProviderInfo] = {
     "openrouter": ProviderInfo(
         env_var_name="OPENROUTER_API_KEY",
-        default_model="anthropic/claude-sonnet-4-6",
+        # OpenRouter publishes Claude Sonnet 4.6 with a dotted version
+        # (matches OpenRouter's own model catalog), distinct from
+        # Anthropic-direct which spells the same model "4-6" (dashes).
+        default_model="openrouter/anthropic/claude-sonnet-4.6",
         console_url="https://openrouter.ai/keys",
         key_hint="sk-or-",
         docs_label="OpenRouter",
     ),
     "anthropic": ProviderInfo(
         env_var_name="ANTHROPIC_API_KEY",
-        default_model="claude-sonnet-4-6",
+        default_model="anthropic/claude-sonnet-4-6",
         console_url="https://console.anthropic.com/settings/keys",
         key_hint="sk-ant-",
         docs_label="Anthropic",
     ),
     "openai": ProviderInfo(
         env_var_name="OPENAI_API_KEY",
-        default_model="gpt-5",
+        default_model="openai/gpt-5",
         console_url="https://platform.openai.com/api-keys",
         key_hint="sk-",
         docs_label="OpenAI",
