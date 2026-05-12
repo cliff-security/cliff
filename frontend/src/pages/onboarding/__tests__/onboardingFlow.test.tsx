@@ -18,6 +18,7 @@ import Welcome from '@/pages/onboarding/Welcome'
 import ConnectRepo from '@/pages/onboarding/ConnectRepo'
 import ConfigureAI from '@/pages/onboarding/ConfigureAI'
 import StartAssessment from '@/pages/onboarding/StartAssessment'
+import { resetAIProviderStub } from '@/test/msw/sessionHandlers'
 
 function renderWizard(initialPath = '/onboarding/welcome') {
   const client = new QueryClient({
@@ -46,6 +47,7 @@ function renderWizard(initialPath = '/onboarding/welcome') {
 describe('onboarding wizard', () => {
   beforeEach(() => {
     sessionStorage.clear()
+    resetAIProviderStub()
   })
 
   it('walks the happy path: welcome → connect (token + pick) → ai → start → dashboard', async () => {
@@ -82,28 +84,25 @@ describe('onboarding wizard', () => {
     )
     expect(await screen.findByText(/loading step 2/i)).toBeInTheDocument()
 
-    // 1.4 Configure AI — pick OpenAI card (default), a model, then type the API key.
+    // 1.4 Configure AI — single unified flow. Pick "I have my own API
+    // key" → Anthropic (default in the BYOK form) → paste a key →
+    // backend validates → Continue lights up.
     expect(
       await screen.findByRole(
         'heading',
-        { name: /configure your ai model/i },
+        { name: /connect an ai provider/i },
         { timeout: 4_000 },
       ),
     ).toBeInTheDocument()
-    await waitFor(() =>
-      expect(
-        screen.getByRole('option', { name: 'GPT-4o mini' }),
-      ).toBeInTheDocument(),
-    )
-    await user.selectOptions(screen.getByLabelText(/^model/i), 'gpt-4o-mini')
-    await user.type(screen.getByLabelText(/api key/i), 'sk-test-key')
+    await user.click(screen.getByTestId('open-byok'))
+    await user.type(screen.getByLabelText(/^api key$/i), 'sk-ant-test-key')
+    await user.click(screen.getByTestId('byok-save'))
 
-    // Two-stage button: first click probes the provider, second click
-    // advances. Without an explicit verified probe the wizard refuses to
-    // move on — that's the whole point of this flow.
-    await user.click(screen.getByRole('button', { name: /test connection/i }))
+    // Status flips to connected → Continue is enabled.
     expect(
-      await screen.findByTestId('provider-test-pass'),
+      await screen.findByTestId('onboarding-ai-connected', undefined, {
+        timeout: 4_000,
+      }),
     ).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /^continue$/i }))
 
@@ -146,7 +145,7 @@ describe('onboarding wizard', () => {
       screen.getByLabelText(/github personal access token/i),
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole('heading', { name: /configure your ai model/i }),
+      screen.queryByRole('heading', { name: /connect an ai provider/i }),
     ).not.toBeInTheDocument()
   })
 
@@ -197,28 +196,21 @@ describe('onboarding wizard', () => {
     const user = userEvent.setup()
     renderWizard('/onboarding/ai')
 
-    // Default OpenAI card is preselected; pick a model and the sentinel
-    // bad key the MSW handler rejects with auth_failed.
-    await waitFor(() =>
-      expect(
-        screen.getByRole('option', { name: 'GPT-4o mini' }),
-      ).toBeInTheDocument(),
-    )
-    await user.selectOptions(screen.getByLabelText(/^model/i), 'gpt-4o-mini')
-    await user.type(screen.getByLabelText(/api key/i), 'sk-bad-key')
-    await user.click(
-      screen.getByRole('button', { name: /test connection/i }),
-    )
+    // The user opens BYOK and pastes the sentinel bad key the MSW
+    // handler rejects with auth_failed. Continue stays disabled.
+    await user.click(screen.getByTestId('open-byok'))
+    await user.type(screen.getByLabelText(/^api key$/i), 'sk-ant-bad-key')
+    await user.click(screen.getByTestId('byok-save'))
 
     const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent(/rejected the key/i)
-    // The CTA stays as "Test connection" — no implicit Continue path.
+    expect(alert).toHaveTextContent(/rejected by anthropic/i)
+    // The connected card never rendered.
     expect(
-      screen.getByRole('button', { name: /test connection/i }),
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: /^continue$/i }),
+      screen.queryByTestId('onboarding-ai-connected'),
     ).not.toBeInTheDocument()
+    // Continue stays disabled — it's the only button labelled exactly "Continue".
+    const continueBtn = screen.getByRole('button', { name: /^continue$/i })
+    expect(continueBtn).toBeDisabled()
   })
 
   it('opens the TokenHowToDialog scrim from the help link', async () => {

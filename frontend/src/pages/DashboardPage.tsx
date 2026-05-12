@@ -19,6 +19,11 @@ import {
   useRunAssessment,
 } from '@/api/dashboard'
 import type { DashboardPayload, PostureFixableCheck } from '@/api/dashboard'
+import {
+  AutoDetectBanner,
+  useOpenAIProvider,
+} from '@/components/ai-provider'
+import { useAIRequired } from '@/api/aiProvider'
 import { onboardingApi } from '@/api/onboarding'
 import AssessmentFailedCard, {
   type AssessmentFailedStep as FailedStepLabel,
@@ -164,7 +169,11 @@ function RunAssessmentButton({
 }) {
   const mutation = useRunAssessment()
   const queryClient = useQueryClient()
-  const disabled = running || mutation.isPending || !repoUrl
+  const aiRequired = useAIRequired()
+  const { open: openAIProvider } = useOpenAIProvider()
+  const blockedByAI = !aiRequired.enabled && !aiRequired.loading
+  const disabled =
+    running || mutation.isPending || !repoUrl || blockedByAI
 
   let label: string
   if (mutation.isPending) {
@@ -193,16 +202,31 @@ function RunAssessmentButton({
       type="button"
       data-testid="run-assessment-button"
       data-variant={variant}
-      disabled={disabled}
+      // Clicks while disabled-due-to-missing-AI open the connect modal
+      // so the user has a direct path forward.
       onClick={() => {
-        if (!repoUrl) return
+        if (blockedByAI) {
+          openAIProvider()
+          return
+        }
+        if (disabled || !repoUrl) return
         mutation.mutate(repoUrl, {
           onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['dashboard'] })
           },
         })
       }}
-      className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-on-primary shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+      // When the only reason we'd be disabled is missing AI, keep the
+      // button clickable (so the openAIProvider path fires) but render
+      // the disabled visual + tooltip.
+      disabled={disabled && !blockedByAI}
+      title={blockedByAI ? aiRequired.tooltip ?? undefined : undefined}
+      aria-disabled={disabled || blockedByAI}
+      className={
+        blockedByAI
+          ? 'inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-primary/60 px-4 py-2 text-sm font-semibold text-on-primary shadow-sm hover:bg-primary/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60'
+          : 'inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-on-primary shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60'
+      }
       aria-busy={mutation.isPending}
       aria-label={label}
     >
@@ -397,6 +421,7 @@ function ReportCard({ data }: { data: DashboardPayload }) {
   const fixMutation = useFixPostureCheck()
   const reassessMutation = useRunAssessment()
   const queryClient = useQueryClient()
+  const { open: openAIProvider } = useOpenAIProvider()
 
   const repoName = repoNameFromUrl(data.assessment?.repo_url)
 
@@ -476,6 +501,7 @@ function ReportCard({ data }: { data: DashboardPayload }) {
     >
       {completionBlock}
       <div className="flex flex-col gap-4 opensec-fade-in">
+        <AutoDetectBanner onConfigureManually={openAIProvider} />
         <IssueGradeHero
           letter={grade}
           label={heroLabel}

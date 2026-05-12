@@ -1,6 +1,102 @@
 {
   "components": {
     "schemas": {
+      "AIStatus": {
+        "description": "Wire shape for ``GET /api/integrations/ai/status``.",
+        "properties": {
+          "connected_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connected At"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "override_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Override Model"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "enum": [
+                  "openrouter",
+                  "anthropic",
+                  "openai",
+                  "custom"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "autodetect",
+                  "openrouter-oauth",
+                  "byok"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "state": {
+            "enum": [
+              "unconfigured",
+              "connected"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "AIStatus",
+        "type": "object"
+      },
       "AgentChipResponse": {
         "properties": {
           "agent_type": {
@@ -905,6 +1001,98 @@
           "text"
         ],
         "title": "AssessmentToolResult",
+        "type": "object"
+      },
+      "AutodetectResponse": {
+        "description": "Wire shape for ``GET /api/integrations/ai/autodetect`` \u2014 never the key.",
+        "properties": {
+          "found": {
+            "title": "Found",
+            "type": "boolean"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "enum": [
+                  "openrouter",
+                  "anthropic",
+                  "openai",
+                  "custom"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "required": [
+          "found"
+        ],
+        "title": "AutodetectResponse",
+        "type": "object"
+      },
+      "BYOKRequest": {
+        "description": "Inbound payload for ``POST /api/integrations/ai/byok``.\n\n``api_key`` is a ``SecretStr`` so the value is redacted in every\nPydantic-rendered context \u2014 model_dump (without explicit unwrap),\nvalidation errors, repr, logging. Call sites that need the raw key\nmust use ``api_key.get_secret_value()`` explicitly; that explicit\nunwrap is the only place we want to deal with the raw string.",
+        "properties": {
+          "api_key": {
+            "format": "password",
+            "minLength": 1,
+            "title": "Api Key",
+            "type": "string",
+            "writeOnly": true
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "provider": {
+            "enum": [
+              "openrouter",
+              "anthropic",
+              "openai",
+              "custom"
+            ],
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "api_key"
+        ],
+        "title": "BYOKRequest",
         "type": "object"
       },
       "BootstrapState": {
@@ -3415,6 +3603,55 @@
           }
         },
         "title": "OpenIssuesSeries",
+        "type": "object"
+      },
+      "OpenRouterStartResponse": {
+        "properties": {
+          "auth_url": {
+            "title": "Auth Url",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "auth_url",
+          "session_id"
+        ],
+        "title": "OpenRouterStartResponse",
+        "type": "object"
+      },
+      "OpenRouterStatusResponse": {
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "status": {
+            "enum": [
+              "waiting",
+              "connected",
+              "denied",
+              "error",
+              "timeout"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "OpenRouterStatusResponse",
         "type": "object"
       },
       "PermissionDecision": {
@@ -5974,6 +6211,198 @@
         "summary": "Reject Finding Endpoint",
         "tags": [
           "findings"
+        ]
+      }
+    },
+    "/api/integrations/ai/autodetect": {
+      "get": {
+        "description": "Scan common locations for existing AI keys. Never returns the key.",
+        "operationId": "autodetect_scan_api_integrations_ai_autodetect_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutodetectResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Autodetect Scan",
+        "tags": [
+          "ai-integrations"
+        ]
+      }
+    },
+    "/api/integrations/ai/autodetect/adopt": {
+      "post": {
+        "description": "Re-scan, validate, and persist a detected key.\n\nRe-running the scan inside the handler (rather than trusting the\nearlier GET) keeps adoption coherent if the user changed their env\nbetween clicks.",
+        "operationId": "autodetect_adopt_api_integrations_ai_autodetect_adopt_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Autodetect Adopt",
+        "tags": [
+          "ai-integrations"
+        ]
+      }
+    },
+    "/api/integrations/ai/byok": {
+      "post": {
+        "description": "Validate + persist a directly-pasted API key.",
+        "operationId": "byok_api_integrations_ai_byok_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BYOKRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Byok",
+        "tags": [
+          "ai-integrations"
+        ]
+      }
+    },
+    "/api/integrations/ai/disconnect": {
+      "post": {
+        "description": "Clear the active AI integration locally.\n\nIdempotent: returns 204 whether or not there was anything to clear.\nSurface-area note: revoking OpenRouter keys server-side would require\nOpenRouter's client_secret, which we deliberately don't ship in the\nself-hosted code path (ADR-0036). The frontend surfaces the\nopenrouter.ai/settings/keys link separately.",
+        "operationId": "disconnect_api_integrations_ai_disconnect_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Disconnect",
+        "tags": [
+          "ai-integrations"
+        ]
+      }
+    },
+    "/api/integrations/ai/openrouter/start": {
+      "post": {
+        "description": "Begin an OAuth PKCE handshake.\n\nMints a session, starts a one-shot listener on port 3000, returns the\nauth URL the frontend should open in a new tab.",
+        "operationId": "openrouter_start_api_integrations_ai_openrouter_start_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenRouterStartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Openrouter Start",
+        "tags": [
+          "ai-integrations"
+        ]
+      }
+    },
+    "/api/integrations/ai/openrouter/status": {
+      "get": {
+        "description": "Frontend polls this every ~1s while a session is in flight.",
+        "operationId": "openrouter_status_api_integrations_ai_openrouter_status_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenRouterStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Openrouter Status",
+        "tags": [
+          "ai-integrations"
+        ]
+      }
+    },
+    "/api/integrations/ai/status": {
+      "get": {
+        "operationId": "status_api_integrations_ai_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Status",
+        "tags": [
+          "ai-integrations"
         ]
       }
     },

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import TYPE_CHECKING
 
 import httpx
@@ -22,6 +23,11 @@ class OpenCodeProcess:
     def __init__(self) -> None:
         self._process: asyncio.subprocess.Process | None = None
         self._healthy = False
+        # IMPL-0011 Phase F3: extra env vars merged into os.environ at
+        # spawn time. Set via update_env() before restart() so the new
+        # process picks up the active AI provider key without the
+        # operator restarting OpenSec.
+        self._extra_env: dict[str, str] = {}
 
     @property
     def is_running(self) -> bool:
@@ -39,6 +45,8 @@ class OpenCodeProcess:
             "Starting OpenCode server on %s:%d", settings.opencode_host, settings.opencode_port
         )
 
+        env = {**os.environ, **self._extra_env} if self._extra_env else None
+
         self._process = await asyncio.create_subprocess_exec(
             str(binary),
             "serve",
@@ -49,11 +57,31 @@ class OpenCodeProcess:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(settings.repo_root),
+            env=env,
         )
 
         # Wait for server to become healthy
         await self._wait_for_healthy(timeout=30.0)
         logger.info("OpenCode server is healthy")
+
+    def set_extra_env(self, env: dict[str, str]) -> None:
+        """Replace the extra-env dict applied on next start/restart.
+
+        Pass an empty dict to clear. The change takes effect on the next
+        ``start()`` — callers needing immediate effect should ``restart()``.
+        """
+        self._extra_env = dict(env)
+
+    async def restart(self) -> None:
+        """Stop + start the singleton with the current extra env.
+
+        Used by ``AIIntegrationService`` after a key change so the
+        singleton OpenCode (used by ``/api/settings/providers/test`` and
+        the provider catalog endpoints) picks up the new env var. The
+        ~1-2s blip is documented in ADR-0036.
+        """
+        await self.stop()
+        await self.start()
 
     async def stop(self) -> None:
         """Gracefully stop the OpenCode server."""

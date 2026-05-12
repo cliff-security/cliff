@@ -25,6 +25,8 @@ import {
   useSidebar,
   useUpdateFinding,
 } from '../../api/hooks'
+import { useAIRequired } from '../../api/aiProvider'
+import { useOpenAIProvider } from '../ai-provider'
 import { IssueFilterChip } from './IssueFilterChip'
 import { IssueSeverityBadge, type IssueSeverityKind } from './IssueSeverityBadge'
 import { IssueStageChip } from './IssueStageChip'
@@ -327,6 +329,9 @@ function SidePanelRefineCallout({
   const [note, setNote] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const executeAgent = useExecuteAgent(workspaceId ?? undefined)
+  const aiRequired = useAIRequired()
+  const { open: openAIProvider } = useOpenAIProvider()
+  const blockedByAI = !aiRequired.enabled && !aiRequired.loading
 
   useEffect(() => {
     // Defer focus to ensure the textarea has mounted.
@@ -379,12 +384,18 @@ function SidePanelRefineCallout({
             type="button"
             disabled={!workspaceId || !note.trim() || sending}
             onClick={() => {
+              if (blockedByAI) {
+                openAIProvider()
+                return
+              }
               if (!workspaceId) return
               executeAgent.mutate(
                 { agentType: 'remediation_planner', user_note: note.trim() },
                 { onSuccess: () => onSubmitted() },
               )
             }}
+            title={blockedByAI ? aiRequired.tooltip ?? undefined : undefined}
+            aria-disabled={blockedByAI}
             className="px-2.5 py-1.5 text-[12px] font-semibold rounded-lg bg-primary text-on-primary disabled:opacity-50 hover:bg-primary-dim inline-flex items-center gap-1"
           >
             <span className="material-symbols-outlined" style={{ fontSize: 14 }} aria-hidden>
@@ -631,6 +642,9 @@ function DefaultFooter({
   const workspaceId = finding.derived?.workspace_id ?? null
   const executeAgent = useExecuteAgent(workspaceId ?? undefined)
   const updateFinding = useUpdateFinding()
+  const aiRequired = useAIRequired()
+  const { open: openAIProvider } = useOpenAIProvider()
+  const blockedByAI = !aiRequired.enabled && !aiRequired.loading
   const prUrl = finding.derived?.pr_url ?? null
 
   if (stage === 'todo') {
@@ -680,10 +694,15 @@ function DefaultFooter({
           icon="check_circle"
           kbd="A"
           onClick={() => {
+            if (blockedByAI) {
+              openAIProvider()
+              return
+            }
             if (!workspaceId) return
             executeAgent.mutate({ agentType: 'remediation_executor' })
           }}
           disabled={!workspaceId || executeAgent.isPending}
+          title={blockedByAI ? aiRequired.tooltip ?? undefined : undefined}
         >
           Approve & generate fix
         </PrimaryButton>

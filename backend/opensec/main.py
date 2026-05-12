@@ -17,9 +17,11 @@ from fastapi.staticfiles import StaticFiles
 
 from opensec.agents.executor import AgentExecutor
 from opensec.agents.template_engine import AgentTemplateEngine
+from opensec.ai import catalog as ai_catalog
 from opensec.api.routes import (
     agent_execution,
     agent_runs,
+    ai_integrations,
     assessment,
     audit,
     chat,
@@ -71,6 +73,10 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Start OpenCode on startup, stop on shutdown."""
     logger.info("Starting OpenSec...")
+    # Surface any active AI model override at boot so operators see them
+    # in stdout/stderr (ADR-0036 — performance may vary if a non-default
+    # model is in use).
+    ai_catalog.log_override_warnings_once()
     # Initialize persistence layer.
     db_path = settings.resolve_data_dir() / "opensec.db"
     first_run = not db_path.exists()
@@ -111,19 +117,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         else:
             logger.info("Demo mode: findings already exist, skipping seed")
 
-    # Start AI engine (non-fatal if unavailable).
-    try:
-        await opencode_process.start()
-        # Restore stored API keys and reconcile model config.
-        try:
-            if db_connection._db is not None:
-                await config_manager.reconcile_model(db_connection._db)
-                await config_manager.restore_keys_to_engine(db_connection._db)
-        except Exception:
-            logger.warning("Could not restore settings to OpenCode engine")
-    except Exception:
-        logger.exception("Failed to start OpenCode — app will run but engine is unavailable")
-
     # Audit logger (non-blocking, queue-based)
     if db_connection._db is not None:
         audit_logger = AuditLogger(db_connection._db)
@@ -141,6 +134,96 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         except Exception:
             logger.warning("Credential vault not available — set OPENSEC_CREDENTIAL_KEY to enable")
 
+    # Best-effort one-shot migration: lift any legacy api_key:*
+    # app_setting into the new ai_integration table so users coming
+    # from the paste flow land on a unified state without re-pasting.
+    # Must run BEFORE the env-cache warm so the new row is visible.
+    if app.state.vault is not None and db_connection._db is not None:
+        from opensec.ai.legacy_migration import migrate_legacy_api_keys_once
+        from opensec.ai.service import AIIntegrationService
+
+        await migrate_legacy_api_keys_once(
+            db_connection._db,
+            AIIntegrationService(
+                db_connection._db,
+                app.state.vault,
+                audit_logger=app.state.audit_logger,
+            ),
+        )
+
+    # IMPL-0011 Phase F2 + simplify pass: the env injected at every
+    # workspace spawn lives on app.state as a cached dict. The
+    # resolver returns the cache; the key-change hook (below)
+    # refreshes it on every connect/disconnect. Avoids a DB query +
+    # vault decrypt on every workspace spawn.
+    app.state.ai_env_cache = {}
+
+    async def _refresh_ai_env_cache() -> None:
+        from opensec.ai.service import AIIntegrationService
+
+        vault = app.state.vault
+        db = db_connection._db
+        if vault is None or db is None:
+            app.state.ai_env_cache = {}
+            return
+        service = AIIntegrationService(
+            db, vault, audit_logger=app.state.audit_logger
+        )
+        try:
+            app.state.ai_env_cache = await service.resolve_env_for_workspace()
+        except Exception:
+            logger.warning(
+                "AI integration env refresh failed", exc_info=True
+            )
+            app.state.ai_env_cache = {}
+
+    # Warm the cache once at boot so the very first workspace spawn
+    # doesn't pay the DB + decrypt round-trip on the critical path,
+    # AND so the singleton OpenCode (started just below) inherits the
+    # current AI provider key from boot zero rather than waiting for
+    # the first connect / disconnect hook.
+    await _refresh_ai_env_cache()
+
+    async def _ai_env_resolver() -> dict[str, str]:
+        return dict(app.state.ai_env_cache)
+
+    # Start AI engine (non-fatal if unavailable). Seed the singleton
+    # with the current AI provider env BEFORE start() so the very
+    # first /api/settings/providers/test or /chat call hits a process
+    # that already authenticates against OpenRouter (or whatever
+    # provider is active).
+    opencode_process.set_extra_env(app.state.ai_env_cache)
+    try:
+        await opencode_process.start()
+        # Push the active AI integration's key into OpenCode's auth.json.
+        # OpenCode 1.3.x consults auth.json in preference to env vars on
+        # the outbound request, so users who connected *before* the
+        # auth.json sync was added need this reconcile step at startup.
+        if app.state.vault is not None and db_connection._db is not None:
+            try:
+                from opensec.ai.service import AIIntegrationService
+
+                await AIIntegrationService(
+                    db_connection._db,
+                    app.state.vault,
+                    audit_logger=app.state.audit_logger,
+                ).sync_to_opencode()
+            except Exception:
+                logger.warning(
+                    "Could not sync AI integration to OpenCode auth.json"
+                )
+        # Restore stored API keys and reconcile model config (legacy
+        # paste-flow path — kept for back-compat with the OpenCode
+        # /auth/keys mechanism).
+        try:
+            if db_connection._db is not None:
+                await config_manager.reconcile_model(db_connection._db)
+                await config_manager.restore_keys_to_engine(db_connection._db)
+        except Exception:
+            logger.warning("Could not restore settings to OpenCode engine")
+    except Exception:
+        logger.exception("Failed to start OpenCode — app will run but engine is unavailable")
+
     # MCP config resolver (requires vault)
     mcp_resolver = None
     if app.state.vault is not None:
@@ -156,9 +239,28 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.state.context_builder = context_builder
 
-    # Layer 3: Per-workspace process pool
-    pool = WorkspaceProcessPool()
+    # Layer 3: Per-workspace process pool, reading from the warm cache.
+    pool = WorkspaceProcessPool(env_resolver=_ai_env_resolver)
     app.state.process_pool = pool
+
+    # IMPL-0011 Phase F3: register the singleton-restart hook on app.state
+    # so AIIntegrationService instances built per-request can push the
+    # new env into the singleton OpenCode without coupling to main.
+    async def _ai_on_key_change(env: dict[str, str]) -> None:
+        # Refresh the cached env for the workspace pool — single source
+        # of truth keyed off the service's freshly written state.
+        app.state.ai_env_cache = dict(env)
+        try:
+            opencode_process.set_extra_env(env)
+            if opencode_process.is_running:
+                await opencode_process.restart()
+        except Exception:
+            logger.warning(
+                "Singleton OpenCode restart after AI key change failed",
+                exc_info=True,
+            )
+
+    app.state.ai_on_key_change = _ai_on_key_change
 
     # Agent executor (Layer 5: orchestration)
     app.state.agent_executor = AgentExecutor(pool, context_builder)
@@ -265,6 +367,7 @@ app.include_router(seed.router, prefix="/api")
 app.include_router(settings_routes.router, prefix="/api")
 app.include_router(audit.router, prefix="/api")
 app.include_router(github_app.router, prefix="/api")
+app.include_router(ai_integrations.router, prefix="/api")
 
 # EXEC-0002 contract stubs — routers registered so the OpenAPI schema is
 # stable. Bodies raise NotImplementedError; real logic ships in Sessions B/C.

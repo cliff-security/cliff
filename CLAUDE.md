@@ -225,6 +225,27 @@ Each workspace gets an isolated environment. See `docs/adr/0014-workspace-runtim
 
 Key files: `backend/opensec/workspace/`, `backend/opensec/engine/pool.py`, `backend/opensec/agents/`
 
+## AI provider integration (ADR-0036)
+
+OpenSec's AI provider key flows into per-workspace OpenCode subprocesses
+via env vars at spawn time, never via `opencode.json` or `auth.json`
+(both have known OpenCode reliability issues). Three onboarding tiers:
+
+- **Tier 1**: auto-detect existing keys (`~/.claude/.credentials.json`,
+  `ANTHROPIC_API_KEY`/`OPENROUTER_API_KEY`/`OPENAI_API_KEY` env vars,
+  `~/.aider/.env`, `~/.config/openai/`).
+- **Tier 2**: OpenRouter OAuth PKCE — backend runs the handshake on
+  `localhost:3000`. Two clicks.
+- **Tier 3**: direct BYOK with deep-linked provider instructions.
+
+Default model is **Sonnet 4.6** wherever available. Override via
+`OPENSEC_AI_MODEL_OVERRIDE_<PROVIDER>` env vars (no UI affordance).
+Encryption reuses `CredentialVault` (AES-256-GCM, ADR-0016).
+
+Key files: `backend/opensec/ai/`, `backend/opensec/api/routes/ai_integrations.py`,
+`frontend/src/components/ai-provider/`. User-facing guide:
+`docs/guides/setup-ai-provider.md`.
+
 ## Development Workflow
 
 OpenSec uses a 4-team pipeline with CEO approval gates. Each team is a Claude Code skill.

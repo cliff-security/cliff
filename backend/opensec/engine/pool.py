@@ -17,6 +17,7 @@ from opensec.config import settings
 from opensec.engine.client import OpenCodeClient
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
     from datetime import timedelta
     from pathlib import Path
 
@@ -121,7 +122,18 @@ class WorkspaceProcessPool:
         self,
         port_allocator: PortAllocator | None = None,
         host: str | None = None,
+        *,
+        env_resolver: Callable[[], Awaitable[dict[str, str]]] | None = None,
     ) -> None:
+        """Create a process pool.
+
+        ``env_resolver`` (ADR-0036 / IMPL-0011) — an optional async callable
+        invoked before every ``start()``. Its return value is merged into
+        the per-workspace subprocess environment, on top of any caller-
+        supplied ``env_vars``. Used to inject the active AI provider key
+        (e.g. ``OPENROUTER_API_KEY``) without every call site needing to
+        know about the AI integration service.
+        """
         self._processes: dict[str, WorkspaceProcess] = {}
         self._ports = port_allocator or PortAllocator(
             settings.opencode_port_range_start,
@@ -129,6 +141,7 @@ class WorkspaceProcessPool:
         )
         self._host = host or settings.opencode_host
         self._locks: dict[str, asyncio.Lock] = {}
+        self._env_resolver = env_resolver
 
     def _get_lock(self, workspace_id: str) -> asyncio.Lock:
         if workspace_id not in self._locks:
@@ -166,13 +179,31 @@ class WorkspaceProcessPool:
         binary = settings.opencode_binary_path
         port = self._ports.allocate()
 
-        # Merge extra env vars with system environment (if provided).
-        env = {**os.environ, **env_vars} if env_vars else None
+        # Pull in env from the resolver (typically the AI provider key) so
+        # every caller picks it up automatically without needing to know
+        # about the AI integration service.
+        merged_env_vars: dict[str, str] = {}
+        if self._env_resolver is not None:
+            try:
+                resolver_env = await self._env_resolver()
+            except Exception:  # noqa: BLE001 — never crash spawns over env enrichment
+                logger.warning(
+                    "AI env resolver failed for workspace %s; spawning without it",
+                    workspace_id,
+                    exc_info=True,
+                )
+                resolver_env = {}
+            merged_env_vars.update(resolver_env)
         if env_vars:
+            merged_env_vars.update(env_vars)
+
+        # Merge extra env vars with system environment (if provided).
+        env = {**os.environ, **merged_env_vars} if merged_env_vars else None
+        if merged_env_vars:
             logger.info(
                 "Injecting env vars for workspace %s: %s",
                 workspace_id,
-                list(env_vars.keys()),
+                list(merged_env_vars.keys()),
             )
 
         try:

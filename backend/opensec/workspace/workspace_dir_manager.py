@@ -60,6 +60,7 @@ class WorkspaceDirManager:
         finding: Finding,
         *,
         mcp_servers: dict[str, dict] | None = None,
+        model: str | None = None,
     ) -> WorkspaceDir:
         """Create the full directory structure and initial files for a workspace.
 
@@ -68,6 +69,9 @@ class WorkspaceDirManager:
             finding: The finding this workspace remediates.
             mcp_servers: Optional MCP server configs (from MCPConfigResolver)
                 to include in the workspace's opencode.json.
+            model: Optional OpenCode model id to set in opencode.json
+                (IMPL-0011). When ``None`` the workspace inherits the
+                singleton's model from its DB-backed config.
 
         Raises:
             FileExistsError: If the workspace directory already exists.
@@ -98,7 +102,8 @@ class WorkspaceDirManager:
         ws.finding_md.write_text(_render_finding_md(finding))
 
         ws.opencode_json.write_text(
-            json.dumps(_build_opencode_config(mcp_servers), indent=2) + "\n"
+            json.dumps(_build_opencode_config(mcp_servers, model=model), indent=2)
+            + "\n"
         )
 
         # Create empty agent-runs log
