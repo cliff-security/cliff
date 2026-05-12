@@ -26,6 +26,35 @@ export function getActiveDashboardFixture(): DashboardFixtureName {
 
 let statusPollIndex = 0
 
+interface _AIStubState {
+  state: 'unconfigured' | 'connected'
+  provider: 'openrouter' | 'anthropic' | 'openai' | 'custom' | null
+  source: 'autodetect' | 'openrouter-oauth' | 'byok' | null
+  connected_at: string | null
+  metadata: Record<string, unknown> | null
+  override_model: string | null
+}
+
+let _aiState: _AIStubState = {
+  state: 'unconfigured',
+  provider: null,
+  source: null,
+  connected_at: null,
+  metadata: null,
+  override_model: null,
+}
+
+export function resetAIProviderStub(): void {
+  _aiState = {
+    state: 'unconfigured',
+    provider: null,
+    source: null,
+    connected_at: null,
+    metadata: null,
+    override_model: null,
+  }
+}
+
 export function resetStatusPoll(): void {
   statusPollIndex = 0
 }
@@ -243,6 +272,68 @@ export const sessionHandlers = [
       provider,
       model_id: rest.join('/'),
     })
+  }),
+
+  // ---------------------------------------------------------------------
+  // AI provider onboarding (ADR-0036 / IMPL-0011)
+  //
+  // In-memory stub state lives in module scope so /status reflects the
+  // most recent /byok call within a single test. ``sk-ant-bad-key``
+  // simulates auth_failed; any other key persists and flips state to
+  // ``connected``.
+  // ---------------------------------------------------------------------
+
+  http.get('/api/integrations/ai/autodetect', () =>
+    HttpResponse.json({ found: false, provider: null, source: null }),
+  ),
+
+  http.get('/api/integrations/ai/status', () =>
+    HttpResponse.json(_aiState),
+  ),
+
+  http.post('/api/integrations/ai/byok', async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as {
+      provider?: string
+      api_key?: string
+    }
+    if ((body.api_key ?? '').includes('bad')) {
+      return HttpResponse.json(
+        {
+          detail: {
+            error_code: 'auth_failed',
+            error_message: `This key was rejected by ${
+              body.provider === 'openai' ? 'OpenAI' : 'Anthropic'
+            }.`,
+          },
+        },
+        { status: 400 },
+      )
+    }
+    _aiState = {
+      state: 'connected',
+      provider: (body.provider ?? 'anthropic') as
+        | 'openrouter'
+        | 'anthropic'
+        | 'openai'
+        | 'custom',
+      source: 'byok',
+      connected_at: new Date().toISOString(),
+      metadata: null,
+      override_model: null,
+    }
+    return HttpResponse.json(_aiState)
+  }),
+
+  http.post('/api/integrations/ai/disconnect', () => {
+    _aiState = {
+      state: 'unconfigured',
+      provider: null,
+      source: null,
+      connected_at: null,
+      metadata: null,
+      override_model: null,
+    }
+    return new HttpResponse(null, { status: 204 })
   }),
 
   http.post('/api/completion/:id/share-action', async ({ params, request }) => {

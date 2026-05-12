@@ -190,6 +190,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
             app.state.ai_env_cache = {}
 
+    # Best-effort one-shot migration: lift any legacy api_key:*
+    # app_setting into the new ai_integration table so users coming
+    # from the paste flow land on a unified state without re-pasting.
+    if app.state.vault is not None and db_connection._db is not None:
+        from opensec.ai.legacy_migration import migrate_legacy_api_keys_once
+        from opensec.ai.service import AIIntegrationService
+
+        await migrate_legacy_api_keys_once(
+            db_connection._db,
+            AIIntegrationService(
+                db_connection._db,
+                app.state.vault,
+                audit_logger=app.state.audit_logger,
+            ),
+        )
+
     # Warm the cache once at boot so the very first workspace spawn
     # doesn't pay the DB + decrypt round-trip on the critical path.
     await _refresh_ai_env_cache()
