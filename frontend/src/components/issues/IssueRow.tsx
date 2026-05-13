@@ -157,8 +157,8 @@ function IssueRowImpl({
         <div
           className="font-mono"
           style={{
-            fontSize: 10.5,
-            color: 'var(--cd-fg-4)',
+            fontSize: 12,
+            color: 'var(--cd-fg-3)',
             marginTop: 3,
             overflow: 'hidden',
             textOverflow: 'ellipsis',

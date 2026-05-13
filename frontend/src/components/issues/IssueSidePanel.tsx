@@ -237,43 +237,46 @@ function SidePanelHeader({
           </span>
         </button>
       </div>
-      <h2
-        className="font-display font-extrabold"
-        style={{
-          fontSize: 18,
-          color: 'var(--cd-fg-1)',
-          letterSpacing: '-0.02em',
-          lineHeight: 1.25,
-          marginBottom: 8,
-        }}
-      >
-        {finding.title}
-      </h2>
+      {/* Type / file meta sits ABOVE the title as a quiet eyebrow line —
+       *  critique round 2: the meta was orphaned under the H2; pulling
+       *  it up establishes context before the title and lets the H2
+       *  carry the heading job cleanly. */}
       <div
-        className="font-mono"
+        className="cd-section-label cd-section-label--quiet"
         style={{
-          fontSize: 11,
-          color: 'var(--cd-fg-4)',
           display: 'flex',
           alignItems: 'center',
           gap: 8,
           flexWrap: 'wrap',
+          marginBottom: 8,
         }}
       >
         <span className="material-symbols-outlined" style={{ fontSize: 13 }} aria-hidden>
           {finding.type === 'posture' ? 'verified_user' : 'bug_report'}
         </span>
-        <span style={{ textTransform: 'capitalize' }}>{finding.type ?? 'vulnerability'}</span>
+        <span>{(finding.type ?? 'vulnerability').charAt(0).toUpperCase() + (finding.type ?? 'vulnerability').slice(1)}</span>
         {file && (
           <>
             <span style={{ color: 'var(--cd-fg-5)' }}>·</span>
-            <span style={{ color: 'var(--cd-cyan)' }}>
+            <span className="font-mono" style={{ color: 'var(--cd-cyan)' }}>
               {file}
               {line != null ? `:${line}` : ''}
             </span>
           </>
         )}
       </div>
+      <h2
+        className="font-display font-extrabold"
+        style={{
+          fontSize: 20,
+          color: 'var(--cd-fg-1)',
+          letterSpacing: '-0.02em',
+          lineHeight: 1.25,
+          margin: 0,
+        }}
+      >
+        {finding.title}
+      </h2>
     </header>
   )
 }
@@ -282,7 +285,7 @@ function SidePanelHeader({
 // Section primitives
 // ---------------------------------------------------------------------------
 
-function SectionTitle({ icon: _icon, title, hint }: { icon: string; title: string; hint?: string }) {
+function SectionTitle({ title, hint }: { icon?: string; title: string; hint?: string }) {
   // Sentence-case sub-section labels per the readability brief (E2).
   // Lowercase incoming caps so existing call sites (which pass
   // "FINDING", "ACTIVITY", etc.) render as "Finding", "Activity".
@@ -879,12 +882,18 @@ interface BtnProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   children: React.ReactNode
 }
 
+/**
+ * Side-panel footer button primitives — Cyberdeck variants of the
+ * cd-btn family so the panel speaks the same button language as the
+ * rest of the chrome. Per critique round 2: one button pattern in
+ * the footer, kbd-hint chip sits inside the button.
+ */
 function PrimaryButton({ icon, kbd, children, className, ...rest }: BtnProps) {
   return (
     <button
       type="button"
       {...rest}
-      className={`inline-flex items-center gap-1 px-3 py-2 text-[13px] font-semibold rounded-lg bg-primary text-on-primary disabled:opacity-50 hover:bg-primary-dim ${className ?? ''}`}
+      className={`cd-btn cd-btn--primary cd-btn--sm ${className ?? ''}`}
     >
       {icon && (
         <span className="material-symbols-outlined" style={{ fontSize: 14 }} aria-hidden>
@@ -902,7 +911,7 @@ function TextButton({ icon, kbd, children, className, ...rest }: BtnProps) {
     <button
       type="button"
       {...rest}
-      className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-[12px] font-semibold rounded-lg text-on-surface hover:bg-surface-container disabled:opacity-50 ${className ?? ''}`}
+      className={`cd-btn cd-btn--ghost cd-btn--sm ${className ?? ''}`}
     >
       {icon && (
         <span className="material-symbols-outlined" style={{ fontSize: 14 }} aria-hidden>
@@ -920,7 +929,7 @@ function ErrorButton({ icon, kbd, children, className, ...rest }: BtnProps) {
     <button
       type="button"
       {...rest}
-      className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-[12px] font-semibold rounded-lg text-error hover:bg-error/8 disabled:opacity-50 ${className ?? ''}`}
+      className={`cd-btn cd-btn--danger cd-btn--sm ${className ?? ''}`}
     >
       {icon && (
         <span className="material-symbols-outlined" style={{ fontSize: 14 }} aria-hidden>
@@ -936,8 +945,9 @@ function ErrorButton({ icon, kbd, children, className, ...rest }: BtnProps) {
 function KbdHint({ label }: { label: string }) {
   return (
     <kbd
-      className="ml-1 px-1 rounded font-mono text-[10px] text-on-surface-variant"
-      style={{ background: 'var(--surface-container)' }}
+      className="cd-key"
+      aria-hidden
+      style={{ marginLeft: 4 }}
     >
       {label}
     </kbd>

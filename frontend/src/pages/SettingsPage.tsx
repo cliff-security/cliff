@@ -9,7 +9,6 @@
  * Tab set is the actual OpenSec settings surface — AI provider,
  * Integrations, About — not the ui-kit's hypothetical Scope/Agents/etc.
  */
-import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import IntegrationSettings from '@/components/settings/IntegrationSettings'
 import ErrorBoundary from '@/components/ErrorBoundary'
@@ -122,15 +121,15 @@ function tabIdForHash(hash: string): TabId {
 export default function SettingsPage() {
   const navigate = useNavigate()
   const location = useLocation()
-  const [tab, setTab] = useState<TabId>(() => tabIdForHash(location.hash))
   const { open: openAIProvider } = useOpenAIProvider()
 
-  useEffect(() => {
-    setTab(tabIdForHash(location.hash))
-  }, [location.hash])
+  // The URL hash is the single source of truth for the active tab —
+  // derive it on every render instead of mirroring into local state.
+  // Removes the useEffect-syncs-state pattern that the React 19
+  // `react-hooks/set-state-in-effect` rule flags as cascading renders.
+  const tab = tabIdForHash(location.hash)
 
   const selectTab = (id: TabId) => {
-    setTab(id)
     const def = TABS.find((t) => t.id === id)
     if (def) navigate({ hash: def.hash }, { replace: true })
   }

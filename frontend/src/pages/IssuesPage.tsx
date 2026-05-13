@@ -560,7 +560,7 @@ function IssuesPageContent() {
                     padding: '14px 18px',
                   }}
                 >
-                  Inbox clean.
+                  Inbox clean
                 </p>
               )}
             </div>

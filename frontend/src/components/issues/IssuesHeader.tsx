@@ -149,9 +149,9 @@ export function IssuesHeader({
             <h1
               className="font-display font-extrabold"
               style={{
-                fontSize: 28,
+                fontSize: 32,
                 letterSpacing: '-0.025em',
-                lineHeight: 1.05,
+                lineHeight: 1,
                 color: 'var(--cd-fg-1)',
                 margin: 0,
               }}

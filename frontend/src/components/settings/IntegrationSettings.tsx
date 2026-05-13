@@ -53,6 +53,23 @@ function resolveHealthLevel(health: IntegrationHealthStatus | undefined): Health
   return 'error'
 }
 
+/** Wrap known upstream error messages in Cliff voice (Layer 4 of
+ *  voice.md): Cliff is the actor, the recovery step is named. Falls
+ *  through to the raw message when we don't recognise the failure
+ *  shape so we don't ever hide useful detail from the user. */
+function voiceError(provider: string, raw: string): string {
+  const lower = raw.toLowerCase()
+  if (provider.toLowerCase().includes('github')) {
+    if (lower.includes('expired') || lower.includes('invalid')) {
+      return "Cliff couldn't authenticate with GitHub — the token has expired. Reconnect to keep scanning."
+    }
+    if (lower.includes('rate limit')) {
+      return "Cliff hit GitHub's rate limit. Try again in a few minutes."
+    }
+  }
+  return raw
+}
+
 function healthLabel(health: IntegrationHealthStatus | undefined, level: HealthLevel): string {
   if (!health || level === 'unknown') return 'Not checked'
   if (level === 'ok') return 'Connected'
@@ -549,7 +566,9 @@ function ConfiguredCard({
         </button>
       </div>
 
-      {/* Expanded error detail */}
+      {/* Expanded error detail — wrapped in Cliff voice when we can
+       *  recognise the failure mode; otherwise the raw upstream
+       *  message is shown verbatim. */}
       {level === 'error' && health?.error_message && (
         <div
           style={{
@@ -561,7 +580,7 @@ function ConfiguredCard({
             color: 'var(--cd-red)',
           }}
         >
-          {health.error_message}
+          {voiceError(integration.provider_name, health.error_message)}
         </div>
       )}
     </div>

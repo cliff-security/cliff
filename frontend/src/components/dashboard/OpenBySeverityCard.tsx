@@ -43,10 +43,14 @@ export default function OpenBySeverityCard({
       style={{
         background: 'var(--cd-card)',
         border: '1px solid var(--cd-rule)',
-        padding: 22,
+        /* Hero card padding rhythm — matches the Grade hero / Review
+         * is-clear card. Critique round 2: pick one of two card
+         * padding contracts (hero = 28×32, dense list = 14×16) and
+         * stop drifting between them. */
+        padding: '28px 32px',
         display: 'flex',
         flexDirection: 'column',
-        gap: 16,
+        gap: 18,
         width: 380,
         maxWidth: '100%',
       }}
@@ -162,7 +166,10 @@ function SeverityBar({
       data-testid="severity-bar"
       style={{
         display: 'flex',
-        height: 6,
+        /* Cooled per critique round 2: was 6px / 0.9 — too loud
+         * relative to the chips beneath that already carry the
+         * severity signal. */
+        height: 4,
         background: 'var(--cd-bg-2)',
         border: '1px solid var(--cd-rule)',
         overflow: 'hidden',
@@ -183,7 +190,7 @@ function SeverityBar({
             style={{
               width: `${pct}%`,
               background: SEVERITY_FILL[r.kind],
-              opacity: 0.9,
+              opacity: 0.7,
               border: 'none',
               padding: 0,
               cursor: onSelect ? 'pointer' : 'default',

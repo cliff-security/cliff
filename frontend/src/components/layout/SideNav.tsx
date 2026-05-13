@@ -46,7 +46,8 @@ function NavIcon({ name }: { name: string }) {
   )
 }
 
-/** lowercase "cliff" wordmark with the sage pulse dot. */
+/** lowercase "cliff" wordmark with the sage pulse dot — calmed per
+ *  critique round 2 so it doesn't compete with the page H1 below it. */
 function CliffWordmark() {
   return (
     <span
@@ -54,9 +55,10 @@ function CliffWordmark() {
       style={{ lineHeight: 1 }}
     >
       <span
-        className="font-display font-extrabold"
+        className="font-display"
         style={{
-          fontSize: 26,
+          fontSize: 22,
+          fontWeight: 700,
           letterSpacing: '-0.045em',
           color: 'var(--cd-green)',
           textShadow: '0 0 14px var(--cd-green-glow)',
@@ -215,16 +217,27 @@ export default function SideNav() {
         borderRight: '1px solid var(--cd-rule)',
       }}
     >
-      {/* Wordmark only — the decorative "node id" label was cruft from
-          the design handoff. Cliff's mark + sage pulse dot carries the
-          brand moment on its own. */}
+      {/* Wordmark anchored with a quiet self-hosted line — gives the
+          brand mark a companion so it doesn't float in dead space, and
+          quietly reinforces the value prop. Tighter top/bottom padding
+          pulls it visually closer to the Current scope chip below. */}
       <NavLink
         to="/dashboard"
         aria-label="Cliff home"
-        className={`block px-[18px] pt-5 pb-[14px] ${focusRing}`}
+        className={`block px-[18px] pt-[18px] pb-[12px] ${focusRing}`}
         style={{ borderBottom: '1px solid var(--cd-rule)' }}
       >
         <CliffWordmark />
+        <div
+          style={{
+            marginTop: 6,
+            fontSize: 11,
+            color: 'var(--cd-fg-4)',
+            lineHeight: 1.2,
+          }}
+        >
+          self-hosted security copilot
+        </div>
       </NavLink>
 
       <WorkspaceSwitcher />
@@ -271,12 +284,8 @@ export default function SideNav() {
             `cd-nav ${isActive ? 'cd-nav--active' : ''} ${focusRing}`
           }
         >
-          {({ isActive: _isActive }) => (
-            <>
-              <NavIcon name="settings" />
-              <span className="flex-1">Settings</span>
-            </>
-          )}
+          <NavIcon name="settings" />
+          <span className="flex-1">Settings</span>
         </NavLink>
       </div>
     </aside>
