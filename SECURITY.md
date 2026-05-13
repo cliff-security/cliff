@@ -57,6 +57,17 @@ Action used in `release.yml` is pinned to a commit SHA.
 See [docs/verify-release.md](docs/verify-release.md) for verification
 commands.
 
+### Commit signing
+
+The `main` branch has **"Require signed commits"** enabled (enforced from
+2026-05-13). Every commit merged to `main` must carry a GPG or SSH
+signature verified against a key registered on the committer's GitHub
+account. Contributors can verify `git log --show-signature -5` shows
+`Good signature` for recent commits, and the GitHub UI displays a
+**Verified** badge on each.
+
+Setup guide: [docs/guides/setup-signed-commits.md](docs/guides/setup-signed-commits.md)
+
 ## Safe harbour
 
 We will not pursue legal action against good-faith researchers who:
