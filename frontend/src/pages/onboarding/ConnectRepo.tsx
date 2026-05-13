@@ -183,9 +183,9 @@ export default function ConnectRepo() {
       return 'Pick the repository to secure. We’ll clone it and start scanning right after.'
     }
     if (authMode === 'app') {
-      return 'Install OpenSec on the repository you’d like to secure. Every change lands as a draft pull request you review.'
+      return 'Install cliff on the repository you’d like to secure. Every change lands as a draft pull request you review.'
     }
-    return 'Point OpenSec at the repository you’d like to secure. We use a personal access token so every change lands as a draft pull request you review.'
+    return 'Point cliff at the repository you’d like to secure. We use a personal access token so every change lands as a draft pull request you review.'
   }
 
   return (
@@ -449,7 +449,7 @@ export default function ConnectRepo() {
                     Pick up where you left off
                   </p>
                   <p className="text-xs text-on-surface-variant mt-1">
-                    You started installing OpenSec but didn't finish
+                    You started installing cliff but didn't finish
                     authorising this device. Resume to see your code
                     again, or start fresh if something went wrong.
                   </p>
@@ -485,7 +485,7 @@ export default function ConnectRepo() {
                 </div>
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-on-surface">
-                    Install the OpenSec GitHub App
+                    Install the cliff GitHub App
                   </p>
                   <p className="text-xs text-on-surface-variant mt-1">
                     One-click install on github.com — pick the repo, authorize
@@ -494,7 +494,7 @@ export default function ConnectRepo() {
                 </div>
               </div>
               <GithubAppConnectButton
-                label="Install OpenSec on a repo"
+                label="Install cliff on a repo"
                 returnTo="/onboarding/connect"
                 className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-5 py-3 text-base font-semibold text-on-primary hover:bg-primary/90 transition-colors disabled:opacity-60"
               />

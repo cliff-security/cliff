@@ -22,7 +22,8 @@ export default function GradeRing({
   const degrees = Math.round(pct * 360)
 
   const ringStyle = {
-    background: `conic-gradient(var(--colors-primary, #4d44e3) 0 ${degrees}deg, var(--colors-surface-container-high, #e1e4ee) ${degrees}deg 360deg)`,
+    background: `conic-gradient(var(--cd-green, #6FE3B5) 0 ${degrees}deg, var(--cd-card-hov, #161E32) ${degrees}deg 360deg)`,
+    boxShadow: '0 0 24px rgba(111,227,181,0.15)',
   } as const
 
   return (

@@ -131,11 +131,12 @@ export function IssueSidePanel({ finding, onClose }: IssueSidePanelProps) {
       ref={panelRef}
       role="dialog"
       aria-label={`Issue details — ${finding.title}`}
-      className="fixed right-0 top-0 bottom-0 z-30 flex flex-col bg-surface-container-lowest"
+      className="fixed right-0 top-0 bottom-0 z-30 flex flex-col"
       style={{
         width: 480,
-        borderLeft: '1px solid var(--outline-variant)',
-        boxShadow: '-12px 0 32px rgba(28,30,34,0.06)',
+        background: 'var(--cd-bg-1)',
+        borderLeft: '1px solid var(--cd-rule)',
+        boxShadow: '-16px 0 40px rgba(0,0,0,0.45)',
       }}
     >
       <SidePanelHeader finding={finding} stage={stage} onClose={closePanel} />
@@ -200,44 +201,82 @@ function SidePanelHeader({
 
   return (
     <header
-      className="px-5 pt-5 pb-4 flex-shrink-0"
-      style={{ borderBottom: '1px solid var(--outline-variant)' }}
+      className="flex-shrink-0"
+      style={{
+        padding: '18px 20px 14px',
+        borderBottom: '1px solid var(--cd-rule)',
+        background: 'var(--cd-bg-1)',
+      }}
     >
       <div className="flex items-center gap-2 mb-3">
         <IssueSeverityBadge kind={sev} size="sm" />
         <IssueStageChip kind={stage} size="sm" />
-        <span className="text-[11px] text-on-surface-variant ml-auto font-mono">
+        <span
+          className="font-mono ml-auto"
+          style={{ fontSize: 10.5, color: 'var(--cd-fg-4)', letterSpacing: '0.08em' }}
+        >
           {finding.id.toUpperCase()}
+        </span>
+        <span
+          className="cd-key"
+          aria-hidden
+          title="Esc closes"
+          style={{ marginLeft: 6 }}
+        >
+          esc
         </span>
         <button
           type="button"
           onClick={onClose}
           aria-label="Close panel"
-          className="rounded-md p-1 hover:bg-surface-container text-on-surface-variant"
+          className="cd-btn cd-btn--ghost cd-btn--sm"
+          style={{ padding: '4px 6px', minWidth: 0 }}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 14 }} aria-hidden>
             close
           </span>
         </button>
       </div>
-      <h2 className="font-headline font-extrabold text-[18px] text-on-surface leading-snug mb-2">
-        {finding.title}
-      </h2>
-      <div className="flex items-center gap-2 text-[11.5px] text-on-surface-variant flex-wrap">
+      {/* Type / file meta sits ABOVE the title as a quiet eyebrow line —
+       *  critique round 2: the meta was orphaned under the H2; pulling
+       *  it up establishes context before the title and lets the H2
+       *  carry the heading job cleanly. */}
+      <div
+        className="cd-section-label cd-section-label--quiet"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          flexWrap: 'wrap',
+          marginBottom: 8,
+        }}
+      >
         <span className="material-symbols-outlined" style={{ fontSize: 13 }} aria-hidden>
           {finding.type === 'posture' ? 'verified_user' : 'bug_report'}
         </span>
-        <span className="capitalize">{finding.type ?? 'vulnerability'}</span>
+        <span>{(finding.type ?? 'vulnerability').charAt(0).toUpperCase() + (finding.type ?? 'vulnerability').slice(1)}</span>
         {file && (
           <>
-            <span className="text-outline">·</span>
-            <span className="font-mono">
+            <span style={{ color: 'var(--cd-fg-5)' }}>·</span>
+            <span className="font-mono" style={{ color: 'var(--cd-cyan)' }}>
               {file}
               {line != null ? `:${line}` : ''}
             </span>
           </>
         )}
       </div>
+      <h2
+        className="font-display font-extrabold"
+        style={{
+          fontSize: 20,
+          color: 'var(--cd-fg-1)',
+          letterSpacing: '-0.02em',
+          lineHeight: 1.25,
+          margin: 0,
+        }}
+      >
+        {finding.title}
+      </h2>
     </header>
   )
 }
@@ -246,16 +285,20 @@ function SidePanelHeader({
 // Section primitives
 // ---------------------------------------------------------------------------
 
-function SectionTitle({ icon, title, hint }: { icon: string; title: string; hint?: string }) {
+function SectionTitle({ title, hint }: { title: string; hint?: string }) {
+  // Sentence-case sub-section labels per the readability brief (E2).
+  // Lowercase incoming caps so existing call sites (which pass
+  // "FINDING", "ACTIVITY", etc.) render as "Finding", "Activity".
+  const sentence =
+    title.length > 0
+      ? title.charAt(0).toUpperCase() + title.slice(1).toLowerCase()
+      : title
   return (
-    <div className="flex items-center gap-2 mb-2.5">
-      <span className="material-symbols-outlined text-on-surface-variant" style={{ fontSize: 15 }} aria-hidden>
-        {icon}
-      </span>
-      <h3 className="font-headline font-bold text-[12.5px] uppercase tracking-wider text-on-surface-variant">
-        {title}
-      </h3>
-      {hint && <span className="text-[11px] text-outline ml-1">{hint}</span>}
+    <div className="flex items-baseline gap-3 mb-3">
+      <h3 className="cd-section-label cd-section-label--quiet">{sentence}</h3>
+      {hint && (
+        <span style={{ fontSize: 12, color: 'var(--cd-fg-4)' }}>{hint}</span>
+      )}
     </div>
   )
 }
@@ -280,7 +323,7 @@ function SPPlan({
       className="px-5 py-5"
       style={{ borderBottom: '1px solid var(--outline-variant)' }}
     >
-      <SectionTitle icon="auto_awesome" title="Plan" />
+      <SectionTitle title="Plan" />
       {planSteps.length > 0 ? (
         <ol className="space-y-2.5">
           {planSteps.map((step, i) => (
@@ -422,7 +465,7 @@ function SPPlanDrafting({ stage }: { stage: IssueStage }) {
       className="px-5 py-5"
       style={{ borderBottom: '1px solid var(--outline-variant)' }}
     >
-      <SectionTitle icon="auto_awesome" title="Plan" hint="Drafting…" />
+      <SectionTitle title="Plan" hint="Drafting…" />
       <div
         className="rounded-xl p-4 flex items-start gap-3"
         style={{ background: 'var(--primary-container)' }}
@@ -453,7 +496,7 @@ function SPPullRequest({ prUrl }: { prUrl: string | null }) {
       className="px-5 py-5"
       style={{ borderBottom: '1px solid var(--outline-variant)' }}
     >
-      <SectionTitle icon="merge_type" title="Pull request" />
+      <SectionTitle title="Pull request" />
       {prUrl ? (
         <a
           href={prUrl}
@@ -491,7 +534,7 @@ function SPValidation({ stage }: { stage: IssueStage }) {
       className="px-5 py-5"
       style={{ borderBottom: '1px solid var(--outline-variant)' }}
     >
-      <SectionTitle icon="task_alt" title="Validation" />
+      <SectionTitle title="Validation" />
       <div
         className="rounded-xl p-4 bg-tertiary-container text-on-tertiary-container"
       >
@@ -522,7 +565,7 @@ function SPFinding({ finding }: { finding: Finding }) {
       className="px-5 py-5"
       style={{ borderBottom: '1px solid var(--outline-variant)' }}
     >
-      <SectionTitle icon="bug_report" title="Finding" />
+      <SectionTitle title="Finding" />
       <dl className="grid grid-cols-[110px_1fr] gap-y-2 text-[12px]">
         <dt className="text-on-surface-variant">CWE</dt>
         <dd className="font-mono text-on-surface">{cwe ?? '—'}</dd>
@@ -562,7 +605,7 @@ function SPFinding({ finding }: { finding: Finding }) {
 function SPActivity({ workspaceId }: { workspaceId: string | null }) {
   return (
     <section className="px-5 py-5">
-      <SectionTitle icon="schedule" title="Activity" />
+      <SectionTitle title="Activity" />
       {workspaceId ? (
         <p className="text-[12px] text-on-surface-variant">
           Detailed agent timeline will land in a follow-up. The Issues row reflects
@@ -601,9 +644,10 @@ function SidePanelFooter({
   return (
     <footer
       data-testid="side-panel-footer"
-      className="sticky bottom-0 left-0 right-0 z-10 bg-surface-container-lowest"
+      className="sticky bottom-0 left-0 right-0 z-10"
       style={{
-        borderTop: '1px solid var(--outline-variant)',
+        background: 'var(--cd-bg-1)',
+        borderTop: '1px solid var(--cd-rule)',
         height: 72,
         padding: '0 20px',
         display: 'flex',
@@ -838,12 +882,18 @@ interface BtnProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   children: React.ReactNode
 }
 
+/**
+ * Side-panel footer button primitives — Cyberdeck variants of the
+ * cd-btn family so the panel speaks the same button language as the
+ * rest of the chrome. Per critique round 2: one button pattern in
+ * the footer, kbd-hint chip sits inside the button.
+ */
 function PrimaryButton({ icon, kbd, children, className, ...rest }: BtnProps) {
   return (
     <button
       type="button"
       {...rest}
-      className={`inline-flex items-center gap-1 px-3 py-2 text-[13px] font-semibold rounded-lg bg-primary text-on-primary disabled:opacity-50 hover:bg-primary-dim ${className ?? ''}`}
+      className={`cd-btn cd-btn--primary cd-btn--sm ${className ?? ''}`}
     >
       {icon && (
         <span className="material-symbols-outlined" style={{ fontSize: 14 }} aria-hidden>
@@ -861,7 +911,7 @@ function TextButton({ icon, kbd, children, className, ...rest }: BtnProps) {
     <button
       type="button"
       {...rest}
-      className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-[12px] font-semibold rounded-lg text-on-surface hover:bg-surface-container disabled:opacity-50 ${className ?? ''}`}
+      className={`cd-btn cd-btn--ghost cd-btn--sm ${className ?? ''}`}
     >
       {icon && (
         <span className="material-symbols-outlined" style={{ fontSize: 14 }} aria-hidden>
@@ -879,7 +929,7 @@ function ErrorButton({ icon, kbd, children, className, ...rest }: BtnProps) {
     <button
       type="button"
       {...rest}
-      className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-[12px] font-semibold rounded-lg text-error hover:bg-error/8 disabled:opacity-50 ${className ?? ''}`}
+      className={`cd-btn cd-btn--danger cd-btn--sm ${className ?? ''}`}
     >
       {icon && (
         <span className="material-symbols-outlined" style={{ fontSize: 14 }} aria-hidden>
@@ -895,8 +945,9 @@ function ErrorButton({ icon, kbd, children, className, ...rest }: BtnProps) {
 function KbdHint({ label }: { label: string }) {
   return (
     <kbd
-      className="ml-1 px-1 rounded font-mono text-[10px] text-on-surface-variant"
-      style={{ background: 'var(--surface-container)' }}
+      className="cd-key"
+      aria-hidden
+      style={{ marginLeft: 4 }}
     >
       {label}
     </kbd>

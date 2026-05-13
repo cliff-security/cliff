@@ -53,6 +53,23 @@ function resolveHealthLevel(health: IntegrationHealthStatus | undefined): Health
   return 'error'
 }
 
+/** Wrap known upstream error messages in Cliff voice (Layer 4 of
+ *  voice.md): Cliff is the actor, the recovery step is named. Falls
+ *  through to the raw message when we don't recognise the failure
+ *  shape so we don't ever hide useful detail from the user. */
+function voiceError(provider: string, raw: string): string {
+  const lower = raw.toLowerCase()
+  if (provider.toLowerCase().includes('github')) {
+    if (lower.includes('expired') || lower.includes('invalid')) {
+      return "Cliff couldn't authenticate with GitHub — the token has expired. Reconnect to keep scanning."
+    }
+    if (lower.includes('rate limit')) {
+      return "Cliff hit GitHub's rate limit. Try again in a few minutes."
+    }
+  }
+  return raw
+}
+
 function healthLabel(health: IntegrationHealthStatus | undefined, level: HealthLevel): string {
   if (!health || level === 'unknown') return 'Not checked'
   if (level === 'ok') return 'Connected'
@@ -400,100 +417,170 @@ function ConfiguredCard({
   }
 
   const level = resolveHealthLevel(health)
+  const live = level === 'ok'
+
+  // Mono detail line — repo url if present, else adapter_type + cred count.
+  const repoUrl =
+    typeof integration.config?.repo_url === 'string' && integration.config.repo_url
+      ? (integration.config.repo_url as string)
+      : null
+  const detailParts: string[] = []
+  if (repoUrl) {
+    detailParts.push(repoUrl.replace(/^https?:\/\//, ''))
+  } else {
+    detailParts.push(integration.adapter_type.replace('_', ' '))
+  }
+  if (credentials && credentials.length > 0) {
+    detailParts.push(
+      `${credentials.length} credential${credentials.length !== 1 ? 's' : ''}`,
+    )
+  }
+  if (isGithubAppRow && integration.github_login) {
+    detailParts.push(`@${integration.github_login}`)
+  }
 
   return (
-    <div className="bg-surface-container-low rounded-lg px-4 py-3 transition-colors">
-      <div className="flex items-center gap-4">
-        {/* Icon */}
-        <div className="w-9 h-9 rounded-lg bg-surface-container-lowest flex items-center justify-center flex-shrink-0">
-          <span className="material-symbols-outlined text-lg text-on-surface-variant">
+    <div
+      style={{
+        background: 'var(--cd-card)',
+        border: '1px solid var(--cd-rule)',
+        padding: '14px 16px',
+        transition: 'border-color 180ms',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        {/* Icon tile — sage tint when live, navy well otherwise */}
+        <div
+          style={{
+            width: 36,
+            height: 36,
+            flexShrink: 0,
+            borderRadius: 4,
+            background: live ? 'var(--cd-green-soft)' : 'var(--cd-bg-2)',
+            border: `1px solid ${live ? 'var(--cd-green-line)' : 'var(--cd-rule)'}`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: live ? 'var(--cd-green)' : 'var(--cd-fg-3)',
+          }}
+        >
+          <span
+            className="material-symbols-outlined"
+            style={{ fontSize: 18, fontVariationSettings: "'FILL' 0, 'wght' 400" }}
+            aria-hidden
+          >
             {registryEntry?.icon || 'extension'}
           </span>
         </div>
 
-        {/* Name + health status */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-semibold text-on-surface">
-              {integration.provider_name}
-            </span>
-            {/* Provenance pill: tells the user at a glance whether
-                this integration is App-flow or PAT-flow, and (for App
-                flow) which GitHub identity it's bound to. */}
-            {isGithubAppRow && integration.github_login && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-                <span className="material-symbols-outlined text-[12px]">verified</span>
-                GitHub App · @{integration.github_login}
-              </span>
-            )}
-            {integration.auth_method === 'pat' && (
-              <span className="inline-flex items-center rounded-full bg-surface-container-lowest px-2 py-0.5 text-[11px] font-medium text-on-surface-variant">
-                Personal access token
-              </span>
-            )}
+        {/* Name + mono detail */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: 13.5,
+              fontWeight: 600,
+              color: 'var(--cd-fg-1)',
+              marginBottom: 3,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {integration.provider_name}
           </div>
-          <div className="flex items-center gap-3 mt-0.5">
-            <span className="text-xs text-on-surface-variant">
-              {integration.adapter_type.replace('_', ' ')}
-            </span>
-            {credentials && credentials.length > 0 && (
-              <span className="text-xs text-on-surface-variant">
-                {credentials.length} credential{credentials.length !== 1 ? 's' : ''}
-              </span>
-            )}
+          <div
+            className="font-mono"
+            style={{
+              fontSize: 10.5,
+              color: 'var(--cd-fg-4)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {detailParts.join(' · ')}
           </div>
-          {typeof integration.config?.repo_url === 'string' && integration.config.repo_url && (
-            <div className="text-xs text-on-surface-variant mt-0.5 truncate">
-              {integration.config.repo_url}
-            </div>
-          )}
         </div>
 
-        {/* Health indicator */}
-        <div className="flex-shrink-0 hidden sm:block">
+        {/* Status indicator */}
+        {live ? (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 12,
+              fontWeight: 600,
+              color: 'var(--cd-green)',
+              flexShrink: 0,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <span
+              aria-hidden
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: 999,
+                background: 'var(--cd-green)',
+                boxShadow: '0 0 6px var(--cd-green)',
+              }}
+            />
+            Live
+          </span>
+        ) : (
           <HealthIndicator health={health} />
-        </div>
+        )}
 
-        {/* Test button — min 36px touch target, comfortably above icon-
-            only minimum without competing with the disconnect action. */}
+        {/* Test connection — small ghost icon button */}
         <button
           onClick={handleTest}
           disabled={testing}
-          className="inline-flex items-center justify-center min-w-[36px] min-h-[36px] text-on-surface-variant hover:text-primary rounded-md transition-all"
           title="Test connection"
           aria-label="Test connection"
+          className="cd-btn cd-btn--ghost cd-btn--sm"
+          style={{ padding: '5px 7px', minWidth: 0 }}
         >
           <span
-            className={`material-symbols-outlined text-base ${
-              testing ? 'animate-spin' : ''
-            }`}
+            className={`material-symbols-outlined ${testing ? 'animate-spin' : ''}`}
+            style={{ fontSize: 13 }}
           >
             {testing ? 'progress_activity' : 'sync'}
           </span>
         </button>
 
-        {/* Disconnect button — labelled (not icon-only) since it's
-            destructive, with a confirmation dialog and proper App-flow
-            cleanup path when the row is github_app-backed. */}
+        {/* Disconnect — danger cd-btn */}
         <button
           onClick={handleDisconnect}
-          className="inline-flex items-center gap-1.5 min-h-[36px] rounded-md px-2.5 py-1.5 text-xs font-semibold text-on-surface-variant hover:text-error hover:bg-error/5 transition-colors"
           aria-label="Disconnect integration"
+          className="cd-btn cd-btn--danger cd-btn--sm"
         >
-          <span className="material-symbols-outlined text-base">link_off</span>
+          <span
+            className="material-symbols-outlined"
+            style={{ fontSize: 13 }}
+            aria-hidden
+          >
+            link_off
+          </span>
           Disconnect
         </button>
       </div>
 
-      {/* Mobile health indicator row */}
-      <div className="sm:hidden mt-2">
-        <HealthIndicator health={health} />
-      </div>
-
-      {/* Expanded error detail for error state */}
+      {/* Expanded error detail — wrapped in Cliff voice when we can
+       *  recognise the failure mode; otherwise the raw upstream
+       *  message is shown verbatim. */}
       {level === 'error' && health?.error_message && (
-        <div className="mt-2 rounded-md bg-error-container/15 px-3 py-2 text-xs text-on-error-container">
-          {health.error_message}
+        <div
+          style={{
+            marginTop: 10,
+            padding: '8px 10px',
+            background: 'var(--cd-red-soft)',
+            border: '1px solid rgba(233, 122, 142, 0.30)',
+            fontSize: 12,
+            color: 'var(--cd-red)',
+          }}
+        >
+          {voiceError(integration.provider_name, health.error_message)}
         </div>
       )}
     </div>
@@ -587,11 +674,27 @@ export default function IntegrationSettings() {
 
   return (
     <section id="integrations">
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold tracking-tight text-on-surface mb-2">
+      <div style={{ marginBottom: 20 }}>
+        <h2
+          className="font-display font-bold"
+          style={{
+            fontSize: 22,
+            color: 'var(--cd-fg-1)',
+            letterSpacing: '-0.02em',
+            margin: 0,
+          }}
+        >
           Integrations
         </h2>
-        <p className="text-on-surface-variant text-sm max-w-xl">
+        <p
+          style={{
+            fontSize: 13,
+            color: 'var(--cd-fg-3)',
+            marginTop: 6,
+            maxWidth: 560,
+            lineHeight: 1.5,
+          }}
+        >
           Connect vulnerability scanners, ticketing systems, and validation tools to
           power the remediation pipeline.
         </p>
@@ -671,11 +774,20 @@ export default function IntegrationSettings() {
 
       {/* Configured integrations */}
       {(integrations || []).length > 0 && (
-        <div className="bg-surface-container-lowest rounded-xl p-6 shadow-sm shadow-slate-200/50 mb-6">
-          <h3 className="text-sm font-semibold text-on-surface mb-3">
+        <div style={{ marginBottom: 28 }}>
+          <div
+            className="cd-section-label cd-section-label--quiet"
+            style={{ marginBottom: 10 }}
+          >
             Connected
-          </h3>
-          <div className="space-y-2">
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))',
+              gap: 10,
+            }}
+          >
             {(integrations || []).map((integration) => (
               <ConfiguredCard
                 key={integration.id}
@@ -688,50 +800,115 @@ export default function IntegrationSettings() {
         </div>
       )}
 
-      {/* Registry catalog */}
-      <div className="bg-surface-container-lowest rounded-xl p-6 shadow-sm shadow-slate-200/50">
-        <h3 className="text-sm font-semibold text-on-surface mb-4">
-          Available integrations
-        </h3>
+      {/* Registry catalog — dense flat grid in the Cyberdeck idiom. */}
+      <div>
+        <div
+          className="cd-section-label cd-section-label--quiet"
+          style={{ marginBottom: 10 }}
+        >
+          Available
+        </div>
         {loadingRegistry || loadingIntegrations ? (
-          <p className="text-sm text-on-surface-variant">Loading catalog...</p>
+          <p style={{ fontSize: 13, color: 'var(--cd-fg-4)' }}>
+            Cliff is loading the catalog…
+          </p>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+              gap: 10,
+            }}
+          >
             {(registry || []).map((entry) => {
               const configured = isConfigured(entry)
+              const dim = entry.status === 'coming_soon'
               return (
                 <div
                   key={entry.id}
-                  className={`rounded-lg p-4 transition-colors ${
-                    entry.status === 'coming_soon'
-                      ? 'bg-surface-container-low opacity-60'
-                      : 'bg-surface-container-low hover:bg-surface-container'
-                  }`}
+                  style={{
+                    background: 'var(--cd-card)',
+                    border: '1px solid var(--cd-rule)',
+                    padding: '14px 16px',
+                    transition: 'border-color 180ms',
+                    opacity: dim ? 0.6 : 1,
+                  }}
                 >
-                  <div className="flex items-start gap-3 mb-2">
-                    <div className="w-9 h-9 rounded-lg bg-surface-container-lowest flex items-center justify-center flex-shrink-0">
-                      <span className="material-symbols-outlined text-lg text-on-surface-variant">
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 10 }}>
+                    <div
+                      style={{
+                        width: 36,
+                        height: 36,
+                        flexShrink: 0,
+                        borderRadius: 4,
+                        background: 'var(--cd-bg-2)',
+                        border: '1px solid var(--cd-rule)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'var(--cd-fg-3)',
+                      }}
+                    >
+                      <span
+                        className="material-symbols-outlined"
+                        style={{ fontSize: 18, fontVariationSettings: "'FILL' 0, 'wght' 400" }}
+                        aria-hidden
+                      >
                         {entry.icon}
                       </span>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-on-surface">
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                        <span
+                          style={{
+                            fontSize: 13.5,
+                            fontWeight: 600,
+                            color: 'var(--cd-fg-1)',
+                          }}
+                        >
                           {entry.name}
                         </span>
                         <StatusBadge status={entry.status} />
                       </div>
-                      <p className="text-xs text-on-surface-variant mt-0.5 line-clamp-2">
+                      <p
+                        style={{
+                          fontSize: 12,
+                          color: 'var(--cd-fg-3)',
+                          lineHeight: 1.45,
+                          marginTop: 0,
+                          margin: 0,
+                          display: '-webkit-box',
+                          WebkitBoxOrient: 'vertical',
+                          WebkitLineClamp: 2,
+                          overflow: 'hidden',
+                        }}
+                      >
                         {entry.description}
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between mt-3">
-                    <div className="flex gap-1">
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 8,
+                    }}
+                  >
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                       {entry.capabilities.map((cap) => (
                         <span
                           key={cap}
-                          className="text-[10px] text-on-surface-variant bg-surface-container-lowest px-1.5 py-0.5 rounded"
+                          className="font-mono"
+                          style={{
+                            fontSize: 10,
+                            color: 'var(--cd-fg-4)',
+                            background: 'var(--cd-bg-2)',
+                            border: '1px solid var(--cd-rule)',
+                            padding: '1px 6px',
+                            borderRadius: 2,
+                            letterSpacing: '0.04em',
+                          }}
                         >
                           {cap}
                         </span>
@@ -739,22 +916,15 @@ export default function IntegrationSettings() {
                     </div>
                     {entry.status === 'available' && !configured && (
                       entry.id === 'github' && entry.github_app_available ? (
-                        <div className="flex flex-col items-end gap-1.5">
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
                           {ghAppInflight ? (
-                            // Backend has an in-flight row from a
-                            // previous /connect that didn't complete
-                            // (App-already-installed → Configure path,
-                            // user closed tab, etc). Re-clicking
-                            // Connect would loop them back through the
-                            // same install URL; show "Resume install"
-                            // instead so one click opens the modal.
                             <button
                               type="button"
                               onClick={() => void resumeGithubAppFlow()}
-                              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-on-primary hover:bg-primary/90 transition-colors"
+                              className="cd-btn cd-btn--primary cd-btn--sm"
                               data-testid="github-resume-install"
                             >
-                              <span className="material-symbols-outlined text-base">
+                              <span className="material-symbols-outlined" style={{ fontSize: 13 }} aria-hidden>
                                 play_arrow
                               </span>
                               Resume install
@@ -762,19 +932,25 @@ export default function IntegrationSettings() {
                           ) : (
                             <GithubAppConnectButton
                               label="Connect"
-                              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-on-primary hover:bg-primary/90 transition-colors disabled:opacity-60"
+                              className="cd-btn cd-btn--primary cd-btn--sm"
                             />
                           )}
-                          {/* PAT fallback for users who'd rather paste a
-                              token (security policy, restricted org App
-                              install permissions, etc). text-xs (12px)
-                              keeps it secondary without crossing into
-                              dark-pattern hidden-link territory. */}
                           <button
                             type="button"
                             onClick={() => setSetupEntry(entry)}
-                            className="text-xs text-on-surface-variant hover:text-on-surface underline decoration-dotted underline-offset-2 px-1 py-0.5"
+                            className="font-mono"
                             data-testid="github-prefer-pat"
+                            style={{
+                              fontSize: 10,
+                              letterSpacing: '0.10em',
+                              color: 'var(--cd-fg-4)',
+                              background: 'transparent',
+                              border: 'none',
+                              textDecoration: 'underline dotted',
+                              textUnderlineOffset: 2,
+                              cursor: 'pointer',
+                              padding: '2px 4px',
+                            }}
                           >
                             Use a token instead
                           </button>
@@ -782,15 +958,33 @@ export default function IntegrationSettings() {
                       ) : (
                         <button
                           onClick={() => setSetupEntry(entry)}
-                          className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
+                          className="cd-btn cd-btn--outline cd-btn--sm"
                         >
                           Set up
                         </button>
                       )
                     )}
                     {configured && (
-                      <span className="text-xs text-green-600 font-medium flex items-center gap-1">
-                        <span className="material-symbols-outlined text-sm">check_circle</span>
+                      <span
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 600,
+                          color: 'var(--cd-green)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                        }}
+                      >
+                        <span
+                          aria-hidden
+                          style={{
+                            width: 7,
+                            height: 7,
+                            borderRadius: 999,
+                            background: 'var(--cd-green)',
+                            boxShadow: '0 0 6px var(--cd-green)',
+                          }}
+                        />
                         Connected
                       </span>
                     )}

@@ -12,39 +12,38 @@ describe('IssueSeverityBadge', () => {
     expect(badge.textContent?.toLowerCase()).toContain(kind)
   })
 
-  it.each(kinds)('renders %s in sm size with smaller paddings', (kind) => {
+  // Cyberdeck severity chips render in Inter 12px (cd-chip base) for both
+  // `md` and `sm` sizes — only padding tightens at `sm`. The test below
+  // exercises the padding contract instead of the font size.
+  it.each(kinds)('renders %s in sm size with tighter paddings', (kind) => {
     render(<IssueSeverityBadge kind={kind} size="sm" />)
     const badge = screen.getByLabelText(new RegExp(`severity ${kind}`, 'i'))
     expect(badge).toBeInTheDocument()
-    // sm should reduce padding/font compared to md.
-    const fontSize = badge.style.fontSize
-    expect(fontSize).toBe('10.5px')
+    expect(badge.style.padding).toMatch(/2px\s*7px/)
   })
 
-  it('applies a stable token-based color for critical (no raw hex)', () => {
+  it('uses the rose cd-chip variant for critical', () => {
     render(<IssueSeverityBadge kind="critical" />)
     const badge = screen.getByLabelText(/severity critical/i)
-    // The class list must include a token-based class (e.g. bg-error or
-    // text-on-error-container). We just assert the token class appears.
-    expect(badge.className).toMatch(/(bg-error|text-on-error-container)/)
+    expect(badge.className).toMatch(/cd-chip(\s|--).*red/)
   })
 
-  it('uses the warning family for high (matches ADR-0029 token set)', () => {
+  it('uses the amber cd-chip variant for high', () => {
     render(<IssueSeverityBadge kind="high" />)
     const badge = screen.getByLabelText(/severity high/i)
-    expect(badge.className).toMatch(/(warning|warning-container|warning-dim)/)
+    expect(badge.className).toMatch(/cd-chip(\s|--).*amber/)
   })
 
-  it('uses the secondary-container family for medium', () => {
+  it('uses the cyan cd-chip variant for medium', () => {
     render(<IssueSeverityBadge kind="medium" />)
     const badge = screen.getByLabelText(/severity medium/i)
-    expect(badge.className).toMatch(/secondary-container/)
+    expect(badge.className).toMatch(/cd-chip(\s|--).*cyan/)
   })
 
-  it('uses the tertiary-container family for low', () => {
+  it('uses the ink cd-chip variant for low', () => {
     render(<IssueSeverityBadge kind="low" />)
     const badge = screen.getByLabelText(/severity low/i)
-    expect(badge.className).toMatch(/tertiary-container/)
+    expect(badge.className).toMatch(/cd-chip(\s|--).*ink/)
   })
 
   it('renders the severity icon as a Material Symbols span', () => {

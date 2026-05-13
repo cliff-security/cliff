@@ -5,23 +5,33 @@ import { AIProviderModalProvider } from '@/components/ai-provider'
 /**
  * App chrome — ``SideNav`` in flow on the left, ``<Outlet />`` for the page.
  *
- * PRD-0004 Story 0 retires ``TopBar`` entirely: its only tenants (search,
- * notifications bell, help) were non-functional placeholders. Each page
- * component now owns its own title row via ``PageShell``.
+ * Critique fix: the sticky page topbar (PageShell `<header>`) was breaking
+ * because the previous ``overflow-x-clip`` / ``overflow-x-hidden`` on the
+ * layout containers made `<main>` the nearest scroll context for any
+ * ``position: sticky`` child. The header stuck to ``<main>`` instead of
+ * the viewport, so scrolling slid the title strip out of view.
  *
- * IMPL-0008 puts the 224px sidebar in normal flex flow (no fixed
- * positioning, no ``ml-20`` offset). ``min-w-0`` on the main column lets it
- * shrink so long strings don't push the layout. ``overflow-x-clip`` on the
- * outer div + ``overflow-x-hidden`` on the scrolling column preserve the
- * B10 dogfood fix — long strings inside a posture card (branch-protection
- * API responses, etc.) can't widen the page.
+ * Fix: put the vertical scroll on ``<main>`` itself (`overflow-y: auto;
+ * height: 100vh`) and let it horizontally clip with ``overflow-x: clip``.
+ * Sticky children now bind to ``<main>``'s scroll, which is exactly the
+ * scroll the user sees — so ``position: sticky; top: 0`` pins to the
+ * top of the visible page region. The B10 dogfood fix (long strings
+ * inside posture cards can't widen the layout) is preserved by the
+ * `overflow-x: clip` on `<main>`.
  */
 export default function AppLayout() {
   return (
     <AIProviderModalProvider>
-      <div className="flex min-h-screen overflow-x-clip">
+      <div className="flex min-h-screen">
         <SideNav />
-        <main className="flex-1 min-w-0 overflow-x-hidden">
+        <main
+          className="flex-1 min-w-0"
+          style={{
+            height: '100vh',
+            overflowY: 'auto',
+            overflowX: 'clip',
+          }}
+        >
           <Outlet />
         </main>
       </div>

@@ -1,18 +1,17 @@
 /**
- * OpenBySeverityCard — left card on the redesigned dashboard
- * (IMPL-0009 / F5). Replaces Phase 2's "Open issues" sparkline metric.
+ * OpenBySeverityCard — left card on the dashboard, demoted per critique.
  *
- * Top: total open count + "across N severities" caption + a count-mode
- * IssueDeltaChip summing the weekly deltas. Middle: stacked severity bar
- * with four colored segments. Bottom: per-severity rows with badge + count
- * + delta.
- *
- * Click on a row or a segment navigates to ``/issues?severity=<kind>``.
+ * The Grade hero is the page's answer to "Am I OK?". This card is a
+ * *detail* — total open count, per-severity breakdown, weekly trend.
+ * Visual weight is intentionally lower than the hero: the total now
+ * renders as a medium Manrope number with the "OPEN FINDINGS" mono
+ * eyebrow on top, not a massive 44px display digit.
  */
 import {
   IssueSeverityBadge,
   type IssueSeverityKind,
 } from '@/components/issues/IssueSeverityBadge'
+import { SEVERITY_COLOR_VAR } from '@/components/issues/severityTokens'
 import IssueDeltaChip from './IssueDeltaChip'
 
 type Row = {
@@ -21,12 +20,9 @@ type Row = {
   weekly_delta: number
 }
 
-const SEVERITY_FILL: Record<IssueSeverityKind, string> = {
-  critical: 'var(--error, #9e3f4e)',
-  high: 'rgb(199,128,52)',
-  medium: 'var(--secondary, #595e78)',
-  low: 'var(--tertiary, #575e78)',
-}
+// Severity → CSS variable mapping is owned by IssueSeverityBadge so
+// the chip and the stacked bar can't drift apart.
+const SEVERITY_FILL = SEVERITY_COLOR_VAR
 
 export default function OpenBySeverityCard({
   rows,
@@ -42,26 +38,46 @@ export default function OpenBySeverityCard({
   return (
     <section
       data-testid="open-by-severity-card"
-      className="rounded-2xl bg-surface-container-lowest border border-outline-variant p-6 flex flex-col gap-4"
-      style={{ width: 380, maxWidth: '100%' }}
+      style={{
+        background: 'var(--cd-card)',
+        border: '1px solid var(--cd-rule)',
+        /* Hero card padding rhythm — matches the Grade hero / Review
+         * is-clear card. Critique round 2: pick one of two card
+         * padding contracts (hero = 28×32, dense list = 14×16) and
+         * stop drifting between them. */
+        padding: '28px 32px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 18,
+        width: 380,
+        maxWidth: '100%',
+      }}
     >
-      <header className="flex items-start justify-between gap-3">
+      <header style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
         <div>
           <div
-            className="text-[11.5px] font-bold uppercase tracking-wider"
-            style={{ color: 'var(--on-surface-variant, #586064)' }}
+            className="cd-section-label cd-section-label--quiet"
+            style={{ marginBottom: 6 }}
           >
             Open findings
           </div>
           <div
-            className="font-headline font-extrabold tabular-nums mt-1"
-            style={{ fontSize: 44, lineHeight: 1 }}
+            className="font-display font-bold tabular-nums"
+            style={{
+              fontSize: 28,
+              lineHeight: 1,
+              color: 'var(--cd-fg-1)',
+              letterSpacing: '-0.02em',
+            }}
           >
             {total}
           </div>
           <div
-            className="text-[12px] mt-0.5"
-            style={{ color: 'var(--on-surface-variant, #586064)' }}
+            style={{
+              fontSize: 12,
+              color: 'var(--cd-fg-4)',
+              marginTop: 4,
+            }}
           >
             {total === 0
               ? 'Caught up'
@@ -78,41 +94,47 @@ export default function OpenBySeverityCard({
           onSelect={onSelectSeverity}
         />
       ) : (
-        <div
-          className="text-[13px]"
-          style={{ color: 'var(--on-surface-variant, #586064)' }}
-        >
+        <div style={{ fontSize: 13, color: 'var(--cd-fg-3)', lineHeight: 1.5 }}>
           Nothing open right now. New scans drop their findings here.
         </div>
       )}
 
       {total > 0 && (
-        <ul className="flex flex-col" style={{ gap: 6 }}>
+        <ul style={{ display: 'flex', flexDirection: 'column', gap: 4, margin: 0, padding: 0, listStyle: 'none' }}>
           {rows.map((r) => (
             <li key={r.kind}>
               <button
                 type="button"
                 data-testid={`open-by-severity-row-${r.kind}`}
                 onClick={() => onSelectSeverity?.(r.kind)}
-                className="w-full flex items-center gap-3 hover:bg-surface-container-low rounded-md px-1 py-1 -mx-1 text-left"
+                className="cd-row"
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '6px 8px',
+                  textAlign: 'left',
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
               >
                 <IssueSeverityBadge kind={r.kind} size="sm" />
-                <span className="ml-auto" />
+                <span style={{ marginLeft: 'auto' }} />
                 <span
                   className="font-mono font-semibold tabular-nums"
-                  style={{
-                    fontSize: 13,
-                    color: 'var(--on-surface, #2b3437)',
-                  }}
+                  style={{ fontSize: 13, color: 'var(--cd-fg-2)' }}
                 >
                   {r.count}
                 </span>
                 <span
-                  className="font-mono tabular-nums text-right"
+                  className="font-mono tabular-nums"
                   style={{
                     fontSize: 11,
-                    color: 'var(--on-surface-variant, #586064)',
+                    color: 'var(--cd-fg-4)',
                     width: 64,
+                    textAlign: 'right',
                   }}
                 >
                   {r.weekly_delta === 0
@@ -140,7 +162,16 @@ function SeverityBar({
   return (
     <div
       data-testid="severity-bar"
-      className="flex h-3 rounded-full overflow-hidden"
+      style={{
+        display: 'flex',
+        /* Cooled per critique round 2: was 6px / 0.9 — too loud
+         * relative to the chips beneath that already carry the
+         * severity signal. */
+        height: 4,
+        background: 'var(--cd-bg-2)',
+        border: '1px solid var(--cd-rule)',
+        overflow: 'hidden',
+      }}
       role="img"
       aria-label="Open findings by severity"
     >
@@ -157,7 +188,7 @@ function SeverityBar({
             style={{
               width: `${pct}%`,
               background: SEVERITY_FILL[r.kind],
-              opacity: 0.85,
+              opacity: 0.7,
               border: 'none',
               padding: 0,
               cursor: onSelect ? 'pointer' : 'default',

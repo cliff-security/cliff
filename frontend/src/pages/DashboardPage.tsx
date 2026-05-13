@@ -43,6 +43,7 @@ import ErrorBoundary from '@/components/ErrorBoundary'
 import ErrorState from '@/components/ErrorState'
 import PageShell from '@/components/PageShell'
 import PageSpinner from '@/components/PageSpinner'
+import PostOnboardingCurtain from '@/components/PostOnboardingCurtain'
 
 // PRD-0003 v0.2 expands the grade from 5 to 10 criteria. The labeled list
 // comes from /api/dashboard.criteria; this constant is the gate for the
@@ -55,6 +56,10 @@ export default function DashboardPage() {
       fallbackTitle="Dashboard error"
       fallbackSubtitle="Something went wrong loading the dashboard."
     >
+      {/* One-time hand-off animation between onboarding and the
+       *  dashboard. Self-clearing; renders nothing after the first
+       *  ~1.2s post-onboarding or on every other navigation. */}
+      <PostOnboardingCurtain />
       <DashboardContent />
     </ErrorBoundary>
   )
@@ -222,11 +227,8 @@ function RunAssessmentButton({
       disabled={disabled && !blockedByAI}
       title={blockedByAI ? aiRequired.tooltip ?? undefined : undefined}
       aria-disabled={disabled || blockedByAI}
-      className={
-        blockedByAI
-          ? 'inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-primary/60 px-4 py-2 text-sm font-semibold text-on-primary shadow-sm hover:bg-primary/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60'
-          : 'inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-on-primary shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60'
-      }
+      className="cd-btn cd-btn--primary cd-btn--sm"
+      style={blockedByAI ? { opacity: 0.7 } : undefined}
       aria-busy={mutation.isPending}
       aria-label={label}
     >
@@ -480,11 +482,11 @@ function ReportCard({ data }: { data: DashboardPayload }) {
             type="button"
             data-testid="dashboard-share-report"
             onClick={handleShareReport}
-            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold text-on-surface-variant hover:bg-surface-container"
+            className="cd-btn cd-btn--ghost cd-btn--sm"
           >
             <span
               className="material-symbols-outlined"
-              style={{ fontSize: 14 }}
+              style={{ fontSize: 13 }}
               aria-hidden
             >
               share
@@ -500,16 +502,20 @@ function ReportCard({ data }: { data: DashboardPayload }) {
       }
     >
       {completionBlock}
-      <div className="flex flex-col gap-4 opensec-fade-in">
-        <AutoDetectBanner onConfigureManually={openAIProvider} />
-        <IssueGradeHero
-          letter={grade}
-          label={heroLabel}
-          caption={heroCaption}
-          onOpenReview={() => navigate('/issues?section=review')}
-        />
+      <div className="flex flex-col gap-4">
+        <div className="opensec-fade-in">
+          <AutoDetectBanner onConfigureManually={openAIProvider} />
+        </div>
+        <div className="opensec-fade-in cd-stagger-1">
+          <IssueGradeHero
+            letter={grade}
+            label={heroLabel}
+            caption={heroCaption}
+            onOpenReview={() => navigate('/issues?section=review')}
+          />
+        </div>
 
-        <div className="grid gap-4 md:grid-cols-[380px_1fr]">
+        <div className="grid gap-4 md:grid-cols-[380px_1fr] opensec-fade-in cd-stagger-2">
           <OpenBySeverityCard
             rows={openBySeverity}
             onSelectSeverity={(kind) => navigate(`/issues?severity=${kind}`)}
@@ -561,33 +567,35 @@ function ReportCard({ data }: { data: DashboardPayload }) {
         </div>
 
         {data.last_assessment ? (
-          <LastAssessmentPanel
-            data={{
-              repo_url: data.last_assessment.repo_url ?? data.assessment?.repo_url ?? '',
-              finished_at: data.last_assessment.finished_at,
-              duration_ms: data.last_assessment.duration_ms,
-              commit_sha: data.last_assessment.commit_sha,
-              branch: data.last_assessment.branch,
-              scanned_files: data.last_assessment.scanned_files,
-              scanned_deps: data.last_assessment.scanned_deps,
-              scanners: (data.last_assessment.scanners ?? []) as Array<{
-                id: string
-                label: string
-                version?: string | null
-                icon?: string | null
-                ran?: string | null
-                scope?: string | null
-                duration_ms?: number | null
-                result?: {
-                  kind: 'findings_count' | 'pass_count'
-                  value: number
-                  text: string
-                } | null
-              }>,
-            }}
-            onReassess={handleReassess}
-            reassessing={reassessMutation.isPending}
-          />
+          <div className="opensec-fade-in cd-stagger-3">
+            <LastAssessmentPanel
+              data={{
+                repo_url: data.last_assessment.repo_url ?? data.assessment?.repo_url ?? '',
+                finished_at: data.last_assessment.finished_at,
+                duration_ms: data.last_assessment.duration_ms,
+                commit_sha: data.last_assessment.commit_sha,
+                branch: data.last_assessment.branch,
+                scanned_files: data.last_assessment.scanned_files,
+                scanned_deps: data.last_assessment.scanned_deps,
+                scanners: (data.last_assessment.scanners ?? []) as Array<{
+                  id: string
+                  label: string
+                  version?: string | null
+                  icon?: string | null
+                  ran?: string | null
+                  scope?: string | null
+                  duration_ms?: number | null
+                  result?: {
+                    kind: 'findings_count' | 'pass_count'
+                    value: number
+                    text: string
+                  } | null
+                }>,
+              }}
+              onReassess={handleReassess}
+              reassessing={reassessMutation.isPending}
+            />
+          </div>
         ) : null}
       </div>
     </PageShell>

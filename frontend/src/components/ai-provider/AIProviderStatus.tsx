@@ -34,8 +34,28 @@ export function AIProviderStatus({ onSwitchProvider, onConnect }: Props) {
 
   if (status.isLoading || !status.data) {
     return (
-      <section className="rounded-3xl bg-surface-container px-8 py-7">
-        <p className="text-sm text-on-surface-variant">Loading…</p>
+      <section
+        style={{
+          background: 'var(--cd-card)',
+          border: '1px solid var(--cd-rule)',
+          padding: '14px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+        }}
+      >
+        <span className="cd-loader cd-loader--sm cd-loader--cyan" aria-hidden />
+        <span
+          className="font-mono"
+          style={{
+            fontSize: 10.5,
+            letterSpacing: '0.18em',
+            textTransform: 'uppercase',
+            color: 'var(--cd-fg-4)',
+          }}
+        >
+          Loading provider…
+        </span>
       </section>
     )
   }
@@ -58,31 +78,72 @@ export function AIProviderStatus({ onSwitchProvider, onConnect }: Props) {
 
 function UnconfiguredCard({ onConnect }: { onConnect: () => void }) {
   return (
-    <section className="rounded-3xl bg-surface-container px-8 py-7">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-start gap-4">
+    <section
+      style={{
+        background: 'var(--cd-card)',
+        border: '1px solid var(--cd-rule)',
+        padding: '14px 16px',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+        <div
+          style={{
+            width: 36,
+            height: 36,
+            flexShrink: 0,
+            borderRadius: 4,
+            background: 'var(--cd-bg-2)',
+            border: '1px solid var(--cd-rule)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--cd-fg-3)',
+          }}
+        >
           <span
-            className="material-symbols-outlined flex-shrink-0 rounded-2xl bg-primary-container/40 p-3 text-[26px] text-primary"
-            aria-hidden="true"
+            className="material-symbols-outlined"
+            style={{ fontSize: 18, fontVariationSettings: "'FILL' 0, 'wght' 400" }}
+            aria-hidden
           >
             smart_toy
           </span>
-          <div>
-            <p className="font-headline text-xl font-semibold text-on-surface">
-              Connect an AI provider
-            </p>
-            <p className="mt-1 text-sm leading-relaxed text-on-surface-variant">
-              Start enriching findings and writing fixes — two clicks via
-              OpenRouter, or bring your own key.
-            </p>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: 13.5,
+              fontWeight: 600,
+              color: 'var(--cd-fg-1)',
+              marginBottom: 3,
+            }}
+          >
+            Connect an AI provider
           </div>
+          <p
+            style={{
+              fontSize: 12,
+              color: 'var(--cd-fg-3)',
+              lineHeight: 1.45,
+              margin: 0,
+            }}
+          >
+            Start enriching findings and writing fixes — two clicks via
+            OpenRouter, or bring your own key.
+          </p>
         </div>
         <button
           type="button"
           onClick={onConnect}
-          className="rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-on-primary shadow-sm transition hover:shadow-md"
+          className="cd-btn cd-btn--primary cd-btn--sm"
         >
-          Connect AI provider
+          <span
+            className="material-symbols-outlined"
+            style={{ fontSize: 13 }}
+            aria-hidden
+          >
+            bolt
+          </span>
+          Connect
         </button>
       </div>
     </section>
@@ -106,88 +167,146 @@ function ConnectedCard({
   const modelName = formatModel(status.model)
   const source = sourceCopy(status)
 
+  // Mono detail line — model · source · connected timestamp.
+  const detailParts: string[] = []
+  if (modelName) detailParts.push(modelName)
+  detailParts.push(source)
+  if (status.connected_at) {
+    detailParts.push(`connected ${formatConnectedAt(status.connected_at)}`)
+  }
+
   return (
-    <section className="rounded-3xl bg-surface-container px-8 py-7">
-      <div className="flex flex-wrap items-start justify-between gap-6">
-        <div className="flex min-w-0 flex-1 items-start gap-4">
+    <section
+      style={{
+        background: 'var(--cd-card)',
+        border: '1px solid var(--cd-rule)',
+        padding: '14px 16px',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div
+          style={{
+            width: 36,
+            height: 36,
+            flexShrink: 0,
+            borderRadius: 4,
+            background: 'var(--cd-green-soft)',
+            border: '1px solid var(--cd-green-line)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--cd-green)',
+          }}
+        >
           <span
-            className="material-symbols-outlined flex-shrink-0 rounded-2xl bg-primary-container/40 p-3 text-[26px] text-primary"
-            aria-hidden="true"
-            style={{ fontVariationSettings: "'FILL' 1" }}
+            className="material-symbols-outlined"
+            style={{ fontSize: 18, fontVariationSettings: "'FILL' 0, 'wght' 400" }}
+            aria-hidden
           >
             {providerIcon(provider)}
           </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="font-headline text-xl font-semibold text-on-surface">
-                {providerName}
-              </h3>
-              <span
-                className="inline-flex items-center gap-1 rounded-full bg-tertiary-container/40 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-tertiary"
-              >
-                <span
-                  className="material-symbols-outlined text-[14px]"
-                  aria-hidden="true"
-                  style={{ fontVariationSettings: "'FILL' 1" }}
-                >
-                  check_circle
-                </span>
-                Connected
-              </span>
-            </div>
-            <p className="mt-1 text-sm text-on-surface-variant">{source}</p>
-            <dl className="mt-4 flex flex-wrap gap-x-8 gap-y-2 text-sm">
-              <div>
-                <dt className="text-[11px] font-semibold uppercase tracking-wide text-on-surface-variant">
-                  Model
-                </dt>
-                <dd className="mt-0.5 font-mono text-sm text-on-surface">
-                  {modelName ?? '—'}
-                </dd>
-              </div>
-              {status.connected_at && (
-                <div>
-                  <dt className="text-[11px] font-semibold uppercase tracking-wide text-on-surface-variant">
-                    Connected
-                  </dt>
-                  <dd className="mt-0.5 text-sm text-on-surface">
-                    {formatConnectedAt(status.connected_at)}
-                  </dd>
-                </div>
-              )}
-            </dl>
-            {status.override_model && (
-              <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-surface-container-high px-3 py-1 text-xs text-on-surface-variant">
-                <span
-                  className="material-symbols-outlined text-[14px]"
-                  aria-hidden="true"
-                >
-                  tune
-                </span>
-                Custom model override — default recommended
-              </p>
-            )}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: 13.5,
+              fontWeight: 600,
+              color: 'var(--cd-fg-1)',
+              marginBottom: 3,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {providerName}
+          </div>
+          <div
+            className="font-mono"
+            style={{
+              fontSize: 10.5,
+              color: 'var(--cd-fg-4)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {detailParts.join(' · ')}
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <TestConnectionButton />
-          <button
-            type="button"
-            onClick={onSwitch}
-            className="rounded-full px-4 py-2 text-sm font-medium text-on-surface-variant hover:bg-surface-container-high"
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            fontSize: 12,
+            fontWeight: 600,
+            color: 'var(--cd-green)',
+            flexShrink: 0,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <span
+            aria-hidden
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: 999,
+              background: 'var(--cd-green)',
+              boxShadow: '0 0 6px var(--cd-green)',
+            }}
+          />
+          Live
+        </span>
+        <TestConnectionButton />
+        <button
+          type="button"
+          onClick={onSwitch}
+          className="cd-btn cd-btn--ghost cd-btn--sm"
+        >
+          Switch
+        </button>
+        <button
+          type="button"
+          data-testid="ai-disconnect-open"
+          onClick={() => setShowDisconnect(true)}
+          className="cd-btn cd-btn--danger cd-btn--sm"
+        >
+          <span
+            className="material-symbols-outlined"
+            style={{ fontSize: 13 }}
+            aria-hidden
           >
-            Switch provider
-          </button>
-          <button
-            type="button"
-            data-testid="ai-disconnect-open"
-            onClick={() => setShowDisconnect(true)}
-            className="rounded-full px-4 py-2 text-sm font-medium text-on-error-container hover:bg-error-container/60"
-          >
-            Disconnect
-          </button>
-        </div>
+            link_off
+          </span>
+          Disconnect
+        </button>
       </div>
+
+      {status.override_model && (
+        <div
+          className="font-mono"
+          style={{
+            marginTop: 10,
+            paddingLeft: 50,
+            fontSize: 10.5,
+            letterSpacing: '0.10em',
+            color: 'var(--cd-fg-4)',
+            textTransform: 'uppercase',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          <span
+            className="material-symbols-outlined"
+            style={{ fontSize: 13 }}
+            aria-hidden
+          >
+            tune
+          </span>
+          Custom model override — default recommended
+        </div>
+      )}
 
       {showDisconnect && (
         <DisconnectDialog
@@ -241,50 +360,31 @@ function TestConnectionButton() {
   }, [verdict])
 
   return (
-    <div className="flex items-center gap-2">
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
       {verdict.kind === 'ok' && (
-        <span
-          role="status"
-          className="inline-flex items-center gap-1 rounded-full bg-tertiary-container/40 px-2.5 py-1 text-xs font-medium text-tertiary"
-        >
-          <span
-            className="material-symbols-outlined text-[14px]"
-            aria-hidden="true"
-            style={{ fontVariationSettings: "'FILL' 1" }}
-          >
-            check_circle
-          </span>
-          Verified · {verdict.latencyMs} ms
+        <span role="status" className="cd-chip cd-chip--green">
+          ✓ {verdict.latencyMs} ms
         </span>
       )}
       {verdict.kind === 'fail' && (
-        <span
-          role="alert"
-          className="inline-flex items-center gap-1 rounded-full bg-error-container/60 px-2.5 py-1 text-xs font-medium text-on-error-container"
-          title={verdict.message}
-        >
-          <span
-            className="material-symbols-outlined text-[14px]"
-            aria-hidden="true"
-          >
-            error
-          </span>
-          Failed
+        <span role="alert" className="cd-chip cd-chip--red" title={verdict.message}>
+          ✕ Failed
         </span>
       )}
       <button
         type="button"
         onClick={handleTest}
         disabled={test.isPending}
-        className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium text-primary hover:bg-primary-container/40 disabled:opacity-60"
+        className="cd-btn cd-btn--ghost cd-btn--sm"
       >
         <span
-          className="material-symbols-outlined text-[16px]"
+          className="material-symbols-outlined"
+          style={{ fontSize: 13 }}
           aria-hidden="true"
         >
           network_ping
         </span>
-        {test.isPending ? 'Testing…' : 'Test connection'}
+        {test.isPending ? 'Testing…' : 'Test'}
       </button>
     </div>
   )
@@ -316,56 +416,72 @@ function DisconnectDialog({
       role="dialog"
       aria-modal="true"
       aria-labelledby="ai-disconnect-heading"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-on-surface/30 px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      style={{ background: 'rgba(11,16,27,0.72)', backdropFilter: 'blur(4px)' }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onCancel()
       }}
     >
-      <div className="w-full max-w-md rounded-3xl bg-surface p-7 shadow-xl">
-        <header className="flex items-start gap-4">
-          <span
-            className="material-symbols-outlined flex-shrink-0 rounded-2xl bg-error-container/60 p-2.5 text-[24px] text-on-error-container"
-            aria-hidden="true"
+      <div
+        className="cd-frame w-full"
+        style={{
+          maxWidth: 440,
+          background: 'var(--cd-card)',
+          border: '1px solid var(--cd-rule)',
+          padding: '24px 26px',
+        }}
+      >
+        <div className="cd-frame-br" />
+        <h4
+          id="ai-disconnect-heading"
+          className="font-display font-extrabold"
+          style={{
+            fontSize: 18,
+            color: 'var(--cd-fg-1)',
+            letterSpacing: '-0.02em',
+            marginBottom: 8,
+          }}
+        >
+          Disconnect {providerLabel(provider)}?
+        </h4>
+        <p style={{ fontSize: 13, color: 'var(--cd-fg-3)', lineHeight: 1.55 }}>
+          cliff will remove its local copy of the key. Agents will stop
+          running until you reconnect.
+        </p>
+        {provider === 'openrouter' && (
+          <p
+            style={{
+              marginTop: 8,
+              fontSize: 12,
+              color: 'var(--cd-fg-4)',
+              lineHeight: 1.55,
+            }}
           >
-            link_off
-          </span>
-          <div className="flex-1 min-w-0">
-            <h4
-              id="ai-disconnect-heading"
-              className="font-headline text-lg font-semibold text-on-surface"
+            To fully revoke this key on OpenRouter's side, visit{' '}
+            <a
+              href="https://openrouter.ai/settings/keys"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: 'var(--cd-cyan)' }}
             >
-              Disconnect {providerLabel(provider)}?
-            </h4>
-            <p className="mt-2 text-sm leading-relaxed text-on-surface-variant">
-              OpenSec will remove its local copy of the key. Agents will
-              stop running until you reconnect.
-            </p>
-            {provider === 'openrouter' && (
-              <p className="mt-2 text-xs leading-relaxed text-on-surface-variant">
-                To fully revoke this key on OpenRouter's side, visit{' '}
-                <a
-                  href="https://openrouter.ai/settings/keys"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-medium text-primary hover:underline"
-                >
-                  openrouter.ai/settings/keys
-                </a>
-                .
-              </p>
-            )}
-          </div>
-        </header>
+              openrouter.ai/settings/keys
+            </a>
+            .
+          </p>
+        )}
 
-        <div className="mt-6 flex flex-row-reverse justify-between gap-3">
-          <button
-            ref={cancelRef}
-            type="button"
-            onClick={onCancel}
-            className="rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary"
-          >
-            Keep connected
-          </button>
+        {/* Safe default on the right: destructive action sits on the left,
+            keep-connected primary on the right. Cancel is the focused
+            default on mount so Enter/Esc both bias toward "don't lose
+            the connection". */}
+        <div
+          style={{
+            marginTop: 20,
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: 8,
+          }}
+        >
           <button
             type="button"
             data-testid="ai-disconnect-confirm"
@@ -374,9 +490,17 @@ function DisconnectDialog({
               onConfirmed()
             }}
             disabled={disconnect.isPending}
-            className="rounded-full bg-error-container px-5 py-2.5 text-sm font-semibold text-on-error-container hover:bg-error-container/80 disabled:opacity-60"
+            className="cd-btn cd-btn--danger cd-btn--sm"
           >
             {disconnect.isPending ? 'Disconnecting…' : 'Disconnect'}
+          </button>
+          <button
+            ref={cancelRef}
+            type="button"
+            onClick={onCancel}
+            className="cd-btn cd-btn--primary cd-btn--sm"
+          >
+            Keep connected
           </button>
         </div>
       </div>

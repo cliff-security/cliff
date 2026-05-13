@@ -24,10 +24,9 @@ import EmptyState from '../components/EmptyState'
 import ErrorBoundary from '../components/ErrorBoundary'
 import ErrorState from '../components/ErrorState'
 import ImportDialog from '../components/ImportDialog'
-import { IssueCountBadge } from '../components/issues/IssueCountBadge'
 import { IssueRow } from '../components/issues/IssueRow'
 import { IssueSidePanel } from '../components/issues/IssueSidePanel'
-import { IssuesHeader, type SeverityFilter } from '../components/issues/IssuesHeader'
+import { IssuesHeader, type SeverityFilter, type TypeFilter } from '../components/issues/IssuesHeader'
 
 const IN_PROGRESS_OPEN_KEY = 'opensec.issues.inProgressOpen'
 const DONE_OPEN_KEY = 'opensec.issues.doneOpen'
@@ -51,6 +50,10 @@ function IssuesPageContent() {
 
   const [solving, setSolving] = useState<string | null>(null)
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('all')
+  /** Type filter — narrows the list to one of the four type buckets the
+   *  backend emits. `dependency` + `code` both roll up under
+   *  "vulnerability" in the UI per the dropdown's user-facing labelling. */
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
   const [importOpen, setImportOpen] = useState(false)
   const [showRepoGuard, setShowRepoGuard] = useState(false)
   const [pendingFinding, setPendingFinding] = useState<Finding | null>(null)
@@ -95,6 +98,16 @@ function IssuesPageContent() {
       ) {
         continue
       }
+      // Type filter — collapse backend `dependency` + `code` into the UI's
+      // single "vulnerability" bucket. Posture / secret / license map 1:1.
+      if (typeFilter !== 'all') {
+        const rawType = (f.type ?? 'vulnerability').toLowerCase()
+        const uiType =
+          rawType === 'posture' || rawType === 'secret' || rawType === 'license'
+            ? rawType
+            : 'vulnerability'
+        if (uiType !== typeFilter) continue
+      }
       total += 1
       const section = f.derived?.section ?? 'todo'
       if (section === 'review') review.push(f)
@@ -112,7 +125,7 @@ function IssuesPageContent() {
       inProgressBreakdown: breakdown,
       totalIssues: total,
     }
-  }, [findings, severityFilter])
+  }, [findings, severityFilter, typeFilter])
 
   // F7 — split Review into Plans-waiting + PRs-ready buckets when both are
   // non-empty. Single-bucket Review renders flat (no sub-headers) so the
@@ -179,6 +192,16 @@ function IssuesPageContent() {
       void startWorkspaceAndOpen(finding)
     },
     [openPanel, repoConfigured, startWorkspaceAndOpen],
+  )
+
+  /** Read-only inspection — opens the side panel for any finding without
+   *  touching the workspace flow. The Start / Review CTA inside the row
+   *  still routes through ``handleActivate`` (which is the gated path). */
+  const openInspect = useCallback(
+    (finding: Finding) => {
+      openPanel(finding.id)
+    },
+    [openPanel],
   )
 
   const toggleInProgress = useCallback(() => {
@@ -255,6 +278,8 @@ function IssuesPageContent() {
         grade={grade}
         severityFilter={severityFilter}
         onSeverityFilterChange={setSeverityFilter}
+        typeFilter={typeFilter}
+        onTypeFilterChange={setTypeFilter}
       />
 
       {importOpen && (
@@ -284,232 +309,427 @@ function IssuesPageContent() {
           footer="Supports Snyk, Wiz, and other JSON exports"
         />
       ) : (
-        <div className="px-8 pb-12">
-          {/* ── REVIEW ──────────────────────────────────────────────── */}
+        /* Generous top padding so the first card breathes away from the
+           sticky filter sub-bar. 28px lateral matches the topbar's
+           horizontal rhythm; 24px gap between sections is the canonical
+           "section gap" from the design system. */
+        <div
+          style={{
+            padding: '28px 28px 80px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 24,
+          }}
+        >
+          {/* ── REVIEW — wrapped in the tactical corner-bracket frame ── */}
           {sections.review.length > 0 ? (
-            <section
-              aria-label="Review section"
-              className="rounded-2xl mb-8 bg-primary-container/30"
-              style={{ padding: '16px 8px 12px' }}
-            >
-              <div className="flex items-center gap-3 px-4 mb-3">
-                <span
-                  aria-hidden="true"
-                  className="rounded-full bg-primary"
-                  style={{ width: 3, height: 18 }}
-                />
-                <span
-                  className="material-symbols-outlined text-primary"
-                  style={{ fontSize: 17, fontVariationSettings: "'FILL' 1" }}
-                  aria-hidden="true"
-                >
-                  rate_review
+            <div className="cd-frame" aria-label="Review section">
+              <div className="cd-frame-br" />
+              {/* Sage gradient header */}
+              <div
+                style={{
+                  padding: '14px 18px',
+                  background:
+                    'linear-gradient(180deg, rgba(111,227,181,0.06), rgba(111,227,181,0.01))',
+                  borderBottom: '1px solid var(--cd-green-line)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 14,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <span className="cd-section-label" style={{ color: 'var(--cd-green)' }}>
+                  Needs you
                 </span>
-                <h2 className="font-headline font-extrabold text-[16px] text-on-surface">
-                  Needs your review
-                </h2>
-                <IssueCountBadge count={sections.review.length} tone="primary" />
-                <span className="text-[12px] text-on-surface-variant ml-1">
+                <span
+                  className="font-mono"
+                  style={{ fontSize: 12, color: 'var(--cd-fg-4)' }}
+                >
+                  {sections.review.length}
+                </span>
+                <span style={{ fontSize: 14, color: 'var(--cd-fg-3)' }}>
                   Approve, refine, or reject before the agent ships.
                 </span>
               </div>
-              {reviewSplit.useSubheaders ? (
-                <>
-                  <ReviewSubHeader
-                    label="Plans waiting"
-                    count={reviewSplit.plans.length}
-                  />
-                  <div className="space-y-px">
+
+              <div style={{ paddingTop: 10 }}>
+                {reviewSplit.useSubheaders ? (
+                  <>
+                    <div className="cd-hairline" style={{ padding: '8px 18px' }}>
+                      Plans waiting · {reviewSplit.plans.length}
+                    </div>
                     {reviewSplit.plans.map((f) => (
-                      <IssueRow key={f.id} finding={f} onActivate={handleActivate} />
+                      <IssueRow
+                        key={f.id}
+                        finding={f}
+                        onInspect={openInspect}
+                        onActivate={handleActivate}
+                      />
                     ))}
-                  </div>
-                  <ReviewSubHeader
-                    label="PRs ready"
-                    count={reviewSplit.prs.length}
-                  />
-                  <div className="space-y-px">
+                    <div className="cd-hairline" style={{ padding: '14px 18px 8px' }}>
+                      PRs ready · {reviewSplit.prs.length}
+                    </div>
                     {reviewSplit.prs.map((f) => (
-                      <IssueRow key={f.id} finding={f} onActivate={handleActivate} />
+                      <IssueRow
+                        key={f.id}
+                        finding={f}
+                        onInspect={openInspect}
+                        onActivate={handleActivate}
+                      />
                     ))}
-                  </div>
-                </>
-              ) : (
-                <div className="space-y-px">
-                  {sections.review.map((f) => (
-                    <IssueRow key={f.id} finding={f} onActivate={handleActivate} />
-                  ))}
-                </div>
-              )}
-            </section>
+                  </>
+                ) : (
+                  sections.review.map((f) => (
+                    <IssueRow
+                      key={f.id}
+                      finding={f}
+                      onInspect={openInspect}
+                      onActivate={handleActivate}
+                    />
+                  ))
+                )}
+              </div>
+            </div>
           ) : (
             showEmptyReviewCard && (
+              /* Empty NEEDS YOU — tactical corner-bracket frame + a
+               * sage check-stroke that draws on mount. Inverts the
+               * "this is loaded, pay attention" gesture to mean "the
+               * console framed the answer for you, and it's good." */
               <section
                 aria-label="Review section"
-                className="rounded-2xl mb-8 px-12 py-10 bg-tertiary-container text-on-tertiary-container"
+                className="cd-frame"
+                style={{ padding: 0 }}
               >
-                <h2 className="font-headline font-extrabold text-[24px] mb-2 leading-tight">
-                  Review is clear.
-                </h2>
-                <p className="text-[13.5px] leading-relaxed max-w-2xl">
-                  All open issues are either in progress or in the Todo queue. The
-                  next thing that needs you will land here.
-                </p>
+                <div className="cd-frame-br" />
+                <div
+                  style={{
+                    padding: '36px 36px 36px 32px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 24,
+                  }}
+                >
+                  <svg
+                    width="56"
+                    height="56"
+                    viewBox="0 0 56 56"
+                    aria-hidden
+                    style={{ flexShrink: 0 }}
+                  >
+                    <circle
+                      cx="28"
+                      cy="28"
+                      r="26"
+                      fill="none"
+                      stroke="var(--cd-green)"
+                      strokeWidth="1.4"
+                      opacity="0.35"
+                    />
+                    <path
+                      d="M16 29 L24 37 L40 19"
+                      fill="none"
+                      stroke="var(--cd-green)"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="cd-stroke-on-mount"
+                      style={
+                        {
+                          ['--cd-stroke-length']: '52',
+                          filter: 'drop-shadow(0 0 6px var(--cd-green-glow))',
+                        } as React.CSSProperties &
+                          Record<`--${string}`, string>
+                      }
+                    />
+                  </svg>
+                  <div>
+                    <h2
+                      className="font-display font-extrabold"
+                      style={{
+                        fontSize: 24,
+                        color: 'var(--cd-fg-1)',
+                        letterSpacing: '-0.02em',
+                        marginBottom: 6,
+                      }}
+                    >
+                      Review is clear.
+                    </h2>
+                    <p
+                      style={{
+                        fontSize: 14,
+                        color: 'var(--cd-fg-3)',
+                        lineHeight: 1.55,
+                        maxWidth: 560,
+                      }}
+                    >
+                      All open issues are either in progress or in the Todo
+                      queue. The next thing that needs you will land here.
+                    </p>
+                  </div>
+                </div>
               </section>
             )
           )}
 
-          {/* ── IN PROGRESS ─────────────────────────────────────────── */}
+          {/* ── IN PROGRESS — single collapsed line per the ui-kit ── */}
           {(sections.inProgress.length > 0 || !showEmptyReviewCard) && (
-            <section aria-label="In progress section" className="mb-8">
+            <section aria-label="In progress section">
               <button
                 type="button"
                 onClick={toggleInProgress}
                 aria-expanded={inProgressOpen}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors bg-surface-container-lowest border border-outline-variant hover:bg-surface-container"
+                style={{
+                  width: '100%',
+                  padding: '14px 18px',
+                  background: 'var(--cd-card)',
+                  border: '1px solid var(--cd-rule)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 14,
+                  flexWrap: 'wrap',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
               >
                 <span
-                  className="material-symbols-outlined text-on-surface-variant"
-                  style={{ fontSize: 18 }}
-                  aria-hidden="true"
-                >
-                  {inProgressOpen ? 'expand_more' : 'chevron_right'}
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span
-                    className="opensec-pulse-dot rounded-full bg-primary"
-                    style={{ width: 6, height: 6 }}
-                    aria-hidden="true"
-                  />
-                  <span
-                    className="material-symbols-outlined text-on-surface-variant"
-                    style={{ fontSize: 15 }}
-                    aria-hidden="true"
-                  >
-                    autorenew
-                  </span>
-                </span>
-                <h2 className="font-headline font-bold text-[14px] text-on-surface">
-                  In progress
-                </h2>
-                <IssueCountBadge
-                  count={sections.inProgress.length}
-                  tone="muted"
+                  className="cd-pulse"
+                  style={{
+                    width: 7,
+                    height: 7,
+                    background: 'var(--cd-cyan)',
+                    boxShadow: '0 0 6px var(--cd-cyan)',
+                  }}
+                  aria-hidden
                 />
-                <span className="flex items-center gap-1 text-[11px] text-on-surface-variant ml-1">
-                  <span>{inProgressBreakdown.planning} planning</span>
-                  <span className="text-outline">·</span>
-                  <span>{inProgressBreakdown.generating} generating</span>
-                  <span className="text-outline">·</span>
-                  <span>{inProgressBreakdown.opening_pr} opening PR</span>
-                  <span className="text-outline">·</span>
-                  <span>{inProgressBreakdown.validating} validating</span>
+                <span
+                  style={{
+                    fontFamily: 'var(--cd-sans)',
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: 'var(--cd-cyan)',
+                  }}
+                >
+                  In progress
                 </span>
-                <span className="ml-auto text-[11.5px] text-on-surface-variant font-medium">
-                  {inProgressOpen
-                    ? 'Hide'
-                    : 'Agents working — no action needed'}
+                <span
+                  className="font-mono"
+                  style={{ fontSize: 12, color: 'var(--cd-fg-4)' }}
+                >
+                  {sections.inProgress.length}
+                </span>
+                <span
+                  style={{ fontSize: 13, color: 'var(--cd-fg-3)' }}
+                >
+                  {inProgressBreakdown.planning} planning ·{' '}
+                  {inProgressBreakdown.generating} generating ·{' '}
+                  {inProgressBreakdown.opening_pr} opening PR ·{' '}
+                  {inProgressBreakdown.validating} validating
+                </span>
+                {/* Hint chip, not a button — the outer <button> is the
+                 *  toggle. Styled as a quiet caption + chevron rather
+                 *  than wearing cd-btn chrome so it can't be confused
+                 *  for an interactive element. */}
+                <span
+                  aria-hidden
+                  style={{
+                    marginLeft: 'auto',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    fontSize: 13,
+                    color: 'var(--cd-fg-3)',
+                  }}
+                >
+                  <span
+                    className="material-symbols-outlined"
+                    style={{ fontSize: 14 }}
+                  >
+                    {inProgressOpen ? 'expand_less' : 'expand_more'}
+                  </span>
+                  {inProgressOpen ? 'Collapse' : 'Expand'}
                 </span>
               </button>
               {inProgressOpen && (
-                <div className="space-y-px mt-3">
+                <div
+                  style={{
+                    background: 'var(--cd-card)',
+                    border: '1px solid var(--cd-rule)',
+                    borderTop: 'none',
+                  }}
+                >
                   {sections.inProgress.map((f) => (
-                    <IssueRow key={f.id} finding={f} onActivate={handleActivate} />
+                    <IssueRow
+                      key={f.id}
+                      finding={f}
+                      onInspect={openInspect}
+                      onActivate={handleActivate}
+                    />
                   ))}
                 </div>
               )}
             </section>
           )}
 
-          {/* ── TODO ────────────────────────────────────────────────── */}
-          <section aria-label="Todo section" className="mb-8">
-            <div className="flex items-center gap-3 px-2 mb-2">
+          {/* ── TODO — flat list per ui-kit ── */}
+          <section aria-label="Todo section">
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '10px 0 12px',
+              }}
+            >
               <span
-                className="material-symbols-outlined text-on-surface-variant"
-                style={{ fontSize: 16 }}
+                className="material-symbols-outlined"
                 aria-hidden="true"
+                style={{ fontSize: 16, color: 'var(--cd-fg-2)' }}
               >
                 inbox
               </span>
-              <h2 className="font-headline font-bold text-[15px] text-on-surface">
+              <span
+                style={{
+                  fontFamily: 'var(--cd-sans)',
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: 'var(--cd-fg-1)',
+                }}
+              >
                 Todo
-              </h2>
-              <IssueCountBadge count={sections.todo.length} tone="muted" />
-              <span className="text-[12px] text-on-surface-variant ml-2">
-                Triaged but not yet picked up. Start one, or let the agent batch
-                them tonight.
+              </span>
+              <span
+                className="font-mono"
+                style={{ fontSize: 11, color: 'var(--cd-fg-4)' }}
+              >
+                {sections.todo.length}
+              </span>
+              <span style={{ fontSize: 14, color: 'var(--cd-fg-3)' }}>
+                Triaged but not yet picked up. Start one, or let the agent
+                batch them tonight.
               </span>
             </div>
-            <div className="space-y-px">
+            <div
+              style={{
+                background: 'var(--cd-card)',
+                border: '1px solid var(--cd-rule)',
+              }}
+            >
               {sections.todo.map((f) => (
                 <IssueRow
                   key={f.id}
                   finding={f}
+                  onInspect={openInspect}
                   onActivate={handleActivate}
                 />
               ))}
               {sections.todo.length === 0 && (
-                <p className="text-[12px] text-on-surface-variant px-3 py-2">
-                  Inbox clean.
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: 'var(--cd-fg-4)',
+                    padding: '14px 18px',
+                  }}
+                >
+                  Inbox clean
                 </p>
               )}
             </div>
             {solving && (
-              <p className="text-[11.5px] text-on-surface-variant mt-2 px-3">
-                Starting workspace&hellip;
+              <p
+                style={{
+                  fontSize: 13,
+                  color: 'var(--cd-cyan)',
+                  marginTop: 10,
+                }}
+              >
+                Cliff is opening the workspace…
               </p>
             )}
           </section>
 
-          {/* ── DONE — collapsed by default in Phase 2 ──────────────── */}
+          {/* ── DONE — collapsed single line per ui-kit ── */}
           <section aria-label="Done section">
             <button
               type="button"
               onClick={toggleDone}
               aria-expanded={doneOpen}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors bg-surface-container-lowest border border-outline-variant hover:bg-surface-container"
+              style={{
+                width: '100%',
+                padding: '12px 18px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                textAlign: 'left',
+              }}
             >
               <span
-                className="material-symbols-outlined text-on-surface-variant"
-                style={{ fontSize: 18 }}
+                className="material-symbols-outlined"
                 aria-hidden="true"
+                style={{ fontSize: 16, color: 'var(--cd-fg-4)' }}
               >
                 {doneOpen ? 'expand_more' : 'chevron_right'}
               </span>
               <span
-                className="material-symbols-outlined text-on-surface-variant"
-                style={{ fontSize: 16 }}
-                aria-hidden="true"
+                style={{
+                  fontFamily: 'var(--cd-sans)',
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: 'var(--cd-fg-2)',
+                }}
               >
-                check_circle
-              </span>
-              <h2 className="font-headline font-bold text-[15px] text-on-surface">
                 Done
-              </h2>
-              <IssueCountBadge count={sections.done.length} tone="muted" />
-              <span className="ml-auto inline-flex items-center gap-2 text-[11.5px] text-on-surface-variant font-medium">
-                <span>{doneOpen ? 'Hide' : 'Closed in the last 7 days'}</span>
+              </span>
+              <span
+                className="font-mono"
+                style={{ fontSize: 12, color: 'var(--cd-fg-4)' }}
+              >
+                {sections.done.length}
+              </span>
+              <span style={{ fontSize: 13, color: 'var(--cd-fg-4)' }}>
+                {doneOpen ? 'Hide closed' : 'Closed in the last 7 days'}
+              </span>
+              <span
+                className="font-mono ml-auto"
+                style={{ fontSize: 10, color: 'var(--cd-fg-4)' }}
+              >
                 <kbd
+                  className="cd-key"
                   aria-hidden
-                  className="px-1 rounded font-mono text-[10px]"
-                  style={{ background: 'var(--surface-container)' }}
+                  style={{ marginLeft: 'auto' }}
                 >
                   {doneOpen ? '[' : ']'}
                 </kbd>
               </span>
             </button>
             {doneOpen && (
-              <div className="space-y-px mt-3">
+              <div
+                style={{
+                  background: 'var(--cd-card)',
+                  border: '1px solid var(--cd-rule)',
+                  marginTop: 6,
+                }}
+              >
                 {sections.done.map((f) => (
                   <IssueRow
                     key={f.id}
                     finding={f}
+                    onInspect={openInspect}
                     onActivate={handleActivate}
                     dim
                   />
                 ))}
                 {sections.done.length === 0 && (
-                  <p className="text-[12px] text-on-surface-variant px-3 py-2">
+                  <p
+                    style={{
+                      fontSize: 12,
+                      color: 'var(--cd-fg-4)',
+                      padding: '14px 18px',
+                    }}
+                  >
                     Nothing closed yet.
                   </p>
                 )}
@@ -518,8 +738,15 @@ function IssuesPageContent() {
           </section>
 
           {totalIssues === 0 && (
-            <p className="text-[12px] text-on-surface-variant mt-6 px-2 text-center">
-              No matching issues at this severity.
+            <p
+              style={{
+                fontSize: 13,
+                color: 'var(--cd-fg-4)',
+                textAlign: 'center',
+                marginTop: 16,
+              }}
+            >
+              No issues match this filter.
             </p>
           )}
         </div>
@@ -528,42 +755,75 @@ function IssuesPageContent() {
       {/* Side panel — F1+F2+F3+F4+F5+F6. */}
       {openFinding && <IssueSidePanel finding={openFinding} onClose={closePanel} />}
 
-      {/* Repo guard dialog (carried over from Phase 1). */}
+      {/* Repo guard dialog (carried over from Phase 1) — Cyberdeck dress. */}
       {showRepoGuard && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px]">
-          <div className="bg-surface-container-lowest rounded-xl shadow-xl w-full max-w-md mx-4 p-8">
-            <div className="flex justify-center mb-4">
-              <span className="material-symbols-outlined text-4xl text-on-surface-variant">
-                link_off
-              </span>
-            </div>
-            <h3 className="text-lg font-bold text-on-surface text-center mb-2">
-              GitHub integration not configured
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: 'rgba(11,16,27,0.72)', backdropFilter: 'blur(4px)' }}
+        >
+          <div
+            className="cd-frame mx-4"
+            style={{
+              background: 'var(--cd-card)',
+              border: '1px solid var(--cd-rule)',
+              width: '100%',
+              maxWidth: 440,
+              padding: '28px 28px 24px',
+            }}
+          >
+            <div className="cd-frame-br" />
+            <h3
+              className="font-display font-extrabold"
+              style={{
+                fontSize: 20,
+                color: 'var(--cd-fg-1)',
+                letterSpacing: '-0.02em',
+                textAlign: 'center',
+                marginBottom: 8,
+              }}
+            >
+              Connect GitHub first
             </h3>
-            <p className="text-sm text-on-surface-variant text-center mb-6 leading-relaxed">
-              A GitHub integration with repository URL and access token is needed
-              for the agent to clone code and create pull requests. You can still
-              explore findings without it.
+            <p
+              style={{
+                fontSize: 14,
+                color: 'var(--cd-fg-3)',
+                lineHeight: 1.55,
+                textAlign: 'center',
+                marginBottom: 22,
+              }}
+            >
+              Cliff needs a GitHub repo to clone code and open pull requests.
+              You can still inspect findings without one.
             </p>
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2.5">
               <button
                 type="button"
                 onClick={() => {
                   setShowRepoGuard(false)
                   navigate('/settings#integrations')
                 }}
-                className="w-full bg-primary text-on-primary py-2.5 rounded-lg text-sm font-semibold hover:bg-primary-dim transition-colors"
+                className="cd-btn cd-btn--primary"
+                style={{ width: '100%', justifyContent: 'center', padding: '10px 14px' }}
               >
+                <span
+                  className="material-symbols-outlined"
+                  style={{ fontSize: 13 }}
+                  aria-hidden
+                >
+                  settings
+                </span>
                 Configure integration
               </button>
               <button
                 type="button"
                 onClick={() => {
                   setShowRepoGuard(false)
-                  if (pendingFinding) void startWorkspaceAndOpen(pendingFinding)
+                  if (pendingFinding) openPanel(pendingFinding.id)
                   setPendingFinding(null)
                 }}
-                className="w-full text-on-surface-variant py-2.5 rounded-lg text-sm font-medium hover:bg-surface-container transition-colors"
+                className="cd-btn cd-btn--ghost"
+                style={{ width: '100%', justifyContent: 'center', padding: '10px 14px' }}
               >
                 Continue without repo
               </button>
@@ -575,13 +835,3 @@ function IssuesPageContent() {
   )
 }
 
-function ReviewSubHeader({ label, count }: { label: string; count: number }) {
-  return (
-    <div className="flex items-center gap-2 px-4 mt-3 mb-1.5">
-      <h3 className="font-headline font-bold text-[10.5px] uppercase tracking-wider text-on-surface-variant">
-        {label}
-      </h3>
-      <IssueCountBadge count={count} tone="muted" />
-    </div>
-  )
-}

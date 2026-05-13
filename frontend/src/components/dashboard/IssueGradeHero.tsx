@@ -1,14 +1,15 @@
 /**
- * IssueGradeHero — primary-container card with a 168px Manrope ExtraBold
- * grade letter, eyebrow + label + caption, and two CTAs (Open Review queue,
- * View grading rubric).
+ * IssueGradeHero — Cliff Cyberdeck status hero.
  *
- * Mirrors ``IPGradeHero`` from the PRD-0006 design handoff (IMPL-0009).
- * ``letter`` is a single capital A-F or null (pre-first-assessment); null
- * renders as an em dash with reduced opacity so the layout is stable.
+ * Mirrors `ui-kit/dashboard.jsx` ("Am I OK?" card):
+ *  - tactical corner-bracket frame
+ *  - 100px SVG grade ring with sage arc + glow
+ *  - ▸ SECURITY POSTURE mono label
+ *  - Manrope 26px headline + 13.5px caption
+ *  - cd-btn primary / outline action row
  *
- * "View grading rubric" opens a native ``<dialog>`` with the rubric copy.
- * Esc and click-outside close it via standard ``<dialog>`` semantics.
+ * The component contract is unchanged (letter, label, caption,
+ * onOpenReview, rightSlot) so the dashboard wires through as-is.
  */
 import { useRef, type ReactNode } from 'react'
 
@@ -16,36 +17,106 @@ export type GradeLetter = 'A' | 'B' | 'C' | 'D' | 'F'
 
 const RUBRIC_BODY = (
   <>
-    <p className="text-[13px] leading-relaxed">
+    <p className="text-[13px] leading-relaxed" style={{ color: 'var(--cd-fg-3)' }}>
       Your repository's grade tracks four guarantees that protect against the
       most common compromises:
     </p>
     <ul
       className="text-[13px] leading-relaxed list-disc pl-5 space-y-1.5"
-      style={{ textWrap: 'pretty' as never }}
+      style={{ textWrap: 'pretty' as never, color: 'var(--cd-fg-2)' }}
     >
       <li>
-        <strong>No open Critical findings.</strong> Hard gate — one Critical
-        drops you below A.
+        <strong style={{ color: 'var(--cd-fg-1)' }}>No open Critical findings.</strong>{' '}
+        Hard gate — one Critical drops you below A.
       </li>
       <li>
-        <strong>≤ 3 High findings.</strong> Compromise gate — a small backlog
-        is acceptable; sustained piles aren't.
+        <strong style={{ color: 'var(--cd-fg-1)' }}>≤ 3 High findings.</strong>{' '}
+        Compromise gate — a small backlog is acceptable; sustained piles aren't.
       </li>
       <li>
-        <strong>No committed secrets.</strong> Hard gate — secrets in source
-        history must be revoked, then rotated.
+        <strong style={{ color: 'var(--cd-fg-1)' }}>No committed secrets.</strong>{' '}
+        Hard gate — secrets in source history must be revoked, then rotated.
       </li>
       <li>
-        <strong>All 15 posture checks passing.</strong> Branch protection,
-        Dependabot, CODEOWNERS, signed commits, secret scanning, etc.
+        <strong style={{ color: 'var(--cd-fg-1)' }}>All 15 posture checks passing.</strong>{' '}
+        Branch protection, Dependabot, CODEOWNERS, signed commits, secret scanning, etc.
       </li>
     </ul>
-    <p className="text-[12px] leading-relaxed text-on-surface-variant">
+    <p className="text-[12px] leading-relaxed" style={{ color: 'var(--cd-fg-4)' }}>
       Bands: A = 10/10 · B = 8–9 · C = 6–7 · D = 4–5 · F = 0–3.
     </p>
   </>
 )
+
+/** SVG grade ring — sage arc on a hairline track. Stroke length is mapped
+ *  from the letter so the ring fills more for higher grades. */
+function GradeRingSVG({ letter }: { letter: GradeLetter | null }) {
+  const pct =
+    letter === 'A' ? 0.92
+    : letter === 'B' ? 0.74
+    : letter === 'C' ? 0.55
+    : letter === 'D' ? 0.32
+    : letter === 'F' ? 0.18
+    : 0
+  const circumference = 2 * Math.PI * 56
+  const targetDash = pct * circumference
+
+  // Stroke-fill animation on mount via the `.cd-stroke-on-mount`
+  // utility (defined in cyberdeck.css). The arc length is set as a
+  // CSS custom property (`--cd-stroke-length`) and the keyframe sweeps
+  // `stroke-dashoffset` from full → 0 over 700ms. Honours
+  // prefers-reduced-motion automatically via the @media guard on the
+  // utility class.
+  const arcLength = targetDash
+
+  return (
+    <div style={{ position: 'relative', width: 124, height: 124, flexShrink: 0 }}>
+      <svg width="124" height="124" viewBox="0 0 124 124">
+        <circle
+          cx="62" cy="62" r="56"
+          fill="none"
+          stroke="var(--cd-rule)"
+          strokeWidth="3"
+        />
+        {letter !== null && (
+          <circle
+            cx="62" cy="62" r="56"
+            fill="none"
+            stroke="var(--cd-green)"
+            strokeWidth="3"
+            strokeDasharray={`${arcLength} ${circumference - arcLength}`}
+            strokeLinecap="round"
+            transform="rotate(-90 62 62)"
+            className="cd-stroke-on-mount"
+            style={
+              {
+                ['--cd-stroke-length']: `${arcLength}`,
+                filter: 'drop-shadow(0 0 6px var(--cd-green))',
+              } as React.CSSProperties & Record<`--${string}`, string>
+            }
+          />
+        )}
+      </svg>
+      <div
+        data-testid="issue-grade-hero-letter"
+        style={{
+          position: 'absolute', inset: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontFamily: 'var(--cd-display)',
+          fontSize: 56,
+          fontWeight: 800,
+          letterSpacing: '-0.04em',
+          color: letter === null ? 'var(--cd-fg-4)' : 'var(--cd-green)',
+          textShadow: letter === null ? 'none' : '0 0 18px var(--cd-green-glow)',
+          opacity: letter === null ? 0.7 : 1,
+        }}
+        aria-hidden
+      >
+        {letter ?? '—'}
+      </div>
+    </div>
+  )
+}
 
 export default function IssueGradeHero({
   letter,
@@ -58,27 +129,19 @@ export default function IssueGradeHero({
   label: string
   caption: string
   onOpenReview?: () => void
-  /** Optional slot for additional content on the right. */
   rightSlot?: ReactNode
 }) {
-  const display = letter ?? '—'
-  const letterColor =
-    letter === null
-      ? 'var(--on-primary-container, #3f33d6)'
-      : 'var(--primary, #4d44e3)'
   const dialogRef = useRef<HTMLDialogElement | null>(null)
 
   const openRubric = () => {
     const dlg = dialogRef.current
     if (!dlg) return
-    // jsdom does not implement HTMLDialogElement.showModal — fall back to
-    // ``open`` so tests can exercise the toggle path without throwing.
     if (typeof dlg.showModal === 'function') {
       try {
         dlg.showModal()
         return
       } catch {
-        // some browsers throw when called twice; fall through to ``open``.
+        // already open in some browsers
       }
     }
     dlg.setAttribute('open', '')
@@ -86,107 +149,134 @@ export default function IssueGradeHero({
   const closeRubric = () => dialogRef.current?.close()
 
   return (
-    <section
-      data-testid="issue-grade-hero"
-      className="rounded-3xl p-8 flex items-center gap-8 flex-wrap"
-      style={{
-        background: 'var(--primary-container, #e2dfff)',
-        color: 'var(--on-primary-container, #3f33d6)',
-      }}
-    >
-      <div className="flex-shrink-0 relative">
-        <div
-          data-testid="issue-grade-hero-letter"
-          className="font-headline font-extrabold"
-          style={{
-            fontSize: 168,
-            color: letterColor,
-            letterSpacing: '-0.04em',
-            lineHeight: 0.85,
-            opacity: letter === null ? 0.45 : 1,
-          }}
-          aria-hidden
-        >
-          {display}
-        </div>
-        <div className="absolute -bottom-2 left-0 text-[11px] font-mono uppercase tracking-wider font-semibold opacity-80">
-          A → F · higher is better
-        </div>
-      </div>
+    <section data-testid="issue-grade-hero" className="cd-frame">
+      <div className="cd-frame-br" />
+      {/* Whisper-quiet sage dot-grid layer fades behind the hero,
+       * masked to the centre so it never reads as decoration. The
+       * gradient sits on top and provides the warm-up tint. */}
+      <div
+        aria-hidden
+        className="cd-grid-bg"
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+        }}
+      />
+      <div
+        style={{
+          position: 'relative',
+          padding: '30px 32px',
+          background: 'linear-gradient(180deg, rgba(111,227,181,0.07), transparent 70%)',
+          display: 'grid',
+          gridTemplateColumns: rightSlot ? '124px 1fr auto' : '124px 1fr',
+          gap: 30,
+          alignItems: 'center',
+        }}
+      >
+        <GradeRingSVG letter={letter} />
 
-      <div className="flex-1 min-w-[260px]">
-        <div className="text-[10.5px] uppercase tracking-wider font-bold mb-1.5 opacity-80">
-          Repository grade
-        </div>
-        <h1
-          className="font-headline font-extrabold leading-tight tracking-tight mb-2.5"
-          style={{ fontSize: 32 }}
-        >
-          {label}
-        </h1>
-        <p
-          className="text-[14px] leading-relaxed max-w-xl mb-4"
-          style={{ textWrap: 'pretty' as never }}
-        >
-          {caption}
-        </p>
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={onOpenReview}
-            className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold shadow-sm hover:opacity-90"
+        <div style={{ minWidth: 0 }}>
+          <div
             style={{
-              background: 'var(--primary, #4d44e3)',
-              color: 'var(--on-primary, #faf6ff)',
+              fontFamily: 'var(--cd-display)',
+              fontSize: 32,
+              fontWeight: 800,
+              color: 'var(--cd-fg-1)',
+              letterSpacing: '-0.025em',
+              lineHeight: 1.15,
+              marginBottom: 10,
+              textWrap: 'pretty' as never,
             }}
           >
-            <span
-              className="material-symbols-outlined text-sm"
-              style={{ fontVariationSettings: '"FILL" 1, "wght" 500' }}
-              aria-hidden
-            >
-              rate_review
-            </span>
-            Open Review queue
-          </button>
-          <button
-            type="button"
-            onClick={openRubric}
-            data-testid="issue-grade-hero-view-rubric"
-            className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold border border-outline-variant bg-surface-container-lowest text-on-surface hover:bg-surface-container"
+            {label}
+          </div>
+          <p
+            style={{
+              fontSize: 14,
+              color: 'var(--cd-fg-3)',
+              lineHeight: 1.55,
+              maxWidth: 540,
+              marginBottom: 16,
+            }}
           >
-            View grading rubric
-          </button>
+            {caption}
+          </p>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {onOpenReview && (
+              <button
+                type="button"
+                onClick={onOpenReview}
+                className="cd-btn cd-btn--primary cd-btn--sm"
+              >
+                <span
+                  className="material-symbols-outlined"
+                  style={{ fontSize: 13, fontVariationSettings: "'FILL' 0, 'wght' 400" }}
+                  aria-hidden
+                >
+                  rate_review
+                </span>
+                Open review queue
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={openRubric}
+              data-testid="issue-grade-hero-view-rubric"
+              className="cd-btn cd-btn--ghost cd-btn--sm"
+            >
+              <span
+                className="material-symbols-outlined"
+                style={{ fontSize: 13, fontVariationSettings: "'FILL' 0, 'wght' 400" }}
+                aria-hidden
+              >
+                info
+              </span>
+              Grading rubric
+            </button>
+          </div>
         </div>
+
+        {rightSlot && (
+          <div style={{ minWidth: 0 }}>{rightSlot}</div>
+        )}
       </div>
 
-      {rightSlot && (
-        <div className="w-full md:w-auto md:max-w-xs md:flex-shrink-0">
-          {rightSlot}
-        </div>
-      )}
-
-      {/* Native dialog — Esc + form-method=dialog close cleanly without a
-          third-party modal library. */}
       <dialog
         ref={dialogRef}
         data-testid="issue-grade-hero-rubric-dialog"
-        className="rounded-2xl p-0 backdrop:bg-black/40 max-w-md w-full"
+        className="p-0 backdrop:bg-black/60"
+        style={{
+          maxWidth: 460,
+          width: '100%',
+          background: 'var(--cd-card)',
+          border: '1px solid var(--cd-rule)',
+          borderRadius: 2,
+          color: 'var(--cd-fg-2)',
+        }}
         onClick={(e) => {
-          // click-outside dismiss
           if (e.target === dialogRef.current) closeRubric()
         }}
       >
-        <div className="bg-surface-container-lowest p-6 space-y-3">
+        <div style={{ padding: '22px 24px' }} className="space-y-3">
           <div className="flex items-start justify-between gap-4">
-            <h2 className="font-headline font-extrabold text-[18px] leading-tight">
-              Grading rubric
-            </h2>
+            <div>
+              <h2
+                className="font-display font-extrabold"
+                style={{
+                  fontSize: 18,
+                  letterSpacing: '-0.02em',
+                  color: 'var(--cd-fg-1)',
+                }}
+              >
+                How cliff grades a repo
+              </h2>
+            </div>
             <button
               type="button"
               onClick={closeRubric}
               aria-label="Close"
-              className="text-on-surface-variant hover:text-on-surface"
+              style={{ color: 'var(--cd-fg-4)', background: 'transparent', border: 'none', cursor: 'pointer' }}
             >
               <span
                 className="material-symbols-outlined"

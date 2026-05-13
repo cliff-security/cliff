@@ -1,22 +1,17 @@
 /**
- * IssueSeverityBadge — Phase 1 (PRD-0006) atom for the Issues page.
+ * IssueSeverityBadge — Cliff Cyberdeck severity chip for the Issues page.
  *
- * Mirrors the IPSeverity prototype in
- * `frontend/mockups/claude-design/PRD-0006/issues-page/atoms.jsx` 1:1 using
- * existing Tailwind / Stitch tokens (no raw hex). Severity is encoded
- * redundantly: color + icon + label, per the design system's accessibility
- * rule.
+ * Tactical mono uppercase label (CRIT/HIGH/MED/LOW) inside a hairline chip
+ * tinted by severity:
+ *   critical → rose (with glow), high → amber, medium → cyan, low → fg-3
  *
- * Coexists with the legacy `SeverityBadge` (uppercase pill); this is the new
- * pill-with-icon variant that the IssueRow grid expects.
+ * Posture-category findings render as a cyan posture chip with the
+ * matching Material Symbol.
  */
-import type { ReactElement } from 'react'
+import type { ReactElement, CSSProperties } from 'react'
 
 export type IssueSeverityKind = 'critical' | 'high' | 'medium' | 'low'
 
-/** Posture findings have no CVSS-style severity; we render a category-aware
- *  pill instead so users can tell "this is a config/CI hygiene check"
- *  apart from "this is a CVE in a dependency". */
 export type IssuePostureCategory =
   | 'repo_configuration'
   | 'code_integrity'
@@ -35,34 +30,16 @@ interface IssuePostureBadgeProps {
 
 interface SeverityVisual {
   label: string
+  shortLabel: string
   icon: string
-  /** Tailwind class blob — token-based, no raw hex. */
-  classes: string
+  chip: string
 }
 
 const SEVERITY_VISUALS: Record<IssueSeverityKind, SeverityVisual> = {
-  critical: {
-    label: 'Critical',
-    icon: 'crisis_alert',
-    classes: 'bg-error/12 text-on-error-container',
-  },
-  high: {
-    // ADR-0029 warning family — closest token match for the prototype's
-    // amber-on-cream high severity.
-    label: 'High',
-    icon: 'warning',
-    classes: 'bg-warning-container/50 text-warning-dim',
-  },
-  medium: {
-    label: 'Medium',
-    icon: 'error',
-    classes: 'bg-secondary-container text-on-secondary-container',
-  },
-  low: {
-    label: 'Low',
-    icon: 'info',
-    classes: 'bg-tertiary-container text-on-tertiary-container',
-  },
+  critical: { label: 'Critical', shortLabel: 'Critical', icon: 'crisis_alert', chip: 'cd-chip cd-chip--red' },
+  high:     { label: 'High',     shortLabel: 'High',     icon: 'warning',      chip: 'cd-chip cd-chip--amber' },
+  medium:   { label: 'Medium',   shortLabel: 'Medium',   icon: 'error',        chip: 'cd-chip cd-chip--cyan' },
+  low:      { label: 'Low',      shortLabel: 'Low',      icon: 'info',         chip: 'cd-chip cd-chip--ink' },
 }
 
 const POSTURE_VISUALS: Record<string, { label: string; icon: string }> = {
@@ -72,31 +49,29 @@ const POSTURE_VISUALS: Record<string, { label: string; icon: string }> = {
   collaborator_hygiene: { label: 'Access', icon: 'group' },
 }
 
+function sizeStyle(size: 'sm' | 'md'): CSSProperties {
+  return size === 'sm'
+    ? { padding: '2px 7px', fontSize: 9.5 }
+    : { padding: '3px 9px', fontSize: 10 }
+}
+
 export function IssuePostureBadge({
   category,
   size = 'md',
 }: IssuePostureBadgeProps): ReactElement {
   const visual = category != null ? POSTURE_VISUALS[category] : undefined
   const v = visual ?? { label: 'Posture', icon: 'verified_user' }
-  const padY = size === 'sm' ? 2 : 3
-  const padX = size === 'sm' ? 7 : 9
-  const fontSize = size === 'sm' ? '10.5px' : '11px'
   const iconSize = size === 'sm' ? 12 : 13
 
   return (
     <span
-      className="inline-flex items-center gap-1 font-semibold rounded-full bg-surface-container-high text-on-surface-variant"
-      style={{
-        padding: `${padY}px ${padX}px`,
-        fontSize,
-        lineHeight: 1,
-        letterSpacing: '0.005em',
-      }}
+      className="cd-chip cd-chip--cyan"
+      style={sizeStyle(size)}
       aria-label={`Posture · ${v.label}`}
     >
       <span
         className="material-symbols-outlined"
-        style={{ fontSize: iconSize, fontVariationSettings: "'FILL' 1" }}
+        style={{ fontSize: iconSize, fontVariationSettings: "'FILL' 0, 'wght' 400" }}
         aria-hidden="true"
       >
         {v.icon}
@@ -111,30 +86,22 @@ export function IssueSeverityBadge({
   size = 'md',
 }: IssueSeverityBadgeProps): ReactElement {
   const v = SEVERITY_VISUALS[kind]
-  const padY = size === 'sm' ? 2 : 3
-  const padX = size === 'sm' ? 7 : 9
-  const fontSize = size === 'sm' ? '10.5px' : '11px'
   const iconSize = size === 'sm' ? 12 : 13
 
   return (
     <span
-      className={`inline-flex items-center gap-1 font-semibold rounded-full ${v.classes}`}
-      style={{
-        padding: `${padY}px ${padX}px`,
-        fontSize,
-        lineHeight: 1,
-        letterSpacing: '0.005em',
-      }}
+      className={v.chip}
+      style={sizeStyle(size)}
       aria-label={`Severity ${v.label}`}
     >
       <span
         className="material-symbols-outlined"
-        style={{ fontSize: iconSize, fontVariationSettings: "'FILL' 1" }}
+        style={{ fontSize: iconSize, fontVariationSettings: "'FILL' 0, 'wght' 400" }}
         aria-hidden="true"
       >
         {v.icon}
       </span>
-      {v.label}
+      {v.shortLabel}
     </span>
   )
 }

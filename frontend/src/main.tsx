@@ -5,7 +5,7 @@ import { RouterProvider } from 'react-router'
 import { queryClient } from '@/lib/query-client'
 import { router } from '@/router'
 import './index.css'
-import './styles/serene-sentinel.css'
+import './styles/cyberdeck.css'
 
 /**
  * In dev, stand up the MSW service worker for the handful of routes that don't
