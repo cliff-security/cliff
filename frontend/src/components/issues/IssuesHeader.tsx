@@ -1,58 +1,64 @@
 /**
- * IssuesHeader — Phase 1 (PRD-0006) component.
+ * IssuesHeader — Cliff Cyberdeck Issues page header.
  *
- * Title row: "Issues" (32px Manrope ExtraBold) + caption with the live counts
- * derived client-side from the findings list:
+ * Sticky topbar (mirrors PageShell) + sticky filter sub-bar with the
+ * dropdown FilterSelect pattern from `ui-kit/issues.jsx`. Two
+ * dropdowns — Type and Severity — and a right-aligned "Showing all N"
+ * mono hint.
+ *
+ * Subtitle is computed live from the findings list:
  *
  *   {open} open · {closed_last_7_days} closed in the last 7 days · grade {grade}
- *
- * `grade` is read from the existing useDashboard hook by the parent page; the
- * component itself is purely presentational so it stays test-friendly.
- *
- * Filter chips: Type and Severity. Phase 1 hard-codes Type to [All,
- * Vulnerability] (the All option is the no-op default; Vulnerability is the
- * only populated value while we ship vulnerability-only). Severity narrows
- * the list via the `onSeverityFilterChange` callback.
  */
 import { useMemo, useState, type ReactElement } from 'react'
 import type { Finding } from '../../api/client'
-import { IssueFilterChip } from './IssueFilterChip'
+import { IssueFilterSelect, type FilterOption } from './IssueFilterSelect'
 
 export type SeverityFilter = 'all' | 'critical' | 'high' | 'medium' | 'low'
+export type TypeFilter = 'all' | 'vulnerability' | 'posture' | 'secret' | 'license'
 
 interface IssuesHeaderProps {
   findings: Finding[]
   grade: string | null | undefined
   severityFilter: SeverityFilter
   onSeverityFilterChange: (filter: SeverityFilter) => void
+  /** Type filter (vulnerability / posture / secret / license). Optional
+   *  so existing callers and unit tests that don't care about the type
+   *  dimension still type-check. */
+  typeFilter?: TypeFilter
+  onTypeFilterChange?: (filter: TypeFilter) => void
 }
 
-const SEVERITY_LABELS: Array<{ key: Exclude<SeverityFilter, 'all'>; label: string }> = [
-  { key: 'critical', label: 'Critical' },
-  { key: 'high', label: 'High' },
-  { key: 'medium', label: 'Medium' },
-  { key: 'low', label: 'Low' },
-]
-
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
+
+const SEVERITY_DOT: Record<Exclude<SeverityFilter, 'all'>, string> = {
+  critical: 'var(--cd-red)',
+  high: 'var(--cd-amber)',
+  medium: 'var(--cd-cyan)',
+  low: 'var(--cd-fg-4)',
+}
 
 export function IssuesHeader({
   findings,
   grade,
   severityFilter,
   onSeverityFilterChange,
+  typeFilter = 'all',
+  onTypeFilterChange,
 }: IssuesHeaderProps): ReactElement {
-  // ``Date.now()`` is captured once at mount via ``useState`` initializer.
-  // The closed-last-7-days count is a presentational hint — staleness on
-  // long-lived sessions (>7 days open) is acceptable for Phase 1, and the
-  // ``useState`` initializer keeps the component compatible with the
-  // ``react-hooks/purity`` rule (no impure calls during render).
   const [mountedAt] = useState(() => Date.now())
   const sevenDaysAgo = mountedAt - SEVEN_DAYS_MS
+
   const counts = useMemo(() => {
     let open = 0
     let closedLast7 = 0
     const bySev: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0 }
+    const byType: Record<string, number> = {
+      vulnerability: 0,
+      posture: 0,
+      secret: 0,
+      license: 0,
+    }
     for (const f of findings) {
       const section = f.derived?.section
       if (section === 'review' || section === 'in_progress' || section === 'todo') {
@@ -65,78 +71,140 @@ export function IssuesHeader({
       }
       const sev = (f.raw_severity ?? 'medium').toLowerCase()
       if (sev in bySev) bySev[sev] += 1
+
+      const t = (f.type ?? 'vulnerability').toLowerCase()
+      // CVE-shaped findings live under several internal type names
+      // (`dependency`, `code`); roll them up under "vulnerability" for
+      // the filter dropdown which is what the user thinks of them as.
+      const typeKey =
+        t === 'posture' || t === 'secret' || t === 'license'
+          ? t
+          : 'vulnerability'
+      byType[typeKey] += 1
     }
-    return { open, closedLast7, bySev }
+    return { open, closedLast7, bySev, byType }
   }, [findings, sevenDaysAgo])
 
   const total = findings.length
 
+  const subtitle = `${counts.open} open · ${counts.closedLast7} closed in the last 7 days · ${
+    grade ? `grade ${grade}` : 'pre-assessment'
+  }`
+
+  // Type filter — display-only for Phase 1 (no callback), parked at "all".
+  const typeOptions: FilterOption[] = [
+    { id: 'all', label: 'All', count: total },
+    { id: 'vulnerability', label: 'Vulnerability', count: counts.byType.vulnerability },
+    { id: 'posture', label: 'Posture', count: counts.byType.posture },
+    { id: 'secret', label: 'Secret', count: counts.byType.secret },
+    { id: 'license', label: 'License', count: counts.byType.license },
+  ]
+
+  const sevOptions: FilterOption[] = [
+    { id: 'all', label: 'All', count: total },
+    { id: 'critical', label: 'Crit', count: counts.bySev.critical, dot: SEVERITY_DOT.critical },
+    { id: 'high', label: 'High', count: counts.bySev.high, dot: SEVERITY_DOT.high },
+    { id: 'medium', label: 'Med', count: counts.bySev.medium, dot: SEVERITY_DOT.medium },
+    { id: 'low', label: 'Low', count: counts.bySev.low, dot: SEVERITY_DOT.low },
+  ]
+
+  const filtered = severityFilter !== 'all' || typeFilter !== 'all'
+  // The "X of Y" hint counts items visible under the *active* filters.
+  // We approximate by intersecting the two filter dimensions; exact rows
+  // post-filter live downstream in `useMemo` on the page.
+  let visibleCount = total
+  if (typeFilter !== 'all') visibleCount = counts.byType[typeFilter] ?? 0
+  if (severityFilter !== 'all') {
+    // When both are active we conservatively report the smaller bucket;
+    // the canonical filtered list is the rendered rows below.
+    visibleCount = Math.min(visibleCount, counts.bySev[severityFilter] ?? 0)
+  }
+
   return (
-    <header className="px-8 pt-7 pb-1">
-      <div className="flex items-end gap-4 mb-3">
-        <h1
-          className="font-headline font-extrabold text-on-surface"
+    <>
+      {/* Themed topbar — mirrors PageShell. */}
+      <header
+        style={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 20,
+          padding: '14px 28px',
+          borderBottom: '1px solid var(--cd-rule)',
+          background: 'var(--cd-bg-1)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 18,
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: 14,
+              flexWrap: 'wrap',
+              minWidth: 0,
+            }}
+          >
+            <h1
+              className="font-display font-extrabold"
+              style={{
+                fontSize: 28,
+                letterSpacing: '-0.025em',
+                lineHeight: 1.05,
+                color: 'var(--cd-fg-1)',
+                margin: 0,
+              }}
+            >
+              Issues
+            </h1>
+            <span
+              data-testid="issues-caption"
+              style={{ fontSize: 14, color: 'var(--cd-fg-3)' }}
+            >
+              {subtitle}
+            </span>
+          </div>
+        </div>
+      </header>
+
+      {/* Sticky filter sub-bar — dropdowns + right-aligned count hint. */}
+      <div
+        style={{
+          position: 'sticky',
+          top: 64,
+          zIndex: 19,
+          background: 'var(--cd-bg-2)',
+          borderBottom: '1px solid var(--cd-rule)',
+          padding: '14px 28px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          flexWrap: 'wrap',
+        }}
+      >
+        <IssueFilterSelect
+          label="Type"
+          value={typeFilter}
+          options={typeOptions}
+          onChange={(id) => onTypeFilterChange?.(id as TypeFilter)}
+        />
+        <IssueFilterSelect
+          label="Severity"
+          value={severityFilter}
+          options={sevOptions}
+          onChange={(id) => onSeverityFilterChange(id as SeverityFilter)}
+        />
+        <span
           style={{
-            fontSize: 32,
-            lineHeight: 1.1,
-            letterSpacing: '-0.02em',
+            marginLeft: 'auto',
+            fontSize: 13,
+            color: 'var(--cd-fg-3)',
           }}
         >
-          Issues
-        </h1>
-      </div>
-      <p
-        data-testid="issues-caption"
-        className="text-[12.5px] text-on-surface-variant mb-4"
-      >
-        <span>{counts.open} open</span>
-        <span className="mx-1.5 text-outline">·</span>
-        <span>{counts.closedLast7} closed in the last 7 days</span>
-        <span className="mx-1.5 text-outline">·</span>
-        <span>{grade ? `grade ${grade}` : 'pre-assessment'}</span>
-      </p>
-
-      {/* Type filter — display chips. Filtering wires up post-Phase-1; for
-          now both Vulnerability and Posture are surfaced when present so the
-          catch-all label is "All issues". */}
-      <div className="flex items-center gap-2 mb-2" role="group" aria-label="Type filter">
-        <span className="text-[10.5px] uppercase tracking-wider font-bold text-on-surface-variant pr-1">
-          Type
+          {filtered ? `Filtered · ${visibleCount} of ${total}` : `Showing all ${total}`}
         </span>
-        <IssueFilterChip active count={total}>
-          All issues
-        </IssueFilterChip>
-        <IssueFilterChip icon="bug_report">Vulnerability</IssueFilterChip>
-        <IssueFilterChip icon="verified_user">Posture</IssueFilterChip>
       </div>
-
-      {/* Severity filter — drives the visible row set. */}
-      <div
-        className="flex items-center gap-2"
-        role="group"
-        aria-label="Severity filter"
-      >
-        <span className="text-[10.5px] uppercase tracking-wider font-bold text-on-surface-variant pr-1">
-          Severity
-        </span>
-        <IssueFilterChip
-          active={severityFilter === 'all'}
-          count={total}
-          onClick={() => onSeverityFilterChange('all')}
-        >
-          All severities
-        </IssueFilterChip>
-        {SEVERITY_LABELS.map(({ key, label }) => (
-          <IssueFilterChip
-            key={key}
-            active={severityFilter === key}
-            count={counts.bySev[key]}
-            onClick={() => onSeverityFilterChange(key)}
-          >
-            {label}
-          </IssueFilterChip>
-        ))}
-      </div>
-    </header>
+    </>
   )
 }

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 60" width="120" height="60">
+  <defs>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="120" height="60" fill="#0B101B"/>
+  <g stroke="#6FE3B5" stroke-width="1" fill="none" opacity="0.5">
+    <path d="M4 4 L4 12 M4 4 L12 4"/>
+    <path d="M116 4 L108 4 M116 4 L116 12"/>
+    <path d="M4 56 L4 48 M4 56 L12 56"/>
+    <path d="M116 56 L108 56 M116 56 L116 48"/>
+  </g>
+  <text x="22" y="44" font-family="Manrope, sans-serif" font-weight="800" font-size="36" letter-spacing="-1.6" fill="#6FE3B5" filter="url(#glow)">cliff</text>
+  <circle cx="106" cy="40" r="3.6" fill="#6FE3B5" filter="url(#glow)"/>
+</svg>

@@ -1,15 +1,11 @@
 /**
- * IssueFilterChip — Phase 1 atom (PRD-0006).
+ * IssueFilterChip — Cliff Cyberdeck filter pill.
  *
- * Toggleable filter pill with optional leading icon and trailing count badge.
- * Active state flips to `on-surface` bg with `surface-container-lowest` text;
- * inactive uses a ghost-border treatment via `outline-variant` (15% opacity is
- * the design system's blessed exception to the "no 1px solid borders" rule).
- *
- * Mirrors IPFilterChip in
- * `frontend/mockups/claude-design/PRD-0006/issues-page/atoms.jsx`.
+ * Mono uppercase pill with optional leading icon and trailing count.
+ * Active flips fill to sage on navy text + sage glow; inactive uses the
+ * hairline ghost (cd-chip) look. Squared corners (2px) per the system.
  */
-import type { ReactElement, ReactNode } from 'react'
+import type { ReactElement, ReactNode, CSSProperties } from 'react'
 
 interface IssueFilterChipProps {
   children: ReactNode
@@ -26,43 +22,48 @@ export function IssueFilterChip({
   icon,
   onClick,
 }: IssueFilterChipProps): ReactElement {
-  const baseClasses =
-    'inline-flex items-center gap-1.5 rounded-full transition-colors text-[12.5px] font-semibold pl-3 pr-1.5 py-1.5'
-  const activeClasses = 'bg-on-surface text-surface-container-lowest'
-  const inactiveClasses =
-    'bg-surface-container-lowest text-on-surface-variant border border-outline-variant hover:bg-surface-container'
+  const activeStyle: CSSProperties = active
+    ? {
+        background: 'var(--cd-green)',
+        color: 'var(--cd-bg)',
+        borderColor: 'var(--cd-green)',
+        boxShadow: '0 0 12px var(--cd-green-glow)',
+      }
+    : {}
 
   return (
     <button
       type="button"
       aria-pressed={active}
       onClick={onClick}
-      className={`${baseClasses} ${active ? activeClasses : inactiveClasses}`}
+      className="cd-chip cursor-pointer transition-all"
+      style={{ padding: '4px 10px', fontSize: 10.5, ...activeStyle }}
     >
       {icon && (
         <span
           className="material-symbols-outlined"
-          style={{ fontSize: 14 }}
+          style={{ fontSize: 13, fontVariationSettings: "'FILL' 0, 'wght' 400" }}
           aria-hidden="true"
         >
           {icon}
         </span>
       )}
-      {children}
+      <span>{children}</span>
       {count != null && (
         <span
-          className="font-mono rounded-full"
+          className="font-mono"
           style={{
-            background: active
-              ? 'rgba(255,255,255,0.18)'
-              : 'var(--surface-container-high, #e3e9ec)',
-            color: active ? 'var(--on-primary, #faf6ff)' : 'var(--on-surface-variant, #586064)',
-            padding: '1px 7px',
-            fontSize: 10.5,
-            fontWeight: 600,
-            minWidth: 22,
+            background: active ? 'rgba(11,16,27,0.22)' : 'transparent',
+            color: active ? 'var(--cd-bg)' : 'var(--cd-fg-4)',
+            border: active ? 'none' : '1px solid var(--cd-rule)',
+            padding: '0 5px',
+            marginLeft: 2,
+            fontSize: 10,
+            fontWeight: 700,
+            minWidth: 18,
             textAlign: 'center',
-            lineHeight: 1.2,
+            lineHeight: 1.4,
+            borderRadius: 2,
           }}
         >
           {count}

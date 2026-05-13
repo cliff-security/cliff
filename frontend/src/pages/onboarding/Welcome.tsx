@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useNavigate } from 'react-router'
 
 /**
@@ -8,39 +9,93 @@ import { useNavigate } from 'react-router'
 export default function Welcome() {
   const navigate = useNavigate()
 
+  // No sidebar on this route — pin the registration marks to the
+  // viewport corners instead of offsetting for a sidebar that isn't
+  // rendered. Mirrors OnboardingShell's behavior.
+  useEffect(() => {
+    document.body.dataset.cliffFrame = 'viewport'
+    return () => {
+      delete document.body.dataset.cliffFrame
+    }
+  }, [])
+
   return (
-    <div className="min-h-screen bg-surface relative overflow-hidden flex flex-col items-center justify-center px-6 py-20">
-      {/* soft backdrop */}
-      <div className="absolute inset-0 bg-gradient-to-br from-primary-container/30 via-transparent to-tertiary-container/20 pointer-events-none" />
+    <div
+      className="min-h-screen relative overflow-hidden flex flex-col items-center justify-center px-6 py-20"
+      style={{ background: 'var(--cd-bg)' }}
+    >
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background:
+            'radial-gradient(circle at 20% 0%, rgba(111,227,181,0.06), transparent 45%), radial-gradient(circle at 100% 100%, rgba(127,200,220,0.04), transparent 45%)',
+        }}
+      />
 
       <div className="relative text-center max-w-xl">
-        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-surface-container-lowest mb-6 shadow-sm">
-          <span className="font-headline text-3xl font-extrabold text-primary">
-            O
+        <div
+          className="inline-flex items-baseline mb-5"
+          style={{ lineHeight: 1 }}
+        >
+          <span
+            className="font-display font-extrabold"
+            style={{
+              fontSize: 64,
+              letterSpacing: '-0.045em',
+              color: 'var(--cd-green)',
+              textShadow: '0 0 24px var(--cd-green-glow)',
+            }}
+          >
+            cliff
           </span>
+          <span
+            className="cd-pulse"
+            style={{
+              width: 12,
+              height: 12,
+              background: 'var(--cd-green)',
+              boxShadow: '0 0 14px var(--cd-green)',
+              marginLeft: 6,
+            }}
+            aria-hidden
+          />
         </div>
-        <h1 className="font-headline text-4xl font-extrabold tracking-tight text-on-surface mb-3">
-          Welcome to OpenSec
+        <h1
+          className="font-display font-extrabold mb-3"
+          style={{
+            fontSize: 30,
+            letterSpacing: '-0.03em',
+            color: 'var(--cd-fg-1)',
+          }}
+        >
+          your security operator, ready.
         </h1>
-        <p className="text-on-surface-variant text-lg leading-relaxed mb-10">
+        <p
+          className="text-lg leading-relaxed mb-10"
+          style={{ color: 'var(--cd-fg-3)' }}
+        >
           In three short steps we'll connect your repository, set up your AI
-          model, and run a security assessment. Most maintainers are done in
-          under three minutes.
+          model, and run an assessment. Most maintainers are done in under
+          three minutes.
         </p>
         <div className="flex items-center justify-center">
           <button
             type="button"
             onClick={() => navigate('/onboarding/connect')}
-            className="px-8 py-3 rounded-lg bg-primary hover:bg-primary-dim text-white font-bold text-sm transition-colors active:scale-95 shadow-sm inline-flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            className="cd-btn cd-btn--primary"
+            style={{ padding: '10px 18px', fontSize: 11 }}
           >
-            Get started
-            <span className="material-symbols-outlined text-sm" aria-hidden="true">
-              arrow_forward
+            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 14 }}>
+              play_arrow
             </span>
+            Get started
           </button>
         </div>
-        <p className="mt-8 text-xs text-on-surface-variant">
-          Self-hosted · your credentials never leave this machine
+        <p
+          className="mt-8 text-xs font-mono uppercase"
+          style={{ color: 'var(--cd-fg-4)', letterSpacing: '0.18em' }}
+        >
+          self-hosted · credentials never leave this machine
         </p>
       </div>
     </div>

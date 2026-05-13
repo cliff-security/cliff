@@ -222,11 +222,8 @@ function RunAssessmentButton({
       disabled={disabled && !blockedByAI}
       title={blockedByAI ? aiRequired.tooltip ?? undefined : undefined}
       aria-disabled={disabled || blockedByAI}
-      className={
-        blockedByAI
-          ? 'inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-primary/60 px-4 py-2 text-sm font-semibold text-on-primary shadow-sm hover:bg-primary/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60'
-          : 'inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-on-primary shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60'
-      }
+      className="cd-btn cd-btn--primary cd-btn--sm"
+      style={blockedByAI ? { opacity: 0.7 } : undefined}
       aria-busy={mutation.isPending}
       aria-label={label}
     >
@@ -480,11 +477,11 @@ function ReportCard({ data }: { data: DashboardPayload }) {
             type="button"
             data-testid="dashboard-share-report"
             onClick={handleShareReport}
-            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold text-on-surface-variant hover:bg-surface-container"
+            className="cd-btn cd-btn--ghost cd-btn--sm"
           >
             <span
               className="material-symbols-outlined"
-              style={{ fontSize: 14 }}
+              style={{ fontSize: 13 }}
               aria-hidden
             >
               share

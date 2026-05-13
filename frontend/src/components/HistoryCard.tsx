@@ -68,7 +68,7 @@ export default function HistoryCard({ workspace, onExport }: HistoryCardProps) {
           </span>
         </div>
         <h3 className="text-base font-bold text-on-surface truncate">
-          {finding?.title ?? 'Loading...'}
+          {finding?.title ?? 'Cliff is loading the finding…'}
         </h3>
         <div className="flex flex-wrap items-center gap-x-4 mt-1 text-xs text-on-surface-variant">
           {finding?.asset_label && (

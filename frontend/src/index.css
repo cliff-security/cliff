@@ -2,30 +2,144 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Cliff Cyberdeck tokens + utility/component layer. Token source of truth. */
+@import './styles/cyberdeck.css';
+
 @layer base {
-  body {
-    font-family: 'Inter', sans-serif;
-    @apply bg-background text-on-surface antialiased;
+  html, body {
+    background: #0B101B;
+    /* Body color lifted to fg-2 #E8EEF8 per the readability brief. */
+    color: #E8EEF8;
   }
-  h1, h2, h3 {
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: 'cv11', 'ss03';
+    /* Scanline overlay — dialed from 1.2% (0.012) to 0.4% (0.004) per
+     * the readability brief. Barely-there texture instead of an active
+     * overlay; body text reads cleanly through it. */
+    background-image:
+      repeating-linear-gradient(
+        0deg,
+        rgba(111, 227, 181, 0.004) 0 1px,
+        transparent 1px 3px
+      ),
+      radial-gradient(
+        circle at 20% 0%,
+        rgba(111, 227, 181, 0.025) 0%,
+        transparent 40%
+      ),
+      radial-gradient(
+        circle at 100% 100%,
+        rgba(127, 200, 220, 0.018) 0%,
+        transparent 40%
+      );
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+  h1, h2, h3, h4 {
     font-family: 'Manrope', sans-serif;
+    color: #F2F6FE;
+  }
+  a {
+    color: #7FC8DC;
+  }
+  /* Default monospace styling for inline code. */
+  code, kbd, samp, .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  }
+  /* Tactical text selection — sage tint on navy. */
+  ::selection {
+    background: rgba(111, 227, 181, 0.30);
+    color: #F2F6FE;
   }
 }
 
+/* Registration marks — tactical L-brackets framing the app content area.
+ *
+ * Previously these were anchored to the four viewport corners, which
+ * caused the bottom-left bracket to overlap the SideNav's Settings row.
+ * They're now framing the area to the *right* of the sidebar:
+ *   --cliff-corner-left  defaults to the sidebar width (248px); pages
+ *                        rendered outside AppLayout (onboarding,
+ *                        welcome) can override this to 0 so brackets
+ *                        sit at the true viewport edge.
+ *   --cliff-corner-inset is the gap from the corner (10px).
+ *
+ * Hidden on small screens to keep the operator-console feeling at
+ * desk size.
+ */
+:root {
+  --cliff-corner-left: 248px;
+  --cliff-corner-inset: 10px;
+}
+
+/* Pages rendered outside AppLayout (the wizard) anchor on body —
+ * they set the override so brackets land at the viewport edge. */
+body[data-cliff-frame='viewport'] {
+  --cliff-corner-left: 0px;
+}
+
+@media (min-width: 1024px) {
+  body::before,
+  body::after,
+  #root::before,
+  #root::after {
+    content: '';
+    position: fixed;
+    width: 14px;
+    height: 14px;
+    border: 1px solid #6FE3B5;
+    opacity: 0.30;
+    pointer-events: none;
+    z-index: 50;
+  }
+  /* top-left of the content area */
+  body::before {
+    top: var(--cliff-corner-inset);
+    left: calc(var(--cliff-corner-left) + var(--cliff-corner-inset));
+    border-right: none;
+    border-bottom: none;
+  }
+  /* bottom-right of the viewport */
+  body::after {
+    bottom: var(--cliff-corner-inset);
+    right: var(--cliff-corner-inset);
+    border-left: none;
+    border-top: none;
+  }
+  /* top-right of the viewport */
+  #root::before {
+    top: var(--cliff-corner-inset);
+    right: var(--cliff-corner-inset);
+    border-left: none;
+    border-bottom: none;
+  }
+  /* bottom-left of the content area (clear of the SideNav footer) */
+  #root::after {
+    bottom: var(--cliff-corner-inset);
+    left: calc(var(--cliff-corner-left) + var(--cliff-corner-inset));
+    border-right: none;
+    border-top: none;
+  }
+}
+
+/* Material symbols base sizing — Cyberdeck rule is stroke-only. */
 .material-symbols-outlined {
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
   vertical-align: middle;
 }
 
+/* Glass card — retained only for backwards compat. New code uses .cd-card. */
 .glass-card {
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(20px);
+  background: rgba(19, 26, 42, 0.72);
+  backdrop-filter: blur(14px);
+  border: 1px solid #27324E;
 }
 
-/* Confetti — used by ConfettiLayer on the completion celebration overlay.
- * Under prefers-reduced-motion the ConfettiLayer component returns null,
- * but we also disable the keyframe here as belt-and-braces for any stray
- * .confetti element that might slip in. */
+/* Confetti — used by ConfettiLayer on the completion celebration overlay. */
 .confetti {
   position: absolute;
   width: 8px;
@@ -33,62 +147,40 @@
   opacity: 0;
   animation: confetti-fall 2.6s ease-in forwards;
 }
-
 @keyframes confetti-fall {
-  0% {
-    transform: translateY(-20px) rotate(0deg);
-    opacity: 1;
-  }
-  100% {
-    transform: translateY(120px) rotate(320deg);
-    opacity: 0;
-  }
+  0%   { transform: translateY(-20px) rotate(0deg);  opacity: 1; }
+  100% { transform: translateY(120px) rotate(320deg); opacity: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .confetti {
-    animation: none;
-    opacity: 0;
-  }
-  /* Snap hover scale instead of animating it — WCAG 2.3.3 concession. */
-  .motion-safe-scale {
-    transition: none !important;
-  }
+  .confetti { animation: none; opacity: 0; }
+  .motion-safe-scale { transition: none !important; }
 }
 
-/* IMPL-0009 Assessment-running surface — pulse-dot on active scanner pills,
- * inline spinner in the hero strip and the step list. Both are gated on
- * prefers-reduced-motion below. */
+/* IMPL-0009 Assessment-running surface — pulse-dot + spinner, reskinned to
+ * Cyberdeck sage. Active scanner pills + hero strip + step list all use these. */
 @keyframes opensec-pulse-dot {
-  0%, 100% { transform: scale(1); opacity: 1; }
+  0%, 100% { transform: scale(1);   opacity: 1; }
   50%      { transform: scale(0.6); opacity: 0.55; }
 }
-
-@keyframes opensec-spin {
-  to { transform: rotate(360deg); }
-}
+@keyframes opensec-spin { to { transform: rotate(360deg); } }
 
 .opensec-pulse-dot {
   animation: opensec-pulse-dot 1.4s ease-in-out infinite;
   display: inline-block;
 }
-
 .opensec-spinner {
-  border: 2px solid rgba(77, 68, 227, 0.20);
-  border-top-color: var(--primary, #4d44e3);
+  border: 2px solid rgba(111, 227, 181, 0.20);
+  border-top-color: #6FE3B5;
   border-radius: 9999px;
   animation: opensec-spin 0.8s linear infinite;
   display: inline-block;
 }
 
-/* IMPL-0009 / F10 — running ↔ report state-swap fade. Used on the outer
- * wrapper of both surfaces so the swap reads as "the view replaced itself"
- * rather than "the page jumped". 180ms keeps it brisk. */
 @keyframes opensec-fade-in {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
-
 .opensec-fade-in {
   animation: opensec-fade-in 180ms cubic-bezier(.2, 0, 0, 1) both;
 }

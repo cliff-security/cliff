@@ -1,0 +1,501 @@
+/* Cliff Cyberdeck — design tokens + utility/component layer.
+ *
+ * Dark navy operator console, single sage-mint accent. No light variant.
+ * No 1px solid borders by default — use hairline tokens (--cd-rule). No
+ * radius above 6px (except 999px for dots/avatars).
+ *
+ * Readability/voice alignment pass (2026-05-13):
+ *  - body color lifted to fg-2 #E8EEF8
+ *  - small-text floor raised across the type scale
+ *  - text-shadow removed from all label/section-label/active-nav rules
+ *    (sage glow now lives only on dots, focus rings, primary buttons)
+ *  - scanline overlay dialed from 1.2% to 0.4% opacity
+ *  - .cd-btn / .cd-nav / .cd-chip / .cd-section-label all reset to
+ *    sentence-case proportional Inter
+ *
+ * Existing class names from the previous Serene Sentinel CSS (.spinner,
+ * .grade-ring, .animate-pulse-subtle, .msym-filled) are kept as
+ * compatibility shims and reskinned to Cyberdeck tokens. Prefer the new
+ * `.cd-*` primitives in new code.
+ */
+
+:root {
+  /* surfaces */
+  --cd-bg:        #0B101B;
+  --cd-bg-1:      #0E1422;
+  --cd-bg-2:      #0D1322;
+  --cd-card:      #131A2A;
+  --cd-card-hi:   #1B2438;
+  --cd-card-hov:  #161E32;
+  --cd-rule:      #27324E;
+  --cd-rule-2:    #34405E;
+
+  /* ink — body color lifted one stop per the readability brief
+   *       (Section B). Original fg-2 was #D6E0F4; #E8EEF8 reads cleaner
+   *       on the navy ladder without altering the relationship to
+   *       fg-1/fg-3. fg-4/fg-5 stay lifted from their critique-round
+   *       values so small captions pass WCAG AA. */
+  --cd-fg-1:      #F2F6FE;
+  --cd-fg-2:      #E8EEF8;
+  --cd-fg-3:      #9BACCC;
+  --cd-fg-4:      #7986B5;
+  --cd-fg-5:      #5B6890;
+  --cd-ink:       var(--cd-fg-2);
+  --cd-ink-hi:    var(--cd-fg-1);
+  --cd-ink-2:     var(--cd-fg-3);
+  --cd-ink-3:     var(--cd-fg-4);
+  --cd-ink-4:     var(--cd-fg-5);
+
+  /* primary accent — sage mint */
+  --cd-green:     #6FE3B5;
+  --cd-green-hi:  #9FECC9;
+  --cd-green-glow:  rgba(111, 227, 181, 0.40);
+  --cd-green-soft:  rgba(111, 227, 181, 0.08);
+  --cd-green-line:  rgba(111, 227, 181, 0.30);
+
+  /* secondary accents — used sparingly */
+  --cd-cyan:      #7FC8DC;
+  --cd-cyan-soft: rgba(127, 200, 220, 0.10);
+  --cd-cyan-line: rgba(127, 200, 220, 0.28);
+  --cd-magenta:     #E78AC4;
+  --cd-magenta-soft: rgba(231, 138, 196, 0.10);
+
+  /* signal */
+  --cd-amber:     #F0BF7E;
+  --cd-amber-soft: rgba(240, 191, 126, 0.10);
+  --cd-red:       #E97A8E;
+  --cd-red-soft:  rgba(233, 122, 142, 0.12);
+  --cd-red-glow:  rgba(233, 122, 142, 0.45);
+
+  /* type */
+  --cd-display: 'Manrope', 'Inter', system-ui, sans-serif;
+  --cd-sans:    'Inter', system-ui, -apple-system, sans-serif;
+  --cd-mono:    'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  /* radii */
+  --cd-r-1: 2px;
+  --cd-r-2: 4px;
+  --cd-r-3: 6px;
+
+  /* motion */
+  --cd-fast: 120ms;
+  --cd-base: 180ms;
+  --cd-slow: 280ms;
+  --cd-ease: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* --------------------------------------------------------------
+   * Material 3 → Cyberdeck CSS variable aliases. Several existing
+   * components use inline `var(--surface-container-high, #fallback)`
+   * style attributes (the fallback was the old Serene Sentinel hex).
+   * Defining the M3 names here resolves those fallbacks to the
+   * Cyberdeck palette without touching the call sites.
+   * ------------------------------------------------------------ */
+  --background: var(--cd-bg);
+  --surface: var(--cd-bg);
+  --surface-bright: var(--cd-bg-1);
+  --surface-dim: var(--cd-bg-2);
+  --surface-container-lowest: var(--cd-bg);
+  --surface-container-low: var(--cd-bg-1);
+  --surface-container: var(--cd-card);
+  --surface-container-high: var(--cd-card-hov);
+  --surface-container-highest: var(--cd-card-hi);
+  --surface-variant: var(--cd-card-hov);
+  --on-background: var(--cd-fg-2);
+  --on-surface: var(--cd-fg-2);
+  --on-surface-variant: var(--cd-fg-3);
+  --outline: var(--cd-fg-4);
+  --outline-variant: var(--cd-rule);
+
+  --primary: var(--cd-green);
+  --primary-dim: var(--cd-green-hi);
+  --primary-container: rgba(111, 227, 181, 0.10);
+  --on-primary: var(--cd-bg);
+  --on-primary-container: var(--cd-green-hi);
+  --surface-tint: var(--cd-green);
+  --inverse-primary: var(--cd-green-hi);
+
+  --secondary: var(--cd-cyan);
+  --secondary-container: rgba(127, 200, 220, 0.10);
+  --on-secondary: var(--cd-bg);
+  --on-secondary-container: var(--cd-cyan);
+
+  --tertiary: var(--cd-cyan);
+  --tertiary-container: rgba(127, 200, 220, 0.10);
+  --on-tertiary: var(--cd-bg);
+  --on-tertiary-container: var(--cd-cyan);
+
+  --error: var(--cd-red);
+  --error-dim: var(--cd-red);
+  --error-container: rgba(233, 122, 142, 0.14);
+  --on-error: var(--cd-bg);
+  --on-error-container: var(--cd-red);
+
+  --warning: var(--cd-amber);
+  --warning-dim: var(--cd-amber);
+  --warning-container: rgba(240, 191, 126, 0.14);
+  --on-warning-container: var(--cd-amber);
+}
+
+/* === Frame wrapper — tactical corner brackets ============================ */
+.cd-frame { position: relative; }
+.cd-frame::before,
+.cd-frame::after,
+.cd-frame > .cd-frame-br::before,
+.cd-frame > .cd-frame-br::after {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--cd-green);
+  opacity: 0.55;
+  transition: opacity var(--cd-base);
+}
+.cd-frame::before { top: -1px; left: -1px;  border-right: none; border-bottom: none; }
+.cd-frame::after  { top: -1px; right: -1px; border-left: none;  border-bottom: none; }
+.cd-frame > .cd-frame-br { position: absolute; inset: 0; pointer-events: none; }
+.cd-frame > .cd-frame-br::before { bottom: -1px; left: -1px;  border-right: none; border-top: none; }
+.cd-frame > .cd-frame-br::after  { bottom: -1px; right: -1px; border-left: none;  border-top: none; }
+.cd-frame:hover::before,
+.cd-frame:hover::after,
+.cd-frame:hover > .cd-frame-br::before,
+.cd-frame:hover > .cd-frame-br::after { opacity: 1; }
+
+/* === Buttons ============================================================
+ * Sections C+G of the readability brief: buttons now read as sentence-case
+ * proportional Inter, not all-caps tracked-out mono. The visual treatment
+ * (sage fill, hairline outline, glow on hover, -1px lift) is unchanged —
+ * only typography of the label. JSX call sites pass sentence-case strings
+ * directly and drop the ▸ triangle prefix. */
+.cd-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-family: var(--cd-sans);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--cd-fg-2);
+  cursor: pointer;
+  transition: all var(--cd-fast) ease;
+  position: relative;
+  border-radius: var(--cd-r-1);
+  user-select: none;
+  line-height: 1.2;
+}
+.cd-btn:focus-visible {
+  outline: 2px solid var(--cd-green);
+  outline-offset: 3px;
+  box-shadow: 0 0 14px var(--cd-green-glow);
+}
+.cd-btn:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+
+.cd-btn--primary {
+  background: var(--cd-green);
+  color: var(--cd-bg);
+  box-shadow: 0 0 12px var(--cd-green-glow);
+}
+.cd-btn--primary:hover {
+  background: var(--cd-green-hi);
+  box-shadow: 0 0 22px var(--cd-green-glow), inset 0 0 12px rgba(255,255,255,0.2);
+  transform: translateY(-1px);
+}
+.cd-btn--primary:active { transform: translateY(0); }
+
+.cd-btn--outline { border-color: var(--cd-green-line); color: var(--cd-green); }
+.cd-btn--outline:hover {
+  background: var(--cd-green-soft);
+  border-color: var(--cd-green);
+  color: var(--cd-green-hi);
+  box-shadow: 0 0 12px var(--cd-green-glow);
+}
+
+.cd-btn--ghost { border-color: var(--cd-rule); color: var(--cd-fg-3); }
+.cd-btn--ghost:hover {
+  background: var(--cd-card-hov);
+  border-color: var(--cd-rule-2);
+  color: var(--cd-fg-1);
+}
+
+.cd-btn--danger { border-color: rgba(233, 122, 142, 0.4); color: var(--cd-red); }
+.cd-btn--danger:hover {
+  background: var(--cd-red-soft);
+  border-color: var(--cd-red);
+  box-shadow: 0 0 12px var(--cd-red-glow);
+}
+
+.cd-btn--sm { padding: 6px 12px; font-size: 13px; }
+
+/* === Chips ===============================================================
+ * Section F of the readability brief: severity / status pills read as
+ * sentence-case proportional Inter, not mono caps. JSX call sites pass
+ * "Critical / High / Medium / Low" / "Live" / "Running" as the source
+ * string. Severity colour treatments are unchanged. */
+.cd-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-family: var(--cd-sans);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  border: 1px solid var(--cd-rule);
+  color: var(--cd-fg-2);
+  background: transparent;
+  border-radius: var(--cd-r-1);
+  line-height: 1.2;
+}
+.cd-chip--green   { color: var(--cd-green);   border-color: var(--cd-green-line); }
+.cd-chip--cyan    { color: var(--cd-cyan);    border-color: var(--cd-cyan-line); }
+.cd-chip--amber   { color: var(--cd-amber);   border-color: rgba(240, 191, 126, 0.35); }
+.cd-chip--red     { color: var(--cd-red);     border-color: rgba(233, 122, 142, 0.40);
+                    box-shadow: 0 0 8px rgba(233, 122, 142, 0.25); }
+.cd-chip--magenta { color: var(--cd-magenta); border-color: rgba(231, 138, 196, 0.40); }
+.cd-chip--ink     { color: var(--cd-fg-3);    border-color: var(--cd-rule); }
+
+/* === Cards =============================================================== */
+.cd-card {
+  background: var(--cd-card);
+  border: 1px solid var(--cd-rule);
+  border-radius: var(--cd-r-1);
+  position: relative;
+  transition: border-color var(--cd-base), background var(--cd-base);
+}
+.cd-card:hover { border-color: var(--cd-rule-2); }
+
+/* === Inputs ============================================================= */
+.cd-input {
+  width: 100%;
+  padding: 10px 12px;
+  font-family: var(--cd-sans);
+  font-size: 14px;
+  background: var(--cd-bg-1);
+  border: 1px solid var(--cd-rule);
+  color: var(--cd-fg-2);
+  border-radius: var(--cd-r-2);
+  transition: border-color var(--cd-fast), box-shadow var(--cd-fast);
+}
+.cd-input::placeholder { color: var(--cd-fg-5); }
+.cd-input:focus {
+  outline: none;
+  border-color: var(--cd-green-line);
+  box-shadow: 0 0 0 1px var(--cd-green-line), 0 0 14px rgba(111, 227, 181, 0.18);
+}
+
+/* === Pulse dot — the Cliff trademark loading state ====================== */
+@keyframes cd-pulse {
+  0%, 100% { opacity: 1;   transform: scale(1);    }
+  50%      { opacity: 0.4; transform: scale(0.92); }
+}
+.cd-pulse,
+.cd-loader {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--c, var(--cd-green));
+  box-shadow: 0 0 8px var(--c, var(--cd-green));
+  animation: cd-pulse 1.6s ease-in-out infinite;
+  vertical-align: middle;
+}
+.cd-loader--xs { width: 5px;  height: 5px;  box-shadow: 0 0 5px var(--c, var(--cd-green)); }
+.cd-loader--sm { width: 6px;  height: 6px;  box-shadow: 0 0 6px var(--c, var(--cd-green)); }
+.cd-loader--md { width: 8px;  height: 8px; }
+.cd-loader--lg { width: 12px; height: 12px; box-shadow: 0 0 14px var(--c, var(--cd-green)); }
+.cd-loader--inline { margin: 0 6px; }
+.cd-loader--cyan    { --c: var(--cd-cyan);    }
+.cd-loader--amber   { --c: var(--cd-amber);   }
+.cd-loader--red     { --c: var(--cd-red);     }
+.cd-loader--magenta { --c: var(--cd-magenta); }
+.cd-loader--ink     { --c: var(--cd-fg-4); box-shadow: none; }
+
+/* === Scrollbar =========================================================== */
+.cd-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.cd-scroll::-webkit-scrollbar-track { background: transparent; }
+.cd-scroll::-webkit-scrollbar-thumb {
+  background: var(--cd-rule);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+.cd-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: var(--cd-rule-2);
+  background-clip: padding-box;
+}
+
+/* === Row hover (lists) =================================================== */
+.cd-row {
+  transition: background var(--cd-fast), border-left-color var(--cd-fast);
+  border-left: 2px solid transparent;
+  cursor: pointer;
+}
+.cd-row:hover {
+  background: var(--cd-card-hov);
+  border-left-color: var(--cd-green-line);
+}
+.cd-row--focus,
+.cd-row[aria-selected='true'] {
+  background: var(--cd-card-hi);
+  border-left-color: var(--cd-green);
+}
+
+/* Wake up the inline action button when the row is hovered — the row
+ * is the click target, the button is the call to action. Per critique:
+ * the outline button "stays the same" on hover is too quiet. */
+.cd-row:hover .cd-btn--outline {
+  border-color: var(--cd-green);
+  color: var(--cd-green-hi);
+  background: var(--cd-green-soft);
+  box-shadow: 0 0 8px var(--cd-green-soft);
+}
+.cd-row:hover .cd-btn--primary {
+  box-shadow: 0 0 18px var(--cd-green-glow);
+}
+
+/* === Nav link ============================================================
+ * Section D of the readability brief: side-nav rows read as sentence-case
+ * Inter 14px, not all-caps tracked-out mono. Active row gets a weight
+ * bump + sage left border + sage wash gradient — no text glow. */
+.cd-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  font-family: var(--cd-sans);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--cd-fg-2);
+  text-decoration: none;
+  border-left: 2px solid transparent;
+  transition: all var(--cd-fast);
+  cursor: pointer;
+  line-height: 1.2;
+}
+.cd-nav:focus-visible {
+  outline: 2px solid var(--cd-green);
+  outline-offset: -2px;
+}
+.cd-nav:hover {
+  color: var(--cd-fg-1);
+  background: var(--cd-card-hov);
+}
+.cd-nav--active {
+  color: var(--cd-green);
+  font-weight: 600;
+  background: linear-gradient(90deg, rgba(111, 227, 181, 0.08), transparent);
+  border-left-color: var(--cd-green);
+}
+
+/* === Section label ======================================================
+ * Section E of the readability brief. Was: mono caps tracked 0.22em sage
+ * with text glow — read like a billboard, not a label. Now: sentence-case
+ * Inter 12px medium in steel-mist. Quiet. Acts as a sub-section anchor,
+ * not a glowing announcement. JSX call sites drop the ▸ prefix and pass
+ * sentence-case strings. The page H1 carries the title; this is for
+ * inline sub-section anchors only. */
+.cd-section-label {
+  font-family: var(--cd-sans);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--cd-fg-3);
+}
+.cd-section-label--quiet {
+  color: var(--cd-fg-4);
+  font-weight: 500;
+}
+
+/* === Hairline rule with label ===========================================
+ * Section E3 of the brief: this is the one place where mono caps stays —
+ * the labeled inline hairline is a typographic flourish, not body text
+ * and not interactive. Softened from the original aggressive tracking. */
+.cd-hairline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--cd-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--cd-fg-4);
+  padding: 8px 0;
+}
+.cd-hairline::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--cd-rule);
+}
+
+/* === Material symbols default =========================================== */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 18;
+  vertical-align: middle;
+}
+
+/* === Compatibility shims for existing Serene Sentinel classes ============ */
+
+/* Filled-icon utility — Cyberdeck rule is stroke-only, but a few legacy
+ * call sites still apply this. We render it as a non-filled, slightly
+ * brighter weight so it doesn't introduce light blobs. */
+.msym-filled {
+  font-variation-settings: 'FILL' 0, 'wght' 600, 'GRAD' 0, 'opsz' 24;
+}
+
+/* Subprocess spinner — reskinned to sage on navy. */
+.spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  border: 2px solid rgba(111, 227, 181, 0.20);
+  border-top-color: var(--cd-green);
+  animation: spin 0.9s linear infinite;
+  display: inline-block;
+}
+.spinner-lg {
+  width: 28px;
+  height: 28px;
+  border-width: 3px;
+  border-radius: 9999px;
+  border-style: solid;
+  border-color: rgba(111, 227, 181, 0.20);
+  border-top-color: var(--cd-green);
+  animation: spin 0.9s linear infinite;
+  display: inline-block;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 2.4s ease-in-out infinite;
+}
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.65; }
+}
+
+/* Grade ring — conic gradient stays, fill swaps to sage, track to card-hov. */
+.grade-ring {
+  background: conic-gradient(
+    var(--grade-ring-fill, #6FE3B5) var(--grade-ring-percent, 0%),
+    var(--grade-ring-track, #161E32) 0
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner,
+  .spinner-lg,
+  .animate-pulse-subtle,
+  .cd-pulse,
+  .cd-loader {
+    animation: none;
+  }
+}

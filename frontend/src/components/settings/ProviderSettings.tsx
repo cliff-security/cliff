@@ -377,7 +377,7 @@ export default function ProviderSettings() {
           {searchQuery.trim() && (
             <div className="mt-3 space-y-2">
               {providersLoading ? (
-                <p className="text-xs text-on-surface-variant py-2">Loading...</p>
+                <p className="text-xs text-on-surface-variant py-2">Cliff is loading the catalog…</p>
               ) : searchResults.length === 0 ? (
                 <p className="text-xs text-on-surface-variant py-2">
                   No providers or models match "{searchQuery}"

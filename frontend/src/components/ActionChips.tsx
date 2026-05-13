@@ -85,7 +85,7 @@ export default function ActionChips({
               auto_fix_high
             </span>
           )}
-          {pipelineRunning ? 'Fixing...' : 'Fix it'}
+          {pipelineRunning ? 'Cliff is running the plan…' : 'Take care of this'}
         </button>
       )}
       {chips.map((chip) => {

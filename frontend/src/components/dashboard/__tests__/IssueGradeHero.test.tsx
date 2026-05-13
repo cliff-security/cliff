@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import IssueGradeHero from '../IssueGradeHero'
 
 describe('<IssueGradeHero />', () => {
-  it('renders the letter grade at the IMPL-0009 hero size (168px)', () => {
+  it('renders the letter grade at the Cyberdeck hero size (56px in a 124px ring)', () => {
     render(
       <IssueGradeHero
         letter="B"
@@ -13,7 +13,7 @@ describe('<IssueGradeHero />', () => {
     )
     const letter = screen.getByTestId('issue-grade-hero-letter')
     expect(letter).toHaveTextContent('B')
-    expect(letter.getAttribute('style')).toMatch(/font-size:\s*168px/)
+    expect(letter.getAttribute('style')).toMatch(/font-size:\s*56px/)
     expect(letter.getAttribute('style')).toMatch(/letter-spacing:\s*-0\.04em/)
     expect(screen.getByText('Steady')).toBeInTheDocument()
   })
@@ -28,7 +28,8 @@ describe('<IssueGradeHero />', () => {
     )
     const letter = screen.getByTestId('issue-grade-hero-letter')
     expect(letter).toHaveTextContent('—')
-    expect(letter.getAttribute('style')).toMatch(/opacity:\s*0\.45/)
+    // Pre-first-scan letter is faded but visible per the Cyberdeck hero.
+    expect(letter.getAttribute('style')).toMatch(/opacity:\s*0\.7/)
   })
 
   it('fires onOpenReview when the primary CTA is clicked', () => {
@@ -45,7 +46,7 @@ describe('<IssueGradeHero />', () => {
     expect(openReview).toHaveBeenCalledTimes(1)
   })
 
-  it('opens the rubric dialog when "View grading rubric" is clicked', () => {
+  it('opens the rubric dialog when "Grading rubric" is clicked', () => {
     // jsdom supports <dialog> but showModal is a no-op; use the test ID
     // and assert the dialog is in the DOM. We exercise the click path so
     // any error in showModal would surface.
@@ -58,7 +59,7 @@ describe('<IssueGradeHero />', () => {
     )
     const dialog = screen.getByTestId('issue-grade-hero-rubric-dialog')
     expect(dialog.tagName.toLowerCase()).toBe('dialog')
-    expect(dialog).toHaveTextContent('Grading rubric')
+    expect(dialog).toHaveTextContent(/grades a repo/i)
     expect(dialog).toHaveTextContent('15 posture checks')
     // Trigger and ensure no error.
     fireEvent.click(screen.getByTestId('issue-grade-hero-view-rubric'))
