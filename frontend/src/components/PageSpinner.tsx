@@ -8,7 +8,12 @@
  */
 export default function PageSpinner() {
   return (
-    <div className="flex flex-col items-center gap-3 py-24">
+    <div
+      role="status"
+      aria-live="polite"
+      aria-label="Loading"
+      className="flex flex-col items-center gap-3 py-24"
+    >
       <span className="cd-loader cd-loader--lg" aria-hidden />
       <span style={{ fontSize: 13, color: 'var(--cd-fg-4)' }}>
         Cliff is loading the page…

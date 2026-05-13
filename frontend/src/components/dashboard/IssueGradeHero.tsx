@@ -58,6 +58,17 @@ function GradeRingSVG({ letter }: { letter: GradeLetter | null }) {
     : letter === 'D' ? 0.32
     : letter === 'F' ? 0.18
     : 0
+  const circumference = 2 * Math.PI * 56
+  const targetDash = pct * circumference
+
+  // Stroke-fill animation on mount via the `.cd-stroke-on-mount`
+  // utility (defined in cyberdeck.css). The arc length is set as a
+  // CSS custom property (`--cd-stroke-length`) and the keyframe sweeps
+  // `stroke-dashoffset` from full → 0 over 700ms. Honours
+  // prefers-reduced-motion automatically via the @media guard on the
+  // utility class.
+  const arcLength = targetDash
+
   return (
     <div style={{ position: 'relative', width: 124, height: 124, flexShrink: 0 }}>
       <svg width="124" height="124" viewBox="0 0 124 124">
@@ -73,10 +84,16 @@ function GradeRingSVG({ letter }: { letter: GradeLetter | null }) {
             fill="none"
             stroke="var(--cd-green)"
             strokeWidth="3"
-            strokeDasharray={`${(pct * 2 * Math.PI * 56)} ${2 * Math.PI * 56 - (pct * 2 * Math.PI * 56)}`}
+            strokeDasharray={`${arcLength} ${circumference - arcLength}`}
             strokeLinecap="round"
             transform="rotate(-90 62 62)"
-            style={{ filter: 'drop-shadow(0 0 6px var(--cd-green))' }}
+            className="cd-stroke-on-mount"
+            style={
+              {
+                ['--cd-stroke-length']: `${arcLength}`,
+                filter: 'drop-shadow(0 0 6px var(--cd-green))',
+              } as React.CSSProperties & Record<`--${string}`, string>
+            }
           />
         )}
       </svg>
@@ -134,8 +151,21 @@ export default function IssueGradeHero({
   return (
     <section data-testid="issue-grade-hero" className="cd-frame">
       <div className="cd-frame-br" />
+      {/* Whisper-quiet sage dot-grid layer fades behind the hero,
+       * masked to the centre so it never reads as decoration. The
+       * gradient sits on top and provides the warm-up tint. */}
+      <div
+        aria-hidden
+        className="cd-grid-bg"
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+        }}
+      />
       <div
         style={{
+          position: 'relative',
           padding: '30px 32px',
           background: 'linear-gradient(180deg, rgba(111,227,181,0.07), transparent 70%)',
           display: 'grid',

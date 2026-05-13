@@ -392,21 +392,82 @@ function IssuesPageContent() {
             </div>
           ) : (
             showEmptyReviewCard && (
+              /* Empty NEEDS YOU — tactical corner-bracket frame + a
+               * sage check-stroke that draws on mount. Inverts the
+               * "this is loaded, pay attention" gesture to mean "the
+               * console framed the answer for you, and it's good." */
               <section
                 aria-label="Review section"
-                className="cd-card"
-                style={{ padding: '32px 36px' }}
+                className="cd-frame"
+                style={{ padding: 0 }}
               >
-                <h2
-                  className="font-display font-extrabold"
-                  style={{ fontSize: 22, color: 'var(--cd-fg-1)', letterSpacing: '-0.02em', marginBottom: 6 }}
+                <div className="cd-frame-br" />
+                <div
+                  style={{
+                    padding: '36px 36px 36px 32px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 24,
+                  }}
                 >
-                  Review is clear.
-                </h2>
-                <p style={{ fontSize: 14, color: 'var(--cd-fg-3)', lineHeight: 1.55, maxWidth: 560 }}>
-                  All open issues are either in progress or in the Todo queue.
-                  The next thing that needs you will land here.
-                </p>
+                  <svg
+                    width="56"
+                    height="56"
+                    viewBox="0 0 56 56"
+                    aria-hidden
+                    style={{ flexShrink: 0 }}
+                  >
+                    <circle
+                      cx="28"
+                      cy="28"
+                      r="26"
+                      fill="none"
+                      stroke="var(--cd-green)"
+                      strokeWidth="1.4"
+                      opacity="0.35"
+                    />
+                    <path
+                      d="M16 29 L24 37 L40 19"
+                      fill="none"
+                      stroke="var(--cd-green)"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="cd-stroke-on-mount"
+                      style={
+                        {
+                          ['--cd-stroke-length']: '52',
+                          filter: 'drop-shadow(0 0 6px var(--cd-green-glow))',
+                        } as React.CSSProperties &
+                          Record<`--${string}`, string>
+                      }
+                    />
+                  </svg>
+                  <div>
+                    <h2
+                      className="font-display font-extrabold"
+                      style={{
+                        fontSize: 24,
+                        color: 'var(--cd-fg-1)',
+                        letterSpacing: '-0.02em',
+                        marginBottom: 6,
+                      }}
+                    >
+                      Review is clear.
+                    </h2>
+                    <p
+                      style={{
+                        fontSize: 14,
+                        color: 'var(--cd-fg-3)',
+                        lineHeight: 1.55,
+                        maxWidth: 560,
+                      }}
+                    >
+                      All open issues are either in progress or in the Todo
+                      queue. The next thing that needs you will land here.
+                    </p>
+                  </div>
+                </div>
               </section>
             )
           )}
@@ -465,14 +526,24 @@ function IssuesPageContent() {
                   {inProgressBreakdown.opening_pr} opening PR ·{' '}
                   {inProgressBreakdown.validating} validating
                 </span>
+                {/* Hint chip, not a button — the outer <button> is the
+                 *  toggle. Styled as a quiet caption + chevron rather
+                 *  than wearing cd-btn chrome so it can't be confused
+                 *  for an interactive element. */}
                 <span
-                  className="cd-btn cd-btn--ghost cd-btn--sm"
-                  style={{ marginLeft: 'auto', pointerEvents: 'none' }}
                   aria-hidden
+                  style={{
+                    marginLeft: 'auto',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    fontSize: 13,
+                    color: 'var(--cd-fg-3)',
+                  }}
                 >
                   <span
                     className="material-symbols-outlined"
-                    style={{ fontSize: 13 }}
+                    style={{ fontSize: 14 }}
                   >
                     {inProgressOpen ? 'expand_less' : 'expand_more'}
                   </span>

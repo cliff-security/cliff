@@ -12,6 +12,12 @@
 import type { ReactElement, CSSProperties } from 'react'
 import './issues.css'
 
+/** Inline-style escape hatch for CSS custom properties (`--c` etc.).
+ *  TypeScript doesn't allow arbitrary keys on `CSSProperties`; this
+ *  type opens it up just for our cd-loader colour override without
+ *  needing a double cast at the call site. */
+type CSSVar = CSSProperties & Record<`--${string}`, string | undefined>
+
 export type IssueStage =
   | 'todo'
   | 'planning'
@@ -103,7 +109,7 @@ export function IssueStageChip({
         <span
           aria-hidden="true"
           className="cd-loader cd-loader--sm"
-          style={{ ['--c' as string]: TONE_DOT_COLOR[v.tone] } as CSSProperties}
+          style={{ '--c': TONE_DOT_COLOR[v.tone] } as CSSVar}
         />
       )}
       {v.icon && (

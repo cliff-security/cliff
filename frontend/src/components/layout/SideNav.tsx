@@ -80,28 +80,6 @@ function CliffWordmark() {
   )
 }
 
-/**
- * Derive a 2-character avatar from a GitHub-style repo URL.
- * "github.com/linear/billing" → "LB". Falls back to the first two chars of
- * the provider name if the URL is unparseable.
- */
-function repoInitials(repoUrl: string | undefined, providerName: string): string {
-  if (repoUrl) {
-    try {
-      const stripped = repoUrl.replace(/^https?:\/\//, '').replace(/\.git$/, '')
-      const parts = stripped.split('/').filter(Boolean)
-      if (parts.length >= 3) {
-        const owner = parts[1]
-        const repo = parts[2]
-        return `${owner[0] ?? ''}${repo[0] ?? ''}`.toUpperCase()
-      }
-    } catch {
-      // fall through
-    }
-  }
-  return providerName.slice(0, 2).toUpperCase()
-}
-
 function repoDisplayName(repoUrl: string): string {
   const stripped = repoUrl.replace(/^https?:\/\//, '').replace(/\.git$/, '')
   const parts = stripped.split('/').filter(Boolean)
@@ -146,10 +124,7 @@ function WorkspaceSwitcher() {
           >
             ::
           </span>
-          <span
-            className="truncate"
-            data-repo-initials={repoInitials(repoUrl, githubInt?.provider_name ?? 'GH')}
-          >
+          <span className="truncate">
             {repoDisplayName(repoUrl)}
           </span>
           <span

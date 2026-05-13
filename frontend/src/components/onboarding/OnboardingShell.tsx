@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { useLayoutEffect, type ReactNode } from 'react'
 import StepProgress from './StepProgress'
 
 export interface OnboardingShellProps {
@@ -25,7 +25,10 @@ export default function OnboardingShell({ step, children }: OnboardingShellProps
   // Onboarding lives outside AppLayout (no sidebar), so the global
   // L-bracket registration marks need to anchor at the true viewport
   // corners instead of offsetting for the sidebar that isn't there.
-  useEffect(() => {
+  // `useLayoutEffect` keeps the body attribute coherent across paint
+  // frames during route transitions — `useEffect` could let the
+  // brackets jump position for one frame.
+  useLayoutEffect(() => {
     document.body.dataset.cliffFrame = 'viewport'
     return () => {
       delete document.body.dataset.cliffFrame

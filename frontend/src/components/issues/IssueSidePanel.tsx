@@ -285,7 +285,7 @@ function SidePanelHeader({
 // Section primitives
 // ---------------------------------------------------------------------------
 
-function SectionTitle({ title, hint }: { icon?: string; title: string; hint?: string }) {
+function SectionTitle({ title, hint }: { title: string; hint?: string }) {
   // Sentence-case sub-section labels per the readability brief (E2).
   // Lowercase incoming caps so existing call sites (which pass
   // "FINDING", "ACTIVITY", etc.) render as "Finding", "Activity".
@@ -323,7 +323,7 @@ function SPPlan({
       className="px-5 py-5"
       style={{ borderBottom: '1px solid var(--outline-variant)' }}
     >
-      <SectionTitle icon="auto_awesome" title="Plan" />
+      <SectionTitle title="Plan" />
       {planSteps.length > 0 ? (
         <ol className="space-y-2.5">
           {planSteps.map((step, i) => (
@@ -465,7 +465,7 @@ function SPPlanDrafting({ stage }: { stage: IssueStage }) {
       className="px-5 py-5"
       style={{ borderBottom: '1px solid var(--outline-variant)' }}
     >
-      <SectionTitle icon="auto_awesome" title="Plan" hint="Drafting…" />
+      <SectionTitle title="Plan" hint="Drafting…" />
       <div
         className="rounded-xl p-4 flex items-start gap-3"
         style={{ background: 'var(--primary-container)' }}
@@ -496,7 +496,7 @@ function SPPullRequest({ prUrl }: { prUrl: string | null }) {
       className="px-5 py-5"
       style={{ borderBottom: '1px solid var(--outline-variant)' }}
     >
-      <SectionTitle icon="merge_type" title="Pull request" />
+      <SectionTitle title="Pull request" />
       {prUrl ? (
         <a
           href={prUrl}
@@ -534,7 +534,7 @@ function SPValidation({ stage }: { stage: IssueStage }) {
       className="px-5 py-5"
       style={{ borderBottom: '1px solid var(--outline-variant)' }}
     >
-      <SectionTitle icon="task_alt" title="Validation" />
+      <SectionTitle title="Validation" />
       <div
         className="rounded-xl p-4 bg-tertiary-container text-on-tertiary-container"
       >
@@ -565,7 +565,7 @@ function SPFinding({ finding }: { finding: Finding }) {
       className="px-5 py-5"
       style={{ borderBottom: '1px solid var(--outline-variant)' }}
     >
-      <SectionTitle icon="bug_report" title="Finding" />
+      <SectionTitle title="Finding" />
       <dl className="grid grid-cols-[110px_1fr] gap-y-2 text-[12px]">
         <dt className="text-on-surface-variant">CWE</dt>
         <dd className="font-mono text-on-surface">{cwe ?? '—'}</dd>
@@ -605,7 +605,7 @@ function SPFinding({ finding }: { finding: Finding }) {
 function SPActivity({ workspaceId }: { workspaceId: string | null }) {
   return (
     <section className="px-5 py-5">
-      <SectionTitle icon="schedule" title="Activity" />
+      <SectionTitle title="Activity" />
       {workspaceId ? (
         <p className="text-[12px] text-on-surface-variant">
           Detailed agent timeline will land in a follow-up. The Issues row reflects

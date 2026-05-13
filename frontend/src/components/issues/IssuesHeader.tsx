@@ -87,9 +87,13 @@ export function IssuesHeader({
 
   const total = findings.length
 
-  const subtitle = `${counts.open} open · ${counts.closedLast7} closed in the last 7 days · ${
-    grade ? `grade ${grade}` : 'pre-assessment'
-  }`
+  const subtitle = useMemo(
+    () =>
+      `${counts.open} open · ${counts.closedLast7} closed in the last 7 days · ${
+        grade ? `grade ${grade}` : 'pre-assessment'
+      }`,
+    [counts.open, counts.closedLast7, grade],
+  )
 
   // Type filter — display-only for Phase 1 (no callback), parked at "all".
   const typeOptions: FilterOption[] = [

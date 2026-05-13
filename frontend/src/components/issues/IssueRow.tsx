@@ -1,23 +1,14 @@
 /**
  * IssueRow — Cliff Cyberdeck issue list row.
  *
- * Grid layout mirrors `ui-kit/issues.jsx` exactly:
- *   [60px severity] [22px type-icon] [1fr title+meta] [150px stage] [130px action]
- *
- * - cd-row hover (sage left border) + hairline top border between rows
- * - title 13.5px in fg-2, mono meta line with cyan file path, amber CVSS,
- *   fg-4 timestamp
- * - action: cd-btn primary (Review plan / Review PR) or outline (Start)
+ * Grid layout via `.cd-issue-row` utility class (60px / 22px / 1fr / 150px /
+ * 130px). Title + mono meta line (cyan file path, fg-3 cwe, amber CVSS,
+ * fg-5 timestamp).
  *
  * Click semantics:
- * - Click the row body → `onInspect(finding)` opens the side panel for
- *   read-only inspection. No workspace is created, no repo guard fires.
- * - Click the action button → `onActivate(finding)` runs the existing
- *   handler that creates a workspace + opens the panel, gated by the
- *   GitHub-integration check on the parent page.
- *
- * That split (inspect-vs-activate) is the ui-kit's intent: clicking a row
- * always reveals the finding; the explicit CTA is what "starts" work.
+ * - Row body → `onInspect(finding)` opens the side panel (read-only).
+ * - Action button → `onActivate(finding)` runs the workspace/start flow
+ *   (gated by the GitHub-integration check on the parent page).
  */
 import { memo, useState, type KeyboardEvent, type MouseEvent, type ReactElement } from 'react'
 import type { Finding, IssueStage } from '../../api/client'
@@ -36,6 +27,28 @@ const TYPE_ICON: Record<string, string> = {
 }
 
 type ActionKind = 'review_plan' | 'review_pr' | 'start' | 'view'
+
+interface RowMeta {
+  cvss: number | null
+  found: string | null
+  file: string | null
+  line: number | string | null
+  cwe: string | null
+}
+
+/** Typed adapter for the loosely-shaped `raw_payload` blob. Centralises
+ *  the casts in one place so call sites stay readable. */
+function readRowMeta(payload: Finding['raw_payload']): RowMeta {
+  const p = (payload ?? {}) as Record<string, unknown>
+  return {
+    cvss: typeof p.cvss === 'number' ? p.cvss : null,
+    found: typeof p.found === 'string' ? p.found : null,
+    file: typeof p.file === 'string' ? p.file : null,
+    line:
+      typeof p.line === 'number' || typeof p.line === 'string' ? p.line : null,
+    cwe: typeof p.cwe === 'string' ? p.cwe : null,
+  }
+}
 
 function actionForStage(stage: IssueStage): ActionKind {
   if (stage === 'plan_ready') return 'review_plan'
@@ -92,30 +105,32 @@ function IssueRowImpl({
     }
   }
 
-  const cvss = (finding.raw_payload?.cvss as number | undefined) ?? null
-  const found = (finding.raw_payload?.found as string | undefined) ?? null
-  const file = (finding.raw_payload?.file as string | undefined) ?? null
-  const line = (finding.raw_payload?.line as number | string | undefined) ?? null
-  const cwe = (finding.raw_payload?.cwe as string | undefined) ?? null
+  const { cvss, found, file, line, cwe } = readRowMeta(finding.raw_payload)
+
+  // Build an accessible label for screen readers — they hear severity +
+  // title + (optional file:line) and "Press Enter to open" semantics
+  // come from `role="row"` + `tabIndex=0`.
+  const ariaLabel = [
+    isPosture ? 'Posture finding' : `Severity ${sev}`,
+    finding.title,
+    file ? `${file}${line != null ? `:${line}` : ''}` : null,
+  ]
+    .filter(Boolean)
+    .join(' — ')
 
   return (
     <div
       role="row"
       tabIndex={0}
+      aria-label={ariaLabel}
       onClick={inspect}
       onKeyDown={handleKey}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      className={`cd-row ${focused ? 'cd-row--focus' : ''} ${dim ? 'opacity-70' : ''}`}
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '60px 22px minmax(0,1fr) 150px 130px',
-        gap: 16,
-        alignItems: 'center',
-        padding: '12px 16px',
-        borderTop: '1px solid var(--cd-rule)',
-        cursor: 'pointer',
-      }}
+      className={`cd-row cd-issue-row ${focused ? 'cd-row--focus' : ''} ${
+        dim ? 'opacity-70' : ''
+      }`}
+      style={{ cursor: 'pointer' }}
     >
       {/* 1. Severity / category chip (60px col) */}
       <div style={{ display: 'flex', alignItems: 'center' }}>

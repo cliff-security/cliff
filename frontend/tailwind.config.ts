@@ -139,8 +139,12 @@ const config: Config = {
         'cd-red': cd.red,
       },
       fontFamily: {
-        headline: ['Manrope', 'sans-serif'],
-        display: ['Manrope', 'sans-serif'],
+        // Cabinet Grotesk gives Cliff a characterful display voice
+        // (more distinctive than the Manrope-everywhere default).
+        // Manrope kept as the fallback so the page still renders
+        // sensibly before Cabinet loads.
+        headline: ['Cabinet Grotesk', 'Manrope', 'sans-serif'],
+        display: ['Cabinet Grotesk', 'Manrope', 'sans-serif'],
         body: ['Inter', 'sans-serif'],
         label: ['JetBrains Mono', 'monospace'],
         mono: ['JetBrains Mono', 'monospace'],

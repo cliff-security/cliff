@@ -6,10 +6,6 @@ interface PageShellProps {
   subtitle?: string
   /** Right-aligned slot for buttons / actions. */
   actions?: ReactNode
-  /** @deprecated — page-header breadcrumb labels were stripped in the
-   *  readability brief (E1). The H1 carries the title. The prop is
-   *  retained so existing callers compile but the value is ignored. */
-  breadcrumb?: string | null
   /** Optional content rendered between the topbar and the body — used
    *  for sticky filter rows (Issues) directly under the title strip. */
   toolbar?: ReactNode

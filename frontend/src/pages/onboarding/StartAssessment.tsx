@@ -37,6 +37,15 @@ export default function StartAssessment() {
     if (status !== 'complete') return
     const timer = window.setTimeout(() => {
       onboardingStorage.clear()
+      // Flag for the dashboard's one-time post-onboarding curtain — the
+      // dashboard reads + clears this on first paint to play a brief
+      // `cliff.` lockup fade-out as a celebratory hand-off.
+      try {
+        sessionStorage.setItem('cliff_post_onboarding', '1')
+      } catch {
+        // sessionStorage may throw in private mode; the curtain just
+        // doesn't show, which is the safe fallback.
+      }
       navigate('/dashboard')
     }, 900)
     return () => window.clearTimeout(timer)
@@ -53,6 +62,11 @@ export default function StartAssessment() {
             onBack={() => navigate('/onboarding/ai')}
             onNext={() => {
               onboardingStorage.clear()
+              try {
+                sessionStorage.setItem('cliff_post_onboarding', '1')
+              } catch {
+                /* swallow — curtain just doesn't show in private mode */
+              }
               navigate('/dashboard')
             }}
             nextLabel={

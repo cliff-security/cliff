@@ -11,6 +11,7 @@ import {
   IssueSeverityBadge,
   type IssueSeverityKind,
 } from '@/components/issues/IssueSeverityBadge'
+import { SEVERITY_COLOR_VAR } from '@/components/issues/severityTokens'
 import IssueDeltaChip from './IssueDeltaChip'
 
 type Row = {
@@ -19,12 +20,9 @@ type Row = {
   weekly_delta: number
 }
 
-const SEVERITY_FILL: Record<IssueSeverityKind, string> = {
-  critical: 'var(--cd-red)',
-  high: 'var(--cd-amber)',
-  medium: 'var(--cd-cyan)',
-  low: 'var(--cd-fg-4)',
-}
+// Severity → CSS variable mapping is owned by IssueSeverityBadge so
+// the chip and the stacked bar can't drift apart.
+const SEVERITY_FILL = SEVERITY_COLOR_VAR
 
 export default function OpenBySeverityCard({
   rows,

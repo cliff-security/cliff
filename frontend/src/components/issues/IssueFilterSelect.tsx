@@ -1,22 +1,23 @@
 /**
  * IssueFilterSelect — Cliff Cyberdeck dropdown filter.
  *
- * Mirrors `FilterSelect` from `ui-kit/issues.jsx` exactly:
- *  - mono uppercase label inside the trigger ("TYPE: ALL")
+ * Mirrors `FilterSelect` from `ui-kit/issues.jsx`:
+ *  - sentence-case trigger ("Type All") in proportional sans
  *  - sage tinted trigger + sage label when a non-default value is selected
- *  - dropdown panel under the trigger, options in mono with optional
+ *  - dropdown panel under the trigger, options in sans 13px with optional
  *    severity dot, count on the right
  *  - click-outside closes
+ *  - arrow-key keyboard nav (↑ / ↓ / Home / End / Enter / Esc) so
+ *    keyboard users get parity with mouse users
  */
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
-
-/**
- * Hover state for the dropdown rows. The ui-kit prototype renders a
- * sage-soft fill on hover that's visually distinct from the selected
- * sage-soft (which also gets sage text). Plain rows go from
- * `transparent` → `rgba(214,224,244,0.04)` so the row "lights up"
- * without competing with the selected indicator.
- */
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+} from 'react'
 
 export interface FilterOption {
   /** Stable id for selection (`'all'` is the default, treated as inactive). */
@@ -36,6 +37,39 @@ interface IssueFilterSelectProps {
   onChange: (id: string) => void
 }
 
+// Static-portion styles for the dropdown panel + options. Hoisted out of
+// render per code review #4 — these never change so they shouldn't be
+// recreated on every render.
+const PANEL_STYLE: CSSProperties = {
+  position: 'absolute',
+  top: '100%',
+  left: 0,
+  marginTop: 4,
+  minWidth: '100%',
+  background: 'var(--cd-card)',
+  border: '1px solid var(--cd-rule)',
+  boxShadow: '0 12px 24px rgba(0,0,0,0.40)',
+  zIndex: 30,
+  padding: '4px 0',
+  borderRadius: 2,
+}
+
+const OPTION_BASE_STYLE: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  width: '100%',
+  textAlign: 'left',
+  padding: '8px 14px',
+  border: 'none',
+  cursor: 'pointer',
+  fontFamily: 'var(--cd-sans)',
+  fontSize: 13,
+  letterSpacing: 0,
+  textTransform: 'none',
+  transition: 'background var(--cd-fast), color var(--cd-fast)',
+}
+
 export function IssueFilterSelect({
   label,
   value,
@@ -45,28 +79,84 @@ export function IssueFilterSelect({
   const [open, setOpen] = useState(false)
   const [hovered, setHovered] = useState<string | null>(null)
   const [triggerHover, setTriggerHover] = useState(false)
+  /** User-driven keyboard cursor override. `null` means "use the
+   *  selected value's index". Set by arrow keys; reset when the
+   *  dropdown closes via the toggle handler. */
+  const [navIdx, setNavIdx] = useState<number | null>(null)
   const wrapRef = useRef<HTMLDivElement | null>(null)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
   const current = options.find((o) => o.id === value) ?? options[0]
 
-  // Active means "the filter is doing something" — i.e. anything but the
-  // default `all` option. Drives the sage-tinted trigger appearance.
+  // Active means "the filter is doing something" — anything but `all`.
+  // Drives the sage-tinted trigger appearance.
   const isActive = value !== 'all'
 
+  // Derive the keyboard cursor lazily — when the user hasn't pressed
+  // an arrow key yet (`navIdx === null`), point at the current value.
+  const selectedIdx = options.findIndex((o) => o.id === value)
+  const focusedIdx =
+    navIdx !== null ? navIdx : selectedIdx >= 0 ? selectedIdx : 0
+
+  // Outside-click closes.
   useEffect(() => {
     if (!open) return
     const onDoc = (e: MouseEvent) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
         setOpen(false)
+        setNavIdx(null)
       }
     }
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
   }, [open])
 
-  // Trigger styling — mirrors the ui-kit FilterSelect with an added
-  // hover state. Hover brightens the border (`--cd-rule` → `--cd-rule-2`)
-  // and faintly lifts the background, signaling clickability without
-  // committing to the sage-active visual.
+  const commit = useCallback(
+    (idx: number) => {
+      const opt = options[idx]
+      if (!opt) return
+      onChange(opt.id)
+      setOpen(false)
+      setNavIdx(null)
+      // Return focus to the trigger so subsequent Tab order is sensible.
+      triggerRef.current?.focus()
+    },
+    [onChange, options],
+  )
+
+  const handleTriggerKey = (e: KeyboardEvent<HTMLButtonElement>) => {
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      setOpen(true)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setOpen(true)
+    }
+  }
+
+  const handlePanelKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      setOpen(false)
+      setNavIdx(null)
+      triggerRef.current?.focus()
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setNavIdx((focusedIdx + 1) % options.length)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setNavIdx(focusedIdx <= 0 ? options.length - 1 : focusedIdx - 1)
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      setNavIdx(0)
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      setNavIdx(options.length - 1)
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      commit(focusedIdx)
+    }
+  }
+
   const lit = triggerHover || open
   const triggerStyle: CSSProperties = {
     display: 'inline-flex',
@@ -80,10 +170,10 @@ export function IssueFilterSelect({
     textTransform: 'none',
     background: isActive
       ? lit
-        ? 'rgba(111, 227, 181, 0.14)'
-        : 'rgba(111, 227, 181, 0.08)'
+        ? 'var(--cd-green-tint-3)'
+        : 'var(--cd-green-tint-2)'
       : lit
-        ? 'rgba(214, 224, 244, 0.05)'
+        ? 'var(--cd-ink-tint-1)'
         : 'transparent',
     color: isActive ? 'var(--cd-green)' : lit ? 'var(--cd-fg-1)' : 'var(--cd-fg-2)',
     border: `1px solid ${
@@ -104,8 +194,15 @@ export function IssueFilterSelect({
   return (
     <div ref={wrapRef} style={{ position: 'relative' }}>
       <button
+        ref={triggerRef}
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() =>
+          setOpen((o) => {
+            if (o) setNavIdx(null)
+            return !o
+          })
+        }
+        onKeyDown={handleTriggerKey}
         onMouseEnter={() => setTriggerHover(true)}
         onMouseLeave={() => setTriggerHover(false)}
         style={triggerStyle}
@@ -147,31 +244,24 @@ export function IssueFilterSelect({
       {open && (
         <div
           role="listbox"
-          style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            marginTop: 4,
-            minWidth: '100%',
-            background: 'var(--cd-card)',
-            border: '1px solid var(--cd-rule)',
-            boxShadow: '0 12px 24px rgba(0,0,0,0.40)',
-            zIndex: 30,
-            padding: '4px 0',
-            borderRadius: 2,
+          tabIndex={-1}
+          onKeyDown={handlePanelKey}
+          style={PANEL_STYLE}
+          // Auto-focus the panel on mount so keyboard nav works without
+          // an extra Tab press after Enter on the trigger.
+          ref={(el) => {
+            if (el) el.focus()
           }}
         >
-          {options.map((o) => {
+          {options.map((o, idx) => {
             const selected = o.id === value
-            const isHovered = hovered === o.id
-            // Selected wins over hover for colour; hover layers on a
-            // subtle ink-soft fill so the focus is unambiguous.
+            const isHovered = hovered === o.id || focusedIdx === idx
             const rowBg = selected
               ? isHovered
-                ? 'rgba(111, 227, 181, 0.14)'
-                : 'rgba(111, 227, 181, 0.08)'
+                ? 'var(--cd-green-tint-3)'
+                : 'var(--cd-green-tint-2)'
               : isHovered
-                ? 'rgba(214, 224, 244, 0.05)'
+                ? 'var(--cd-ink-tint-1)'
                 : 'transparent'
             const rowColor = selected
               ? 'var(--cd-green)'
@@ -184,29 +274,16 @@ export function IssueFilterSelect({
                 type="button"
                 role="option"
                 aria-selected={selected}
-                onClick={() => {
-                  onChange(o.id)
-                  setOpen(false)
-                }}
+                onClick={() => commit(idx)}
                 onMouseEnter={() => setHovered(o.id)}
-                onMouseLeave={() => setHovered((h) => (h === o.id ? null : h))}
+                onMouseLeave={() =>
+                  setHovered((h) => (h === o.id ? null : h))
+                }
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  width: '100%',
-                  textAlign: 'left',
-                  padding: '8px 14px',
+                  ...OPTION_BASE_STYLE,
                   background: rowBg,
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontFamily: 'var(--cd-sans)',
-                  fontSize: 13,
-                  fontWeight: selected ? 600 : 500,
-                  letterSpacing: 0,
-                  textTransform: 'none',
                   color: rowColor,
-                  transition: 'background var(--cd-fast), color var(--cd-fast)',
+                  fontWeight: selected ? 600 : 500,
                 }}
               >
                 {o.dot ? (

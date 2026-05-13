@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useLayoutEffect } from 'react'
 import { useNavigate } from 'react-router'
 
 /**
@@ -11,8 +11,10 @@ export default function Welcome() {
 
   // No sidebar on this route — pin the registration marks to the
   // viewport corners instead of offsetting for a sidebar that isn't
-  // rendered. Mirrors OnboardingShell's behavior.
-  useEffect(() => {
+  // rendered. Mirrors OnboardingShell's behaviour. `useLayoutEffect`
+  // keeps the body attribute coherent across paint frames during
+  // route transitions.
+  useLayoutEffect(() => {
     document.body.dataset.cliffFrame = 'viewport'
     return () => {
       delete document.body.dataset.cliffFrame
