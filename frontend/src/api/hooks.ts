@@ -141,6 +141,24 @@ export function useExecuteAgent(workspaceId: string | undefined) {
   })
 }
 
+// Cancel the currently-running agent run for a workspace. The backend
+// flips the agent_run to status='cancelled'; the issue-derivation then
+// surfaces the finding as 'failed' (recoverable via Retry) rather than
+// spinning on "Thinking" forever.
+export function useCancelAgentRun(workspaceId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (runId: string) => api.cancelAgentRun(workspaceId!, runId),
+    onSuccess: () => {
+      if (workspaceId) {
+        qc.invalidateQueries({ queryKey: ['agent-runs', workspaceId] })
+        qc.invalidateQueries({ queryKey: ['sidebar', workspaceId] })
+      }
+      qc.invalidateQueries({ queryKey: ['findings'] })
+    },
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Workspaces (Phase 5)
 // ---------------------------------------------------------------------------

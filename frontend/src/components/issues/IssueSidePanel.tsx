@@ -21,6 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentRun, ExceptionReason, Finding, IssueStage } from '../../api/client'
 import {
   useAgentRuns,
+  useCancelAgentRun,
   useExecuteAgent,
   useRejectFinding,
   useSidebar,
@@ -840,11 +841,18 @@ function DefaultFooter({
 }) {
   const workspaceId = finding.derived?.workspace_id ?? null
   const executeAgent = useExecuteAgent(workspaceId ?? undefined)
+  const cancelAgentRun = useCancelAgentRun(workspaceId ?? undefined)
   const updateFinding = useUpdateFinding()
   const aiRequired = useAIRequired()
   const { open: openAIProvider } = useOpenAIProvider()
   const blockedByAI = !aiRequired.enabled && !aiRequired.loading
   const prUrl = finding.derived?.pr_url ?? null
+  // The in-flight footer's "Cancel run" needs the id of the run actually
+  // executing. There is at most one running run per workspace (the
+  // AgentBusy guard enforces it), so first-match is correct.
+  const { data: agentRuns } = useAgentRuns(workspaceId ?? undefined)
+  const runningRunId =
+    agentRuns?.find((r) => r.status === 'running')?.id ?? null
 
   if (stage === 'todo') {
     return (
@@ -879,7 +887,14 @@ function DefaultFooter({
             We&rsquo;ll notify you when the next step is ready.
           </div>
         </div>
-        <TextButton>Cancel run</TextButton>
+        <TextButton
+          onClick={() => {
+            if (runningRunId) cancelAgentRun.mutate(runningRunId)
+          }}
+          disabled={!runningRunId || cancelAgentRun.isPending}
+        >
+          {cancelAgentRun.isPending ? 'Cancelling…' : 'Cancel run'}
+        </TextButton>
       </div>
     )
   }

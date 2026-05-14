@@ -561,6 +561,11 @@ export const api = {
       `/api/workspaces/${workspaceId}/agent-runs/${runId}`,
       { method: 'PATCH', body: JSON.stringify(data) },
     ),
+  cancelAgentRun: (workspaceId: string, runId: string) =>
+    request<{ status: string; agent_run_id: string }>(
+      `/api/workspaces/${workspaceId}/agent-runs/${runId}/cancel`,
+      { method: 'POST' },
+    ),
 
   // Sidebar state (nested under workspaces)
   getSidebar: (workspaceId: string) =>
