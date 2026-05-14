@@ -172,9 +172,16 @@ async def test_pool_resolver_failure_does_not_block_spawn(tmp_path: Path) -> Non
         finally:
             await pool.stop_all()
 
-    # Spawn succeeded; AI env absent.
-    assert "ANTHROPIC_API_KEY" not in captured_env
-    assert "OPENROUTER_API_KEY" not in captured_env
+    # Spawn succeeded despite the resolver crash. The workspace-isolation
+    # guard is always injected, so a non-None env with GIT_CEILING_DIRECTORIES
+    # pointing at the workspace dir proves the spawn went through.
+    #
+    # Note: we can't assert AI keys are *absent* from ``captured_env`` — the
+    # env is ``{**os.environ, **injected}``, and the host running the test
+    # may legitimately have ``OPENROUTER_API_KEY`` etc. set. The contract
+    # under test is "the resolver's crash didn't abort the spawn", which the
+    # presence of the guard env confirms.
+    assert captured_env.get("GIT_CEILING_DIRECTORIES") == str(workspace_dir)
 
 
 async def test_pool_merges_caller_env_on_top_of_resolver(tmp_path: Path) -> None:

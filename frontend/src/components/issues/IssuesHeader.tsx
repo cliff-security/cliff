@@ -69,7 +69,11 @@ export function IssuesHeader({
           closedLast7 += 1
         }
       }
-      const sev = (f.raw_severity ?? 'medium').toLowerCase()
+      // Use ``normalized_priority`` (canonical critical/high/medium/low) so
+      // the chip count agrees with the IssuesPage filter predicate. Falling
+      // back on ``raw_severity`` here would mis-bucket scanner-native values
+      // like ``WARNING`` and silently drop them from the chips.
+      const sev = (f.normalized_priority ?? '').toLowerCase()
       if (sev in bySev) bySev[sev] += 1
 
       const t = (f.type ?? 'vulnerability').toLowerCase()

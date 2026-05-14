@@ -101,6 +101,35 @@ Execute the remediation plan above by making code changes in the repository.
 **Repository:** `{{ repo_url }}`
 {% endif %}
 
+### Workspace safety — non-negotiable
+
+You run inside an isolated workspace directory. Everything you create or
+modify lives under `./repo/` (the clone of the target repository). These
+rules are absolute — a violation can corrupt the operator's machine:
+
+- **Stay in the workspace.** Never `cd` above the workspace directory.
+  Never use absolute paths outside it. Never read or write `$HOME`,
+  `~/.ssh`, `~/.aws`, `~/.config`, `/etc`, `/usr`, `/bin`, or any system
+  path. Your entire job happens under `./repo/`.
+- **Verify the clone before any git command.** After `git clone … repo/`,
+  confirm `repo/.git` exists (see step 1). If it does not, **STOP** and
+  report failure — do **not** run `git` from the workspace root. `git`
+  searches parent directories for `.git`; running it without a valid
+  `repo/.git` will silently operate on the wrong repository.
+- **Run every `git` / `gh` command from inside `./repo/`**, never from the
+  workspace root.
+- **Never run destructive or escaping commands:** `rm -rf`, `rmdir`,
+  `git reset --hard`, `git clean`, `git push --force`, `sudo`, `chmod` /
+  `chown` on anything outside `./repo/`, `mkfs`, `dd`, or piping a
+  download into a shell (`curl … | sh`). These are blocked and will fail
+  the run.
+- **Deleting a file** inside the repo: use `git rm <path>` (tracked,
+  reviewable in the diff), never a bare `rm`. File removal is a
+  permissioned action — expect it to require approval.
+- If a plan step seems to need any of the above, do **not** attempt it —
+  set `status: "needs_approval"` in your output and explain in
+  `error_details`.
+
 ### Workflow
 
 **Your primary goal is to create a draft PR. Prioritize completing the full workflow (clone → fix → commit → push → PR) over running tests.**
@@ -112,6 +141,8 @@ Execute the remediation plan above by making code changes in the repository.
    git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
 {% endif %}
    git clone --depth 50 "{{ repo_url or '$OPENSEC_REPO_URL' }}" repo/
+   # Verify the clone succeeded — if repo/.git is missing, STOP here.
+   test -d repo/.git || { echo "clone failed: repo/.git missing"; exit 1; }
    cd repo/
    git checkout -b opensec/fix/{{ finding.source_id | lower | replace(' ', '-') | truncate(40, True, '') }}
    ```

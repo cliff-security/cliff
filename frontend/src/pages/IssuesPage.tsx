@@ -16,6 +16,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
+import { useQueryClient } from '@tanstack/react-query'
 import type { Finding } from '../api/client'
 import { api } from '../api/client'
 import { useDashboard } from '../api/dashboard'
@@ -47,6 +48,7 @@ function IssuesPageContent() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const openId = searchParams.get(OPEN_PARAM)
+  const queryClient = useQueryClient()
 
   const [solving, setSolving] = useState<string | null>(null)
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('all')
@@ -84,17 +86,20 @@ function IssuesPageContent() {
     refetch,
   } = useFindings({ scope: 'current', refetchIntervalMs: 5000 })
 
-  const { sections, inProgressBreakdown, totalIssues } = useMemo(() => {
+  const { sections, totalIssues } = useMemo(() => {
     const review: Finding[] = []
     const inProgress: Finding[] = []
     const todo: Finding[] = []
     const done: Finding[] = []
-    const breakdown = { planning: 0, generating: 0, opening_pr: 0, validating: 0 }
     let total = 0
     for (const f of findings ?? []) {
+      // Canonical severity = ``normalized_priority`` (server-mapped to
+      // critical/high/medium/low). The IssuesHeader chip count uses the same
+      // field, so the filter and the chip always agree. ``raw_severity`` is
+      // scanner-native (e.g. ``WARNING``/``HIGH``) and would mis-bucket here.
       if (
         severityFilter !== 'all' &&
-        (f.raw_severity ?? '').toLowerCase() !== severityFilter
+        (f.normalized_priority ?? '').toLowerCase() !== severityFilter
       ) {
         continue
       }
@@ -111,34 +116,33 @@ function IssuesPageContent() {
       total += 1
       const section = f.derived?.section ?? 'todo'
       if (section === 'review') review.push(f)
-      else if (section === 'in_progress') {
-        inProgress.push(f)
-        const stage = f.derived?.stage
-        if (stage && stage in breakdown) {
-          breakdown[stage as keyof typeof breakdown] += 1
-        }
-      } else if (section === 'done') done.push(f)
+      else if (section === 'in_progress') inProgress.push(f)
+      else if (section === 'done') done.push(f)
       else todo.push(f)
     }
     return {
       sections: { review, inProgress, todo, done },
-      inProgressBreakdown: breakdown,
       totalIssues: total,
     }
   }, [findings, severityFilter, typeFilter])
 
-  // F7 — split Review into Plans-waiting + PRs-ready buckets when both are
-  // non-empty. Single-bucket Review renders flat (no sub-headers) so the
-  // typical case stays uncluttered.
+  // F7 — split Review into Errors / Plans-waiting / PRs-ready buckets.
+  // Sub-headers render whenever more than one bucket is populated so the
+  // user can tell ``errors needing retry`` apart from the rest. Single-
+  // bucket Review renders flat (no sub-headers) so the typical case stays
+  // uncluttered.
   const reviewSplit = useMemo(() => {
     const plans: Finding[] = []
     const prs: Finding[] = []
+    const errors: Finding[] = []
     for (const f of sections.review) {
       const stage = f.derived?.stage
-      if (stage === 'plan_ready') plans.push(f)
+      if (stage === 'failed') errors.push(f)
+      else if (stage === 'plan_ready') plans.push(f)
       else if (stage === 'pr_ready' || stage === 'pr_awaiting_val') prs.push(f)
     }
-    return { plans, prs, useSubheaders: plans.length > 0 && prs.length > 0 }
+    const nonEmpty = [errors, plans, prs].filter((b) => b.length > 0).length
+    return { plans, prs, errors, useSubheaders: nonEmpty > 1 }
   }, [sections.review])
 
   const openPanel = useCallback(
@@ -158,30 +162,77 @@ function IssuesPageContent() {
 
   const startWorkspaceAndOpen = useCallback(
     async (finding: Finding) => {
-      // Workspace already exists? Just open the panel — no backend round-trip.
-      if (finding.derived?.workspace_id) {
-        openPanel(finding.id)
-        return
-      }
       setSolving(finding.id)
+      let workspaceId = finding.derived?.workspace_id ?? null
       try {
-        await api.createWorkspace({ finding_id: finding.id })
+        // POST /workspaces is idempotent server-side (one workspace per
+        // finding, forever — preserves KB + sidebar + agent runs), so the
+        // first-time path and "second click" path converge cleanly.
+        if (!workspaceId) {
+          const workspace = await api.createWorkspace({ finding_id: finding.id })
+          workspaceId = workspace.id
+        }
         openPanel(finding.id)
+        // Optimistically rewrite this finding's row in every cached
+        // findings query so the IssueRow moves out of "Todo" stage *this
+        // render*. Without this, ``solving`` clears as soon as the POST
+        // resolves but the cached row still carries ``derived.stage='todo'``
+        // until the next 5-second refetch — the user sees a flash back to
+        // "Start" before "Thinking" lands.
+        const optimisticWorkspaceId = workspaceId
+        queryClient.setQueriesData<Finding[]>(
+          { queryKey: ['findings'] },
+          (rows) =>
+            rows?.map((r) =>
+              r.id === finding.id
+                ? {
+                    ...r,
+                    status: 'in_progress',
+                    derived: {
+                      ...(r.derived ?? {
+                        section: 'in_progress',
+                        stage: 'planning',
+                        workspace_id: optimisticWorkspaceId,
+                        pr_url: null,
+                      }),
+                      section: 'in_progress',
+                      stage: 'planning',
+                      workspace_id: optimisticWorkspaceId,
+                    },
+                  }
+                : r,
+            ) ?? rows,
+        )
+        // Always fire the pipeline. If an agent is already running for this
+        // workspace the backend rejects with 409 (the AgentBusy guard) and
+        // we silently swallow it — that's exactly the state we wanted. If
+        // the workspace existed but never had agents fire (e.g. a
+        // re-assessed finding), this is what gets it unstuck.
+        if (workspaceId) {
+          api.runAllPipeline(workspaceId).catch((err) => {
+            if (err?.status !== 409) {
+              console.error('Failed to start remediation pipeline:', err)
+            }
+          })
+        }
       } catch (err) {
-        console.error('Failed to create workspace:', err)
+        console.error('Failed to start finding:', err)
       } finally {
         setSolving(null)
       }
     },
-    [openPanel],
+    [openPanel, queryClient],
   )
 
   const handleActivate = useCallback(
     (finding: Finding) => {
-      // If a workspace already exists, open the panel directly — the user
-      // already cleared the GitHub-integration guard the first time.
+      // The GitHub-integration guard only matters when we'd actually have
+      // to create the workspace (and therefore call GitHub). If a workspace
+      // already exists we skip the guard — the user has cleared it before —
+      // but still route through startWorkspaceAndOpen so the pipeline gets
+      // (re-)triggered on findings whose workspace never had agents fire.
       if (finding.derived?.workspace_id) {
-        openPanel(finding.id)
+        void startWorkspaceAndOpen(finding)
         return
       }
       if (!repoConfigured) {
@@ -191,7 +242,7 @@ function IssuesPageContent() {
       }
       void startWorkspaceAndOpen(finding)
     },
-    [openPanel, repoConfigured, startWorkspaceAndOpen],
+    [repoConfigured, startWorkspaceAndOpen],
   )
 
   /** Read-only inspection — opens the side panel for any finding without
@@ -355,28 +406,54 @@ function IssuesPageContent() {
               <div style={{ paddingTop: 10 }}>
                 {reviewSplit.useSubheaders ? (
                   <>
-                    <div className="cd-hairline" style={{ padding: '8px 18px' }}>
-                      Plans waiting · {reviewSplit.plans.length}
-                    </div>
-                    {reviewSplit.plans.map((f) => (
-                      <IssueRow
-                        key={f.id}
-                        finding={f}
-                        onInspect={openInspect}
-                        onActivate={handleActivate}
-                      />
-                    ))}
-                    <div className="cd-hairline" style={{ padding: '14px 18px 8px' }}>
-                      PRs ready · {reviewSplit.prs.length}
-                    </div>
-                    {reviewSplit.prs.map((f) => (
-                      <IssueRow
-                        key={f.id}
-                        finding={f}
-                        onInspect={openInspect}
-                        onActivate={handleActivate}
-                      />
-                    ))}
+                    {reviewSplit.errors.length > 0 && (
+                      <>
+                        <div className="cd-hairline" style={{ padding: '8px 18px' }}>
+                          Errors · {reviewSplit.errors.length}
+                        </div>
+                        {reviewSplit.errors.map((f) => (
+                          <IssueRow
+                            key={f.id}
+                            finding={f}
+                            onInspect={openInspect}
+                            onActivate={handleActivate}
+                            starting={solving === f.id}
+                          />
+                        ))}
+                      </>
+                    )}
+                    {reviewSplit.plans.length > 0 && (
+                      <>
+                        <div className="cd-hairline" style={{ padding: '8px 18px' }}>
+                          Plans waiting · {reviewSplit.plans.length}
+                        </div>
+                        {reviewSplit.plans.map((f) => (
+                          <IssueRow
+                            key={f.id}
+                            finding={f}
+                            onInspect={openInspect}
+                            onActivate={handleActivate}
+                            starting={solving === f.id}
+                          />
+                        ))}
+                      </>
+                    )}
+                    {reviewSplit.prs.length > 0 && (
+                      <>
+                        <div className="cd-hairline" style={{ padding: '14px 18px 8px' }}>
+                          PRs ready · {reviewSplit.prs.length}
+                        </div>
+                        {reviewSplit.prs.map((f) => (
+                          <IssueRow
+                            key={f.id}
+                            finding={f}
+                            onInspect={openInspect}
+                            onActivate={handleActivate}
+                            starting={solving === f.id}
+                          />
+                        ))}
+                      </>
+                    )}
                   </>
                 ) : (
                   sections.review.map((f) => (
@@ -385,6 +462,7 @@ function IssuesPageContent() {
                       finding={f}
                       onInspect={openInspect}
                       onActivate={handleActivate}
+                      starting={solving === f.id}
                     />
                   ))
                 )}
@@ -521,10 +599,13 @@ function IssuesPageContent() {
                 <span
                   style={{ fontSize: 13, color: 'var(--cd-fg-3)' }}
                 >
-                  {inProgressBreakdown.planning} planning ·{' '}
-                  {inProgressBreakdown.generating} generating ·{' '}
-                  {inProgressBreakdown.opening_pr} opening PR ·{' '}
-                  {inProgressBreakdown.validating} validating
+                  {/* The per-substage breakdown ("0 planning · 2 generating
+                       · …") was misleading: substages were derived
+                       optimistically from finding.status and don't reliably
+                       reflect what the executor is actually doing. Until we
+                       wire real progress events we just surface the
+                       aggregate count, which is always correct. */}
+                  Agents working — no action needed
                 </span>
                 {/* Hint chip, not a button — the outer <button> is the
                  *  toggle. Styled as a quiet caption + chevron rather
@@ -564,6 +645,7 @@ function IssuesPageContent() {
                       finding={f}
                       onInspect={openInspect}
                       onActivate={handleActivate}
+                      starting={solving === f.id}
                     />
                   ))}
                 </div>
@@ -621,6 +703,7 @@ function IssuesPageContent() {
                   finding={f}
                   onInspect={openInspect}
                   onActivate={handleActivate}
+                  starting={solving === f.id}
                 />
               ))}
               {sections.todo.length === 0 && (
@@ -753,7 +836,14 @@ function IssuesPageContent() {
       )}
 
       {/* Side panel — F1+F2+F3+F4+F5+F6. */}
-      {openFinding && <IssueSidePanel finding={openFinding} onClose={closePanel} />}
+      {openFinding && (
+        <IssueSidePanel
+          finding={openFinding}
+          onClose={closePanel}
+          onStart={() => handleActivate(openFinding)}
+          starting={solving === openFinding.id}
+        />
+      )}
 
       {/* Repo guard dialog (carried over from Phase 1) — Cyberdeck dress. */}
       {showRepoGuard && (

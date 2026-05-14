@@ -50,7 +50,11 @@ export function makeFinding(opts: MakeFindingOptions = {}): Finding {
     title: opts.title ?? `Issue ${id}`,
     description: null,
     raw_severity: opts.severity ?? 'high',
-    normalized_priority: 'P2',
+    // Mirror the input severity. The legacy P1/P2/P3 convention was retired
+    // in favor of critical/high/medium/low (matches IssueSeverityBadge,
+    // OpenBySeverityCard, and the IssuesPage severity filter all reading
+    // the canonical critical/high/medium/low values).
+    normalized_priority: opts.severity ?? 'high',
     asset_id: null,
     asset_label: null,
     status: 'new',

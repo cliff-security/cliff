@@ -425,10 +425,11 @@ def test_case_16_missing_sidebar_dispatches_on_finding_status() -> None:
     assert in_progress.stage == "planning"
 
 
-def test_case_17_failed_run_falls_through_to_plan_ready() -> None:
-    """A ``failed`` AgentRun (not running) should NOT be reflected as a stage in
-    Phase 1. With a plan present and no live executor run, the issue is still
-    in Review with ``plan_ready``."""
+def test_case_17_failed_executor_surfaces_failed_stage() -> None:
+    """A failed remediation_executor surfaces ``stage='failed'`` so the user
+    sees an explicit error state (with Retry CTA) instead of being looped
+    back to ``plan_ready`` — clicking Approve there would just re-fire the
+    same failure."""
     result = derive(
         make_finding(status="in_progress"),
         workspace=make_workspace(),
@@ -440,7 +441,32 @@ def test_case_17_failed_run_falls_through_to_plan_ready() -> None:
     )
 
     assert result.section == "review"
-    assert result.stage == "plan_ready"
+    assert result.stage == "failed"
+
+
+def test_failed_pr_push_surfaces_failed_stage() -> None:
+    """A completed executor whose PR push 403'd records
+    ``pull_request.status='failed'`` with a ``branch_name`` set. That must
+    surface as ``failed``, not ``pushing`` (which would spin forever)."""
+    result = derive(
+        make_finding(status="in_progress"),
+        workspace=make_workspace(),
+        sidebar=make_sidebar(
+            plan={"steps": [{"title": "Bump dep"}]},
+            pull_request={
+                "status": "failed",
+                "branch_name": "opensec/fix/cve-2024-1234",
+                "pr_url": None,
+                "error_details": "403 — GH_TOKEN lacks push access",
+            },
+        ),
+        latest_runs_by_type={
+            "remediation_executor": make_run("remediation_executor", "completed"),
+        },
+    )
+
+    assert result.section == "review"
+    assert result.stage == "failed"
 
 
 def test_case_18_conflict_pr_open_beats_planner_rerun() -> None:

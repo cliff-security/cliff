@@ -22,6 +22,10 @@ def _is_running(run: AgentRun | None) -> bool:
     return run is not None and run.status == "running"
 
 
+def _is_failed(run: AgentRun | None) -> bool:
+    return run is not None and run.status == "failed"
+
+
 def _has_plan(sidebar: SidebarState | None) -> bool:
     return sidebar is not None and bool(sidebar.plan)
 
@@ -93,10 +97,26 @@ def derive(
             return out("review", "pr_ready")
         if _is_running(executor_run):
             return out("in_progress", "generating")
+        # Failed PR push — the executor recorded its work in sidebar
+        # ``pull_request`` with ``status='failed'`` (e.g. ``GH_TOKEN lacks
+        # push access`` → 403). Must precede the ``branch_name → pushing``
+        # check below, because the branch name is set on failed pushes too
+        # and would otherwise spin the row on "Pushing branch…" forever.
+        if pr_block.get("status") == "failed":
+            return out("review", "failed")
         if pr_block.get("status") == "changes_made":
             return out("in_progress", "opening_pr")
         if pr_block.get("branch_name"):
             return out("in_progress", "pushing")
+        # Other error paths — failed executor run with no PR push attempted,
+        # or planner failure before producing a plan. Surface ``failed``
+        # explicitly so the UI can render the Retry CTA + error reason
+        # instead of the misleading ``plan_ready`` fallback (which loops:
+        # the user clicks Approve, the executor re-fails immediately).
+        if _is_failed(executor_run) or (
+            _is_failed(planner_run) and not _has_plan(sidebar)
+        ):
+            return out("review", "failed")
         if _has_plan(sidebar):
             return out("review", "plan_ready")
         if _is_running(planner_run):

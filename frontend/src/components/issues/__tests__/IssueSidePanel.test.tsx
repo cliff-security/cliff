@@ -60,14 +60,17 @@ describe('IssueSidePanel — shell (F1)', () => {
 })
 
 describe('IssueSidePanel — stage-aware section ordering (F3)', () => {
+  // Activity now sits ABOVE Finding so the user lands on Cliff's output
+  // first (agent run cards) with the static metadata below as supporting
+  // context. The PR / Plan / Validation surfaces stay at the top.
   it.each<{ stage: IssueStage; expected: string[] }>([
-    { stage: 'todo', expected: ['Finding', 'Activity'] },
-    { stage: 'planning', expected: ['Plan', 'Finding', 'Activity'] },
-    { stage: 'plan_ready', expected: ['Plan', 'Finding', 'Activity'] },
-    { stage: 'pr_ready', expected: ['Pull request', 'Plan', 'Finding', 'Activity'] },
+    { stage: 'todo', expected: ['Activity', 'Finding'] },
+    { stage: 'planning', expected: ['Plan', 'Activity', 'Finding'] },
+    { stage: 'plan_ready', expected: ['Plan', 'Activity', 'Finding'] },
+    { stage: 'pr_ready', expected: ['Pull request', 'Plan', 'Activity', 'Finding'] },
     {
       stage: 'fixed',
-      expected: ['Validation', 'Pull request', 'Plan', 'Finding', 'Activity'],
+      expected: ['Validation', 'Pull request', 'Plan', 'Activity', 'Finding'],
     },
   ])('renders sections in the right order for $stage', ({ stage, expected }) => {
     renderPanel(findingForStage(stage))
@@ -88,10 +91,9 @@ describe('IssueSidePanel — sticky footer (F4)', () => {
     },
   )
 
-  it('todo footer shows Start (S) primary and Assign to me text', () => {
+  it('todo footer shows the Start primary action', () => {
     renderPanel(findingForStage('todo'))
     expect(screen.getByRole('button', { name: /^Start/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Assign to me/i })).toBeInTheDocument()
   })
 
   it('plan_ready footer shows Approve, Refine, Reject', () => {

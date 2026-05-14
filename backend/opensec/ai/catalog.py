@@ -41,10 +41,14 @@ class ProviderInfo:
 _CATALOG: dict[AIProvider, ProviderInfo] = {
     "openrouter": ProviderInfo(
         env_var_name="OPENROUTER_API_KEY",
-        # OpenRouter publishes Claude Sonnet 4.6 with a dotted version
-        # (matches OpenRouter's own model catalog), distinct from
-        # Anthropic-direct which spells the same model "4-6" (dashes).
-        default_model="openrouter/anthropic/claude-sonnet-4.6",
+        # Tencent Hy3 preview — high-context (262K) MoE model designed for
+        # agentic workflows. ~50× cheaper per output token than Claude
+        # Sonnet 4.6 ($0.066/$0.26 per 1M input/output vs Sonnet's
+        # ~$3/$15), which keeps low-budget OpenRouter accounts from
+        # hitting the credit-exhaustion failure. OpenCode-prefixed because
+        # OpenRouter is routed via the ``openrouter/`` provider, then the
+        # OpenRouter slug ``tencent/hy3-preview`` follows.
+        default_model="openrouter/tencent/hy3-preview",
         console_url="https://openrouter.ai/keys",
         key_hint="sk-or-",
         docs_label="OpenRouter",

@@ -123,18 +123,14 @@ export default function GateRow({
           data-testid={`gate-row-${gate.id}-action`}
           disabled={busy}
           onClick={onClickAction}
-          className="self-center flex-shrink-0 inline-flex items-center gap-1 rounded-md px-2 py-1.5 hover:bg-primary-container/40 disabled:opacity-50"
-          style={{
-            fontSize: 12,
-            fontWeight: 600,
-            color: 'var(--primary, #4d44e3)',
-          }}
+          className="self-center flex-shrink-0 inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-on-primary hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          style={{ fontSize: 13, fontWeight: 600 }}
         >
           {busy ? 'Working…' : gate.action_label}
           {!busy && (
             <span
               className="material-symbols-outlined"
-              style={{ fontSize: 14 }}
+              style={{ fontSize: 16 }}
               aria-hidden
             >
               arrow_forward

@@ -320,8 +320,12 @@ async def test_start_injects_env_vars(pool: WorkspaceProcessPool):
     assert passed_env["PATH"] == "/usr/bin"
 
 
-async def test_start_without_env_vars_inherits(pool: WorkspaceProcessPool):
-    """When no env_vars, env should be None (inherit parent environment)."""
+async def test_start_without_env_vars_injects_git_ceiling(
+    pool: WorkspaceProcessPool,
+):
+    """Even with no caller env_vars, the workspace-isolation guard
+    ``GIT_CEILING_DIRECTORIES`` is always injected (set to the workspace
+    dir) so the env passed to the subprocess is never None."""
     mock_proc = _make_mock_subprocess()
     mock_httpx = _make_mock_httpx_healthy()
 
@@ -334,8 +338,9 @@ async def test_start_without_env_vars_inherits(pool: WorkspaceProcessPool):
     ):
         await pool.start("ws-noenv", Path("/tmp/ws-noenv"))
 
-    call_kwargs = mock_exec.call_args
-    assert call_kwargs.kwargs.get("env") is None
+    passed_env = mock_exec.call_args.kwargs.get("env")
+    assert passed_env is not None
+    assert passed_env["GIT_CEILING_DIRECTORIES"] == "/tmp/ws-noenv"
 
 
 async def test_get_or_start_threads_env_vars(pool: WorkspaceProcessPool):
@@ -362,8 +367,11 @@ async def test_get_or_start_threads_env_vars(pool: WorkspaceProcessPool):
     assert passed_env["GH_TOKEN"] == "ghp_thread_test"
 
 
-async def test_env_var_keys_not_values_are_safe(pool: WorkspaceProcessPool):
-    """Verify that empty env_vars dict is treated like None (inherits)."""
+async def test_empty_env_vars_still_injects_git_ceiling(
+    pool: WorkspaceProcessPool,
+):
+    """An empty env_vars dict still gets the GIT_CEILING_DIRECTORIES guard —
+    the isolation guard is never optional, regardless of caller input."""
     mock_proc = _make_mock_subprocess()
     mock_httpx = _make_mock_httpx_healthy()
 
@@ -376,8 +384,9 @@ async def test_env_var_keys_not_values_are_safe(pool: WorkspaceProcessPool):
     ):
         await pool.start("ws-empty-env", Path("/tmp/ws-empty-env"), env_vars={})
 
-    call_kwargs = mock_exec.call_args
-    assert call_kwargs.kwargs.get("env") is None
+    passed_env = mock_exec.call_args.kwargs.get("env")
+    assert passed_env is not None
+    assert passed_env["GIT_CEILING_DIRECTORIES"] == "/tmp/ws-empty-env"
 
 
 # ---------------------------------------------------------------------------

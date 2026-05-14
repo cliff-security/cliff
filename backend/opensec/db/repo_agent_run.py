@@ -133,3 +133,35 @@ async def update_agent_run(
     await db.execute(f"UPDATE agent_run SET {set_clause} WHERE id = ?", values)  # noqa: S608
     await db.commit()
     return await get_agent_run(db, run_id)
+
+
+async def reconcile_orphaned_agent_runs(db: aiosqlite.Connection) -> int:
+    """Mark ``queued``/``running`` rows as ``failed`` at startup.
+
+    The asyncio task that drives each ``queued``/``running`` row lives inside
+    the backend process — when uvicorn reloads (or the process crashes)
+    every in-flight task dies but the DB row is left mid-execution.
+    Without this, the issue-derivation returns ``stage='generating'`` (or
+    similar) forever, the sidebar spins on "Thinking…", and the user has
+    no path to recover short of running raw SQL.
+
+    Mirrors :func:`opensec.db.dao.assessment.reconcile_orphaned_assessments`
+    for the agent_run table. Idempotent — returns the number of rows updated.
+    """
+    now_iso = datetime.now(UTC).isoformat()
+    interrupted_msg = (
+        "**Agent run interrupted.** The backend restarted while this agent "
+        "was working. Click Approve / Start to retry."
+    )
+    cursor = await db.execute(
+        """
+        UPDATE agent_run
+           SET status = 'failed',
+               completed_at = COALESCE(completed_at, ?),
+               summary_markdown = COALESCE(summary_markdown, ?)
+         WHERE status IN ('queued', 'running')
+        """,
+        (now_iso, interrupted_msg),
+    )
+    await db.commit()
+    return cursor.rowcount

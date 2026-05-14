@@ -18,8 +18,10 @@
  * runs) is loaded lazily via existing hooks when a workspace exists.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ExceptionReason, Finding, IssueStage } from '../../api/client'
+import type { AgentRun, ExceptionReason, Finding, IssueStage } from '../../api/client'
 import {
+  useAgentRuns,
+  useCancelAgentRun,
   useExecuteAgent,
   useRejectFinding,
   useSidebar,
@@ -27,6 +29,8 @@ import {
 } from '../../api/hooks'
 import { useAIRequired } from '../../api/aiProvider'
 import { useOpenAIProvider } from '../ai-provider'
+import { CliffSpinner } from '../CliffSpinner'
+import Markdown from '../Markdown'
 import { IssueFilterChip } from './IssueFilterChip'
 import { IssueSeverityBadge, type IssueSeverityKind } from './IssueSeverityBadge'
 import { IssueStageChip } from './IssueStageChip'
@@ -34,6 +38,10 @@ import { IssueStageChip } from './IssueStageChip'
 interface IssueSidePanelProps {
   finding: Finding
   onClose: () => void
+  /** Invoked when the user clicks Start from the footer at stage='todo'. */
+  onStart?: () => void
+  /** True while the parent's POST /api/workspaces is in flight. */
+  starting?: boolean
 }
 
 type SectionKey = 'plan' | 'plan_drafting' | 'pr' | 'validation' | 'finding' | 'activity'
@@ -52,9 +60,18 @@ function severityKind(raw: string | null): IssueSeverityKind {
 }
 
 function sectionsForStage(stage: IssueStage): SectionKey[] {
-  if (stage === 'plan_ready') return ['plan', 'finding', 'activity']
+  // ``activity`` (the agent-run history) is always positioned above
+  // ``finding`` so the user lands on what Cliff has produced first, with
+  // the static finding metadata as supporting context underneath. The
+  // PR / Plan / Validation cards stay above ``activity`` because they're
+  // the actionable surfaces.
+  if (stage === 'plan_ready') return ['plan', 'activity', 'finding']
+  // Failed: surface the most recent error context (activity) at the top so
+  // the user lands on the actual reason, with the plan still available
+  // below if they want to retry. No PR exists in this state by definition.
+  if (stage === 'failed') return ['activity', 'plan', 'finding']
   if (stage === 'pr_ready' || stage === 'pr_awaiting_val') {
-    return ['pr', 'plan', 'finding', 'activity']
+    return ['pr', 'plan', 'activity', 'finding']
   }
   if (
     stage === 'fixed' ||
@@ -63,7 +80,7 @@ function sectionsForStage(stage: IssueStage): SectionKey[] {
     stage === 'accepted' ||
     stage === 'deferred'
   ) {
-    return ['validation', 'pr', 'plan', 'finding', 'activity']
+    return ['validation', 'pr', 'plan', 'activity', 'finding']
   }
   if (
     stage === 'planning' ||
@@ -72,13 +89,18 @@ function sectionsForStage(stage: IssueStage): SectionKey[] {
     stage === 'opening_pr' ||
     stage === 'validating'
   ) {
-    return ['plan_drafting', 'finding', 'activity']
+    return ['plan_drafting', 'activity', 'finding']
   }
   // todo
-  return ['finding', 'activity']
+  return ['activity', 'finding']
 }
 
-export function IssueSidePanel({ finding, onClose }: IssueSidePanelProps) {
+export function IssueSidePanel({
+  finding,
+  onClose,
+  onStart,
+  starting,
+}: IssueSidePanelProps) {
   const stage: IssueStage = finding.derived?.stage ?? 'todo'
   const workspaceId = finding.derived?.workspace_id ?? null
   const sections = useMemo(() => sectionsForStage(stage), [stage])
@@ -177,6 +199,8 @@ export function IssueSidePanel({ finding, onClose }: IssueSidePanelProps) {
         }}
         onRejectCancel={() => setRejecting(false)}
         onRejected={closePanel}
+        onStart={onStart}
+        starting={starting}
       />
     </aside>
   )
@@ -316,7 +340,22 @@ function SPPlan({
 }) {
   const workspaceId = finding.derived?.workspace_id ?? null
   const { data: sidebar } = useSidebar(workspaceId ?? undefined)
-  const planSteps = (sidebar?.plan as { steps?: { title?: string; file?: string }[] } | undefined)?.steps ?? []
+  // The remediation_planner emits ``{"plan_steps": ["step 1", "step 2", ...]}``
+  // (flat list of strings). Older code expected ``{"steps": [{title, file}]}``
+  // and rendered "no plan yet" for every real plan. Read both shapes so
+  // historical sidebars don't silently regress, and normalize each step
+  // into the ``{title, file?}`` object the JSX below renders.
+  const rawPlan = sidebar?.plan as
+    | {
+        plan_steps?: (string | { title?: string; file?: string })[]
+        steps?: { title?: string; file?: string }[]
+      }
+    | undefined
+  const planSteps: { title?: string; file?: string }[] = (
+    rawPlan?.plan_steps ??
+    rawPlan?.steps ??
+    []
+  ).map((s) => (typeof s === 'string' ? { title: s } : s))
 
   return (
     <section
@@ -465,18 +504,12 @@ function SPPlanDrafting({ stage }: { stage: IssueStage }) {
       className="px-5 py-5"
       style={{ borderBottom: '1px solid var(--outline-variant)' }}
     >
-      <SectionTitle title="Plan" hint="Drafting…" />
+      <SectionTitle title="Plan" hint="Thinking…" />
       <div
         className="rounded-xl p-4 flex items-start gap-3"
         style={{ background: 'var(--primary-container)' }}
       >
-        <span
-          className="material-symbols-outlined opensec-pulse-dot text-on-primary-container"
-          style={{ fontSize: 18 }}
-          aria-hidden
-        >
-          autorenew
-        </span>
+        <CliffSpinner size={20} label="Cliff is thinking" />
         <div className="flex-1">
           <div className="text-[12.5px] font-semibold text-on-primary-container mb-1">
             {labels[stage] ?? 'Working on the fix…'}
@@ -594,29 +627,142 @@ function SPFinding({ finding }: { finding: Finding }) {
         )}
       </dl>
       {finding.description && (
-        <p className="text-[12.5px] text-on-surface leading-relaxed mt-4">
-          {finding.description}
-        </p>
+        <div className="mt-4 text-[12.5px] leading-relaxed">
+          <Markdown content={finding.description} />
+        </div>
       )}
     </section>
   )
 }
 
+const AGENT_LABEL: Record<string, string> = {
+  finding_enricher: 'Enriching the finding',
+  owner_resolver: 'Resolving owner',
+  exposure_analyzer: 'Analyzing exposure',
+  remediation_planner: 'Drafting the plan',
+  remediation_executor: 'Applying the fix',
+  validation_checker: 'Validating the fix',
+  evidence_collector: 'Collecting evidence',
+}
+
+function agentLabel(type: string): string {
+  return AGENT_LABEL[type] ?? type.replace(/_/g, ' ')
+}
+
+function durationLabel(started: string | null, ended: string | null): string | null {
+  if (!started) return null
+  const start = Date.parse(started)
+  const end = ended ? Date.parse(ended) : Date.now()
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null
+  const secs = Math.round((end - start) / 1000)
+  if (secs < 60) return `${secs}s`
+  const mins = Math.floor(secs / 60)
+  return secs % 60 === 0 ? `${mins}m` : `${mins}m ${secs % 60}s`
+}
+
 function SPActivity({ workspaceId }: { workspaceId: string | null }) {
-  return (
-    <section className="px-5 py-5">
-      <SectionTitle title="Activity" />
-      {workspaceId ? (
-        <p className="text-[12px] text-on-surface-variant">
-          Detailed agent timeline will land in a follow-up. The Issues row reflects
-          the latest stage transition.
-        </p>
-      ) : (
+  const { data: runs } = useAgentRuns(workspaceId ?? undefined)
+
+  if (!workspaceId) {
+    return (
+      <section
+        className="px-5 py-5"
+        style={{ borderBottom: '1px solid var(--outline-variant)' }}
+      >
+        <SectionTitle title="Activity" />
         <p className="text-[12px] text-on-surface-variant">
           Start the issue to begin its activity log.
         </p>
+      </section>
+    )
+  }
+
+  // Newest first. Falls back gracefully when ``started_at`` is null for queued
+  // rows that haven't executed yet.
+  const sorted = [...(runs ?? [])].sort((a, b) => {
+    const aT = a.started_at ? Date.parse(a.started_at) : 0
+    const bT = b.started_at ? Date.parse(b.started_at) : 0
+    return bT - aT
+  })
+
+  return (
+    <section
+      className="px-5 py-5"
+      style={{ borderBottom: '1px solid var(--outline-variant)' }}
+    >
+      <SectionTitle
+        title="Activity"
+        hint={
+          sorted.length
+            ? `${sorted.length} run${sorted.length === 1 ? '' : 's'}`
+            : undefined
+        }
+      />
+      {sorted.length === 0 ? (
+        <p className="text-[12px] text-on-surface-variant">
+          No agent runs yet — Cliff will populate this as it works.
+        </p>
+      ) : (
+        <ol className="space-y-2.5">
+          {sorted.map((run) => (
+            <ActivityRunCard key={run.id} run={run} />
+          ))}
+        </ol>
       )}
     </section>
+  )
+}
+
+function ActivityRunCard({ run }: { run: AgentRun }) {
+  const label = agentLabel(run.agent_type)
+  const duration = durationLabel(run.started_at, run.completed_at)
+  const isFailed = run.status === 'failed' || run.status === 'cancelled'
+  const isRunning = run.status === 'running' || run.status === 'queued'
+
+  return (
+    <li
+      className="rounded-xl p-3"
+      style={{
+        background: isFailed
+          ? 'rgba(239, 100, 100, 0.06)'
+          : 'var(--surface-container-low, #f1f4f6)',
+      }}
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className="material-symbols-outlined"
+          style={{
+            fontSize: 14,
+            color: isFailed
+              ? 'var(--error, #ef6464)'
+              : isRunning
+                ? '#6FE3B5'
+                : 'var(--on-surface-variant, #586064)',
+          }}
+          aria-hidden
+        >
+          {isFailed ? 'error' : isRunning ? 'autorenew' : 'check_circle'}
+        </span>
+        <span className="text-[12.5px] font-semibold text-on-surface flex-1 min-w-0 truncate">
+          {label}
+        </span>
+        {run.confidence != null && !isFailed && (
+          <span className="text-[10.5px] font-mono text-on-surface-variant">
+            {Math.round(run.confidence * 100)}%
+          </span>
+        )}
+        {duration && (
+          <span className="text-[10.5px] font-mono text-on-surface-variant">
+            {duration}
+          </span>
+        )}
+      </div>
+      {run.summary_markdown && !isRunning && (
+        <div className="mt-2 text-[11.5px] leading-relaxed text-on-surface-variant">
+          <Markdown content={run.summary_markdown} />
+        </div>
+      )}
+    </li>
   )
 }
 
@@ -632,6 +778,8 @@ function SidePanelFooter({
   onRejectStart,
   onRejectCancel,
   onRejected,
+  onStart,
+  starting,
 }: {
   finding: Finding
   stage: IssueStage
@@ -640,6 +788,8 @@ function SidePanelFooter({
   onRejectStart: () => void
   onRejectCancel: () => void
   onRejected: () => void
+  onStart?: () => void
+  starting?: boolean
 }) {
   return (
     <footer
@@ -666,6 +816,8 @@ function SidePanelFooter({
           stage={stage}
           onRefine={onRefine}
           onRejectStart={onRejectStart}
+          onStart={onStart}
+          starting={starting}
         />
       )}
     </footer>
@@ -677,29 +829,42 @@ function DefaultFooter({
   stage,
   onRefine,
   onRejectStart,
+  onStart,
+  starting,
 }: {
   finding: Finding
   stage: IssueStage
   onRefine: () => void
   onRejectStart: () => void
+  onStart?: () => void
+  starting?: boolean
 }) {
   const workspaceId = finding.derived?.workspace_id ?? null
   const executeAgent = useExecuteAgent(workspaceId ?? undefined)
+  const cancelAgentRun = useCancelAgentRun(workspaceId ?? undefined)
   const updateFinding = useUpdateFinding()
   const aiRequired = useAIRequired()
   const { open: openAIProvider } = useOpenAIProvider()
   const blockedByAI = !aiRequired.enabled && !aiRequired.loading
   const prUrl = finding.derived?.pr_url ?? null
+  // The in-flight footer's "Cancel run" needs the id of the run actually
+  // executing. There is at most one running run per workspace (the
+  // AgentBusy guard enforces it), so first-match is correct.
+  const { data: agentRuns } = useAgentRuns(workspaceId ?? undefined)
+  const runningRunId =
+    agentRuns?.find((r) => r.status === 'running')?.id ?? null
 
   if (stage === 'todo') {
     return (
       <div className="flex items-center gap-2 w-full">
-        <PrimaryButton icon="play_arrow" kbd="S" disabled>
-          Start
+        <PrimaryButton
+          icon="play_arrow"
+          kbd="S"
+          onClick={onStart}
+          disabled={!onStart || starting}
+        >
+          {starting ? 'Starting…' : 'Start'}
         </PrimaryButton>
-        <TextButton>Assign to me</TextButton>
-        <span className="ml-auto" />
-        <TextButton icon="more_horiz">More</TextButton>
       </div>
     )
   }
@@ -713,20 +878,23 @@ function DefaultFooter({
   ) {
     return (
       <div className="flex items-center gap-3 w-full">
-        <span
-          aria-hidden
-          className="opensec-pulse-dot rounded-full bg-primary"
-          style={{ width: 8, height: 8 }}
-        />
+        <CliffSpinner size={14} label="Cliff is thinking" />
         <div className="flex-1 min-w-0">
           <div className="text-[12.5px] font-semibold text-on-surface">
-            {stage === 'validating' ? 'Validating fix' : 'Generating fix'}
+            {stage === 'validating' ? 'Validating fix' : 'Thinking'}
           </div>
           <div className="text-[11px] text-on-surface-variant">
             We&rsquo;ll notify you when the next step is ready.
           </div>
         </div>
-        <TextButton>Cancel run</TextButton>
+        <TextButton
+          onClick={() => {
+            if (runningRunId) cancelAgentRun.mutate(runningRunId)
+          }}
+          disabled={!runningRunId || cancelAgentRun.isPending}
+        >
+          {cancelAgentRun.isPending ? 'Cancelling…' : 'Cancel run'}
+        </TextButton>
       </div>
     )
   }
@@ -761,11 +929,59 @@ function DefaultFooter({
     )
   }
 
-  if (stage === 'pr_ready' || stage === 'pr_awaiting_val') {
+  if (stage === 'failed') {
+    // Latest agent run failed (timeout, engine unavailable, credits exhausted,
+    // failed PR push, etc.). The actual reason is rendered by SPActivity right
+    // above this footer — we just offer the two reasonable next steps: retry
+    // the executor, or reject the finding entirely.
     return (
       <div className="flex items-center gap-2 w-full">
-        <PrimaryButton icon="merge_type" disabled>
-          Approve &amp; merge
+        <PrimaryButton
+          icon="refresh"
+          kbd="R"
+          onClick={() => {
+            if (blockedByAI) {
+              openAIProvider()
+              return
+            }
+            if (!workspaceId) return
+            executeAgent.mutate({ agentType: 'remediation_executor' })
+          }}
+          disabled={!workspaceId || executeAgent.isPending}
+          title={blockedByAI ? aiRequired.tooltip ?? undefined : undefined}
+        >
+          {executeAgent.isPending ? 'Retrying…' : 'Retry fix'}
+        </PrimaryButton>
+        <span className="ml-auto" />
+        <ErrorButton icon="block" kbd="X" onClick={onRejectStart}>
+          Reject
+        </ErrorButton>
+      </div>
+    )
+  }
+
+  if (stage === 'pr_ready' || stage === 'pr_awaiting_val') {
+    // ``Mark as fixed`` is the manual sign-off when the user has merged
+    // the PR on GitHub. Flips status='validated' so the derivation moves
+    // the row to section='done', stage='fixed'. Future work: detect the
+    // merge automatically (poll the PR or webhook) and fire the
+    // ``validation_checker`` agent so the verdict is grounded in a fresh
+    // scan instead of trusting the user.
+    return (
+      <div className="flex items-center gap-2 w-full">
+        <PrimaryButton
+          icon="check_circle"
+          kbd="F"
+          title="Click after you've merged the PR on GitHub"
+          onClick={() => {
+            updateFinding.mutate({
+              id: finding.id,
+              data: { status: 'validated' },
+            })
+          }}
+          disabled={updateFinding.isPending}
+        >
+          {updateFinding.isPending ? 'Marking…' : 'Mark as fixed'}
         </PrimaryButton>
         {prUrl && (
           <a
@@ -782,9 +998,9 @@ function DefaultFooter({
           </a>
         )}
         <span className="ml-auto" />
-        <ErrorButton icon="close" disabled>
-          Close PR
-        </ErrorButton>
+        {/* "Close PR" would close-without-merge — needs a gh API call and
+            a confirmation flow. Out of scope for this round; ship as a
+            text button so the affordance is gone until it actually works. */}
       </div>
     )
   }

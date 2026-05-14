@@ -197,8 +197,31 @@ class WorkspaceProcessPool:
         if env_vars:
             merged_env_vars.update(env_vars)
 
-        # Merge extra env vars with system environment (if provided).
-        env = {**os.environ, **merged_env_vars} if merged_env_vars else None
+        # ----------------------------------------------------------------
+        # Workspace-isolation guard (post-mortem fix).
+        #
+        # The remediation agent runs ``git``/``gh`` itself (ADR-0024) and is
+        # *supposed* to operate only inside ``<workspace_dir>/repo/``. But
+        # ``git`` searches parent directories for ``.git`` — so if the
+        # agent's clone is missing/partial (``repo/`` exists with files but
+        # no ``.git``) and it runs ``git checkout``/``commit``/``reset``,
+        # git walks UP the tree and finds whatever repository the workspace
+        # dir happens to be nested inside. In a dev worktree (or a user
+        # securing their own checkout) that's the developer's working tree
+        # — and ``git reset --hard`` there is silent, unrecoverable data
+        # loss. This actually happened: a urllib3 remediation hijacked the
+        # dev worktree onto its fix branch and reset --hard wiped hours of
+        # uncommitted work.
+        #
+        # ``GIT_CEILING_DIRECTORIES`` makes git physically refuse to chdir
+        # above the workspace dir when searching for a repository. The
+        # happy path is unaffected (``repo/.git`` is found immediately);
+        # the escape path now fails loudly with "not a git repository"
+        # instead of silently operating on the parent repo.
+        merged_env_vars["GIT_CEILING_DIRECTORIES"] = str(workspace_dir)
+
+        # Merge extra env vars with system environment.
+        env = {**os.environ, **merged_env_vars}
         if merged_env_vars:
             logger.info(
                 "Injecting env vars for workspace %s: %s",

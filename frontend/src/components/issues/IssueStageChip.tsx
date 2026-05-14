@@ -28,13 +28,14 @@ export type IssueStage =
   | 'plan_ready'
   | 'pr_ready'
   | 'pr_awaiting_val'
+  | 'failed'
   | 'fixed'
   | 'false_positive'
   | 'wont_fix'
   | 'accepted'
   | 'deferred'
 
-type Tone = 'in_flight' | 'ready' | 'awaiting' | 'positive' | 'neutral'
+type Tone = 'in_flight' | 'ready' | 'awaiting' | 'positive' | 'neutral' | 'error'
 
 interface StageVisual {
   label: string
@@ -51,6 +52,7 @@ const STAGE_VISUALS: Record<IssueStage, StageVisual> = {
   plan_ready:      { label: 'Plan ready',          tone: 'ready' },
   pr_ready:        { label: 'PR ready',            tone: 'ready' },
   pr_awaiting_val: { label: 'Awaiting validation', tone: 'awaiting' },
+  failed:          { label: 'Error',               tone: 'error',    icon: 'block' },
   fixed:           { label: 'Fixed',               tone: 'positive', icon: 'check' },
   false_positive:  { label: 'False positive',      tone: 'positive', icon: 'check' },
   accepted:        { label: 'Accepted',            tone: 'neutral',  icon: 'check' },
@@ -65,6 +67,7 @@ const TONE_CHIP: Record<Tone, string> = {
   awaiting:  'cd-chip cd-chip--cyan',
   positive:  'cd-chip cd-chip--green',
   neutral:   'cd-chip cd-chip--ink',
+  error:     'cd-chip cd-chip--red',
 }
 
 const TONE_DOT_COLOR: Record<Tone, string> = {
@@ -73,6 +76,7 @@ const TONE_DOT_COLOR: Record<Tone, string> = {
   awaiting:  'var(--cd-cyan)',
   positive:  'var(--cd-green)',
   neutral:   'var(--cd-fg-4)',
+  error:     'var(--cd-red, #ef6464)',
 }
 
 const HAS_PULSE_DOT: Record<Tone, boolean> = {
@@ -81,6 +85,7 @@ const HAS_PULSE_DOT: Record<Tone, boolean> = {
   awaiting: true,
   positive: false,
   neutral: false,
+  error: false,
 }
 
 interface IssueStageChipProps {

@@ -3016,6 +3016,7 @@
               "plan_ready",
               "pr_ready",
               "pr_awaiting_val",
+              "failed",
               "fixed",
               "false_positive",
               "wont_fix",
@@ -7758,7 +7759,7 @@
         ]
       },
       "post": {
-        "description": "Create a workspace with isolated directory and rendered agents.",
+        "description": "Create-or-return a workspace for a finding.\n\nIdempotent by design: one workspace per finding, forever. A second POST\nfor the same ``finding_id`` returns the existing workspace (200) instead\nof creating a duplicate, so the knowledge base, agent runs, and sidebar\nstate stay attached to the original. New workspaces are 201 Created;\nreused workspaces are 200 OK.\n\nIn both paths we (re-)flip the Finding out of ``new``/``triaged`` into\n``in_progress`` via ``mark_started_on_workspace_create``. This matters\nfor the reused-workspace path: re-running an assessment UPSERTs posture\nfindings back to ``status='new'`` even when a workspace with completed\nwork already exists, so without the re-flip the row would be stuck\nrendering in Todo despite having a full plan/agent history behind it.",
         "operationId": "create_workspace_endpoint_api_workspaces_post",
         "requestBody": {
           "content": {
@@ -7771,7 +7772,7 @@
           "required": true
         },
         "responses": {
-          "201": {
+          "200": {
             "content": {
               "application/json": {
                 "schema": {

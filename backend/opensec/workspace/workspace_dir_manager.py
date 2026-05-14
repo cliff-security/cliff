@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import secrets
 import shutil
@@ -18,6 +19,21 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from opensec.models import Finding
+
+logger = logging.getLogger(__name__)
+
+
+def _git_ancestor(path: Path) -> Path | None:
+    """Return the nearest ancestor of *path* that contains a ``.git`` entry,
+    or None if there is none up to the filesystem root.
+
+    Used to detect the dangerous topology where workspace directories are
+    nested inside a git repository — see ``__init__`` for why that matters.
+    """
+    for parent in [path, *path.parents]:
+        if (parent / ".git").exists():
+            return parent
+    return None
 
 
 class WorkspaceKind(StrEnum):
@@ -45,6 +61,29 @@ class WorkspaceDirManager:
 
     def __init__(self, base_dir: Path) -> None:
         self._base_dir = base_dir
+
+        # Workspace-isolation guard (post-mortem). Remediation agents run
+        # ``git`` themselves (ADR-0024). ``git`` searches parent directories
+        # for ``.git`` — so if a workspace's clone is missing/partial and the
+        # agent runs ``git checkout``/``reset``, git escapes UP the tree into
+        # whatever repository the workspace dir is nested inside. When that's
+        # a developer's working tree (or a user's local checkout being
+        # secured), a stray ``git reset --hard`` is silent, unrecoverable
+        # data loss. The hard block is ``GIT_CEILING_DIRECTORIES`` injected
+        # per-process (see ``engine/pool.py``); this is the early-warning:
+        # surface the risky topology loudly at startup so it's never a
+        # silent surprise.
+        git_root = _git_ancestor(base_dir)
+        if git_root is not None:
+            logger.warning(
+                "Workspace root %s is nested inside a git repository (%s). "
+                "Agent git operations are confined via GIT_CEILING_DIRECTORIES, "
+                "but the safest topology keeps workspace dirs outside any git "
+                "tree. This is expected in a dev worktree; flag it if seen in "
+                "a packaged/Docker deployment.",
+                base_dir,
+                git_root,
+            )
 
     @property
     def base_dir(self) -> Path:

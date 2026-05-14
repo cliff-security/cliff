@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -16,6 +16,7 @@ from opensec.db.connection import get_db
 from opensec.db.repo_finding import (
     get_finding,
     mark_resolved_on_workspace_close,
+    mark_started_on_workspace_create,
 )
 from opensec.db.repo_integration import list_integrations
 from opensec.db.repo_workspace import (
@@ -147,25 +148,50 @@ async def _get_workspace_or_404(db, workspace_id: str) -> Workspace:
 # ---------------------------------------------------------------------------
 
 
-@router.post("/workspaces", response_model=Workspace, status_code=201)
+@router.post("/workspaces", response_model=Workspace)
 async def create_workspace_endpoint(
-    body: WorkspaceCreate, request: Request, db=Depends(get_db)
+    body: WorkspaceCreate, request: Request, response: Response, db=Depends(get_db)
 ):
-    """Create a workspace with isolated directory and rendered agents."""
+    """Create-or-return a workspace for a finding.
+
+    Idempotent by design: one workspace per finding, forever. A second POST
+    for the same ``finding_id`` returns the existing workspace (200) instead
+    of creating a duplicate, so the knowledge base, agent runs, and sidebar
+    state stay attached to the original. New workspaces are 201 Created;
+    reused workspaces are 200 OK.
+
+    In both paths we (re-)flip the Finding out of ``new``/``triaged`` into
+    ``in_progress`` via ``mark_started_on_workspace_create``. This matters
+    for the reused-workspace path: re-running an assessment UPSERTs posture
+    findings back to ``status='new'`` even when a workspace with completed
+    work already exists, so without the re-flip the row would be stuck
+    rendering in Todo despite having a full plan/agent history behind it.
+    """
     context_builder = _get_context_builder(request)
 
     finding = await get_finding(db, body.finding_id)
     if finding is None:
         raise HTTPException(status_code=404, detail="Finding not found")
 
+    existing = await list_workspaces(db, finding_id=body.finding_id, limit=1)
+    if existing:
+        # Idempotent re-flip — keeps a re-assessed finding from being stranded
+        # in Todo when its workspace already exists. No-op for findings that
+        # are already past ``new``/``triaged``.
+        await mark_started_on_workspace_create(db, body.finding_id)
+        response.status_code = 200
+        return existing[0]
+
     # Snapshot the integration's current repo URL onto the workspace so a
     # later edit to the integration config doesn't silently rebind in-flight
     # workspaces to a different repo (migration 013).
     repo_url = await _resolve_github_repo_url(db)
 
-    return await context_builder.create_workspace(
+    workspace = await context_builder.create_workspace(
         db, finding, initial_focus=body.current_focus, repo_url=repo_url
     )
+    response.status_code = 201
+    return workspace
 
 
 @router.get("/workspaces", response_model=list[Workspace])
