@@ -70,8 +70,107 @@ TOOL_TIERS: dict[str, str] = {
 }
 
 # Agents that need tool access to do their job (e.g. git, gh CLI).
-# Their bash/edit tool requests are auto-approved.
+# Their bash/edit requests are classified per-command (see
+# ``_classify_tool_request``) rather than blanket-approved.
 _TOOL_AGENT_TYPES: set[str] = {"remediation_executor"}
+
+# Tool-request classification for the remediation_executor. Three tiers:
+#   "auto"  — grant immediately (routine git/gh/build commands)
+#   "ask"   — escalate to the user for approval (destructive-but-conceivable,
+#             or reaching outside the workspace)
+#   "deny"  — reject immediately without asking (never legitimate for a
+#             remediation agent; denying gives the agent fast feedback
+#             instead of stalling on an approval that will never come)
+#
+# This is a denylist — defense-in-depth against a *confused* agent, layered
+# on top of GIT_CEILING_DIRECTORIES and the hardened agent prompt. It is NOT
+# a security boundary against a malicious agent; that needs process
+# sandboxing (separate ADR). The remediation_executor's normal workflow
+# (git clone/checkout/add/commit/push, gh pr create, build/test runners)
+# matches none of these patterns and stays on the "auto" path.
+
+# Never legitimate — hard-deny, don't even ask.
+_CATASTROPHIC_BASH: tuple[str, ...] = (
+    ":(){",          # fork bomb
+    "mkfs",
+    " dd ",
+    "sudo ",
+    "> /etc",
+    ">/etc",
+    "> /usr",
+    ">/usr",
+    "> /bin",
+    ">/bin",
+    "/etc/shadow",
+    "/etc/passwd",
+)
+
+# Destructive or workspace-escaping, but conceivably part of a real fix —
+# escalate to the user rather than hard-deny. (Per CEO: "removing a file
+# requires asking for permission.")
+_GATED_BASH: tuple[str, ...] = (
+    "rm -",          # rm -rf, rm -f, …
+    "rmdir",
+    "git reset --hard",
+    "git clean",
+    "git push --force",
+    "git push -f",
+    "chmod ",
+    "chown ",
+    "cd /",
+    "cd ~",
+    "$home",
+    "~/.ssh",
+    "~/.aws",
+    "~/.config",
+)
+
+
+def _is_pipe_to_shell(cmd: str) -> bool:
+    """``curl …`` / ``wget …`` are fine on their own; piped into a shell
+    they're remote code execution. Only the piped shape is dangerous."""
+    fetches = ("curl ", "wget ")
+    shells = ("| sh", "|sh", "| bash", "|bash", "|sh ", "| sh ")
+    return any(f in cmd for f in fetches) and any(s in cmd for s in shells)
+
+
+def _classify_tool_request(tool: str, patterns: list[str]) -> str:
+    """Return ``"auto"``, ``"ask"``, or ``"deny"`` for an executor tool call.
+
+    - ``bash`` — ``deny`` for catastrophic commands, ``ask`` for
+      destructive-but-conceivable ones (rm, git reset --hard, …),
+      ``auto`` for everything else.
+    - ``edit`` — ``ask`` if the target path is absolute or climbs out of
+      the workspace via ``..``; otherwise ``auto``.
+    - ``external_directory`` — ``ask``. OpenCode raises this permission
+      precisely when a tool reaches *outside* the workspace cwd, so it is
+      the literal "the agent tried to leave the directory" signal.
+    - anything else / unparseable — ``ask`` (safe default).
+    """
+    if tool == "external_directory":
+        return "ask"
+
+    if tool == "bash":
+        cmd = " ".join(patterns).lower() if patterns else ""
+        if not cmd:
+            return "ask"  # can't inspect it → don't blanket-approve
+        if _is_pipe_to_shell(cmd):
+            return "deny"
+        if any(bad in cmd for bad in _CATASTROPHIC_BASH):
+            return "deny"
+        if any(bad in cmd for bad in _GATED_BASH):
+            return "ask"
+        return "auto"
+
+    if tool == "edit":
+        for path in patterns:
+            p = path.strip()
+            if p.startswith("/") or p.startswith("~") or "../" in p:
+                return "ask"
+        return "auto"
+
+    # mcp, unknown tools
+    return "ask"
 
 
 @dataclass
@@ -909,14 +1008,19 @@ class AgentExecutor:
             """Handle a permission request based on tool tier."""
             tool = event.get("tool", "unknown")
             permission_id = event.get("id", "")
+            patterns = event.get("patterns", [])
             tier = TOOL_TIERS.get(tool, "user")
 
-            # Tool agents (e.g. remediation_executor) auto-approve bash/edit
-            # and external_directory (needed for git clone outside CWD).
-            if agent_type in _TOOL_AGENT_TYPES and tool in (
-                "bash", "edit", "external_directory",
-            ):
-                tier = "auto"
+            # Tool agents (e.g. remediation_executor) no longer blanket-
+            # approve bash/edit/external_directory. Each request is
+            # classified by command/path: routine git/gh/build commands
+            # auto-approve, but destructive commands (rm, git reset --hard,
+            # …), pipe-to-shell, and any attempt to reach outside the
+            # workspace escalate to the user. Denylist-based — a
+            # defense-in-depth layer on top of GIT_CEILING_DIRECTORIES and
+            # the agent prompt, not a substitute for process sandboxing.
+            if agent_type in _TOOL_AGENT_TYPES:
+                tier = _classify_tool_request(tool, patterns)
 
             if tier == "auto":
                 logger.info(
@@ -924,6 +1028,21 @@ class AgentExecutor:
                     tool, permission_id,
                 )
                 await client.grant_permission(
+                    permission_id, session_id=session_id,
+                )
+                return
+
+            if tier == "deny":
+                # Catastrophic command — reject immediately. Denying (vs.
+                # escalating) gives the agent fast feedback to recover or
+                # report, instead of stalling on an approval prompt the
+                # frontend doesn't surface yet.
+                logger.warning(
+                    "Auto-denying %s tool (permission %s) — command "
+                    "classified catastrophic: %s",
+                    tool, permission_id, event.get("patterns", []),
+                )
+                await client.deny_permission(
                     permission_id, session_id=session_id,
                 )
                 return
