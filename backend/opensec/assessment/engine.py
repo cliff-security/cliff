@@ -34,6 +34,7 @@ from opensec.assessment.posture import (
     RepoCoords,
     run_all_posture_checks,
 )
+from opensec.assessment.scanners.runner import SEMGREP_RULESETS_LABEL
 from opensec.assessment.scope import (
     capture_commit_sha,
     count_dependencies,
@@ -298,7 +299,7 @@ async def run_assessment(
                     value=sg_count,
                     text=_pluralize(sg_count, "finding"),
                 ),
-                "ran": "Static analysis (p/security-audit)",
+                "ran": f"Static analysis ({SEMGREP_RULESETS_LABEL})",
                 "scope": sg_scope,
                 "duration_ms": durations_ms.get("semgrep"),
             }
@@ -493,8 +494,10 @@ def _format_trivy_scope(deps: int | None, ecosystems: list[str]) -> str:
 
 def _format_semgrep_scope(files: int | None) -> str:
     if files is None:
-        return "p/security-audit"
-    return f"{files} {'file' if files == 1 else 'files'} · p/security-audit"
+        return SEMGREP_RULESETS_LABEL
+    return (
+        f"{files} {'file' if files == 1 else 'files'} · {SEMGREP_RULESETS_LABEL}"
+    )
 
 
 def _format_posture_scope(total: int) -> str:

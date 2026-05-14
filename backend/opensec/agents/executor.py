@@ -35,6 +35,7 @@ from opensec.db.repo_finding import get_finding, update_finding
 from opensec.db.repo_workspace import get_workspace
 from opensec.models import AgentRunCreate, AgentRunUpdate, FindingUpdate
 from opensec.services.pr_verifier import verify_pr_url
+from opensec.services.reference_verifier import clean_references
 from opensec.workspace.context_document import ContextDocument
 from opensec.workspace.workspace_dir import AGENT_TYPE_TO_SECTION, CONTEXT_SECTIONS
 
@@ -48,7 +49,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TIMEOUT: float = 120.0
+# Overall ceiling for a non-tool agent run. These agents do a single
+# structured-output completion (no tools, no file reads) — on the configured
+# models that finishes in well under 20 s, so 75 s is already a 3-4x margin.
+# Lowered from 120 s (Q01-B10): when an agent genuinely hangs, the run-all
+# loop re-runs it on the next pass, and a 120 s dead-wait per hung attempt
+# was pure noise. Tool agents (remediation_executor) override this — see
+# ``execute`` — to 600 s for git/build work.
+DEFAULT_TIMEOUT: float = 75.0
 # Extra buffer for asyncio.wait_for when permission waits are possible.
 # The real timeout is enforced by stall detection, which accounts for
 # time spent waiting for user permission decisions.
@@ -275,6 +283,30 @@ _AGENT_TYPE_LABELS: dict[str, str] = {
     "validation_checker": "validation checking",
 }
 
+# Per-agent guidance appended to the prompt. Currently only the enricher,
+# whose ``references`` array is shipped verbatim into the evidence sidebar
+# as authoritative citations — weaker models fabricate specific identifiers
+# (404ing GHSA IDs, commit URLs with garbled SHAs). The verifier in the
+# executor is the deterministic safety net; this just lowers the rate at
+# the source. (Q01-B08.)
+_AGENT_GUIDANCE: dict[str, str] = {
+    "finding_enricher": (
+        "## Reference rules (strict)\n\n"
+        "The \"references\" array is shown to a security engineer as "
+        "authoritative citations. A fabricated citation is worse than a "
+        "missing one.\n\n"
+        "- ONLY include a URL you are confident resolves. When unsure, "
+        "omit it — a short all-real list beats a long list with one "
+        "fabricated entry.\n"
+        "- Prefer the NVD page for a CVE you cite "
+        "(https://nvd.nist.gov/vuln/detail/<CVE>) and generic "
+        "authoritative docs (OWASP, CWE/MITRE, the vendor advisory index).\n"
+        "- NEVER invent a GitHub advisory (GHSA-...) ID or a commit SHA. "
+        "If you have not actually seen a specific identifier, do not "
+        "construct one — omit the reference entirely.\n"
+    ),
+}
+
 
 def _load_workspace_data(
     workspace_dir: str, agent_type: str
@@ -358,11 +390,14 @@ def build_agent_prompt(
             f"> {user_note}\n"
         )
 
+    guidance = _AGENT_GUIDANCE.get(agent_type, "")
+    guidance_text = f"\n{guidance}\n" if guidance else ""
+
     return f"""\
 IMPORTANT: This is a programmatic agent execution request. Respond with ONLY \
 a JSON code block — no tool calls, no file reads, no conversation.
 
-{finding_text}{prior_text}{refinement_text}
+{finding_text}{prior_text}{refinement_text}{guidance_text}
 Run {label} on the finding above. Respond with a single \
 ```json code block matching this exact schema:
 
@@ -742,6 +777,40 @@ class AgentExecutor:
                 )
                 if retry_result.success:
                     parse_result = retry_result
+
+            # 7b-ref. Reference verification (Q01-B08). The finding_enricher
+            # emits ``references`` as free-text and weaker models fabricate
+            # specific identifiers — GHSA IDs that 404, commit URLs with
+            # garbled SHAs — which then ship into the evidence sidebar with
+            # the same authority as a real NVD link. Drop the ones we can
+            # structurally disprove or that the host 404s. Best-effort: a
+            # verifier failure must never fail the run.
+            if (
+                parse_result.success
+                and agent_type == "finding_enricher"
+                and parse_result.structured_output
+            ):
+                try:
+                    ref_check = await clean_references(
+                        parse_result.structured_output.get("references")
+                    )
+                    if ref_check.dropped:
+                        logger.warning(
+                            "finding_enricher references dropped "
+                            "(workspace=%s run=%s): %s",
+                            workspace_id,
+                            agent_run.id,
+                            ref_check.dropped,
+                        )
+                        parse_result.structured_output["references"] = (
+                            ref_check.kept
+                        )
+                except Exception:  # noqa: BLE001 — never fail a run on this
+                    logger.warning(
+                        "Reference verification raised for workspace %s",
+                        workspace_id,
+                        exc_info=True,
+                    )
 
             # 7c. PR URL verification (B16). The remediation_executor is the
             # only agent that claims to have opened a PR. If the emitted
