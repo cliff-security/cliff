@@ -30,14 +30,21 @@ async def health(request: Request) -> HealthStatus:
     # ``ai_env_cache`` is the exact env dict the workspace process pool
     # injects into every per-workspace OpenCode subprocess. A non-empty
     # cache means a provider credential is present *and* resolved (vault
-    # decrypt succeeded) — i.e. genuinely reachable by the subprocess,
-    # not just "an integration row exists" or "a model string is set".
+    # decrypt succeeded) — i.e. genuinely reachable by the subprocess.
+    # ``ai_provider_credential_ok`` adds the last piece (Q01-B02): the
+    # resolved credential was live-probed at boot / on connect and did not
+    # come back as a definitive auth rejection. ``ai_provider_ready`` is
+    # only True when both hold — a present-but-revoked key reads as not
+    # ready, exactly as it behaves at agent-run time.
     ai_env_cache = getattr(request.app.state, "ai_env_cache", None) or {}
+    credential_ok = getattr(
+        request.app.state, "ai_provider_credential_ok", False
+    )
 
     return HealthStatus(
         opensec="ok",
         opencode="ok" if oc_healthy else "unavailable",
         opencode_version=settings.opencode_version,
         model=model,
-        ai_provider_ready=bool(ai_env_cache),
+        ai_provider_ready=bool(ai_env_cache) and credential_ok,
     )

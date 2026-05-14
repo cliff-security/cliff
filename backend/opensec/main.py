@@ -170,6 +170,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # vault decrypt on every workspace spawn.
     app.state.ai_env_cache = {}
     app.state.ai_model_cache = None
+    # Whether the resolved AI credential actually authenticates. A present,
+    # decryptable credential is not the same as a working one — a revoked or
+    # wrong key resolves into the workspace env fine and only 401s at
+    # agent-run time. ``/health`` and ``opensec status`` gate readiness on
+    # this so ``ready: true`` means agents will genuinely run. (Q01-B02.)
+    app.state.ai_provider_credential_ok = False
 
     async def _refresh_ai_env_cache() -> None:
         from opensec.ai.service import AIIntegrationService
@@ -179,6 +185,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if vault is None or db is None:
             app.state.ai_env_cache = {}
             app.state.ai_model_cache = None
+            app.state.ai_provider_credential_ok = False
             return
         service = AIIntegrationService(
             db, vault, audit_logger=app.state.audit_logger
@@ -194,6 +201,28 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
             app.state.ai_env_cache = {}
             app.state.ai_model_cache = None
+            app.state.ai_provider_credential_ok = False
+            return
+
+        # Live-probe the resolved credential so readiness reflects "this key
+        # authenticates", not just "a key is present" (Q01-B02). Only a
+        # definitive auth rejection (401/403 -> ``auth_failed``) flips
+        # readiness off; network blips, rate limits and billing errors leave
+        # it untouched so the signal doesn't flap on a transient probe.
+        if not app.state.ai_env_cache:
+            app.state.ai_provider_credential_ok = False
+            return
+        try:
+            verdict = await service.verify_active_credential()
+        except Exception:
+            logger.warning(
+                "AI credential verification failed", exc_info=True
+            )
+            app.state.ai_provider_credential_ok = False
+            return
+        app.state.ai_provider_credential_ok = (
+            verdict is not None and verdict.error_code != "auth_failed"
+        )
 
     # Warm the cache once at boot so the very first workspace spawn
     # doesn't pay the DB + decrypt round-trip on the critical path,

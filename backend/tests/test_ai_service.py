@@ -257,6 +257,88 @@ async def test_resolve_model_ignores_app_setting_from_other_provider(
 
 
 # ---------------------------------------------------------------------------
+# verify_active_credential (Q01-B02)
+# ---------------------------------------------------------------------------
+
+
+async def test_verify_active_credential_none_when_unconfigured(
+    service: AIIntegrationService,
+) -> None:
+    assert await service.verify_active_credential() is None
+
+
+async def test_verify_active_credential_ok_stamps_last_validated(
+    service: AIIntegrationService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A live probe that passes returns ok and stamps last_validated_at."""
+    from opensec.ai.models import ValidationResult
+
+    async def _fake_validate(*_args, **_kwargs) -> ValidationResult:
+        return ValidationResult(ok=True)
+
+    monkeypatch.setattr(
+        "opensec.ai.service.validators.validate", _fake_validate
+    )
+    await service.save_byok("anthropic", "sk-ant-realkey-12345")
+    assert await service.get_active() is not None
+    assert (await service.get_active()).last_validated_at is None
+
+    result = await service.verify_active_credential()
+    assert result is not None
+    assert result.ok is True
+    # last_validated_at is now stamped on the integration row.
+    assert (await service.get_active()).last_validated_at is not None
+
+
+async def test_verify_active_credential_surfaces_auth_failure(
+    service: AIIntegrationService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A revoked/wrong key resolves fine but the probe rejects it — the
+    auth_failed verdict is surfaced and last_validated_at stays unstamped."""
+    from opensec.ai.models import ValidationResult
+
+    async def _fake_validate(*_args, **_kwargs) -> ValidationResult:
+        return ValidationResult(
+            ok=False,
+            error_code="auth_failed",
+            error_message="rejected",
+        )
+
+    monkeypatch.setattr(
+        "opensec.ai.service.validators.validate", _fake_validate
+    )
+    await service.save_byok("anthropic", "sk-ant-revoked")
+
+    result = await service.verify_active_credential()
+    assert result is not None
+    assert result.ok is False
+    assert result.error_code == "auth_failed"
+    assert (await service.get_active()).last_validated_at is None
+
+
+async def test_verify_active_credential_network_error_is_not_auth_failed(
+    service: AIIntegrationService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A transient probe failure is surfaced as ``network`` — callers must
+    be able to tell it apart from a definitive auth rejection so readiness
+    doesn't flap on a flaky probe."""
+    from opensec.ai.models import ValidationResult
+
+    async def _fake_validate(*_args, **_kwargs) -> ValidationResult:
+        return ValidationResult(ok=False, error_code="network")
+
+    monkeypatch.setattr(
+        "opensec.ai.service.validators.validate", _fake_validate
+    )
+    await service.save_byok("anthropic", "sk-ant-realkey-12345")
+
+    result = await service.verify_active_credential()
+    assert result is not None
+    assert result.error_code == "network"
+    assert result.error_code != "auth_failed"
+
+
+# ---------------------------------------------------------------------------
 # Reconnect / replace
 # ---------------------------------------------------------------------------
 

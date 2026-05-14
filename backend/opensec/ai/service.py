@@ -25,13 +25,14 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from opensec.ai import catalog
+from opensec.ai import catalog, validators
 from opensec.ai import repo as ai_repo
 from opensec.ai.models import (
     AIIntegration,
     AIProvider,
     AISource,
     AIStatus,
+    ValidationResult,
 )
 from opensec.db import repo_integration
 from opensec.db.repo_setting import get_setting
@@ -191,6 +192,51 @@ class AIIntegrationService:
             if full_id and full_id.split("/", 1)[0] == record.provider:
                 return full_id
         return catalog.resolve_model(record.provider)
+
+    async def verify_active_credential(self) -> ValidationResult | None:
+        """Live-probe the active provider's stored credential.
+
+        Returns ``None`` when no provider is configured. Otherwise fires the
+        same cheap auth probe the BYOK connect flow uses
+        (:mod:`opensec.ai.validators`) and, on a clean pass, stamps
+        ``last_validated_at`` on the integration row.
+
+        This is the signal behind ``ai_provider_ready`` / ``opensec status``
+        (Q01-B02): a credential that is *present and decrypts* is not the
+        same as one that *authenticates* — a revoked or wrong key resolves
+        into the workspace env just fine and only 401s at agent-run time.
+        """
+        record = await self.get_active()
+        if record is None:
+            return None
+        try:
+            raw_key = await self._vault.retrieve(
+                record.integration_id, CREDENTIAL_KEY_NAME
+            )
+        except KeyError:
+            return ValidationResult(
+                ok=False,
+                error_code="auth_failed",
+                error_message="No stored credential for the active provider.",
+            )
+        if not raw_key:
+            return ValidationResult(
+                ok=False,
+                error_code="auth_failed",
+                error_message="Stored credential is empty.",
+            )
+        metadata = record.metadata or {}
+        result = await validators.validate(
+            record.provider,
+            raw_key,
+            base_url=metadata.get("base_url"),
+            model=metadata.get("model"),
+        )
+        if result.ok:
+            await ai_repo.update_last_validated(
+                self._db, record.integration_id
+            )
+        return result
 
     # ------------------------------------------------------------------
     # Public writes
