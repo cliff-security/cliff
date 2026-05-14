@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+from opensec.ai import catalog as ai_catalog
 from opensec.config import settings
 from opensec.engine.client import OpenCodeClient
 
@@ -23,18 +24,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# AI provider env vars → OpenCode provider id. After a workspace process is
-# healthy the pool pushes any of these credentials it injected into the
-# subprocess env through ``PUT /auth/{id}`` as well. OpenCode 1.3.x
-# authenticates outbound provider calls from its ``/auth`` store, not from a
-# bare process env var — and ``_sync_opencode_auth`` only ever reaches the
-# singleton (port 4096), never the per-workspace processes that actually run
-# the agents. Without this push every workspace agent run fails with
-# "Missing Authentication header" even though the key is present in env.
+# AI provider env var → OpenCode provider id, derived from the AI catalog so
+# the provider list has exactly one home. ``custom`` is excluded: it shares
+# ``OPENAI_API_KEY`` and ships no OpenCode provider config of its own. See
+# ``_push_ai_auth`` for why the pool pushes these at all.
 _AI_ENV_VAR_TO_PROVIDER_ID: dict[str, str] = {
-    "ANTHROPIC_API_KEY": "anthropic",
-    "OPENAI_API_KEY": "openai",
-    "OPENROUTER_API_KEY": "openrouter",
+    ai_catalog.env_var_name(p): p
+    for p in ai_catalog.all_providers()
+    if p != "custom"
 }
 
 

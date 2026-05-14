@@ -98,6 +98,26 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+def _fake_subprocess(captured_env: dict | None = None):
+    """An ``asyncio.create_subprocess_exec`` side-effect returning a mock proc.
+
+    Pass ``captured_env`` to record the spawn environment into it.
+    """
+
+    async def _side_effect(*args, **kwargs):
+        if captured_env is not None:
+            captured_env.update(kwargs.get("env") or {})
+        proc = AsyncMock()
+        proc.returncode = None
+        proc.terminate = lambda: None
+        proc.kill = lambda: None
+        proc.wait = AsyncMock(return_value=0)
+        proc.stderr = None
+        return proc
+
+    return _side_effect
+
+
 async def test_pool_calls_env_resolver_on_start(tmp_path: Path) -> None:
     """The resolver is awaited and its result merged into the spawned env."""
     called: list = []
@@ -109,23 +129,13 @@ async def test_pool_calls_env_resolver_on_start(tmp_path: Path) -> None:
     pool = WorkspaceProcessPool(env_resolver=resolver)
     captured_env = {}
 
-    async def fake_subprocess(*args, **kwargs):
-        captured_env.update(kwargs.get("env") or {})
-        proc = AsyncMock()
-        proc.returncode = None
-        proc.terminate = lambda: None
-        proc.kill = lambda: None
-        proc.wait = AsyncMock(return_value=0)
-        proc.stderr = None
-        return proc
-
     workspace_dir = tmp_path / "ws"
     workspace_dir.mkdir()
 
     with (
         patch(
             "asyncio.create_subprocess_exec",
-            side_effect=fake_subprocess,
+            side_effect=_fake_subprocess(captured_env),
         ),
         patch.object(pool, "_wait_for_healthy", new=AsyncMock()),
     ):
@@ -147,23 +157,13 @@ async def test_pool_resolver_failure_does_not_block_spawn(tmp_path: Path) -> Non
     pool = WorkspaceProcessPool(env_resolver=boom)
     captured_env = {}
 
-    async def fake_subprocess(*args, **kwargs):
-        captured_env.update(kwargs.get("env") or {})
-        proc = AsyncMock()
-        proc.returncode = None
-        proc.terminate = lambda: None
-        proc.kill = lambda: None
-        proc.wait = AsyncMock(return_value=0)
-        proc.stderr = None
-        return proc
-
     workspace_dir = tmp_path / "ws"
     workspace_dir.mkdir()
 
     with (
         patch(
             "asyncio.create_subprocess_exec",
-            side_effect=fake_subprocess,
+            side_effect=_fake_subprocess(captured_env),
         ),
         patch.object(pool, "_wait_for_healthy", new=AsyncMock()),
     ):
@@ -198,15 +198,6 @@ async def test_pool_pushes_ai_auth_to_workspace_process(tmp_path: Path) -> None:
 
     pool = WorkspaceProcessPool(env_resolver=resolver)
 
-    async def fake_subprocess(*args, **kwargs):
-        proc = AsyncMock()
-        proc.returncode = None
-        proc.terminate = lambda: None
-        proc.kill = lambda: None
-        proc.wait = AsyncMock(return_value=0)
-        proc.stderr = None
-        return proc
-
     workspace_dir = tmp_path / "ws"
     workspace_dir.mkdir()
 
@@ -217,7 +208,7 @@ async def test_pool_pushes_ai_auth_to_workspace_process(tmp_path: Path) -> None:
         return True
 
     with (
-        patch("asyncio.create_subprocess_exec", side_effect=fake_subprocess),
+        patch("asyncio.create_subprocess_exec", side_effect=_fake_subprocess()),
         patch.object(pool, "_wait_for_healthy", new=AsyncMock()),
         patch(
             "opensec.engine.client.OpenCodeClient.set_auth",
@@ -242,15 +233,6 @@ async def test_pool_auth_push_failure_does_not_block_spawn(tmp_path: Path) -> No
 
     pool = WorkspaceProcessPool(env_resolver=resolver)
 
-    async def fake_subprocess(*args, **kwargs):
-        proc = AsyncMock()
-        proc.returncode = None
-        proc.terminate = lambda: None
-        proc.kill = lambda: None
-        proc.wait = AsyncMock(return_value=0)
-        proc.stderr = None
-        return proc
-
     workspace_dir = tmp_path / "ws"
     workspace_dir.mkdir()
 
@@ -258,7 +240,7 @@ async def test_pool_auth_push_failure_does_not_block_spawn(tmp_path: Path) -> No
         raise RuntimeError("opencode auth endpoint down")
 
     with (
-        patch("asyncio.create_subprocess_exec", side_effect=fake_subprocess),
+        patch("asyncio.create_subprocess_exec", side_effect=_fake_subprocess()),
         patch.object(pool, "_wait_for_healthy", new=AsyncMock()),
         patch(
             "opensec.engine.client.OpenCodeClient.set_auth",
@@ -283,23 +265,13 @@ async def test_pool_merges_caller_env_on_top_of_resolver(tmp_path: Path) -> None
     pool = WorkspaceProcessPool(env_resolver=resolver)
     captured_env = {}
 
-    async def fake_subprocess(*args, **kwargs):
-        captured_env.update(kwargs.get("env") or {})
-        proc = AsyncMock()
-        proc.returncode = None
-        proc.terminate = lambda: None
-        proc.kill = lambda: None
-        proc.wait = AsyncMock(return_value=0)
-        proc.stderr = None
-        return proc
-
     workspace_dir = tmp_path / "ws"
     workspace_dir.mkdir()
 
     with (
         patch(
             "asyncio.create_subprocess_exec",
-            side_effect=fake_subprocess,
+            side_effect=_fake_subprocess(captured_env),
         ),
         patch.object(pool, "_wait_for_healthy", new=AsyncMock()),
     ):
