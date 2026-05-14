@@ -58,6 +58,7 @@ export type IssueStage =
   | 'todo'
   | 'planning' | 'generating' | 'pushing' | 'opening_pr' | 'validating'
   | 'plan_ready' | 'pr_ready' | 'pr_awaiting_val'
+  | 'failed'
   | 'fixed' | 'false_positive' | 'wont_fix' | 'accepted' | 'deferred';
 
 export interface IssueDerived {

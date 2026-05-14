@@ -97,7 +97,11 @@ describe('IssuesPage', () => {
     expect(screen.getByLabelText('Done section')).toBeInTheDocument()
   })
 
-  it('In progress section is collapsed by default and shows the breakdown caption', async () => {
+  it('In progress section is collapsed by default and shows the aggregate caption', async () => {
+    // The per-substage breakdown ("1 planning · 1 generating · …") was
+    // replaced with a single aggregate caption — the substages were
+    // derived optimistically from finding.status and didn't reliably
+    // reflect what the executor was actually doing.
     const findings = [
       makeFinding({ id: 'p1', stage: 'planning' }),
       makeFinding({ id: 'p2', stage: 'generating' }),
@@ -106,10 +110,9 @@ describe('IssuesPage', () => {
     ]
     renderPage(findings)
     const inProgress = await screen.findByLabelText('In progress section')
-    expect(inProgress.textContent).toContain('1 planning')
-    expect(inProgress.textContent).toContain('1 generating')
-    expect(inProgress.textContent).toContain('1 opening PR')
-    expect(inProgress.textContent).toContain('1 validating')
+    expect(inProgress.textContent).toContain('Agents working — no action needed')
+    // Count of in-progress rows is still surfaced.
+    expect(inProgress.textContent).toContain('4')
     expect(screen.queryByText(/Issue p1/)).toBeNull()
   })
 

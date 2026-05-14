@@ -494,7 +494,7 @@ export default function ConnectRepo() {
                 </div>
               </div>
               <GithubAppConnectButton
-                label="Install cliff on a repo"
+                label="Install"
                 returnTo="/onboarding/connect"
                 className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-5 py-3 text-base font-semibold text-on-primary hover:bg-primary/90 transition-colors disabled:opacity-60"
               />

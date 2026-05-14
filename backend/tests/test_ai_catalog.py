@@ -49,7 +49,7 @@ def test_resolve_model_returns_default_when_no_override() -> None:
     # via its OpenRouter provider rather than its Anthropic one.
     assert (
         catalog.resolve_model("openrouter")
-        == "openrouter/anthropic/claude-sonnet-4.6"
+        == "openrouter/tencent/hy3-preview"
     )
     assert catalog.resolve_model("anthropic") == "anthropic/claude-sonnet-4-6"
     assert catalog.resolve_model("openai") == "openai/gpt-5"
@@ -62,7 +62,7 @@ def test_resolve_model_uses_override_when_set(monkeypatch) -> None:
     # Untouched providers stay on their defaults.
     assert (
         catalog.resolve_model("openrouter")
-        == "openrouter/anthropic/claude-sonnet-4.6"
+        == "openrouter/tencent/hy3-preview"
     )
 
 

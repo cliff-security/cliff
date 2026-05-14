@@ -13,7 +13,6 @@
 import { memo, useState, type KeyboardEvent, type MouseEvent, type ReactElement } from 'react'
 import type { Finding, IssueStage } from '../../api/client'
 import {
-  IssuePostureBadge,
   IssueSeverityBadge,
   type IssueSeverityKind,
 } from './IssueSeverityBadge'
@@ -58,6 +57,9 @@ function actionForStage(stage: IssueStage): ActionKind {
 }
 
 function severityKind(raw: string | null): IssueSeverityKind {
+  // ``normalized_priority`` is the canonical critical/high/medium/low value;
+  // callers pass that in. The fallback to 'medium' applies only to the rare
+  // case where a row arrives without it (shouldn't happen post-migration 018).
   const key = (raw ?? 'medium').toLowerCase()
   if (key === 'critical' || key === 'high' || key === 'low') return key
   return 'medium'
@@ -71,6 +73,12 @@ interface IssueRowProps {
   onInspect?: (finding: Finding) => void
   /** Action-button click — run the workspace/start flow (may show guards). */
   onActivate?: (finding: Finding) => void
+  /** True while the parent is creating a workspace + firing the pipeline for
+   *  this finding. Disables Start so the user can't double-fire while the
+   *  row is still on the Todo list (the optimistic stage flip happens after
+   *  the POST returns, so without this guard a fast second click would spawn
+   *  a wasted API call). */
+  starting?: boolean
 }
 
 function IssueRowImpl({
@@ -79,13 +87,17 @@ function IssueRowImpl({
   focused = false,
   onInspect,
   onActivate,
+  starting = false,
 }: IssueRowProps): ReactElement {
   const [hover, setHover] = useState(false)
 
   const stage: IssueStage = finding.derived?.stage ?? 'todo'
   const action = actionForStage(stage)
+  // Posture rows lack file/cwe/cvss/found metadata even though they now have
+  // severity. Keep the meta-row + structural details vuln-only so the row
+  // doesn't render an awkward set of "—" placeholders for posture.
   const isPosture = finding.type === 'posture'
-  const sev = severityKind(finding.raw_severity)
+  const sev = severityKind(finding.normalized_priority ?? finding.raw_severity)
   const typeIcon = TYPE_ICON[finding.type ?? 'dependency'] ?? 'bug_report'
 
   const inspect = (): void => {
@@ -95,6 +107,7 @@ function IssueRowImpl({
 
   const activate = (e: MouseEvent): void => {
     e.stopPropagation()
+    if (starting) return
     onActivate?.(finding)
   }
 
@@ -132,13 +145,12 @@ function IssueRowImpl({
       }`}
       style={{ cursor: 'pointer' }}
     >
-      {/* 1. Severity / category chip (60px col) */}
+      {/* 1. Severity chip (first col). Posture findings get a real severity
+              at scan time now (see migration 018), so they share the same
+              badge as vulnerabilities — keeps the column visually uniform
+              and lets the severity filter address them. */}
       <div style={{ display: 'flex', alignItems: 'center' }}>
-        {isPosture ? (
-          <IssuePostureBadge category={finding.category ?? undefined} size="sm" />
-        ) : (
-          <IssueSeverityBadge kind={sev} size="sm" />
-        )}
+        <IssueSeverityBadge kind={sev} size="sm" />
       </div>
 
       {/* 2. Type icon (22px col, stroke-only) */}
@@ -236,11 +248,20 @@ function IssueRowImpl({
           </button>
         )}
         {action === 'start' && (
-          <button onClick={activate} className="cd-btn cd-btn--outline cd-btn--sm">
-            <span className="material-symbols-outlined" style={{ fontSize: 13 }} aria-hidden>
-              play_arrow
+          <button
+            onClick={activate}
+            disabled={starting}
+            aria-busy={starting || undefined}
+            className="cd-btn cd-btn--outline cd-btn--sm disabled:opacity-60 disabled:cursor-wait"
+          >
+            <span
+              className={`material-symbols-outlined ${starting ? 'opensec-pulse-dot' : ''}`}
+              style={{ fontSize: 13 }}
+              aria-hidden
+            >
+              {starting ? 'autorenew' : 'play_arrow'}
             </span>
-            Start
+            {starting ? 'Starting…' : 'Start'}
           </button>
         )}
         {action === 'view' && (

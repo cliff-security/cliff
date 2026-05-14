@@ -641,24 +641,29 @@ async def get_dashboard(db=Depends(get_db)) -> DashboardPayload:
     posture_wire = _build_posture_payload(posture_checks)
     tools = _synthesize_tools(latest.tools, pass_count, total_count, vulnerabilities)
 
-    # IMPL-0009 — derive new fields. Open vulnerability findings drive the
-    # severity card and finding-based level-up gates; posture findings drive
-    # the posture aggregate gate.
-    all_vuln_findings = await list_findings(
+    # IMPL-0009 — derive new fields. The "Open findings" card and severity
+    # bucket span every open issue the user can act on (vulns + failing
+    # posture), so the count matches the Issues page and the user's mental
+    # model of "things to fix". ``level_up`` continues to receive vulns-only
+    # because its gates differentiate vuln-based vs posture-based internally.
+    all_open_findings = await list_findings(
         db,
-        type=["dependency", "secret", "code"],
+        type=["dependency", "secret", "code", "posture"],
         limit=10_000,
     )
     open_statuses = {"new", "triaged", "in_progress", "remediated"}
     open_findings = [
-        f for f in all_vuln_findings if f.status in open_statuses
+        f for f in all_open_findings if f.status in open_statuses
+    ]
+    open_vuln_findings = [
+        f for f in open_findings if f.type in {"dependency", "secret", "code"}
     ]
     severity_history_obj = SeverityHistory(**phase2["severity_history"])
     open_by_severity = _open_by_severity_rows(open_findings, severity_history_obj)
     level_up = derive_level_up(
         grade=latest.grade,
         criteria_snapshot=snapshot,
-        open_findings=open_findings,
+        open_findings=open_vuln_findings,
         posture_findings=posture_checks,
     )
     last_assessment = _build_last_assessment(latest, tools)

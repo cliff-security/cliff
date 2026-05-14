@@ -7,7 +7,7 @@ taxonomy from ADR-0027.
 
 from __future__ import annotations
 
-from opensec.assessment.posture import PostureCheckResult
+from opensec.assessment.posture import CHECK_DISPLAY_NAME, PostureCheckResult
 from opensec.assessment.scanners.models import (
     SemgrepFinding,
     SemgrepResult,
@@ -174,7 +174,9 @@ def test_from_posture_emits_all_fifteen_results_including_passes() -> None:
         results, repo_url=REPO_URL, assessment_id=ASSESSMENT_ID
     )
     assert len(findings) == 3
-    by_status = {f.title: f.status for f in findings}
+    by_status = {
+        f.raw_payload["check_name"]: f.status for f in findings  # type: ignore[index]
+    }
     assert by_status["branch_protection"] == "passed"
     assert by_status["security_md"] == "new"
     assert by_status["signed_commits"] == "new"
@@ -190,7 +192,8 @@ def test_from_posture_skips_unknown_status() -> None:
         results, repo_url=REPO_URL, assessment_id=ASSESSMENT_ID
     )
     assert len(findings) == 1
-    assert findings[0].title == "security_md"
+    assert findings[0].title == CHECK_DISPLAY_NAME["security_md"]
+    assert findings[0].raw_payload["check_name"] == "security_md"  # type: ignore[index]
 
 
 def test_from_posture_source_id_uses_repo_url_check_name() -> None:
@@ -213,7 +216,7 @@ def test_from_posture_grade_impact_advisory_for_advisory_checks() -> None:
     findings = from_posture(
         results, repo_url=REPO_URL, assessment_id=ASSESSMENT_ID
     )
-    by_name = {f.title: f for f in findings}
+    by_name = {f.raw_payload["check_name"]: f for f in findings}  # type: ignore[index]
     assert by_name["signed_commits"].grade_impact == "advisory"
     assert by_name["workflow_trigger_scope"].grade_impact == "advisory"
     assert by_name["broad_team_permissions"].grade_impact == "advisory"

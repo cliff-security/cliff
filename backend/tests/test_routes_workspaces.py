@@ -154,12 +154,18 @@ async def test_create_workspace_flips_finding_to_in_progress(db_client, finding_
 
 
 async def test_list_workspaces(db_client, finding_id):
-    await db_client.post("/api/workspaces", json={"finding_id": finding_id})
-    await db_client.post("/api/workspaces", json={"finding_id": finding_id})
+    # POST /workspaces is idempotent per finding (one workspace per finding,
+    # forever — preserves KB + agent runs + sidebar state). A second POST
+    # returns the existing workspace with status 200; only the first is 201.
+    first = await db_client.post("/api/workspaces", json={"finding_id": finding_id})
+    assert first.status_code == 201
+    second = await db_client.post("/api/workspaces", json={"finding_id": finding_id})
+    assert second.status_code == 200
+    assert second.json()["id"] == first.json()["id"]
 
     resp = await db_client.get("/api/workspaces")
     assert resp.status_code == 200
-    assert len(resp.json()) == 2
+    assert len(resp.json()) == 1
 
 
 async def test_list_workspaces_filter_by_state(db_client, finding_id):

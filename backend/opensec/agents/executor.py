@@ -354,6 +354,51 @@ async def _advance_finding_status(
     return target
 
 
+def _humanize_process_error(raw: str) -> str:
+    """Map opaque ``AgentProcessError`` strings to actionable user-facing text.
+
+    Most agent failures actually originate at the AI provider (OpenRouter,
+    Anthropic, OpenAI) and reach us through OpenCode as opaque "OpenCode
+    error: …" wrappers. We unwrap the common ones — insufficient credits,
+    rate limits, unauthorized — into short markdown the sidebar can render
+    verbatim, with a remediation link where one exists. Falling back on the
+    raw string is fine for unknown cases since it still surfaces in
+    ``evidence_json`` for debugging.
+    """
+    lowered = raw.lower()
+    if "more credits" in lowered or (
+        "insufficient" in lowered and "credit" in lowered
+    ):
+        return (
+            "**Out of AI provider credits.** OpenRouter rejected the request "
+            "because your account balance can't fund this agent run. "
+            "[Add credits](https://openrouter.ai/settings/credits) or switch "
+            "to a cheaper model in Settings → AI provider, then click "
+            "Approve to retry."
+        )
+    if "rate limit" in lowered or "429" in lowered or "too many requests" in lowered:
+        return (
+            "**AI provider rate limit hit.** The provider asked us to slow "
+            "down. Wait a minute and click Approve to retry, or switch to a "
+            "different model in Settings → AI provider."
+        )
+    if "unauthorized" in lowered or "401" in lowered or "invalid api key" in lowered:
+        return (
+            "**AI provider rejected the credentials.** The configured API "
+            "key is missing, revoked, or wrong for this model. Re-connect "
+            "the provider in Settings → AI provider."
+        )
+    if "context length" in lowered or "context_length_exceeded" in lowered:
+        return (
+            "**Request exceeded the model's context window.** The finding "
+            "or workspace context is too large for the configured model. "
+            "Try a higher-context model in Settings → AI provider."
+        )
+    # Unknown — surface the raw text so the user has *something* to act on,
+    # rather than the previous generic "Workspace AI engine unavailable."
+    return f"**Workspace AI engine error.** {raw}"
+
+
 @dataclass
 class AgentExecutionResult:
     """Result returned by the executor after running an agent."""
@@ -736,7 +781,7 @@ class AgentExecutor:
                 agent_run.id,
                 AgentRunUpdate(
                     status="failed",
-                    summary_markdown="Workspace AI engine unavailable.",
+                    summary_markdown=_humanize_process_error(str(exc)),
                     evidence_json={"error": str(exc)},
                 ),
             )

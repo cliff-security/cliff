@@ -23,7 +23,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from opensec.assessment.posture import ADVISORY_CHECKS, CHECK_CATEGORY
+from opensec.assessment.posture import (
+    ADVISORY_CHECKS,
+    CHECK_CATEGORY,
+    CHECK_DESCRIPTION,
+    CHECK_DISPLAY_NAME,
+    CHECK_SEVERITY,
+)
 from opensec.models.finding import FindingCreate
 
 if TYPE_CHECKING:
@@ -198,19 +204,20 @@ def from_posture(
             status = "new"
 
         category = CHECK_CATEGORY.get(r.check_name, "repo_configuration")
+        severity = CHECK_SEVERITY.get(r.check_name, "medium")
         out.append(
             FindingCreate(
-                source_type="opensec-posture",
+                source_type="cliff",
                 source_id=f"{repo_url}:{r.check_name}",
                 type="posture",
                 grade_impact=grade_impact,
                 assessment_id=assessment_id,
                 category=category,
                 status=status,
-                title=r.check_name,
-                description=None,
-                raw_severity=None,
-                normalized_priority=None,
+                title=CHECK_DISPLAY_NAME.get(r.check_name, r.check_name),
+                description=CHECK_DESCRIPTION.get(r.check_name),
+                raw_severity=severity,
+                normalized_priority=severity,
                 asset_label=repo_url,
                 raw_payload={
                     "check_name": r.check_name,

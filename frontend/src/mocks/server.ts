@@ -6,6 +6,9 @@
  */
 
 import { setupServer } from 'msw/node'
-import { handlers } from './handlers'
+import { findingHandlers, handlers } from './handlers'
 
-export const server = setupServer(...handlers)
+// Test server gets ``handlers`` (production-side passthrough — empty today)
+// plus ``findingHandlers`` (the /api/findings + /api/findings/:id fixtures
+// that the dev browser worker no longer registers, per handlers.ts comment).
+export const server = setupServer(...handlers, ...findingHandlers)

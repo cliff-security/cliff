@@ -94,12 +94,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # disabled "Assessment running" button.
     if db_connection._db is not None:
         from opensec.db.dao.assessment import reconcile_orphaned_assessments
+        from opensec.db.repo_agent_run import reconcile_orphaned_agent_runs
 
         reconciled = await reconcile_orphaned_assessments(db_connection._db)
         if reconciled:
             logger.info(
                 "Reconciled %d orphaned assessment row(s) to 'failed' on startup",
                 reconciled,
+            )
+
+        # Same recovery for agent_runs. Without this, a uvicorn reload
+        # mid-execution leaves rows stuck at status='running', the
+        # derivation reports stage='generating'/'planning' forever, and
+        # the sidebar shows a permanent "Thinking…" the user can't escape.
+        reconciled_runs = await reconcile_orphaned_agent_runs(db_connection._db)
+        if reconciled_runs:
+            logger.info(
+                "Reconciled %d orphaned agent_run row(s) to 'failed' on startup",
+                reconciled_runs,
             )
 
     # Demo mode: seed sample findings on startup

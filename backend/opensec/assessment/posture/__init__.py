@@ -46,21 +46,139 @@ CHECK_CATEGORY: dict[PostureCheckName, PostureCheckCategory] = {
 }
 
 CHECK_DISPLAY_NAME: dict[PostureCheckName, str] = {
-    "branch_protection": "Branch protection enabled",
-    "no_force_pushes": "Force pushes blocked",
-    "no_secrets_in_code": "No committed secrets",
-    "security_md": "SECURITY.md present",
-    "lockfile_present": "Lockfile present",
-    "dependabot_config": "Dependabot/Renovate configured",
-    "signed_commits": "Signed commits",
-    "code_owners_exists": "Code owners file exists",
-    "secret_scanning_enabled": "Secret scanning enabled",
-    "actions_pinned_to_sha": "Actions pinned to SHA",
-    "trusted_action_sources": "Trusted action sources",
-    "workflow_trigger_scope": "Workflow trigger scope",
-    "stale_collaborators": "No stale collaborators",
-    "broad_team_permissions": "Team permissions scoped",
-    "default_branch_permissions": "Default branch permissions",
+    # Issue-framed titles — when the check fails (status='new'), the title
+    # describes the *problem* so the row reads as a real action item.
+    # Passing-state rows carry the same title in the DB but are hidden
+    # from the Issues page by the type+status filter; if they ever surface
+    # the title slightly mis-frames the resolved state, which we accept
+    # in exchange for the failing-row UX win.
+    "branch_protection": "Branch protection not enabled on default branch",
+    "no_force_pushes": "Force pushes allowed on default branch",
+    "no_secrets_in_code": "Secrets committed in repository",
+    "security_md": "SECURITY.md missing",
+    "lockfile_present": "Lockfile missing",
+    "dependabot_config": "Dependabot/Renovate not configured",
+    "signed_commits": "Commits not signed",
+    "code_owners_exists": "CODEOWNERS file missing",
+    "secret_scanning_enabled": "Secret scanning disabled",
+    "actions_pinned_to_sha": "GitHub Actions not pinned to SHA",
+    "trusted_action_sources": "Untrusted GitHub Action sources",
+    "workflow_trigger_scope": "Workflow trigger scope too permissive",
+    "stale_collaborators": "Stale collaborators with write access",
+    "broad_team_permissions": "Team permissions too broad",
+    "default_branch_permissions": "Default branch permissions too broad",
+}
+
+# Severity per check. Calibrated so:
+#   high   = active detection control OR direct secret/access exposure
+#   medium = supply-chain hygiene, access creep, or visibility-loss gap
+#   low    = process/advisory — important but not a live exposure
+CHECK_SEVERITY: dict[PostureCheckName, str] = {
+    "branch_protection": "high",
+    "no_force_pushes": "medium",
+    "no_secrets_in_code": "high",
+    "security_md": "low",
+    "lockfile_present": "medium",
+    "dependabot_config": "medium",
+    "signed_commits": "low",
+    "code_owners_exists": "low",
+    "secret_scanning_enabled": "high",
+    "actions_pinned_to_sha": "medium",
+    "trusted_action_sources": "medium",
+    "workflow_trigger_scope": "low",
+    "stale_collaborators": "medium",
+    "broad_team_permissions": "medium",
+    "default_branch_permissions": "medium",
+}
+
+# Short, agent-readable description of why each check matters and what
+# "fixed" looks like. Surfaced as the finding's ``description`` so the
+# remediation planner has the same context a human reviewer would.
+CHECK_DESCRIPTION: dict[PostureCheckName, str] = {
+    "branch_protection": (
+        "The default branch has no protection rule, so anyone with push access "
+        "can land code without review, CI, or status checks. Enable branch "
+        "protection on the default branch and require at least one approving "
+        "pull-request review plus passing status checks before merge."
+    ),
+    "no_force_pushes": (
+        "Force pushes to the default branch are allowed, which means history can "
+        "be rewritten and audited commits silently lost. Turn off force pushes in "
+        "the default branch's protection rule."
+    ),
+    "no_secrets_in_code": (
+        "A static secret scan flagged credentials in the repository tree. Rotate "
+        "the secret immediately, remove it from the codebase, and move it into "
+        "the secrets manager. Add a pre-commit secret-scan hook to keep new ones "
+        "out."
+    ),
+    "security_md": (
+        "The repo has no SECURITY.md, so external researchers have no documented "
+        "way to report vulnerabilities. Add a SECURITY.md at the repo root with "
+        "a reporting contact and disclosure policy."
+    ),
+    "lockfile_present": (
+        "A package manifest exists without a matching lockfile, so dependency "
+        "resolution drifts between machines and CI. Commit the appropriate "
+        "lockfile (package-lock.json, poetry.lock, Cargo.lock, etc.) so installs "
+        "are reproducible and Dependabot can pin upgrades."
+    ),
+    "dependabot_config": (
+        "No Dependabot or Renovate configuration is present, so the project gets "
+        "no automatic alerts or PRs when its dependencies have known CVEs. Add "
+        ".github/dependabot.yml (or renovate.json) covering every ecosystem in "
+        "the repo."
+    ),
+    "signed_commits": (
+        "Recent commits on the default branch are not GPG/SSH-signed, so commit "
+        "authorship can't be cryptographically verified. Encourage maintainers "
+        "to sign commits and enable 'Require signed commits' on the default "
+        "branch's protection rule."
+    ),
+    "code_owners_exists": (
+        "There is no CODEOWNERS file, so reviewers aren't auto-assigned on "
+        "sensitive paths and no one is accountable for them. Add CODEOWNERS at "
+        ".github/CODEOWNERS mapping the security-critical paths to the right "
+        "team handles."
+    ),
+    "secret_scanning_enabled": (
+        "GitHub's secret-scanning feature is off for this repository, so any "
+        "credential that lands on the default branch will not trigger an alert. "
+        "Enable secret scanning (and push protection if available) in the repo's "
+        "Security settings."
+    ),
+    "actions_pinned_to_sha": (
+        "GitHub Actions workflows reference third-party actions by tag (@v3) "
+        "instead of by commit SHA, so a compromised tag silently pulls malicious "
+        "code into CI. Pin every third-party action to a full 40-char commit "
+        "SHA."
+    ),
+    "trusted_action_sources": (
+        "CI workflows pull actions from publishers outside an allowlist of "
+        "trusted vendors. Restrict the Actions allowlist (Settings → Actions → "
+        "General) to GitHub-verified creators and your approved third parties."
+    ),
+    "workflow_trigger_scope": (
+        "One or more workflows use a permissive trigger (e.g. pull_request_target "
+        "or write-mode token on a fork PR) that an attacker can abuse from an "
+        "untrusted fork. Audit each workflow's triggers and token permissions; "
+        "default to GITHUB_TOKEN: read-only."
+    ),
+    "stale_collaborators": (
+        "Collaborators with write access haven't shown activity in the last 90 "
+        "days. Stale access is access an attacker can take over. Remove "
+        "inactive collaborators or downgrade them to read."
+    ),
+    "broad_team_permissions": (
+        "A team has admin or maintain on the repo when write or triage would "
+        "suffice. Tighten the team's permission to the least it needs for its "
+        "actual workflow."
+    ),
+    "default_branch_permissions": (
+        "Too many roles can push directly to the default branch. Restrict push "
+        "to a small set of maintainers and enforce PRs for everyone else via "
+        "branch protection."
+    ),
 }
 
 # Checks that are advisory by design — they don't count toward the grade.
@@ -221,7 +339,9 @@ __all__ = [
     "ADVISORY_CHECKS",
     "ALL_CHECKS",
     "CHECK_CATEGORY",
+    "CHECK_DESCRIPTION",
     "CHECK_DISPLAY_NAME",
+    "CHECK_SEVERITY",
     "GithubAPI",
     "PostureCheckResult",
     "RepoCoords",
