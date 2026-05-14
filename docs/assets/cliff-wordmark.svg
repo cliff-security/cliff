@@ -1,21 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 80" width="360" height="80" role="img" aria-label="cliff">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 152 60" width="152" height="60" role="img" aria-label="cliff">
   <title>cliff</title>
   <defs>
-    <filter id="cliff-glow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+    <filter id="cliff-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="1.2" result="blur"/>
       <feMerge>
         <feMergeNode in="blur"/>
         <feMergeNode in="SourceGraphic"/>
       </feMerge>
     </filter>
   </defs>
-  <rect width="360" height="80" fill="#0B101B"/>
+  <rect width="152" height="60" fill="#0B101B"/>
   <g stroke="#6FE3B5" stroke-width="1" fill="none" opacity="0.5">
-    <path d="M6 6 L6 16 M6 6 L16 6"/>
-    <path d="M354 6 L344 6 M354 6 L354 16"/>
-    <path d="M6 74 L6 64 M6 74 L16 74"/>
-    <path d="M354 74 L344 74 M354 74 L354 64"/>
+    <path d="M4 4 L4 12 M4 4 L12 4"/>
+    <path d="M148 4 L140 4 M148 4 L148 12"/>
+    <path d="M4 56 L4 48 M4 56 L12 56"/>
+    <path d="M148 56 L140 56 M148 56 L148 48"/>
   </g>
-  <text x="110" y="56" font-family="Manrope, system-ui, sans-serif" font-weight="800" font-size="44" letter-spacing="-2" fill="#6FE3B5" filter="url(#cliff-glow)">cliff</text>
-  <circle cx="228" cy="50" r="4.5" fill="#6FE3B5" filter="url(#cliff-glow)"/>
+  <text x="28" y="43" font-family="Manrope, system-ui, sans-serif" font-weight="800" font-size="40" letter-spacing="-2" fill="#6FE3B5" filter="url(#cliff-glow)">cliff</text>
+  <circle cx="113" cy="38" r="4.5" fill="#6FE3B5" filter="url(#cliff-glow)"/>
 </svg>
