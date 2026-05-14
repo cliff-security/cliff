@@ -34,6 +34,7 @@ from opensec.db.repo_agent_run import (
 from opensec.db.repo_finding import get_finding, update_finding
 from opensec.db.repo_workspace import get_workspace
 from opensec.models import AgentRunCreate, AgentRunUpdate, FindingUpdate
+from opensec.services.evidence_guard import guard_evidence_output
 from opensec.services.pr_verifier import verify_pr_url
 from opensec.services.reference_verifier import clean_references
 from opensec.workspace.context_document import ContextDocument
@@ -49,14 +50,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Overall ceiling for a non-tool agent run. These agents do a single
-# structured-output completion (no tools, no file reads) — on the configured
-# models that finishes in well under 20 s, so 75 s is already a 3-4x margin.
-# Lowered from 120 s (Q01-B10): when an agent genuinely hangs, the run-all
-# loop re-runs it on the next pass, and a 120 s dead-wait per hung attempt
-# was pure noise. Tool agents (remediation_executor) override this — see
-# ``execute`` — to 600 s for git/build work.
-DEFAULT_TIMEOUT: float = 75.0
+# Overall ceiling for a non-tool agent run — a generous backstop, not the
+# primary failure mechanism. Under low concurrency a structured-output
+# completion finishes in well under 20 s, but under ~6-way concurrency the
+# provider serialises/rate-limits and a *still-progressing* run can take
+# 80-120 s (Q01-B12 — a tighter 75 s ceiling killed those mid-stream). The
+# real fast-fail for a genuinely *hung* agent is the no-output stall in
+# ``_collect_response`` (Q01-B10), which fires long before this. Tool
+# agents (remediation_executor) override this — see ``execute`` — to 600 s.
+DEFAULT_TIMEOUT: float = 150.0
 # Extra buffer for asyncio.wait_for when permission waits are possible.
 # The real timeout is enforced by stall detection, which accounts for
 # time spent waiting for user permission decisions.
@@ -304,6 +306,21 @@ _AGENT_GUIDANCE: dict[str, str] = {
         "- NEVER invent a GitHub advisory (GHSA-...) ID or a commit SHA. "
         "If you have not actually seen a specific identifier, do not "
         "construct one — omit the reference entirely.\n"
+    ),
+    "evidence_collector": (
+        "## Completeness rules\n\n"
+        "Every field must be a genuine best-effort answer — an empty "
+        "``affected_files`` or a null ``current_version`` is a worse "
+        "outcome than an imperfect one.\n\n"
+        "- ``current_version``: the version currently in the repo. The "
+        "finding's asset label already carries it (e.g. ``minimist@1.2.5`` "
+        "-> ``1.2.5``) — never return null for a dependency finding.\n"
+        "- ``affected_files``: for a dependency finding the manifest and "
+        "lock files that pin the package (``package.json``, "
+        "``package-lock.json``, ``yarn.lock``, …) are always affected — "
+        "list them rather than returning an empty array.\n"
+        "- ``fix_safety``: a major-version jump (e.g. 4.x -> 7.x) is "
+        "``breaking_change`` or worse — never ``safe_bump``.\n"
     ),
 }
 
@@ -812,6 +829,37 @@ class AgentExecutor:
                         exc_info=True,
                     )
 
+            # 7b-ev. Evidence guards (Q01-B11, B13). The evidence_collector
+            # classifies fix safety and reports the current version as
+            # free-text — both drift under model/concurrency variance. For a
+            # dependency finding OpenSec already knows the authoritative
+            # versions from the scanner, so reconcile the agent's output
+            # against them (a major-version jump is never a ``safe_bump``;
+            # ``current_version`` is backfilled). Best-effort.
+            if (
+                parse_result.success
+                and agent_type == "evidence_collector"
+                and parse_result.structured_output
+            ):
+                try:
+                    corrections = guard_evidence_output(
+                        parse_result.structured_output, finding_data
+                    )
+                    if corrections:
+                        logger.info(
+                            "evidence_collector output corrected "
+                            "(workspace=%s run=%s): %s",
+                            workspace_id,
+                            agent_run.id,
+                            corrections,
+                        )
+                except Exception:  # noqa: BLE001 — never fail a run on this
+                    logger.warning(
+                        "Evidence guard raised for workspace %s",
+                        workspace_id,
+                        exc_info=True,
+                    )
+
             # 7c. PR URL verification (B16). The remediation_executor is the
             # only agent that claims to have opened a PR. If the emitted
             # ``pr_url`` can't be fetched from GitHub we flip the parse
@@ -1083,6 +1131,12 @@ class AgentExecutor:
         if agent_type in _TOOL_AGENT_TYPES:
             stall_timeout = max(stall_timeout, 180.0)
 
+        # A genuinely hung agent emits no events of any kind. Catch that fast
+        # (Q01-B10) rather than dead-waiting the full overall ceiling — but
+        # use a wider window than the with-content stall so a slow first
+        # token under heavy concurrency (Q01-B12) is not mistaken for a hang.
+        no_output_stall = max(90.0, stall_timeout)
+
         async def _handle_permission(event: dict) -> None:
             """Handle a permission request based on tool tier."""
             tool = event.get("tool", "unknown")
@@ -1212,6 +1266,17 @@ class AgentExecutor:
                         with contextlib.suppress(asyncio.CancelledError):
                             await stream_task
                         return collected_text
+                    if idle > no_output_stall and not collected_text:
+                        # No events of any kind for a long stretch and
+                        # nothing collected — the agent is hung. Fail fast
+                        # (Q01-B10); the run-all loop re-runs it next pass.
+                        stream_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await stream_task
+                        raise AgentTimeoutError(
+                            f"Agent produced no output for "
+                            f"{no_output_stall:.0f}s — treating as hung."
+                        )
                     # Check effective timeout (wall clock minus permission wait)
                     effective_elapsed = (
                         time.monotonic() - stream_start - permission_wait_total

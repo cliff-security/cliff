@@ -33,6 +33,22 @@ function stubIntegrations(integrations: unknown[] = [GITHUB_INTEGRATION]) {
   )
 }
 
+/**
+ * Stub ``/api/dashboard`` for the scope chip. Defaults to "no assessment
+ * yet" so the chip falls through to the GitHub integration config — the
+ * pre-scan UI path. Pass a ``repo_url`` to exercise the scan-first flow,
+ * where the latest assessment is the authoritative current scope.
+ */
+function stubDashboard(repoUrl: string | null = null) {
+  server.use(
+    http.get('/api/dashboard', () =>
+      HttpResponse.json({
+        assessment: repoUrl ? { repo_url: repoUrl } : null,
+      }),
+    ),
+  )
+}
+
 function stubFindings(stages: Array<Parameters<typeof makeFinding>[0]>) {
   const findings = stages.map((opts, i) =>
     makeFinding({ id: `f-${i}`, ...opts }),
@@ -69,6 +85,7 @@ function Wrapper({ children, path }: { children: ReactNode; path: string }) {
 describe('SideNav (IMPL-0008 redesign)', () => {
   it('renders a 224px-wide aside (w-56)', () => {
     stubIntegrations()
+    stubDashboard()
     stubFindings([])
     renderSideNav()
     const aside = screen.getByRole('complementary')
@@ -77,6 +94,7 @@ describe('SideNav (IMPL-0008 redesign)', () => {
 
   it('renders the OpenSec logo block with shield_lock + wordmark', () => {
     stubIntegrations()
+    stubDashboard()
     stubFindings([])
     renderSideNav()
     expect(screen.getByText('OpenSec')).toBeInTheDocument()
@@ -86,6 +104,7 @@ describe('SideNav (IMPL-0008 redesign)', () => {
 
   it('renders the workspace switcher with repo initials, owner/repo name, and URL hint', async () => {
     stubIntegrations()
+    stubDashboard()
     stubFindings([])
     renderSideNav()
     await waitFor(() =>
@@ -99,17 +118,46 @@ describe('SideNav (IMPL-0008 redesign)', () => {
     )
   })
 
-  it('falls back to a "No repo connected" placeholder when no GitHub integration exists', async () => {
+  it('shows the latest assessment repo as the current scope (scan-first flow)', async () => {
+    // The scan-first CLI flow records the repo on the assessment, not as a
+    // GitHub integration — the scope chip must still show it. (Bug: chip
+    // read "no scope connected" while the Dashboard showed the repo.)
     stubIntegrations([])
+    stubDashboard('https://github.com/cliff-security/NodeGoat')
     stubFindings([])
     renderSideNav()
     await waitFor(() =>
-      expect(screen.getByText(/no repo connected/i)).toBeInTheDocument(),
+      expect(screen.getByText('cliff-security/NodeGoat')).toBeInTheDocument(),
+    )
+    expect(
+      screen.queryByText(/no scope connected/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('prefers the latest assessment repo over the GitHub integration config', async () => {
+    stubIntegrations() // linear/billing
+    stubDashboard('https://github.com/cliff-security/NodeGoat')
+    stubFindings([])
+    renderSideNav()
+    await waitFor(() =>
+      expect(screen.getByText('cliff-security/NodeGoat')).toBeInTheDocument(),
+    )
+    expect(screen.queryByText('linear/billing')).not.toBeInTheDocument()
+  })
+
+  it('falls back to a "No repo connected" placeholder when no scope exists', async () => {
+    stubIntegrations([])
+    stubDashboard()
+    stubFindings([])
+    renderSideNav()
+    await waitFor(() =>
+      expect(screen.getByText(/no scope connected/i)).toBeInTheDocument(),
     )
   })
 
   it('workspace switcher click is a no-op (renders as a non-submitting button)', async () => {
     stubIntegrations()
+    stubDashboard()
     stubFindings([])
     renderSideNav()
     await waitFor(() =>
@@ -124,6 +172,7 @@ describe('SideNav (IMPL-0008 redesign)', () => {
 
   it('renders the two primary nav items with named labels and icons', () => {
     stubIntegrations()
+    stubDashboard()
     stubFindings([])
     renderSideNav()
     const nav = screen.getByRole('navigation', { name: /Primary/i })
@@ -145,6 +194,7 @@ describe('SideNav (IMPL-0008 redesign)', () => {
 
   it('does not render Findings, Workspace, History, search, notifications, or user identity', () => {
     stubIntegrations()
+    stubDashboard()
     stubFindings([])
     renderSideNav()
     expect(screen.queryByRole('link', { name: /^Findings$/i })).toBeNull()
@@ -156,6 +206,7 @@ describe('SideNav (IMPL-0008 redesign)', () => {
 
   it('Issues badge shows the count of open findings (review + in_progress + todo)', async () => {
     stubIntegrations()
+    stubDashboard()
     stubFindings([
       { stage: 'plan_ready' }, // review
       { stage: 'pr_ready' }, // review
@@ -171,6 +222,7 @@ describe('SideNav (IMPL-0008 redesign)', () => {
 
   it('hides the Issues badge when the open count is zero', async () => {
     stubIntegrations()
+    stubDashboard()
     stubFindings([
       { stage: 'fixed' },
       { stage: 'wont_fix' },
@@ -184,6 +236,7 @@ describe('SideNav (IMPL-0008 redesign)', () => {
 
   it('marks the Issues link active on /issues with aria-current and active styling', () => {
     stubIntegrations()
+    stubDashboard()
     stubFindings([])
     renderSideNav('/issues')
     const issues = screen.getByRole('link', { name: /Issues/i })
@@ -193,6 +246,7 @@ describe('SideNav (IMPL-0008 redesign)', () => {
 
   it('marks the Dashboard link active on /dashboard, not Issues', () => {
     stubIntegrations()
+    stubDashboard()
     stubFindings([])
     renderSideNav('/dashboard')
     const dashboard = screen.getByRole('link', { name: /Dashboard/i })
@@ -203,6 +257,7 @@ describe('SideNav (IMPL-0008 redesign)', () => {
 
   it('marks the Settings footer link active on /settings', () => {
     stubIntegrations()
+    stubDashboard()
     stubFindings([])
     renderSideNav('/settings')
     const settings = screen.getByRole('link', { name: /Settings/i })
@@ -211,6 +266,7 @@ describe('SideNav (IMPL-0008 redesign)', () => {
 
   it('Settings is a labeled row inside the footer (separated by a 1px outline-variant top border)', () => {
     stubIntegrations()
+    stubDashboard()
     stubFindings([])
     renderSideNav()
     const settings = screen.getByRole('link', { name: /Settings/i })
@@ -223,6 +279,7 @@ describe('SideNav (IMPL-0008 redesign)', () => {
 
   it('renders the active Issues badge in primary tone when /issues is active', async () => {
     stubIntegrations()
+    stubDashboard()
     stubFindings([{ stage: 'todo' }])
     renderSideNav('/issues')
     const badge = await screen.findByTestId('sidenav-issues-badge')
@@ -236,20 +293,22 @@ describe('SideNav (IMPL-0008 redesign)', () => {
         config: {},
       },
     ])
+    stubDashboard()
     stubFindings([])
     render(
       <Wrapper path="/issues">
         <SideNav />
       </Wrapper>,
     )
-    // No repo_url → fall back to the placeholder.
+    // No repo_url and no assessment → fall back to the placeholder.
     await waitFor(() =>
-      expect(screen.getByText(/no repo connected/i)).toBeInTheDocument(),
+      expect(screen.getByText(/no scope connected/i)).toBeInTheDocument(),
     )
   })
 
   it('snapshots the rendered SideNav with Issues active', async () => {
     stubIntegrations()
+    stubDashboard()
     stubFindings([
       { stage: 'plan_ready' },
       { stage: 'planning' },
@@ -262,6 +321,7 @@ describe('SideNav (IMPL-0008 redesign)', () => {
 
   it('snapshots the rendered SideNav with Dashboard active', async () => {
     stubIntegrations()
+    stubDashboard()
     stubFindings([
       { stage: 'plan_ready' },
       { stage: 'planning' },
@@ -274,6 +334,7 @@ describe('SideNav (IMPL-0008 redesign)', () => {
 
   it('snapshots the rendered SideNav with Settings active', async () => {
     stubIntegrations()
+    stubDashboard()
     stubFindings([
       { stage: 'plan_ready' },
       { stage: 'planning' },

@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router'
 import { useIntegrations, useOpenIssuesCount } from '@/api/hooks'
+import { useDashboard } from '@/api/dashboard'
 
 /**
  * Primary navigation rail — Cliff Cyberdeck dress.
@@ -89,11 +90,20 @@ function repoDisplayName(repoUrl: string): string {
 
 function WorkspaceSwitcher() {
   const { data: integrations } = useIntegrations()
+  const { data: dashboard } = useDashboard()
   const githubInt = integrations?.find((i) => i.provider_name === 'GitHub')
-  const repoUrl =
+  const integrationRepo =
     typeof githubInt?.config?.repo_url === 'string' && githubInt.config.repo_url
       ? (githubInt.config.repo_url as string)
       : null
+  // The "current scope" is whatever repo OpenSec is actually working on —
+  // i.e. the latest assessment's target, the same source the Dashboard
+  // shows. The scan-first CLI flow (`opensec scan <url>`) records the repo
+  // on the assessment but never as a GitHub *integration*, so keying the
+  // chip off the integration alone left it stuck on "no scope connected"
+  // while the Dashboard correctly showed the repo. Assessment wins; the
+  // integration config is the fallback for the pre-first-scan UI path.
+  const repoUrl = dashboard?.assessment?.repo_url ?? integrationRepo
 
   return (
     <div className="px-[14px] pt-[14px] pb-[10px]">
