@@ -646,9 +646,16 @@ async def get_dashboard(db=Depends(get_db)) -> DashboardPayload:
     # posture), so the count matches the Issues page and the user's mental
     # model of "things to fix". ``level_up`` continues to receive vulns-only
     # because its gates differentiate vuln-based vs posture-based internally.
+    #
+    # Scoped to ``latest.id`` — the same "current assessment" scope the
+    # Issues page uses (``/api/findings?scope=current``). Without this the
+    # dashboard count drifts above the Issues count whenever an older
+    # assessment left an open finding behind (e.g. a posture row stuck at
+    # ``in_progress`` from a pre-re-scan run).
     all_open_findings = await list_findings(
         db,
         type=["dependency", "secret", "code", "posture"],
+        assessment_id=latest.id,
         limit=10_000,
     )
     open_statuses = {"new", "triaged", "in_progress", "remediated"}
