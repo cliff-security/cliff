@@ -265,9 +265,13 @@ class WorkspaceProcessPool:
 
             wp.client = OpenCodeClient(base_url=wp.base_url)
             wp._healthy = True
-            self._processes[workspace_id] = wp
 
+            # Push AI auth *before* publishing to ``self._processes``: the
+            # ``get_or_start`` fast path reads that dict outside the per-
+            # workspace lock, so a concurrent caller must not be handed a
+            # client whose OpenCode process hasn't been authenticated yet.
             await self._push_ai_auth(wp, merged_env_vars)
+            self._processes[workspace_id] = wp
 
             logger.info(
                 "Started workspace process %s on port %d (cwd=%s)",
