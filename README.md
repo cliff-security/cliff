@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/cliff-wordmark.svg" alt="cliff" width="220" />
+<img src="docs/assets/cliff-wordmark.svg" alt="cliff" width="200" />
 
 **Take care of security.**
 
