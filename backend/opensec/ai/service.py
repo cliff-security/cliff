@@ -142,8 +142,35 @@ class AIIntegrationService:
                 record.provider,
             )
             return {}
+        # A present-but-empty credential must be treated as unconfigured.
+        # Injecting an empty env var still routes through OpenCode and
+        # fails with an opaque 401, and it makes the readiness gate
+        # (``ai_provider_ready``) falsely report a usable provider.
+        if not raw_key:
+            logger.error(
+                "AI integration credential for provider %s decrypted to an "
+                "empty value — treating provider as unconfigured",
+                record.provider,
+            )
+            return {}
         env_var = catalog.env_var_name(record.provider)
         return {env_var: raw_key}
+
+    async def resolve_model_for_workspace(self) -> str | None:
+        """Return the OpenCode model id for the active AI integration.
+
+        ``None`` when unconfigured, or when the active provider is
+        ``custom`` with no model override set. The workspace process pool
+        writes this into the workspace's ``opencode.json`` at spawn time
+        so OpenCode routes calls through the provider whose key was
+        actually injected — without an explicit model OpenCode falls back
+        to a built-in default that routes through a different provider
+        and every call 401s with "Missing Authentication header".
+        """
+        record = await self.get_active()
+        if record is None:
+            return None
+        return catalog.resolve_model(record.provider)
 
     # ------------------------------------------------------------------
     # Public writes

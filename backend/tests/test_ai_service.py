@@ -174,6 +174,37 @@ async def test_resolve_env_uses_correct_env_var_per_provider(
     assert env == {"OPENAI_API_KEY": "sk-openai-key"}
 
 
+async def test_resolve_env_skips_empty_credential(
+    service: AIIntegrationService,
+) -> None:
+    """A present-but-empty stored credential must not be injected — an empty
+    env var still routes through OpenCode and 401s confusingly, and it makes
+    the readiness gate falsely report 'ready'. (QA Q01 B06b.)"""
+    await service.save_byok("anthropic", "")
+    assert await service.resolve_env_for_workspace() == {}
+
+
+# ---------------------------------------------------------------------------
+# resolve_model_for_workspace
+# ---------------------------------------------------------------------------
+
+
+async def test_resolve_model_returns_none_when_unconfigured(
+    service: AIIntegrationService,
+) -> None:
+    assert await service.resolve_model_for_workspace() is None
+
+
+async def test_resolve_model_returns_provider_default(
+    service: AIIntegrationService,
+) -> None:
+    await service.save_byok("anthropic", "sk-ant-realkey-12345")
+    assert (
+        await service.resolve_model_for_workspace()
+        == "anthropic/claude-sonnet-4-6"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Reconnect / replace
 # ---------------------------------------------------------------------------

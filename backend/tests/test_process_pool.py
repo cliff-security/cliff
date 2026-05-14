@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -387,6 +388,103 @@ async def test_empty_env_vars_still_injects_git_ceiling(
     passed_env = mock_exec.call_args.kwargs.get("env")
     assert passed_env is not None
     assert passed_env["GIT_CEILING_DIRECTORIES"] == "/tmp/ws-empty-env"
+
+
+# ---------------------------------------------------------------------------
+# opencode.json model reconciliation (QA Q01 B06b)
+# ---------------------------------------------------------------------------
+
+
+async def test_start_reconciles_opencode_model(tmp_path: Path):
+    """The pool rewrites the workspace's opencode.json `model` from the
+    model_resolver before spawn. Without it OpenCode falls back to a
+    built-in default that routes through the wrong provider and 401s."""
+    ws_dir = tmp_path / "ws-model"
+    ws_dir.mkdir()
+    (ws_dir / "opencode.json").write_text(
+        '{"$schema": "https://opencode.ai/config.json", '
+        '"permission": {"bash": "ask"}}'
+    )
+
+    pool = WorkspaceProcessPool(
+        port_allocator=PortAllocator(start=5100, end=5109),
+        host="127.0.0.1",
+        model_resolver=AsyncMock(return_value="anthropic/claude-sonnet-4-6"),
+    )
+    mock_proc = _make_mock_subprocess()
+    mock_httpx = _make_mock_httpx_healthy()
+
+    with (
+        patch(
+            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=mock_proc),
+        ),
+        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+    ):
+        await pool.start("ws-model", ws_dir)
+
+    config = json.loads((ws_dir / "opencode.json").read_text())
+    assert config["model"] == "anthropic/claude-sonnet-4-6"
+    # Existing keys are preserved.
+    assert config["permission"] == {"bash": "ask"}
+
+
+async def test_start_without_model_resolver_leaves_opencode_json_untouched(
+    tmp_path: Path,
+):
+    """No model_resolver wired → the pool must not touch opencode.json."""
+    ws_dir = tmp_path / "ws-nomodel"
+    ws_dir.mkdir()
+    original = '{"permission": {"bash": "ask"}}'
+    (ws_dir / "opencode.json").write_text(original)
+
+    pool = WorkspaceProcessPool(
+        port_allocator=PortAllocator(start=5100, end=5109),
+        host="127.0.0.1",
+    )
+    mock_proc = _make_mock_subprocess()
+    mock_httpx = _make_mock_httpx_healthy()
+
+    with (
+        patch(
+            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=mock_proc),
+        ),
+        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+    ):
+        await pool.start("ws-nomodel", ws_dir)
+
+    assert (ws_dir / "opencode.json").read_text() == original
+
+
+async def test_start_model_resolver_returning_none_leaves_untouched(
+    tmp_path: Path,
+):
+    """When no AI provider is configured the resolver returns None — the
+    pool leaves opencode.json alone rather than writing `model: null`."""
+    ws_dir = tmp_path / "ws-modelnone"
+    ws_dir.mkdir()
+    original = '{"permission": {"bash": "ask"}}'
+    (ws_dir / "opencode.json").write_text(original)
+
+    pool = WorkspaceProcessPool(
+        port_allocator=PortAllocator(start=5100, end=5109),
+        host="127.0.0.1",
+        model_resolver=AsyncMock(return_value=None),
+    )
+    mock_proc = _make_mock_subprocess()
+    mock_httpx = _make_mock_httpx_healthy()
+
+    with (
+        patch(
+            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=mock_proc),
+        ),
+        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+    ):
+        await pool.start("ws-modelnone", ws_dir)
+
+    assert (ws_dir / "opencode.json").read_text() == original
 
 
 # ---------------------------------------------------------------------------

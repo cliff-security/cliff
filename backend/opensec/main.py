@@ -169,6 +169,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # refreshes it on every connect/disconnect. Avoids a DB query +
     # vault decrypt on every workspace spawn.
     app.state.ai_env_cache = {}
+    app.state.ai_model_cache = None
 
     async def _refresh_ai_env_cache() -> None:
         from opensec.ai.service import AIIntegrationService
@@ -177,17 +178,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         db = db_connection._db
         if vault is None or db is None:
             app.state.ai_env_cache = {}
+            app.state.ai_model_cache = None
             return
         service = AIIntegrationService(
             db, vault, audit_logger=app.state.audit_logger
         )
         try:
             app.state.ai_env_cache = await service.resolve_env_for_workspace()
+            app.state.ai_model_cache = (
+                await service.resolve_model_for_workspace()
+            )
         except Exception:
             logger.warning(
                 "AI integration env refresh failed", exc_info=True
             )
             app.state.ai_env_cache = {}
+            app.state.ai_model_cache = None
 
     # Warm the cache once at boot so the very first workspace spawn
     # doesn't pay the DB + decrypt round-trip on the critical path,
@@ -198,6 +204,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     async def _ai_env_resolver() -> dict[str, str]:
         return dict(app.state.ai_env_cache)
+
+    async def _ai_model_resolver() -> str | None:
+        # The OpenCode model id for the active AI provider. The pool writes
+        # it into each workspace's opencode.json at spawn time so OpenCode
+        # routes calls through the same provider whose key was injected.
+        return app.state.ai_model_cache
 
     # Start AI engine (non-fatal if unavailable). Seed the singleton
     # with the current AI provider env BEFORE start() so the very
@@ -252,16 +264,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.context_builder = context_builder
 
     # Layer 3: Per-workspace process pool, reading from the warm cache.
-    pool = WorkspaceProcessPool(env_resolver=_ai_env_resolver)
+    pool = WorkspaceProcessPool(
+        env_resolver=_ai_env_resolver,
+        model_resolver=_ai_model_resolver,
+    )
     app.state.process_pool = pool
 
     # IMPL-0011 Phase F3: register the singleton-restart hook on app.state
     # so AIIntegrationService instances built per-request can push the
     # new env into the singleton OpenCode without coupling to main.
     async def _ai_on_key_change(env: dict[str, str]) -> None:
-        # Refresh the cached env for the workspace pool — single source
-        # of truth keyed off the service's freshly written state.
-        app.state.ai_env_cache = dict(env)
+        # Refresh the cached env *and* model for the workspace pool — single
+        # source of truth keyed off the service's freshly written state.
+        # ``_refresh_ai_env_cache`` re-resolves both; ``env`` (the dict the
+        # service already resolved) is what we hand the singleton so its
+        # restart can't race the cache write.
+        await _refresh_ai_env_cache()
         try:
             opencode_process.set_extra_env(env)
             if opencode_process.is_running:
