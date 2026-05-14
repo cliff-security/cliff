@@ -308,8 +308,16 @@ class WorkspaceProcessPool:
             if model:
                 _reconcile_opencode_model(workspace_dir, model, workspace_id)
 
-        # Merge extra env vars with system environment.
-        env = {**os.environ, **merged_env_vars}
+        # Merge extra env vars with system environment. Host-inherited
+        # AI-provider env vars (``*_API_KEY`` / ``*_BASE_URL``) are scrubbed
+        # first — OpenSec owns the AI-provider environment entirely via the
+        # resolver, and a polluted host (e.g. Claude Desktop exports
+        # ``ANTHROPIC_BASE_URL`` without ``/v1``, which 404s the agent, plus
+        # an empty ``ANTHROPIC_API_KEY``) must not leak through. The
+        # resolver's values are layered back on top. (QA Q01 B07.)
+        _scrub = ai_catalog.provider_env_var_names()
+        env = {k: v for k, v in os.environ.items() if k not in _scrub}
+        env.update(merged_env_vars)
         if merged_env_vars:
             logger.info(
                 "Injecting env vars for workspace %s: %s",

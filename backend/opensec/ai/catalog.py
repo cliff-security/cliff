@@ -92,6 +92,25 @@ def all_providers() -> list[AIProvider]:
     return list(_CATALOG.keys())
 
 
+def provider_env_var_names() -> frozenset[str]:
+    """Every host env var name OpenSec controls for AI providers.
+
+    For each catalogued provider this is its ``*_API_KEY`` plus the
+    matching ``*_BASE_URL``. Callers spawning OpenCode subprocesses scrub
+    these from the inherited host environment before layering OpenSec's
+    own resolved values on top — otherwise a polluted host leaks in. The
+    motivating case (QA Q01 B07): Claude Desktop exports
+    ``ANTHROPIC_BASE_URL=https://api.anthropic.com`` (note: no ``/v1``),
+    which makes OpenCode hit ``…/messages`` and get a 404, plus an empty
+    ``ANTHROPIC_API_KEY`` that would otherwise shadow the real one.
+    """
+    names: set[str] = set()
+    for info in _CATALOG.values():
+        names.add(info.env_var_name)
+        names.add(info.env_var_name.replace("_API_KEY", "_BASE_URL"))
+    return frozenset(names)
+
+
 def _override_env_var(provider: AIProvider) -> str:
     return f"OPENSEC_AI_MODEL_OVERRIDE_{provider.upper()}"
 

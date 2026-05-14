@@ -43,6 +43,20 @@ def test_env_var_names_match_opencode_expectations() -> None:
     assert catalog.env_var_name("openai") == "OPENAI_API_KEY"
 
 
+def test_provider_env_var_names_covers_keys_and_base_urls() -> None:
+    """Both the ``*_API_KEY`` and ``*_BASE_URL`` of every provider are
+    listed — callers scrub these from the host env before spawning
+    OpenCode so a polluted host (e.g. Claude Desktop's ANTHROPIC_BASE_URL)
+    can't leak in. (QA Q01 B07.)"""
+    names = catalog.provider_env_var_names()
+    assert "ANTHROPIC_API_KEY" in names
+    assert "ANTHROPIC_BASE_URL" in names
+    assert "OPENAI_API_KEY" in names
+    assert "OPENAI_BASE_URL" in names
+    assert "OPENROUTER_API_KEY" in names
+    assert "OPENROUTER_BASE_URL" in names
+
+
 def test_resolve_model_returns_default_when_no_override() -> None:
     # OpenCode resolves model IDs as <provider>/<model> — for OpenRouter
     # that means an extra ``openrouter/`` prefix so OpenCode dispatches

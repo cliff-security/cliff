@@ -184,6 +184,22 @@ async def test_resolve_env_skips_empty_credential(
     assert await service.resolve_env_for_workspace() == {}
 
 
+async def test_resolve_env_propagates_byok_base_url(
+    service: AIIntegrationService,
+) -> None:
+    """A BYOK custom endpoint is carried through as ``*_BASE_URL`` — the
+    pool scrubs host-inherited base URLs (QA Q01 B07), so this is the only
+    path that gets a user's custom endpoint to the subprocess."""
+    await service.save_byok(
+        "anthropic", "sk-ant-key", base_url="https://proxy.internal/v1"
+    )
+    env = await service.resolve_env_for_workspace()
+    assert env == {
+        "ANTHROPIC_API_KEY": "sk-ant-key",
+        "ANTHROPIC_BASE_URL": "https://proxy.internal/v1",
+    }
+
+
 # ---------------------------------------------------------------------------
 # resolve_model_for_workspace
 # ---------------------------------------------------------------------------
@@ -198,7 +214,42 @@ async def test_resolve_model_returns_none_when_unconfigured(
 async def test_resolve_model_returns_provider_default(
     service: AIIntegrationService,
 ) -> None:
+    """With no ``model`` app-setting chosen, the provider's catalog
+    default is used."""
     await service.save_byok("anthropic", "sk-ant-realkey-12345")
+    assert (
+        await service.resolve_model_for_workspace()
+        == "anthropic/claude-sonnet-4-6"
+    )
+
+
+async def test_resolve_model_prefers_app_setting_model(
+    service: AIIntegrationService, db: aiosqlite.Connection
+) -> None:
+    """The user's chosen active model (``model`` app-setting) wins over the
+    catalog default when its provider matches the active integration.
+    (QA Q01 B07: workspace was provisioned for sonnet while the user had
+    selected haiku.)"""
+    from opensec.db.repo_setting import upsert_setting
+
+    await service.save_byok("anthropic", "sk-ant-realkey-12345")
+    await upsert_setting(db, "model", {"full_id": "anthropic/claude-haiku-4-5"})
+    assert (
+        await service.resolve_model_for_workspace()
+        == "anthropic/claude-haiku-4-5"
+    )
+
+
+async def test_resolve_model_ignores_app_setting_from_other_provider(
+    service: AIIntegrationService, db: aiosqlite.Connection
+) -> None:
+    """A ``model`` app-setting left over from a different provider must not
+    be handed to a workspace whose injected key is for another provider —
+    fall back to the active provider's catalog default."""
+    from opensec.db.repo_setting import upsert_setting
+
+    await service.save_byok("anthropic", "sk-ant-realkey-12345")
+    await upsert_setting(db, "model", {"full_id": "openai/gpt-5"})
     assert (
         await service.resolve_model_for_workspace()
         == "anthropic/claude-sonnet-4-6"

@@ -488,6 +488,80 @@ async def test_start_model_resolver_returning_none_leaves_untouched(
 
 
 # ---------------------------------------------------------------------------
+# Host AI-provider env var scrubbing (QA Q01 B07)
+# ---------------------------------------------------------------------------
+
+
+async def test_start_scrubs_host_ai_provider_env_vars(pool: WorkspaceProcessPool):
+    """A polluted host environment (e.g. Claude Desktop exports
+    ANTHROPIC_BASE_URL without /v1, plus an empty ANTHROPIC_API_KEY) must
+    not leak into the workspace subprocess. The resolver's values win."""
+    mock_proc = _make_mock_subprocess()
+    mock_httpx = _make_mock_httpx_healthy()
+
+    with (
+        patch(
+            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=mock_proc),
+        ) as mock_exec,
+        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+        patch("opensec.engine.pool.os") as mock_os,
+    ):
+        mock_os.environ = {
+            "PATH": "/usr/bin",
+            "ANTHROPIC_BASE_URL": "https://api.anthropic.com",
+            "ANTHROPIC_API_KEY": "",  # empty host value — must not shadow
+            "OPENAI_BASE_URL": "https://evil.example",
+        }
+        await pool.start(
+            "ws-scrub",
+            Path("/tmp/ws-scrub"),
+            env_vars={"ANTHROPIC_API_KEY": "sk-ant-real"},
+        )
+
+    passed_env = mock_exec.call_args.kwargs.get("env")
+    # Host AI-provider pollution scrubbed.
+    assert "ANTHROPIC_BASE_URL" not in passed_env
+    assert "OPENAI_BASE_URL" not in passed_env
+    # Resolver/caller value layered back on; non-AI host env preserved.
+    assert passed_env["ANTHROPIC_API_KEY"] == "sk-ant-real"
+    assert passed_env["PATH"] == "/usr/bin"
+
+
+async def test_start_keeps_resolver_supplied_base_url(
+    pool: WorkspaceProcessPool,
+):
+    """A *_BASE_URL the resolver/caller explicitly supplies (BYOK custom
+    endpoint) survives — only host-inherited ones are scrubbed."""
+    mock_proc = _make_mock_subprocess()
+    mock_httpx = _make_mock_httpx_healthy()
+
+    with (
+        patch(
+            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=mock_proc),
+        ) as mock_exec,
+        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+        patch("opensec.engine.pool.os") as mock_os,
+    ):
+        mock_os.environ = {
+            "PATH": "/usr/bin",
+            "ANTHROPIC_BASE_URL": "https://api.anthropic.com",
+        }
+        await pool.start(
+            "ws-byok-url",
+            Path("/tmp/ws-byok-url"),
+            env_vars={
+                "ANTHROPIC_API_KEY": "sk-ant-real",
+                "ANTHROPIC_BASE_URL": "https://proxy.internal/v1",
+            },
+        )
+
+    passed_env = mock_exec.call_args.kwargs.get("env")
+    assert passed_env["ANTHROPIC_BASE_URL"] == "https://proxy.internal/v1"
+
+
+# ---------------------------------------------------------------------------
 # Status
 # ---------------------------------------------------------------------------
 

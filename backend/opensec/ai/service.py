@@ -34,6 +34,7 @@ from opensec.ai.models import (
     AIStatus,
 )
 from opensec.db import repo_integration
+from opensec.db.repo_setting import get_setting
 from opensec.integrations.audit import AuditEvent
 from opensec.models import IntegrationConfigCreate
 
@@ -154,22 +155,41 @@ class AIIntegrationService:
             )
             return {}
         env_var = catalog.env_var_name(record.provider)
-        return {env_var: raw_key}
+        env = {env_var: raw_key}
+        # Propagate a BYOK custom endpoint so OpenCode talks to the right
+        # host. The pool scrubs any host-inherited ``*_BASE_URL`` before
+        # spawning a workspace (QA Q01 B07), so this is the only path that
+        # carries a user-supplied base URL through to the subprocess.
+        base_url = (record.metadata or {}).get("base_url")
+        if base_url:
+            env[env_var.replace("_API_KEY", "_BASE_URL")] = base_url
+        return env
 
     async def resolve_model_for_workspace(self) -> str | None:
         """Return the OpenCode model id for the active AI integration.
 
-        ``None`` when unconfigured, or when the active provider is
-        ``custom`` with no model override set. The workspace process pool
-        writes this into the workspace's ``opencode.json`` at spawn time
-        so OpenCode routes calls through the provider whose key was
+        ``None`` when no AI provider is configured. The workspace process
+        pool writes this into the workspace's ``opencode.json`` at spawn
+        time so OpenCode routes calls through the provider whose key was
         actually injected — without an explicit model OpenCode falls back
         to a built-in default that routes through a different provider
         and every call 401s with "Missing Authentication header".
+
+        The user's chosen active model (the ``model`` app-setting, set via
+        ``opensec model set`` / the Settings UI) is authoritative — it is
+        what the singleton OpenCode and ``/health`` already report. It is
+        used when its provider prefix matches the active integration;
+        otherwise (no model chosen yet, or a model left over from a
+        different provider) the provider's catalog default is used.
         """
         record = await self.get_active()
         if record is None:
             return None
+        stored = await get_setting(self._db, "model")
+        if stored and stored.value:
+            full_id = stored.value.get("full_id")
+            if full_id and full_id.split("/", 1)[0] == record.provider:
+                return full_id
         return catalog.resolve_model(record.provider)
 
     # ------------------------------------------------------------------
