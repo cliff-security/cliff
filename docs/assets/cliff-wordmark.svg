@@ -17,5 +17,5 @@
     <path d="M148 56 L140 56 M148 56 L148 48"/>
   </g>
   <text x="28" y="43" font-family="Manrope, system-ui, sans-serif" font-weight="800" font-size="40" letter-spacing="-2" fill="#6FE3B5" filter="url(#cliff-glow)">cliff</text>
-  <circle cx="118" cy="38" r="4.5" fill="#6FE3B5" filter="url(#cliff-glow)"/>
+  <circle cx="113" cy="38" r="4.5" fill="#6FE3B5" filter="url(#cliff-glow)"/>
 </svg>
