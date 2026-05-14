@@ -23,6 +23,20 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# AI provider env vars → OpenCode provider id. After a workspace process is
+# healthy the pool pushes any of these credentials it injected into the
+# subprocess env through ``PUT /auth/{id}`` as well. OpenCode 1.3.x
+# authenticates outbound provider calls from its ``/auth`` store, not from a
+# bare process env var — and ``_sync_opencode_auth`` only ever reaches the
+# singleton (port 4096), never the per-workspace processes that actually run
+# the agents. Without this push every workspace agent run fails with
+# "Missing Authentication header" even though the key is present in env.
+_AI_ENV_VAR_TO_PROVIDER_ID: dict[str, str] = {
+    "ANTHROPIC_API_KEY": "anthropic",
+    "OPENAI_API_KEY": "openai",
+    "OPENROUTER_API_KEY": "openrouter",
+}
+
 
 def _archive_and_remove(src: Path, dest: Path, arcname: str) -> None:
     """Create a gzipped tarball at ``dest`` and remove ``src``. Blocking.
@@ -256,6 +270,8 @@ class WorkspaceProcessPool:
             wp._healthy = True
             self._processes[workspace_id] = wp
 
+            await self._push_ai_auth(wp, merged_env_vars)
+
             logger.info(
                 "Started workspace process %s on port %d (cwd=%s)",
                 workspace_id,
@@ -449,6 +465,37 @@ class WorkspaceProcessPool:
             f"Workspace process {wp.workspace_id} did not become healthy "
             f"within {timeout}s on port {wp.port}"
         )
+
+    async def _push_ai_auth(
+        self, wp: WorkspaceProcess, env_vars: dict[str, str]
+    ) -> None:
+        """Register injected AI provider keys with the workspace's OpenCode.
+
+        OpenCode authenticates outbound provider calls from its ``/auth``
+        store. The bare env var alone is not enough on OpenCode 1.3.x — so
+        for every AI provider key the pool injected into this subprocess we
+        also push it through ``PUT /auth/{id}`` against the workspace's own
+        process. Best-effort: a failure here is warning-logged and the env
+        var injection remains as a fallback, exactly as on the singleton.
+        """
+        if wp.client is None:
+            return
+        for env_var, provider_id in _AI_ENV_VAR_TO_PROVIDER_ID.items():
+            key = env_vars.get(env_var)
+            if not key:
+                continue
+            try:
+                await wp.client.set_auth(
+                    provider_id, {"type": "api", "key": key}
+                )
+            except Exception:  # noqa: BLE001 — never block a spawn on auth push
+                logger.warning(
+                    "Could not push %s auth to workspace process %s "
+                    "(env-var injection remains as fallback)",
+                    provider_id,
+                    wp.workspace_id,
+                    exc_info=True,
+                )
 
     async def _cleanup(self, workspace_id: str) -> None:
         """Clean up a dead process entry without logging as a 'stop'."""

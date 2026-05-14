@@ -151,6 +151,12 @@ def status(client: Client) -> None:
         blockers.append("opencode_engine_unavailable")
     if not health.get("model"):
         blockers.append("no_llm_model_configured")
+    # A model string alone is not enough — the agent runtime also needs a
+    # provider credential that actually reaches the workspace subprocess.
+    # ``ai_provider_ready`` is False when no credential resolved (e.g. a
+    # connected-but-broken BYOK key), so guard against that false-positive.
+    if not health.get("ai_provider_ready", False):
+        blockers.append("no_ai_provider_credential")
 
     emit(
         {

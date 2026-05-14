@@ -184,6 +184,96 @@ async def test_pool_resolver_failure_does_not_block_spawn(tmp_path: Path) -> Non
     assert captured_env.get("GIT_CEILING_DIRECTORIES") == str(workspace_dir)
 
 
+async def test_pool_pushes_ai_auth_to_workspace_process(tmp_path: Path) -> None:
+    """Injected AI keys are also registered with the workspace's OpenCode.
+
+    Env-var injection alone does not authenticate OpenCode 1.3.x outbound
+    calls — the per-workspace process must also receive the key through
+    ``PUT /auth/{id}``. ``_sync_opencode_auth`` only reaches the singleton,
+    so the pool covers the workspace processes itself.
+    """
+
+    async def resolver() -> dict[str, str]:
+        return {"ANTHROPIC_API_KEY": "sk-ant-from-resolver"}
+
+    pool = WorkspaceProcessPool(env_resolver=resolver)
+
+    async def fake_subprocess(*args, **kwargs):
+        proc = AsyncMock()
+        proc.returncode = None
+        proc.terminate = lambda: None
+        proc.kill = lambda: None
+        proc.wait = AsyncMock(return_value=0)
+        proc.stderr = None
+        return proc
+
+    workspace_dir = tmp_path / "ws"
+    workspace_dir.mkdir()
+
+    set_auth_calls: list[tuple] = []
+
+    async def fake_set_auth(self, provider_id, auth):  # noqa: ANN001
+        set_auth_calls.append((provider_id, auth))
+        return True
+
+    with (
+        patch("asyncio.create_subprocess_exec", side_effect=fake_subprocess),
+        patch.object(pool, "_wait_for_healthy", new=AsyncMock()),
+        patch(
+            "opensec.engine.client.OpenCodeClient.set_auth",
+            new=fake_set_auth,
+        ),
+    ):
+        try:
+            await pool.start("ws-1", workspace_dir)
+        finally:
+            await pool.stop_all()
+
+    assert set_auth_calls == [
+        ("anthropic", {"type": "api", "key": "sk-ant-from-resolver"})
+    ]
+
+
+async def test_pool_auth_push_failure_does_not_block_spawn(tmp_path: Path) -> None:
+    """A failing ``set_auth`` push is warning-logged, not fatal to the spawn."""
+
+    async def resolver() -> dict[str, str]:
+        return {"ANTHROPIC_API_KEY": "sk-ant-x"}
+
+    pool = WorkspaceProcessPool(env_resolver=resolver)
+
+    async def fake_subprocess(*args, **kwargs):
+        proc = AsyncMock()
+        proc.returncode = None
+        proc.terminate = lambda: None
+        proc.kill = lambda: None
+        proc.wait = AsyncMock(return_value=0)
+        proc.stderr = None
+        return proc
+
+    workspace_dir = tmp_path / "ws"
+    workspace_dir.mkdir()
+
+    async def boom_set_auth(self, provider_id, auth):  # noqa: ANN001
+        raise RuntimeError("opencode auth endpoint down")
+
+    with (
+        patch("asyncio.create_subprocess_exec", side_effect=fake_subprocess),
+        patch.object(pool, "_wait_for_healthy", new=AsyncMock()),
+        patch(
+            "opensec.engine.client.OpenCodeClient.set_auth",
+            new=boom_set_auth,
+        ),
+    ):
+        try:
+            client = await pool.start("ws-1", workspace_dir)
+        finally:
+            await pool.stop_all()
+
+    # Spawn returned a usable client despite the auth-push failure.
+    assert client is not None
+
+
 async def test_pool_merges_caller_env_on_top_of_resolver(tmp_path: Path) -> None:
     """Caller-supplied env_vars override resolver output (last-write wins)."""
 
