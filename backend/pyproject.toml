@@ -45,4 +45,5 @@ markers = [
     "e2e: end-to-end tests requiring OpenCode binary and LLM API key",
     "agent: agent integration tests requiring real LLM calls (slow, costs money)",
     "docker: install smoke tests that boot the published Docker image (require docker daemon)",
+    "integration: cross-cutting integration tests against an in-memory DB (no external deps, run by default)",
 ]
