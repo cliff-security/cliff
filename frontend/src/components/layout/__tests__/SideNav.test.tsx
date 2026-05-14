@@ -9,9 +9,9 @@ import { server } from '../../../mocks/server'
 import { makeFinding } from '../../../test/fixtures/finding'
 
 /**
- * SideNav (PRD-0006 + IMPL-0008) — 224px named rail with workspace switcher,
- * Issues count badge, and labeled Settings footer. Matches IPSideNav from
- * frontend/mockups/claude-design/PRD-0006/issues-page/chrome.jsx.
+ * SideNav — the Cliff Cyberdeck navigation rail: 248px-wide aside with the
+ * `cliff` wordmark header, a "current scope" workspace chip, the two
+ * primary nav rows (`.cd-nav`), and a hairline-separated Settings footer.
  */
 
 const GITHUB_INTEGRATION = {
@@ -82,27 +82,31 @@ function Wrapper({ children, path }: { children: ReactNode; path: string }) {
   )
 }
 
-describe('SideNav (IMPL-0008 redesign)', () => {
-  it('renders a 224px-wide aside (w-56)', () => {
+describe('SideNav (Cliff Cyberdeck rail)', () => {
+  it('renders a 248px-wide aside', () => {
     stubIntegrations()
     stubDashboard()
     stubFindings([])
     renderSideNav()
     const aside = screen.getByRole('complementary')
-    expect(aside.className).toMatch(/\bw-56\b/)
+    expect(aside.className).toMatch(/w-\[248px\]/)
   })
 
-  it('renders the OpenSec logo block with shield_lock + wordmark', () => {
+  it('renders the Cliff wordmark header with the self-hosted tagline', () => {
     stubIntegrations()
     stubDashboard()
     stubFindings([])
     renderSideNav()
-    expect(screen.getByText('OpenSec')).toBeInTheDocument()
-    const logoIcon = screen.getByTestId('sidenav-logo-icon')
-    expect(logoIcon.textContent).toBe('shield_lock')
+    expect(screen.getByText('cliff')).toBeInTheDocument()
+    expect(
+      screen.getByText(/self-hosted security copilot/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /cliff home/i }),
+    ).toBeInTheDocument()
   })
 
-  it('renders the workspace switcher with repo initials, owner/repo name, and URL hint', async () => {
+  it('renders the workspace switcher with the :: glyph, owner/repo name, and expander', async () => {
     stubIntegrations()
     stubDashboard()
     stubFindings([])
@@ -110,12 +114,11 @@ describe('SideNav (IMPL-0008 redesign)', () => {
     await waitFor(() =>
       expect(screen.getByText('linear/billing')).toBeInTheDocument(),
     )
-    expect(screen.getByText('LB')).toBeInTheDocument()
-    expect(screen.getByText('github.com/linear/billing')).toBeInTheDocument()
+    expect(screen.getByTestId('sidenav-repo-initials').textContent).toBe('::')
     const switcher = screen.getByRole('button', { name: /workspace/i })
-    expect(switcher.querySelector('.material-symbols-outlined')?.textContent).toBe(
-      'unfold_more',
-    )
+    expect(
+      switcher.querySelector('.material-symbols-outlined')?.textContent,
+    ).toBe('expand_more')
   })
 
   it('shows the latest assessment repo as the current scope (scan-first flow)', async () => {
@@ -145,7 +148,7 @@ describe('SideNav (IMPL-0008 redesign)', () => {
     expect(screen.queryByText('linear/billing')).not.toBeInTheDocument()
   })
 
-  it('falls back to a "No repo connected" placeholder when no scope exists', async () => {
+  it('falls back to a "no scope connected" placeholder when no scope exists', async () => {
     stubIntegrations([])
     stubDashboard()
     stubFindings([])
@@ -234,14 +237,14 @@ describe('SideNav (IMPL-0008 redesign)', () => {
     )
   })
 
-  it('marks the Issues link active on /issues with aria-current and active styling', () => {
+  it('marks the Issues link active on /issues with aria-current and the cd-nav--active class', () => {
     stubIntegrations()
     stubDashboard()
     stubFindings([])
     renderSideNav('/issues')
     const issues = screen.getByRole('link', { name: /Issues/i })
     expect(issues.getAttribute('aria-current')).toBe('page')
-    expect(issues.className).toMatch(/bg-surface-container-highest/)
+    expect(issues.className).toMatch(/cd-nav--active/)
   })
 
   it('marks the Dashboard link active on /dashboard, not Issues', () => {
@@ -264,7 +267,7 @@ describe('SideNav (IMPL-0008 redesign)', () => {
     expect(settings.getAttribute('aria-current')).toBe('page')
   })
 
-  it('Settings is a labeled row inside the footer (separated by a 1px outline-variant top border)', () => {
+  it('Settings is a labeled row inside the footer, separated by a hairline top border', () => {
     stubIntegrations()
     stubDashboard()
     stubFindings([])
@@ -273,20 +276,24 @@ describe('SideNav (IMPL-0008 redesign)', () => {
     expect(settings.textContent).toMatch(/Settings/)
     const footer = settings.closest('[data-testid="sidenav-footer"]')
     expect(footer).not.toBeNull()
-    expect(footer?.className).toMatch(/border-t/)
-    expect(footer?.className).toMatch(/border-outline-variant/)
+    // The footer divider is a tactical hairline applied via inline style —
+    // the design system forbids 1px-solid *utility* borders, not the
+    // var(--cd-rule) hairline itself.
+    const style = (footer as HTMLElement).getAttribute('style') ?? ''
+    expect(style).toMatch(/border-top/i)
+    expect(style).toMatch(/--cd-rule/)
   })
 
-  it('renders the active Issues badge in primary tone when /issues is active', async () => {
+  it('renders the active Issues badge in the sage active tone when /issues is active', async () => {
     stubIntegrations()
     stubDashboard()
     stubFindings([{ stage: 'todo' }])
     renderSideNav('/issues')
     const badge = await screen.findByTestId('sidenav-issues-badge')
-    expect(badge.className).toMatch(/bg-primary/)
+    expect((badge as HTMLElement).style.color).toContain('--cd-green')
   })
 
-  it('uses provider_name initials when the GitHub repo_url is missing', async () => {
+  it('uses the :: placeholder when the GitHub repo_url is missing and there is no assessment', async () => {
     stubIntegrations([
       {
         ...GITHUB_INTEGRATION,

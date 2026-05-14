@@ -1,87 +1,90 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Dashboard active 1`] = `
+exports[`SideNav (Cliff Cyberdeck rail) > snapshots the rendered SideNav with Dashboard active 1`] = `
 <aside
-  class="flex flex-col w-56 shrink-0 bg-surface-container-low border-r border-outline-variant sticky top-0 h-screen self-start"
+  class="flex flex-col w-[248px] shrink-0 sticky top-0 h-screen self-start z-10"
+  style="background: var(--cd-bg-1); border-right: 1px solid var(--cd-rule);"
 >
   <a
     aria-current="page"
-    aria-label="OpenSec home"
-    class="flex items-center gap-2.5 px-5 py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0 active"
+    aria-label="Cliff home"
+    class="block px-[18px] pt-[18px] pb-[12px] focus-visible:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[var(--cd-green)] active"
     data-discover="true"
     href="/dashboard"
+    style="border-bottom: 1px solid var(--cd-rule);"
   >
-    <div
-      class="rounded-xl flex items-center justify-center bg-primary text-on-primary"
-      style="width: 32px; height: 32px;"
+    <span
+      class="inline-flex items-baseline gap-[1px]"
+      style="line-height: 1;"
     >
       <span
-        aria-hidden="true"
-        class="material-symbols-outlined"
-        data-testid="sidenav-logo-icon"
-        style="font-size: 20px; font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;"
+        class="font-display"
+        style="font-size: 22px; font-weight: 700; letter-spacing: -0.045em; color: var(--cd-green); text-shadow: 0 0 14px var(--cd-green-glow);"
       >
-        shield_lock
+        cliff
       </span>
-    </div>
-    <span
-      class="font-headline font-extrabold text-[15px] tracking-tight text-on-surface"
-    >
-      OpenSec
+      <span
+        aria-hidden="true"
+        class="cd-pulse ml-[3px]"
+        style="width: 5px; height: 5px; background: var(--cd-green); box-shadow: 0 0 8px var(--cd-green);"
+      />
     </span>
+    <div
+      style="margin-top: 6px; font-size: 11px; color: var(--cd-fg-4); line-height: 1.2;"
+    >
+      self-hosted security copilot
+    </div>
   </a>
-  <button
-    aria-label="Workspace: linear/billing"
-    class="mx-3 mb-4 flex items-center justify-between rounded-lg px-2.5 py-2 transition-colors border border-outline-variant hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
-    type="button"
+  <div
+    class="px-[14px] pt-[14px] pb-[10px]"
   >
     <div
-      class="flex items-center gap-2 min-w-0"
+      class="cd-section-label cd-section-label--quiet"
+      style="margin-bottom: 6px;"
     >
-      <div
-        aria-hidden="true"
-        class="rounded-md flex items-center justify-center font-mono font-bold text-[10px] bg-tertiary-container text-on-tertiary-container"
-        style="width: 22px; height: 22px;"
-      >
-        LB
-      </div>
-      <div
-        class="min-w-0 text-left"
-      >
-        <div
-          class="text-[12px] font-semibold text-on-surface truncate"
-        >
-          linear/billing
-        </div>
-        <div
-          class="text-[10px] text-on-surface-variant truncate"
-        >
-          github.com/linear/billing
-        </div>
-      </div>
+      Current scope
     </div>
-    <span
-      aria-hidden="true"
-      class="material-symbols-outlined text-on-surface-variant"
-      style="font-size: 14px;"
+    <button
+      aria-label="Workspace: linear/billing"
+      class="w-full flex items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-cd-card-hov focus-visible:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[var(--cd-green)]"
+      style="background: var(--cd-card); border: 1px solid var(--cd-rule); color: var(--cd-cyan); font-family: var(--cd-mono); font-size: 11.5px; border-radius: 2px;"
+      title="linear/billing"
+      type="button"
     >
-      unfold_more
-    </span>
-  </button>
+      <span
+        data-testid="sidenav-repo-initials"
+        style="color: var(--cd-fg-4);"
+      >
+        ::
+      </span>
+      <span
+        class="truncate"
+      >
+        linear/billing
+      </span>
+      <span
+        aria-hidden="true"
+        class="material-symbols-outlined ml-auto"
+        style="font-size: 14px; color: var(--cd-fg-4);"
+      >
+        expand_more
+      </span>
+    </button>
+  </div>
   <nav
     aria-label="Primary"
-    class="flex-1 min-h-0 overflow-y-auto px-2.5 space-y-0.5"
+    class="flex-1 min-h-0 overflow-y-auto px-2 flex flex-col gap-px"
   >
     <a
       aria-current="page"
-      class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors bg-surface-container-highest text-on-surface font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+      class="cd-nav cd-nav--active focus-visible:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[var(--cd-green)]"
       data-discover="true"
       href="/dashboard"
     >
       <span
         aria-hidden="true"
         class="material-symbols-outlined"
-        style="font-size: 18px; font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
+        style="font-size: 15px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
       >
         space_dashboard
       </span>
@@ -92,14 +95,14 @@ exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Dash
       </span>
     </a>
     <a
-      class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors text-on-surface-variant hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+      class="cd-nav  focus-visible:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[var(--cd-green)]"
       data-discover="true"
       href="/issues"
     >
       <span
         aria-hidden="true"
         class="material-symbols-outlined"
-        style="font-size: 18px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
+        style="font-size: 15px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
       >
         task_alt
       </span>
@@ -109,26 +112,27 @@ exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Dash
         Issues
       </span>
       <span
-        class="font-mono font-semibold rounded-full text-[10px] min-w-[20px] text-center px-1.5 py-px bg-surface-container-high text-on-surface-variant"
+        class="font-mono font-bold"
         data-testid="sidenav-issues-badge"
+        style="font-size: 10px; color: var(--cd-fg-4); text-shadow: none;"
       >
         60
       </span>
     </a>
   </nav>
   <div
-    class="p-2.5 border-t border-outline-variant"
     data-testid="sidenav-footer"
+    style="border-top: 1px solid var(--cd-rule); padding: 6px 8px;"
   >
     <a
-      class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors text-on-surface-variant hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+      class="cd-nav  focus-visible:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[var(--cd-green)]"
       data-discover="true"
       href="/settings"
     >
       <span
         aria-hidden="true"
         class="material-symbols-outlined"
-        style="font-size: 18px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
+        style="font-size: 15px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
       >
         settings
       </span>
@@ -142,86 +146,89 @@ exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Dash
 </aside>
 `;
 
-exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Issues active 1`] = `
+exports[`SideNav (Cliff Cyberdeck rail) > snapshots the rendered SideNav with Issues active 1`] = `
 <aside
-  class="flex flex-col w-56 shrink-0 bg-surface-container-low border-r border-outline-variant sticky top-0 h-screen self-start"
+  class="flex flex-col w-[248px] shrink-0 sticky top-0 h-screen self-start z-10"
+  style="background: var(--cd-bg-1); border-right: 1px solid var(--cd-rule);"
 >
   <a
-    aria-label="OpenSec home"
-    class="flex items-center gap-2.5 px-5 py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+    aria-label="Cliff home"
+    class="block px-[18px] pt-[18px] pb-[12px] focus-visible:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[var(--cd-green)]"
     data-discover="true"
     href="/dashboard"
+    style="border-bottom: 1px solid var(--cd-rule);"
   >
-    <div
-      class="rounded-xl flex items-center justify-center bg-primary text-on-primary"
-      style="width: 32px; height: 32px;"
+    <span
+      class="inline-flex items-baseline gap-[1px]"
+      style="line-height: 1;"
     >
       <span
-        aria-hidden="true"
-        class="material-symbols-outlined"
-        data-testid="sidenav-logo-icon"
-        style="font-size: 20px; font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;"
+        class="font-display"
+        style="font-size: 22px; font-weight: 700; letter-spacing: -0.045em; color: var(--cd-green); text-shadow: 0 0 14px var(--cd-green-glow);"
       >
-        shield_lock
+        cliff
       </span>
-    </div>
-    <span
-      class="font-headline font-extrabold text-[15px] tracking-tight text-on-surface"
-    >
-      OpenSec
+      <span
+        aria-hidden="true"
+        class="cd-pulse ml-[3px]"
+        style="width: 5px; height: 5px; background: var(--cd-green); box-shadow: 0 0 8px var(--cd-green);"
+      />
     </span>
+    <div
+      style="margin-top: 6px; font-size: 11px; color: var(--cd-fg-4); line-height: 1.2;"
+    >
+      self-hosted security copilot
+    </div>
   </a>
-  <button
-    aria-label="Workspace: linear/billing"
-    class="mx-3 mb-4 flex items-center justify-between rounded-lg px-2.5 py-2 transition-colors border border-outline-variant hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
-    type="button"
+  <div
+    class="px-[14px] pt-[14px] pb-[10px]"
   >
     <div
-      class="flex items-center gap-2 min-w-0"
+      class="cd-section-label cd-section-label--quiet"
+      style="margin-bottom: 6px;"
     >
-      <div
-        aria-hidden="true"
-        class="rounded-md flex items-center justify-center font-mono font-bold text-[10px] bg-tertiary-container text-on-tertiary-container"
-        style="width: 22px; height: 22px;"
-      >
-        LB
-      </div>
-      <div
-        class="min-w-0 text-left"
-      >
-        <div
-          class="text-[12px] font-semibold text-on-surface truncate"
-        >
-          linear/billing
-        </div>
-        <div
-          class="text-[10px] text-on-surface-variant truncate"
-        >
-          github.com/linear/billing
-        </div>
-      </div>
+      Current scope
     </div>
-    <span
-      aria-hidden="true"
-      class="material-symbols-outlined text-on-surface-variant"
-      style="font-size: 14px;"
+    <button
+      aria-label="Workspace: linear/billing"
+      class="w-full flex items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-cd-card-hov focus-visible:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[var(--cd-green)]"
+      style="background: var(--cd-card); border: 1px solid var(--cd-rule); color: var(--cd-cyan); font-family: var(--cd-mono); font-size: 11.5px; border-radius: 2px;"
+      title="linear/billing"
+      type="button"
     >
-      unfold_more
-    </span>
-  </button>
+      <span
+        data-testid="sidenav-repo-initials"
+        style="color: var(--cd-fg-4);"
+      >
+        ::
+      </span>
+      <span
+        class="truncate"
+      >
+        linear/billing
+      </span>
+      <span
+        aria-hidden="true"
+        class="material-symbols-outlined ml-auto"
+        style="font-size: 14px; color: var(--cd-fg-4);"
+      >
+        expand_more
+      </span>
+    </button>
+  </div>
   <nav
     aria-label="Primary"
-    class="flex-1 min-h-0 overflow-y-auto px-2.5 space-y-0.5"
+    class="flex-1 min-h-0 overflow-y-auto px-2 flex flex-col gap-px"
   >
     <a
-      class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors text-on-surface-variant hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+      class="cd-nav  focus-visible:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[var(--cd-green)]"
       data-discover="true"
       href="/dashboard"
     >
       <span
         aria-hidden="true"
         class="material-symbols-outlined"
-        style="font-size: 18px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
+        style="font-size: 15px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
       >
         space_dashboard
       </span>
@@ -233,14 +240,14 @@ exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Issu
     </a>
     <a
       aria-current="page"
-      class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors bg-surface-container-highest text-on-surface font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+      class="cd-nav cd-nav--active focus-visible:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[var(--cd-green)]"
       data-discover="true"
       href="/issues"
     >
       <span
         aria-hidden="true"
         class="material-symbols-outlined"
-        style="font-size: 18px; font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
+        style="font-size: 15px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
       >
         task_alt
       </span>
@@ -250,26 +257,27 @@ exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Issu
         Issues
       </span>
       <span
-        class="font-mono font-semibold rounded-full text-[10px] min-w-[20px] text-center px-1.5 py-px bg-primary text-on-primary"
+        class="font-mono font-bold"
         data-testid="sidenav-issues-badge"
+        style="font-size: 10px; color: var(--cd-green); text-shadow: 0 0 6px var(--cd-green-glow);"
       >
         60
       </span>
     </a>
   </nav>
   <div
-    class="p-2.5 border-t border-outline-variant"
     data-testid="sidenav-footer"
+    style="border-top: 1px solid var(--cd-rule); padding: 6px 8px;"
   >
     <a
-      class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors text-on-surface-variant hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+      class="cd-nav  focus-visible:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[var(--cd-green)]"
       data-discover="true"
       href="/settings"
     >
       <span
         aria-hidden="true"
         class="material-symbols-outlined"
-        style="font-size: 18px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
+        style="font-size: 15px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
       >
         settings
       </span>
@@ -283,86 +291,89 @@ exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Issu
 </aside>
 `;
 
-exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Settings active 1`] = `
+exports[`SideNav (Cliff Cyberdeck rail) > snapshots the rendered SideNav with Settings active 1`] = `
 <aside
-  class="flex flex-col w-56 shrink-0 bg-surface-container-low border-r border-outline-variant sticky top-0 h-screen self-start"
+  class="flex flex-col w-[248px] shrink-0 sticky top-0 h-screen self-start z-10"
+  style="background: var(--cd-bg-1); border-right: 1px solid var(--cd-rule);"
 >
   <a
-    aria-label="OpenSec home"
-    class="flex items-center gap-2.5 px-5 py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+    aria-label="Cliff home"
+    class="block px-[18px] pt-[18px] pb-[12px] focus-visible:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[var(--cd-green)]"
     data-discover="true"
     href="/dashboard"
+    style="border-bottom: 1px solid var(--cd-rule);"
   >
-    <div
-      class="rounded-xl flex items-center justify-center bg-primary text-on-primary"
-      style="width: 32px; height: 32px;"
+    <span
+      class="inline-flex items-baseline gap-[1px]"
+      style="line-height: 1;"
     >
       <span
-        aria-hidden="true"
-        class="material-symbols-outlined"
-        data-testid="sidenav-logo-icon"
-        style="font-size: 20px; font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;"
+        class="font-display"
+        style="font-size: 22px; font-weight: 700; letter-spacing: -0.045em; color: var(--cd-green); text-shadow: 0 0 14px var(--cd-green-glow);"
       >
-        shield_lock
+        cliff
       </span>
-    </div>
-    <span
-      class="font-headline font-extrabold text-[15px] tracking-tight text-on-surface"
-    >
-      OpenSec
+      <span
+        aria-hidden="true"
+        class="cd-pulse ml-[3px]"
+        style="width: 5px; height: 5px; background: var(--cd-green); box-shadow: 0 0 8px var(--cd-green);"
+      />
     </span>
+    <div
+      style="margin-top: 6px; font-size: 11px; color: var(--cd-fg-4); line-height: 1.2;"
+    >
+      self-hosted security copilot
+    </div>
   </a>
-  <button
-    aria-label="Workspace: linear/billing"
-    class="mx-3 mb-4 flex items-center justify-between rounded-lg px-2.5 py-2 transition-colors border border-outline-variant hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
-    type="button"
+  <div
+    class="px-[14px] pt-[14px] pb-[10px]"
   >
     <div
-      class="flex items-center gap-2 min-w-0"
+      class="cd-section-label cd-section-label--quiet"
+      style="margin-bottom: 6px;"
     >
-      <div
-        aria-hidden="true"
-        class="rounded-md flex items-center justify-center font-mono font-bold text-[10px] bg-tertiary-container text-on-tertiary-container"
-        style="width: 22px; height: 22px;"
-      >
-        LB
-      </div>
-      <div
-        class="min-w-0 text-left"
-      >
-        <div
-          class="text-[12px] font-semibold text-on-surface truncate"
-        >
-          linear/billing
-        </div>
-        <div
-          class="text-[10px] text-on-surface-variant truncate"
-        >
-          github.com/linear/billing
-        </div>
-      </div>
+      Current scope
     </div>
-    <span
-      aria-hidden="true"
-      class="material-symbols-outlined text-on-surface-variant"
-      style="font-size: 14px;"
+    <button
+      aria-label="Workspace: linear/billing"
+      class="w-full flex items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-cd-card-hov focus-visible:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[var(--cd-green)]"
+      style="background: var(--cd-card); border: 1px solid var(--cd-rule); color: var(--cd-cyan); font-family: var(--cd-mono); font-size: 11.5px; border-radius: 2px;"
+      title="linear/billing"
+      type="button"
     >
-      unfold_more
-    </span>
-  </button>
+      <span
+        data-testid="sidenav-repo-initials"
+        style="color: var(--cd-fg-4);"
+      >
+        ::
+      </span>
+      <span
+        class="truncate"
+      >
+        linear/billing
+      </span>
+      <span
+        aria-hidden="true"
+        class="material-symbols-outlined ml-auto"
+        style="font-size: 14px; color: var(--cd-fg-4);"
+      >
+        expand_more
+      </span>
+    </button>
+  </div>
   <nav
     aria-label="Primary"
-    class="flex-1 min-h-0 overflow-y-auto px-2.5 space-y-0.5"
+    class="flex-1 min-h-0 overflow-y-auto px-2 flex flex-col gap-px"
   >
     <a
-      class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors text-on-surface-variant hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+      class="cd-nav  focus-visible:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[var(--cd-green)]"
       data-discover="true"
       href="/dashboard"
     >
       <span
         aria-hidden="true"
         class="material-symbols-outlined"
-        style="font-size: 18px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
+        style="font-size: 15px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
       >
         space_dashboard
       </span>
@@ -373,14 +384,14 @@ exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Sett
       </span>
     </a>
     <a
-      class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors text-on-surface-variant hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+      class="cd-nav  focus-visible:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[var(--cd-green)]"
       data-discover="true"
       href="/issues"
     >
       <span
         aria-hidden="true"
         class="material-symbols-outlined"
-        style="font-size: 18px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
+        style="font-size: 15px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
       >
         task_alt
       </span>
@@ -390,27 +401,28 @@ exports[`SideNav (IMPL-0008 redesign) > snapshots the rendered SideNav with Sett
         Issues
       </span>
       <span
-        class="font-mono font-semibold rounded-full text-[10px] min-w-[20px] text-center px-1.5 py-px bg-surface-container-high text-on-surface-variant"
+        class="font-mono font-bold"
         data-testid="sidenav-issues-badge"
+        style="font-size: 10px; color: var(--cd-fg-4); text-shadow: none;"
       >
         60
       </span>
     </a>
   </nav>
   <div
-    class="p-2.5 border-t border-outline-variant"
     data-testid="sidenav-footer"
+    style="border-top: 1px solid var(--cd-rule); padding: 6px 8px;"
   >
     <a
       aria-current="page"
-      class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors bg-surface-container-highest text-on-surface font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-0"
+      class="cd-nav cd-nav--active focus-visible:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[var(--cd-green)]"
       data-discover="true"
       href="/settings"
     >
       <span
         aria-hidden="true"
         class="material-symbols-outlined"
-        style="font-size: 18px; font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
+        style="font-size: 15px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;"
       >
         settings
       </span>
