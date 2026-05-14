@@ -32,7 +32,7 @@ RUN npm run build
 # ---------------------------------------------------------------------------
 # Stage 2: Production runtime
 # ---------------------------------------------------------------------------
-FROM python:3.11-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 ARG OPENSEC_VERSION
 ARG OPENSEC_REVISION
