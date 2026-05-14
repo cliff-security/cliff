@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from opensec.config import settings
 from opensec.engine.client import opencode_client
@@ -13,7 +13,7 @@ router = APIRouter()
 
 
 @router.get("/health", response_model=HealthStatus)
-async def health() -> HealthStatus:
+async def health(request: Request) -> HealthStatus:
     oc_healthy = await opencode_process.health_check()
 
     # Read model from OpenCode runtime (not the file, which can be stale).
@@ -27,9 +27,17 @@ async def health() -> HealthStatus:
     if not model:
         model = settings.opencode_model
 
+    # ``ai_env_cache`` is the exact env dict the workspace process pool
+    # injects into every per-workspace OpenCode subprocess. A non-empty
+    # cache means a provider credential is present *and* resolved (vault
+    # decrypt succeeded) — i.e. genuinely reachable by the subprocess,
+    # not just "an integration row exists" or "a model string is set".
+    ai_env_cache = getattr(request.app.state, "ai_env_cache", None) or {}
+
     return HealthStatus(
         opensec="ok",
         opencode="ok" if oc_healthy else "unavailable",
         opencode_version=settings.opencode_version,
         model=model,
+        ai_provider_ready=bool(ai_env_cache),
     )

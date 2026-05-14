@@ -974,3 +974,31 @@ class TestRemediationExecutorPRVerification:
         assert result.status == "failed"
         assert "not_a_pull_url" in (result.error or "")
         mock_sidebar.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _humanize_process_error — actionable text for provider errors
+# ---------------------------------------------------------------------------
+
+
+class TestHumanizeProcessError:
+    def test_missing_authentication_header_maps_to_credential_message(self):
+        """The BYOK auth-propagation failure mode reads as a credential error.
+
+        Anthropic/OpenAI return "Missing Authentication header" verbatim when
+        the outbound request carries no credential. It must surface the
+        actionable "re-connect the provider" text, not the generic fallback.
+        """
+        from opensec.agents.executor import _humanize_process_error
+
+        msg = _humanize_process_error(
+            "OpenCode error: Missing Authentication header"
+        )
+        assert "rejected the credentials" in msg
+        assert "Settings → AI provider" in msg
+
+    def test_unknown_error_falls_back_to_raw(self):
+        from opensec.agents.executor import _humanize_process_error
+
+        msg = _humanize_process_error("OpenCode error: disk full")
+        assert "disk full" in msg

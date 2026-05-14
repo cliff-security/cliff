@@ -45,6 +45,7 @@ def test_status_ready(cli, httpx_mock):
             "opencode": "ok",
             "opencode_version": "1.3.2",
             "model": "openai/gpt-4.1",
+            "ai_provider_ready": True,
         },
     )
     httpx_mock.add_response(
@@ -63,6 +64,40 @@ def test_status_ready(cli, httpx_mock):
     assert payload["ready"] is True
     assert payload["opensec"] == "0.1.1-alpha"
     assert payload["blockers"] == []
+
+
+def test_status_blocked_when_ai_provider_not_ready(cli, httpx_mock):
+    """A connected-but-unusable AI provider must not read as ready.
+
+    The engine is up and a model string is set, but no provider credential
+    resolved into the workspace env — health reports ai_provider_ready
+    False, and ``status`` must surface that as a blocker.
+    """
+    httpx_mock.add_response(
+        url="http://test-server/health",
+        json={
+            "opensec": "ok",
+            "opencode": "ok",
+            "opencode_version": "1.3.2",
+            "model": "anthropic/claude-sonnet-4-6",
+            "ai_provider_ready": False,
+        },
+    )
+    httpx_mock.add_response(
+        url="http://test-server/api/version",
+        json={
+            "opensec": "0.1.1-alpha",
+            "opencode": "1.3.2",
+            "schema_version": "1",
+            "min_cli": "0.1.0",
+        },
+    )
+    res = cli.invoke(main, ["status"])
+    assert res.exit_code == 0, res.stderr
+    payload = _last_json(res.stdout)
+    assert payload["ready"] is False
+    assert "no_ai_provider_credential" in payload["blockers"]
+    assert "no_llm_model_configured" not in payload["blockers"]
 
 
 def test_status_blockers_when_engine_down(cli, httpx_mock):

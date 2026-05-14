@@ -2581,6 +2581,11 @@
       },
       "HealthStatus": {
         "properties": {
+          "ai_provider_ready": {
+            "default": false,
+            "title": "Ai Provider Ready",
+            "type": "boolean"
+          },
           "model": {
             "default": "",
             "title": "Model",

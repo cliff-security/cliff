@@ -481,7 +481,17 @@ def _humanize_process_error(raw: str) -> str:
             "down. Wait a minute and click Approve to retry, or switch to a "
             "different model in Settings → AI provider."
         )
-    if "unauthorized" in lowered or "401" in lowered or "invalid api key" in lowered:
+    if (
+        "unauthorized" in lowered
+        or "401" in lowered
+        or "invalid api key" in lowered
+        # Anthropic/OpenAI return this verbatim when the outbound request
+        # carries no credential at all — the BYOK auth-propagation failure
+        # mode. It is deterministic, so surface the actionable message
+        # immediately rather than letting it read as a generic engine error.
+        or "missing authentication" in lowered
+        or "authentication header" in lowered
+    ):
         return (
             "**AI provider rejected the credentials.** The configured API "
             "key is missing, revoked, or wrong for this model. Re-connect "

@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+from opensec.ai import catalog as ai_catalog
 from opensec.config import settings
 from opensec.engine.client import OpenCodeClient
 
@@ -22,6 +23,16 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# AI provider env var → OpenCode provider id, derived from the AI catalog so
+# the provider list has exactly one home. ``custom`` is excluded: it shares
+# ``OPENAI_API_KEY`` and ships no OpenCode provider config of its own. See
+# ``_push_ai_auth`` for why the pool pushes these at all.
+_AI_ENV_VAR_TO_PROVIDER_ID: dict[str, str] = {
+    ai_catalog.env_var_name(p): p
+    for p in ai_catalog.all_providers()
+    if p != "custom"
+}
 
 
 def _archive_and_remove(src: Path, dest: Path, arcname: str) -> None:
@@ -254,6 +265,12 @@ class WorkspaceProcessPool:
 
             wp.client = OpenCodeClient(base_url=wp.base_url)
             wp._healthy = True
+
+            # Push AI auth *before* publishing to ``self._processes``: the
+            # ``get_or_start`` fast path reads that dict outside the per-
+            # workspace lock, so a concurrent caller must not be handed a
+            # client whose OpenCode process hasn't been authenticated yet.
+            await self._push_ai_auth(wp, merged_env_vars)
             self._processes[workspace_id] = wp
 
             logger.info(
@@ -449,6 +466,37 @@ class WorkspaceProcessPool:
             f"Workspace process {wp.workspace_id} did not become healthy "
             f"within {timeout}s on port {wp.port}"
         )
+
+    async def _push_ai_auth(
+        self, wp: WorkspaceProcess, env_vars: dict[str, str]
+    ) -> None:
+        """Register injected AI provider keys with the workspace's OpenCode.
+
+        OpenCode authenticates outbound provider calls from its ``/auth``
+        store. The bare env var alone is not enough on OpenCode 1.3.x — so
+        for every AI provider key the pool injected into this subprocess we
+        also push it through ``PUT /auth/{id}`` against the workspace's own
+        process. Best-effort: a failure here is warning-logged and the env
+        var injection remains as a fallback, exactly as on the singleton.
+        """
+        if wp.client is None:
+            return
+        for env_var, provider_id in _AI_ENV_VAR_TO_PROVIDER_ID.items():
+            key = env_vars.get(env_var)
+            if not key:
+                continue
+            try:
+                await wp.client.set_auth(
+                    provider_id, {"type": "api", "key": key}
+                )
+            except Exception:  # noqa: BLE001 — never block a spawn on auth push
+                logger.warning(
+                    "Could not push %s auth to workspace process %s "
+                    "(env-var injection remains as fallback)",
+                    provider_id,
+                    wp.workspace_id,
+                    exc_info=True,
+                )
 
     async def _cleanup(self, workspace_id: str) -> None:
         """Clean up a dead process entry without logging as a 'stop'."""
