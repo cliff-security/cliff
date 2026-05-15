@@ -78,7 +78,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # model is in use).
     ai_catalog.log_override_warnings_once()
     # Initialize persistence layer.
-    db_path = settings.resolve_data_dir() / "opensec.db"
+    data_dir = settings.resolve_data_dir()
+    # macOS Spotlight guard (EF-B15). Empty marker file tells mds_stores
+    # to skip this whole tree — Spotlight indexing of per-workspace
+    # node_modules was pinning load average ~17 under concurrent
+    # workspaces. Harmless on Linux (just an unused dot-file).
+    (data_dir / ".metadata_never_index").touch(exist_ok=True)
+    db_path = data_dir / "opensec.db"
     first_run = not db_path.exists()
     if first_run:
         logger.info("First run detected — no existing database at %s", db_path)
