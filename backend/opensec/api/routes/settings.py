@@ -187,10 +187,13 @@ class ProviderTestResult(BaseModel):
     error_message: str | None = None
 
 
-# ADR-0031: 8s is fast enough that first-run users don't wait meaningfully
-# longer than a page load, but slow enough to absorb OpenRouter/Together
-# cold-starts that can take 2–4s before first byte.
-_PROBE_TIMEOUT_SECONDS = 8.0
+# The probe sends a real "Say OK" through OpenCode and waits for the full
+# assistant reply. The slowest realistic path is OpenRouter → small model
+# (Haiku, Hy3) where queue + cold-start + inference + token streaming
+# routinely lands at 10-20s on the first call. 30s gives the worst-case
+# real run room to complete; the UI shows a "Testing…" spinner the whole
+# time so the wait is visible.
+_PROBE_TIMEOUT_SECONDS = 30.0
 _PROBE_PROMPT = "Say OK"
 
 _ERROR_COPY: dict[str, str] = {
@@ -229,9 +232,9 @@ def _error_message_for(code: str, body: str) -> str:
 async def test_provider(
     body: ProviderTestRequest | None = None,  # noqa: ARG001 — shape-stable
 ) -> ProviderTestResult:
-    """Cheap probe of the configured provider+model (ADR-0031).
+    """End-to-end probe of the configured provider+model (ADR-0031).
 
-    Sends a bounded ``"Say OK"`` chat call through OpenCode with an 8s
+    Sends a bounded ``"Say OK"`` chat call through OpenCode with a 30s
     timeout and classifies the outcome into
     ``{ok, latency_ms, error_code, error_message}``. Always returns HTTP
     200; ``ok`` reflects the probe result.

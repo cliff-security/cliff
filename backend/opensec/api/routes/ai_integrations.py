@@ -291,6 +291,10 @@ async def set_active_model(
 # proxies /api/tags so the picker reflects what's actually installed on the
 # host machine.
 _SUGGESTED_MODELS: dict[AIProvider, list[ProviderModelOption]] = {
+    # OpenRouter uses dots between version components in Anthropic slugs
+    # (``claude-haiku-4.5``), not dashes. Picking from this list MUST yield
+    # an id that OpenRouter actually accepts — a wrong slug surfaces only
+    # at agent-run time when the session 500s with no assistant reply.
     "openrouter": [
         ProviderModelOption(
             id="openrouter/tencent/hy3-preview",
@@ -298,14 +302,14 @@ _SUGGESTED_MODELS: dict[AIProvider, list[ProviderModelOption]] = {
             description="262K context, $0.07 / $0.26 per 1M tokens — default.",
         ),
         ProviderModelOption(
-            id="openrouter/anthropic/claude-haiku-4-5",
+            id="openrouter/anthropic/claude-haiku-4.5",
             label="Claude Haiku 4.5",
             description="Anthropic via OpenRouter — fast, cheap, broad coverage.",
         ),
         ProviderModelOption(
-            id="openrouter/anthropic/claude-sonnet-4-6",
-            label="Claude Sonnet 4.6",
-            description="Anthropic's flagship for security reasoning.",
+            id="openrouter/anthropic/claude-sonnet-4.5",
+            label="Claude Sonnet 4.5",
+            description="Anthropic's current flagship for security reasoning.",
         ),
         ProviderModelOption(
             id="openrouter/openai/gpt-5",
