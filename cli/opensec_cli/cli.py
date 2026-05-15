@@ -146,10 +146,34 @@ def status(client: Client) -> None:
         # Re-raise so the wrapper handles it as a structured error.
         raise
 
+    # ADR-0037: surface canonical model + live OpenCode model so the user
+    # can see drift from the CLI. We treat the AI integration status
+    # endpoint as the source of truth for canonical model; the /health
+    # response carries what OpenCode actually has loaded. If the
+    # endpoint isn't available (e.g. no vault) we degrade gracefully.
+    canonical_model: str | None = None
+    live_model: str | None = health.get("model") or None
+    drifted = False
+    try:
+        ai_status = client.get("/api/integrations/ai/status")
+        canonical_model = ai_status.get("model")
+        live_probe = ai_status.get("live_probe") or {}
+        opencode_model = live_probe.get("opencode_model")
+        if opencode_model:
+            live_model = opencode_model
+        if (
+            canonical_model
+            and opencode_model
+            and canonical_model != opencode_model
+        ):
+            drifted = True
+    except HTTPError:
+        pass
+
     blockers: list[str] = []
     if health.get("opencode") != "ok":
         blockers.append("opencode_engine_unavailable")
-    if not health.get("model"):
+    if not (canonical_model or live_model):
         blockers.append("no_llm_model_configured")
     # A model string alone is not enough — the agent runtime also needs a
     # provider credential that actually reaches the workspace subprocess.
@@ -157,6 +181,16 @@ def status(client: Client) -> None:
     # connected-but-broken BYOK key), so guard against that false-positive.
     if not health.get("ai_provider_ready", False):
         blockers.append("no_ai_provider_credential")
+    if drifted:
+        blockers.append("model_drift")
+
+    next_action: str | None
+    if drifted:
+        next_action = "model set <canonical> # or use Settings -> Reconcile"
+    elif blockers:
+        next_action = None
+    else:
+        next_action = "scan <repo_url>"
 
     emit(
         {
@@ -166,9 +200,12 @@ def status(client: Client) -> None:
             "schema_version": version["schema_version"],
             "min_cli": version["min_cli"],
             "cli_version": __version__,
-            "model": health.get("model", ""),
+            "model": canonical_model or live_model or "",
+            "canonical_model": canonical_model,
+            "opencode_model": live_model,
+            "drifted": drifted,
             "blockers": blockers,
-            "next": "scan <repo_url>" if not blockers else None,
+            "next": next_action,
         }
     )
 

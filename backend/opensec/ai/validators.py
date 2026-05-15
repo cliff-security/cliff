@@ -200,6 +200,11 @@ def _anthropic_headers(key: str) -> dict[str, str]:
     return {"x-api-key": key, "anthropic-version": "2023-06-01"}
 
 
+def _google_headers(_key: str) -> dict[str, str]:
+    """Google AI Studio puts the key in the ``?key=`` query string, not a header."""
+    return {}
+
+
 _PROBES: dict[AIProvider, _ProbeSpec] = {
     "openrouter": _ProbeSpec(
         label="OpenRouter",
@@ -213,7 +218,7 @@ _PROBES: dict[AIProvider, _ProbeSpec] = {
         url="https://api.anthropic.com/v1/messages",
         auth_header=_anthropic_headers,
         body={
-            "model": "claude-sonnet-4-6",
+            "model": "claude-haiku-4-5",
             "max_tokens": 1,
             "messages": [{"role": "user", "content": "ok"}],
         },
@@ -228,6 +233,16 @@ _PROBES: dict[AIProvider, _ProbeSpec] = {
             "max_tokens": 1,
             "messages": [{"role": "user", "content": "ok"}],
         },
+    ),
+    # Google AI Studio's auth is ``?key=...`` (not a header), so the probe
+    # URL is built in :func:`validate_google` rather than declared here.
+    # The dict entry exists only so ``catalog.all_providers()`` aligns
+    # with ``_PROBES.keys()`` in tests that assert parity.
+    "google": _ProbeSpec(
+        label="Google AI Studio",
+        method="GET",
+        url="https://generativelanguage.googleapis.com/v1beta/models",
+        auth_header=_google_headers,
     ),
 }
 
@@ -261,6 +276,54 @@ async def validate_anthropic(api_key: str) -> ValidationResult:
 
 async def validate_openai(api_key: str) -> ValidationResult:
     return await _probe(_PROBES["openai"], api_key)
+
+
+async def validate_google(api_key: str) -> ValidationResult:
+    """Probe Google AI Studio with the user's key in the ``?key=`` param.
+
+    The list-models endpoint authenticates with the API key but performs
+    no generation, so it's the cheapest valid call to verify the key.
+    """
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models"
+        f"?key={api_key}"
+    )
+    headers = {"content-type": "application/json"}
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
+            resp = await client.get(url, headers=headers)
+    except (httpx.TimeoutException, httpx.HTTPError):
+        return ValidationResult(
+            ok=False,
+            error_code="network",
+            error_message="Can't reach Google AI Studio. Check your internet connection.",
+        )
+    return _interpret_response(resp, "Google AI Studio")
+
+
+async def validate_ollama(base_url: str | None = None) -> ValidationResult:
+    """Probe a local Ollama install at ``{base_url}/api/tags``.
+
+    No API key — Ollama is a localhost-by-default service. The validator
+    is happy when ``/api/tags`` returns 200 (the runtime is up and
+    responsive). We deliberately do not reject loopback URLs here:
+    Ollama's whole point is loopback. The SSRF defense for "custom" stays
+    strict; "ollama" trusts the user's explicit choice of a local runtime.
+    """
+    url = (base_url or "http://localhost:11434").rstrip("/") + "/api/tags"
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
+            resp = await client.get(url)
+    except (httpx.TimeoutException, httpx.HTTPError):
+        return ValidationResult(
+            ok=False,
+            error_code="network",
+            error_message=(
+                "Can't reach Ollama. Is it running on "
+                f"{url.rsplit('/', 2)[0]}?"
+            ),
+        )
+    return _interpret_response(resp, "Ollama")
 
 
 async def validate_custom(
@@ -342,7 +405,12 @@ async def validate(
     base_url: str | None = None,
     model: str | None = None,
 ) -> ValidationResult:
-    """Dispatch to the appropriate validator."""
+    """Dispatch to the appropriate validator.
+
+    ``custom`` requires a non-empty ``base_url``. ``ollama`` ignores
+    ``api_key`` and probes ``base_url`` (defaulting to localhost:11434).
+    ``google`` puts the key in the URL, not a bearer header.
+    """
     if provider == "custom":
         if not base_url:
             return ValidationResult(
@@ -351,4 +419,8 @@ async def validate(
                 error_message="Custom provider requires a base URL.",
             )
         return await validate_custom(api_key, base_url, model)
+    if provider == "ollama":
+        return await validate_ollama(base_url)
+    if provider == "google":
+        return await validate_google(api_key)
     return await _probe(_PROBES[provider], api_key)

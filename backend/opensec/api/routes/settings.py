@@ -70,7 +70,28 @@ async def _emit_audit(request: Request, **kwargs) -> None:
 
 
 @router.get("/settings/model", response_model=ModelConfig)
-async def get_model():
+async def get_model(request: Request, db=Depends(get_db)):
+    """Return the canonical active model (ADR-0037).
+
+    Thin shim over :class:`AIIntegrationService` so the CLI (``opensec
+    model get``) and the new Settings UI agree byte-for-byte. Falls
+    back to the old ``opencode.json``-derived value when no AI
+    provider is connected so legacy users without an ``ai_integration``
+    row still get something meaningful.
+    """
+    vault = getattr(request.app.state, "vault", None)
+    if vault is not None:
+        from opensec.ai.service import AIIntegrationService
+
+        service = AIIntegrationService(db, vault)
+        full_id = await service.resolve_model_for_workspace()
+        if full_id:
+            parts = full_id.split("/", 1)
+            return ModelConfig(
+                model_full_id=full_id,
+                provider=parts[0] if len(parts) == 2 else "",
+                model_id=parts[1] if len(parts) == 2 else full_id,
+            )
     try:
         return await config_manager.get_model()
     except Exception as exc:
@@ -78,7 +99,39 @@ async def get_model():
 
 
 @router.put("/settings/model", response_model=ModelConfig)
-async def update_model(body: ModelUpdateRequest, db=Depends(get_db)):
+async def update_model(body: ModelUpdateRequest, request: Request, db=Depends(get_db)):
+    """Persist a model change (ADR-0037).
+
+    Routes through :class:`AIIntegrationService.set_model` when a
+    provider is connected. On a fresh install with no provider yet,
+    falls through to the legacy ``config_manager.update_model`` so
+    ``opensec model set`` during install still works before BYOK.
+    """
+    vault = getattr(request.app.state, "vault", None)
+    if vault is not None:
+        from opensec.ai import repo as ai_repo
+        from opensec.ai.service import (
+            AIIntegrationService,
+            ModelPrefixMismatchError,
+        )
+
+        active = await ai_repo.get_active(db)
+        if active is not None:
+            on_key_change = getattr(request.app.state, "ai_on_key_change", None)
+            service = AIIntegrationService(
+                db, vault, on_key_change=on_key_change
+            )
+            try:
+                await service.set_model(body.model_full_id)
+            except ModelPrefixMismatchError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            parts = body.model_full_id.split("/", 1)
+            return ModelConfig(
+                model_full_id=body.model_full_id,
+                provider=parts[0] if len(parts) == 2 else "",
+                model_id=parts[1] if len(parts) == 2 else body.model_full_id,
+            )
+
     try:
         return await config_manager.update_model(db, body.model_full_id)
     except ValueError as exc:

@@ -16,14 +16,28 @@ from opensec.integrations.vault import CredentialVault
 
 @pytest.fixture(autouse=True)
 def _stub_opencode_auth_sync(monkeypatch):
-    """Stub opencode_client.set_auth so the OpenCode auth.json sync
-    introduced by AIIntegrationService doesn't try to hit a real
-    127.0.0.1:4096 inside the OAuth route tests."""
+    """Stub opencode_client.set_auth + get_config so the OpenCode auth.json
+    sync (set_auth) and the live-probe (get_config, ADR-0037) don't try to
+    hit a real 127.0.0.1:4096 inside the OAuth route tests."""
     from unittest.mock import AsyncMock
 
     from opensec.engine.client import opencode_client
 
     monkeypatch.setattr(opencode_client, "set_auth", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        opencode_client, "get_config", AsyncMock(return_value={})
+    )
+
+
+@pytest.fixture(autouse=True)
+def _reset_live_probe_cache():
+    """Reset the module-level live-probe cache between tests so a probe
+    cached by an earlier test doesn't leak into this one."""
+    from opensec.ai.service import invalidate_live_probe
+
+    invalidate_live_probe()
+    yield
+    invalidate_live_probe()
 
 
 @pytest.fixture

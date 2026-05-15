@@ -6,7 +6,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, SecretStr
 
-AIProvider = Literal["openrouter", "anthropic", "openai", "custom"]
+AIProvider = Literal[
+    "openrouter", "anthropic", "openai", "google", "ollama", "custom"
+]
 AISource = Literal["autodetect", "openrouter-oauth", "byok"]
 AIState = Literal["unconfigured", "connected"]
 
@@ -49,8 +51,32 @@ class AIIntegrationCreate(BaseModel):
     metadata: dict | None = None
 
 
+class LiveProbe(BaseModel):
+    """Reflects what OpenCode's singleton currently has loaded.
+
+    ``opencode_model`` is the model id returned by OpenCode's ``/config``
+    endpoint, which is the model agent calls will actually use. If it
+    disagrees with ``AIStatus.model`` (the canonical setting) the Settings
+    UI surfaces a drift banner and offers one-click reconcile.
+    """
+
+    ok: bool
+    opencode_model: str | None = None
+
+
 class AIStatus(BaseModel):
-    """Wire shape for ``GET /api/integrations/ai/status``."""
+    """Wire shape for ``GET /api/integrations/ai/status``.
+
+    ``model`` is the **canonical** active model — the one OpenSec writes
+    into ``app_setting(key="model")`` and pushes into every workspace
+    spawn. ``live_probe.opencode_model`` is what the singleton OpenCode
+    has *right now*. The two should match. Drift is rendered as a banner
+    in the UI with a [Reconcile] action.
+
+    ``override_model`` is preserved for back-compat with the old
+    ``OPENSEC_AI_MODEL_OVERRIDE_*`` env var — DEV-ONLY in v0.2, no longer
+    surfaced in the picker (ADR-0037).
+    """
 
     state: AIState
     provider: AIProvider | None = None
@@ -58,11 +84,8 @@ class AIStatus(BaseModel):
     connected_at: str | None = None
     metadata: dict | None = None
     override_model: str | None = None
-    # The active model OpenSec routes through OpenCode for this provider —
-    # either the catalog default or the env-var override. Always populated
-    # when ``state == "connected"`` so the Settings card can surface
-    # "running Claude Sonnet 4.6" without re-resolving on the frontend.
     model: str | None = None
+    live_probe: LiveProbe | None = None
 
 
 class DetectedKey(BaseModel):
@@ -144,9 +167,41 @@ class BYOKRequest(BaseModel):
     validation errors, repr, logging. Call sites that need the raw key
     must use ``api_key.get_secret_value()`` explicitly; that explicit
     unwrap is the only place we want to deal with the raw string.
+
+    For Ollama the ``api_key`` is just a non-empty placeholder (the
+    transport doesn't authenticate) but the field stays required so the
+    wire shape doesn't fork. The UI sends "local" automatically.
     """
 
     provider: AIProvider
     api_key: SecretStr = Field(..., min_length=1)
     base_url: str | None = None
     model: str | None = None
+
+
+class SetModelRequest(BaseModel):
+    """Inbound payload for ``PUT /api/integrations/ai/model``.
+
+    The model id must include a provider prefix; the service rejects ids
+    whose prefix doesn't match the currently active provider so a stale
+    setting never silently re-points at the wrong namespace.
+    """
+
+    model: str = Field(..., min_length=1)
+
+
+class ProviderModelOption(BaseModel):
+    """One entry in the per-provider model picker dropdown."""
+
+    id: str
+    label: str
+    description: str | None = None
+
+
+class ProviderModelsResponse(BaseModel):
+    """Wire shape for ``GET /api/integrations/ai/models?provider=X``."""
+
+    provider: AIProvider
+    default_model: str | None
+    models: list[ProviderModelOption]
+    source: Literal["catalog", "live"]

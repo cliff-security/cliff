@@ -27,12 +27,13 @@ logger = logging.getLogger(__name__)
 
 # AI provider env var → OpenCode provider id, derived from the AI catalog so
 # the provider list has exactly one home. ``custom`` is excluded: it shares
-# ``OPENAI_API_KEY`` and ships no OpenCode provider config of its own. See
-# ``_push_ai_auth`` for why the pool pushes these at all.
+# ``OPENAI_API_KEY`` and ships no OpenCode provider config of its own.
+# ``ollama`` is excluded: it has no API key (its ``env_var_name`` is ``None``).
+# See ``_push_ai_auth`` for why the pool pushes these at all.
 _AI_ENV_VAR_TO_PROVIDER_ID: dict[str, str] = {
     ai_catalog.env_var_name(p): p
     for p in ai_catalog.all_providers()
-    if p != "custom"
+    if p != "custom" and ai_catalog.env_var_name(p) is not None
 }
 
 

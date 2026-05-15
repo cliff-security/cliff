@@ -20,22 +20,31 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
-from opensec.ai import autodetect, openrouter_oauth, validators
+from opensec.ai import autodetect, catalog, openrouter_oauth, validators
 from opensec.ai.models import (
+    AIProvider,
     AIStatus,
     AutodetectResponse,
     BYOKRequest,
     OpenRouterStartResponse,
     OpenRouterStatusResponse,
+    ProviderModelOption,
+    ProviderModelsResponse,
+    SetModelRequest,
 )
 from opensec.ai.openrouter_oauth import (
     OAuthExchangeError,
     OAuthSession,
     Port3000UnavailableError,
 )
-from opensec.ai.service import AIIntegrationService
+from opensec.ai.service import (
+    AIIntegrationService,
+    ModelPrefixMismatchError,
+    NoActiveProviderError,
+)
 from opensec.db.connection import get_db
 
 if TYPE_CHECKING:
@@ -227,7 +236,12 @@ async def byok(
         )
 
     service = _get_service(request, db)
-    await service.save_byok(body.provider, raw_key, base_url=body.base_url)
+    await service.save_byok(
+        body.provider,
+        raw_key,
+        base_url=body.base_url,
+        model=body.model,
+    )
     return await service.get_status()
 
 
@@ -242,6 +256,213 @@ async def status(
 ) -> AIStatus:
     service = _get_service(request, db)
     return await service.get_status()
+
+
+# ---------------------------------------------------------------------------
+# Model picker (ADR-0037)
+# ---------------------------------------------------------------------------
+
+
+@router.put("/model", response_model=AIStatus)
+async def set_active_model(
+    body: SetModelRequest,
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> AIStatus:
+    """Change the canonical active model.
+
+    Validates that the model id's provider prefix matches the active
+    integration. Workspace spawns pick up the new model immediately
+    via the model resolver; the singleton restarts so chat sessions
+    re-init against the new model on next request.
+    """
+    service = _get_service(request, db)
+    try:
+        await service.set_model(body.model)
+    except NoActiveProviderError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ModelPrefixMismatchError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await service.get_status()
+
+
+# Suggested model lists per provider. Static for cloud providers (the live
+# catalog from OpenCode is huge and noisy for the picker); the Ollama tile
+# proxies /api/tags so the picker reflects what's actually installed on the
+# host machine.
+_SUGGESTED_MODELS: dict[AIProvider, list[ProviderModelOption]] = {
+    "openrouter": [
+        ProviderModelOption(
+            id="openrouter/tencent/hy3-preview",
+            label="Tencent Hy3 (preview)",
+            description="262K context, $0.07 / $0.26 per 1M tokens — default.",
+        ),
+        ProviderModelOption(
+            id="openrouter/anthropic/claude-haiku-4-5",
+            label="Claude Haiku 4.5",
+            description="Anthropic via OpenRouter — fast, cheap, broad coverage.",
+        ),
+        ProviderModelOption(
+            id="openrouter/anthropic/claude-sonnet-4-6",
+            label="Claude Sonnet 4.6",
+            description="Anthropic's flagship for security reasoning.",
+        ),
+        ProviderModelOption(
+            id="openrouter/openai/gpt-5",
+            label="GPT-5",
+            description="OpenAI's flagship via OpenRouter.",
+        ),
+        ProviderModelOption(
+            id="openrouter/google/gemini-2.5-flash",
+            label="Gemini 2.5 Flash",
+            description="Google's cheap workhorse via OpenRouter.",
+        ),
+        ProviderModelOption(
+            id="openrouter/deepseek/deepseek-chat",
+            label="DeepSeek Chat",
+            description="Strong open-weight model at very low cost.",
+        ),
+    ],
+    "anthropic": [
+        ProviderModelOption(
+            id="anthropic/claude-haiku-4-5",
+            label="Claude Haiku 4.5",
+            description="Default — cheapest current-generation Claude.",
+        ),
+        ProviderModelOption(
+            id="anthropic/claude-sonnet-4-6",
+            label="Claude Sonnet 4.6",
+            description="Best security reasoning. ~5× cost of Haiku.",
+        ),
+        ProviderModelOption(
+            id="anthropic/claude-opus-4-1",
+            label="Claude Opus 4.1",
+            description="Highest quality, highest cost.",
+        ),
+    ],
+    "openai": [
+        ProviderModelOption(
+            id="openai/gpt-5",
+            label="GPT-5",
+            description="Default flagship.",
+        ),
+        ProviderModelOption(
+            id="openai/gpt-5-mini",
+            label="GPT-5 Mini",
+            description="Smaller, cheaper variant.",
+        ),
+        ProviderModelOption(
+            id="openai/gpt-4.1-mini",
+            label="GPT-4.1 Mini",
+            description="Solid all-rounder.",
+        ),
+    ],
+    "google": [
+        ProviderModelOption(
+            id="google/gemini-2.5-flash",
+            label="Gemini 2.5 Flash",
+            description="Default — fast and on the AI Studio free tier.",
+        ),
+        ProviderModelOption(
+            id="google/gemini-2.5-pro",
+            label="Gemini 2.5 Pro",
+            description="Higher quality, paid tier.",
+        ),
+    ],
+    "ollama": [],
+    "custom": [],
+}
+
+
+@router.get("/models", response_model=ProviderModelsResponse)
+async def list_provider_models(
+    provider: AIProvider,
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> ProviderModelsResponse:
+    """Return the model picker options for *provider*.
+
+    For Ollama this hits ``{base_url}/api/tags`` so the picker reflects
+    what the user has actually pulled. The base URL comes from the
+    active integration's stored metadata if it matches *provider*,
+    else the catalog default (``http://localhost:11434``).
+    """
+    default_model = catalog.resolve_model(provider)
+    if provider == "ollama":
+        base_url = catalog.default_base_url("ollama") or "http://localhost:11434"
+        service = _get_service(request, db)
+        record = await service.get_active()
+        if record is not None and record.provider == "ollama":
+            stored = (record.metadata or {}).get("base_url")
+            if isinstance(stored, str) and stored:
+                base_url = stored
+        live = await _ollama_tags(base_url)
+        return ProviderModelsResponse(
+            provider=provider,
+            default_model=default_model,
+            models=live,
+            source="live",
+        )
+    return ProviderModelsResponse(
+        provider=provider,
+        default_model=default_model,
+        models=list(_SUGGESTED_MODELS.get(provider, [])),
+        source="catalog",
+    )
+
+
+# Shared httpx client for Ollama /api/tags probes. Lazily constructed so
+# imports don't try to create a client without a running event loop.
+_ollama_client: httpx.AsyncClient | None = None
+
+
+def _get_ollama_client() -> httpx.AsyncClient:
+    global _ollama_client
+    if _ollama_client is None:
+        _ollama_client = httpx.AsyncClient(timeout=4.0)
+    return _ollama_client
+
+
+async def _ollama_tags(base_url: str) -> list[ProviderModelOption]:
+    """Probe Ollama's /api/tags and convert to picker options."""
+    url = base_url.rstrip("/") + "/api/tags"
+    try:
+        resp = await _get_ollama_client().get(url)
+    except httpx.HTTPError:
+        return []
+    if resp.status_code >= 300:
+        return []
+    try:
+        data = resp.json()
+    except ValueError:
+        return []
+    tags = data.get("models") if isinstance(data, dict) else None
+    if not isinstance(tags, list):
+        return []
+    options: list[ProviderModelOption] = []
+    for entry in tags:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name") or entry.get("model")
+        if not isinstance(name, str) or not name:
+            continue
+        options.append(
+            ProviderModelOption(
+                id=f"ollama/{name}",
+                label=name,
+                description=_format_ollama_size(entry.get("size")),
+            )
+        )
+    return options
+
+
+def _format_ollama_size(size_bytes: object) -> str | None:
+    if not isinstance(size_bytes, (int, float)):
+        return None
+    gb = size_bytes / 1_000_000_000
+    if gb < 0.1:
+        return None
+    return f"{gb:.1f} GB"
 
 
 # ---------------------------------------------------------------------------

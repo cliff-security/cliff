@@ -15,9 +15,12 @@ import { useEffect, useRef, useState } from 'react'
 import {
   useAIProviderStatus,
   useDisconnect,
+  useSetModel,
   type AIStatusResponse,
 } from '@/api/aiProvider'
+import { parseApiError } from '@/api/client'
 import { useProviderTest } from '@/api/providers'
+import { ModelPicker } from './ModelPicker'
 import {
   describeAutodetectSource,
   providerIcon,
@@ -162,14 +165,26 @@ function ConnectedCard({
   onSwitch: () => void
 }) {
   const [showDisconnect, setShowDisconnect] = useState(false)
+  const [showPicker, setShowPicker] = useState(false)
   const provider = status.provider!
   const providerName = providerLabel(provider)
   const modelName = formatModel(status.model)
   const source = sourceCopy(status)
 
-  // Mono detail line — model · source · connected timestamp.
+  // Drift detection — what the canonical config says vs. what OpenCode has
+  // loaded right now. The probe returns ``ok: false`` when the singleton is
+  // down, which we deliberately don't treat as drift (singleton-down is its
+  // own UX problem, surfaced by the "Live" indicator failing).
+  const probe = status.live_probe
+  const driftedModel =
+    probe?.ok && status.model && probe.opencode_model
+      ? probe.opencode_model !== status.model
+      : false
+
+  // Mono detail line — source · connected timestamp. The model now has
+  // its own row so it gets the breathing room it needs for the picker
+  // button to live next to it without crowding.
   const detailParts: string[] = []
-  if (modelName) detailParts.push(modelName)
   detailParts.push(source)
   if (status.connected_at) {
     detailParts.push(`connected ${formatConnectedAt(status.connected_at)}`)
@@ -282,6 +297,69 @@ function ConnectedCard({
         </button>
       </div>
 
+      {/* Model row — canonical active model + picker + drift indicator. */}
+      <div
+        style={{
+          marginTop: 12,
+          paddingLeft: 50,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          flexWrap: 'wrap',
+        }}
+        data-testid="ai-provider-model-row"
+      >
+        <span
+          className="font-mono"
+          style={{
+            fontSize: 10.5,
+            letterSpacing: '0.18em',
+            textTransform: 'uppercase',
+            color: 'var(--cd-fg-4)',
+          }}
+        >
+          Model
+        </span>
+        <span
+          className="font-mono"
+          style={{
+            fontSize: 12,
+            color: 'var(--cd-fg-1)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            maxWidth: '40ch',
+          }}
+          data-testid="ai-provider-active-model"
+          title={status.model ?? undefined}
+        >
+          {modelName ?? 'not set'}
+        </span>
+        <button
+          type="button"
+          id="ai-provider-change-model"
+          data-testid="ai-provider-change-model"
+          onClick={() => setShowPicker(true)}
+          className="cd-btn cd-btn--ghost cd-btn--sm"
+        >
+          <span
+            className="material-symbols-outlined"
+            style={{ fontSize: 13 }}
+            aria-hidden
+          >
+            tune
+          </span>
+          Change
+        </button>
+      </div>
+
+      {driftedModel && (
+        <DriftBanner
+          canonical={status.model!}
+          loaded={probe!.opencode_model!}
+        />
+      )}
+
       {status.override_model && (
         <div
           className="font-mono"
@@ -302,10 +380,19 @@ function ConnectedCard({
             style={{ fontSize: 13 }}
             aria-hidden
           >
-            tune
+            terminal
           </span>
-          Custom model override — default recommended
+          dev override env active — ui picker is canonical
         </div>
+      )}
+
+      {showPicker && (
+        <ModelPicker
+          provider={provider as Parameters<typeof ModelPicker>[0]['provider']}
+          currentModel={status.model}
+          triggerId="ai-provider-change-model"
+          onClose={() => setShowPicker(false)}
+        />
       )}
 
       {showDisconnect && (
@@ -316,6 +403,79 @@ function ConnectedCard({
         />
       )}
     </section>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Drift banner
+// ---------------------------------------------------------------------------
+
+function DriftBanner({
+  canonical,
+  loaded,
+}: {
+  canonical: string
+  loaded: string
+}) {
+  const setModel = useSetModel()
+  const [error, setError] = useState<string | null>(null)
+  const onReconcile = async () => {
+    setError(null)
+    try {
+      await setModel.mutateAsync(canonical)
+    } catch (err) {
+      setError(parseApiError(err).message || 'Could not reconcile.')
+    }
+  }
+  return (
+    <div
+      role="alert"
+      data-testid="ai-provider-drift-banner"
+      style={{
+        marginTop: 12,
+        marginLeft: 50,
+        padding: '10px 12px',
+        background: 'var(--cd-red-soft, rgba(220, 38, 38, 0.10))',
+        border: '1px solid var(--cd-red-line, rgba(220, 38, 38, 0.35))',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span
+          className="material-symbols-outlined"
+          style={{ fontSize: 16, color: 'var(--cd-red, #d33)' }}
+          aria-hidden
+        >
+          sync_problem
+        </span>
+        <span style={{ fontSize: 12.5, color: 'var(--cd-fg-1)', flex: 1 }}>
+          OpenCode is running{' '}
+          <code className="font-mono" style={{ fontSize: 11.5 }}>
+            {loaded}
+          </code>{' '}
+          but the saved configuration says{' '}
+          <code className="font-mono" style={{ fontSize: 11.5 }}>
+            {canonical}
+          </code>
+          .
+        </span>
+        <button
+          type="button"
+          onClick={onReconcile}
+          disabled={setModel.isPending}
+          className="cd-btn cd-btn--primary cd-btn--sm"
+        >
+          {setModel.isPending ? 'Reconciling…' : 'Reconcile'}
+        </button>
+      </div>
+      {error && (
+        <p style={{ fontSize: 11.5, color: 'var(--cd-red, #d33)', margin: 0 }}>
+          {error}
+        </p>
+      )}
+    </div>
   )
 }
 

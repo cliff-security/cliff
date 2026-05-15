@@ -2,7 +2,7 @@
   "components": {
     "schemas": {
       "AIStatus": {
-        "description": "Wire shape for ``GET /api/integrations/ai/status``.",
+        "description": "Wire shape for ``GET /api/integrations/ai/status``.\n\n``model`` is the **canonical** active model \u2014 the one OpenSec writes\ninto ``app_setting(key=\"model\")`` and pushes into every workspace\nspawn. ``live_probe.opencode_model`` is what the singleton OpenCode\nhas *right now*. The two should match. Drift is rendered as a banner\nin the UI with a [Reconcile] action.\n\n``override_model`` is preserved for back-compat with the old\n``OPENSEC_AI_MODEL_OVERRIDE_*`` env var \u2014 DEV-ONLY in v0.2, no longer\nsurfaced in the picker (ADR-0037).",
         "properties": {
           "connected_at": {
             "anyOf": [
@@ -14,6 +14,16 @@
               }
             ],
             "title": "Connected At"
+          },
+          "live_probe": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LiveProbe"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "metadata": {
             "anyOf": [
@@ -56,6 +66,8 @@
                   "openrouter",
                   "anthropic",
                   "openai",
+                  "google",
+                  "ollama",
                   "custom"
                 ],
                 "type": "string"
@@ -1017,6 +1029,8 @@
                   "openrouter",
                   "anthropic",
                   "openai",
+                  "google",
+                  "ollama",
                   "custom"
                 ],
                 "type": "string"
@@ -1046,7 +1060,7 @@
         "type": "object"
       },
       "BYOKRequest": {
-        "description": "Inbound payload for ``POST /api/integrations/ai/byok``.\n\n``api_key`` is a ``SecretStr`` so the value is redacted in every\nPydantic-rendered context \u2014 model_dump (without explicit unwrap),\nvalidation errors, repr, logging. Call sites that need the raw key\nmust use ``api_key.get_secret_value()`` explicitly; that explicit\nunwrap is the only place we want to deal with the raw string.",
+        "description": "Inbound payload for ``POST /api/integrations/ai/byok``.\n\n``api_key`` is a ``SecretStr`` so the value is redacted in every\nPydantic-rendered context \u2014 model_dump (without explicit unwrap),\nvalidation errors, repr, logging. Call sites that need the raw key\nmust use ``api_key.get_secret_value()`` explicitly; that explicit\nunwrap is the only place we want to deal with the raw string.\n\nFor Ollama the ``api_key`` is just a non-empty placeholder (the\ntransport doesn't authenticate) but the field stays required so the\nwire shape doesn't fork. The UI sends \"local\" automatically.",
         "properties": {
           "api_key": {
             "format": "password",
@@ -1082,6 +1096,8 @@
               "openrouter",
               "anthropic",
               "openai",
+              "google",
+              "ollama",
               "custom"
             ],
             "title": "Provider",
@@ -3272,6 +3288,31 @@
         "title": "ListReposRequest",
         "type": "object"
       },
+      "LiveProbe": {
+        "description": "Reflects what OpenCode's singleton currently has loaded.\n\n``opencode_model`` is the model id returned by OpenCode's ``/config``\nendpoint, which is the model agent calls will actually use. If it\ndisagrees with ``AIStatus.model`` (the canonical setting) the Settings\nUI surfaces a drift banner and offers one-click reconcile.",
+        "properties": {
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "opencode_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opencode Model"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "title": "LiveProbe",
+        "type": "object"
+      },
       "MarkSummarySeenResponse": {
         "description": "Idempotent response: ``summary_seen_at`` is set on first call.",
         "properties": {
@@ -3959,6 +4000,87 @@
         "title": "PreviousAssessmentInfo",
         "type": "object"
       },
+      "ProviderModelOption": {
+        "description": "One entry in the per-provider model picker dropdown.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label"
+        ],
+        "title": "ProviderModelOption",
+        "type": "object"
+      },
+      "ProviderModelsResponse": {
+        "description": "Wire shape for ``GET /api/integrations/ai/models?provider=X``.",
+        "properties": {
+          "default_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Model"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderModelOption"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "provider": {
+            "enum": [
+              "openrouter",
+              "anthropic",
+              "openai",
+              "google",
+              "ollama",
+              "custom"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "catalog",
+              "live"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "default_model",
+          "models",
+          "source"
+        ],
+        "title": "ProviderModelsResponse",
+        "type": "object"
+      },
       "ProviderTestRequest": {
         "description": "Optional staged config. Alpha passes nothing and probes the currently\nconfigured provider/model/key; a future UI can preview unsaved staged\nconfig by populating these fields. Ignored today \u2014 probe uses whatever\nOpenCode has configured \u2014 but kept so the wire shape is stable.",
         "properties": {
@@ -4371,6 +4493,21 @@
           "id"
         ],
         "title": "SessionSummary",
+        "type": "object"
+      },
+      "SetModelRequest": {
+        "description": "Inbound payload for ``PUT /api/integrations/ai/model``.\n\nThe model id must include a provider prefix; the service rejects ids\nwhose prefix doesn't match the currently active provider so a stale\nsetting never silently re-points at the wrong namespace.",
+        "properties": {
+          "model": {
+            "minLength": 1,
+            "title": "Model",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model"
+        ],
+        "title": "SetModelRequest",
         "type": "object"
       },
       "SeverityHistory": {
@@ -6326,6 +6463,99 @@
         ]
       }
     },
+    "/api/integrations/ai/model": {
+      "put": {
+        "description": "Change the canonical active model.\n\nValidates that the model id's provider prefix matches the active\nintegration. Workspace spawns pick up the new model immediately\nvia the model resolver; the singleton restarts so chat sessions\nre-init against the new model on next request.",
+        "operationId": "set_active_model_api_integrations_ai_model_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetModelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Active Model",
+        "tags": [
+          "ai-integrations"
+        ]
+      }
+    },
+    "/api/integrations/ai/models": {
+      "get": {
+        "description": "Return the model picker options for *provider*.\n\nFor Ollama this hits ``{base_url}/api/tags`` so the picker reflects\nwhat the user has actually pulled. The base URL comes from the\nactive integration's stored metadata if it matches *provider*,\nelse the catalog default (``http://localhost:11434``).",
+        "operationId": "list_provider_models_api_integrations_ai_models_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "enum": [
+                "openrouter",
+                "anthropic",
+                "openai",
+                "google",
+                "ollama",
+                "custom"
+              ],
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderModelsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Provider Models",
+        "tags": [
+          "ai-integrations"
+        ]
+      }
+    },
     "/api/integrations/ai/openrouter/start": {
       "post": {
         "description": "Begin an OAuth PKCE handshake.\n\nMints a session, starts a one-shot listener on port 3000, returns the\nauth URL the frontend should open in a new tab.",
@@ -7512,6 +7742,7 @@
     },
     "/api/settings/model": {
       "get": {
+        "description": "Return the canonical active model (ADR-0037).\n\nThin shim over :class:`AIIntegrationService` so the CLI (``opensec\nmodel get``) and the new Settings UI agree byte-for-byte. Falls\nback to the old ``opencode.json``-derived value when no AI\nprovider is connected so legacy users without an ``ai_integration``\nrow still get something meaningful.",
         "operationId": "get_model_api_settings_model_get",
         "responses": {
           "200": {
@@ -7531,6 +7762,7 @@
         ]
       },
       "put": {
+        "description": "Persist a model change (ADR-0037).\n\nRoutes through :class:`AIIntegrationService.set_model` when a\nprovider is connected. On a fresh install with no provider yet,\nfalls through to the legacy ``config_manager.update_model`` so\n``opensec model set`` during install still works before BYOK.",
         "operationId": "update_model_api_settings_model_put",
         "requestBody": {
           "content": {

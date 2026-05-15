@@ -177,7 +177,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # this so ``ready: true`` means agents will genuinely run. (Q01-B02.)
     app.state.ai_provider_credential_ok = False
 
-    async def _refresh_ai_env_cache() -> None:
+    async def _refresh_ai_env_cache(*, verify: bool = True) -> None:
+        """Refresh ``app.state`` AI caches.
+
+        ``verify=False`` skips the upstream credential probe so the
+        on-key-change hook (which runs after every save) doesn't block
+        the mutation on a second auth round-trip — the BYOK route's own
+        validator just confirmed the key works, and a re-run would
+        re-issue the same upstream call. Boot keeps ``verify=True``.
+        """
         from opensec.ai.service import AIIntegrationService
 
         vault = app.state.vault
@@ -204,14 +212,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             app.state.ai_provider_credential_ok = False
             return
 
-        # Live-probe the resolved credential so readiness reflects "this key
-        # authenticates", not just "a key is present" (Q01-B02). Only a
-        # definitive auth rejection (401/403 -> ``auth_failed``) flips
-        # readiness off; network blips, rate limits and billing errors leave
-        # it untouched so the signal doesn't flap on a transient probe.
         if not app.state.ai_env_cache:
             app.state.ai_provider_credential_ok = False
             return
+
+        if not verify:
+            # Trust the caller — the BYOK / autodetect-adopt routes
+            # validated the key before invoking the save path, so a
+            # second probe here would just duplicate that call.
+            app.state.ai_provider_credential_ok = True
+            return
+
+        # Boot path: live-probe the resolved credential so readiness reflects
+        # "this key authenticates", not just "a key is present" (Q01-B02).
+        # Only a definitive auth rejection (401/403 → ``auth_failed``) flips
+        # readiness off; network blips, rate limits and billing errors leave
+        # it untouched so the signal doesn't flap on a transient probe.
         try:
             verdict = await service.verify_active_credential()
         except Exception:
@@ -303,12 +319,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # so AIIntegrationService instances built per-request can push the
     # new env into the singleton OpenCode without coupling to main.
     async def _ai_on_key_change(env: dict[str, str]) -> None:
-        # Refresh the cached env *and* model for the workspace pool — single
-        # source of truth keyed off the service's freshly written state.
-        # ``_refresh_ai_env_cache`` re-resolves both; ``env`` (the dict the
-        # service already resolved) is what we hand the singleton so its
-        # restart can't race the cache write.
-        await _refresh_ai_env_cache()
+        # ``verify=False`` skips a second upstream auth probe — the
+        # caller (BYOK / adopt / set_model route) already validated and
+        # we'd just duplicate that call inside the mutation latency.
+        await _refresh_ai_env_cache(verify=False)
         try:
             opencode_process.set_extra_env(env)
             if opencode_process.is_running:

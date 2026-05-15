@@ -12,7 +12,13 @@ import { request, requestVoid } from './client'
 // Types
 // ---------------------------------------------------------------------------
 
-export type AIProvider = 'openrouter' | 'anthropic' | 'openai' | 'custom'
+export type AIProvider =
+  | 'openrouter'
+  | 'anthropic'
+  | 'openai'
+  | 'google'
+  | 'ollama'
+  | 'custom'
 export type AISource = 'autodetect' | 'openrouter-oauth' | 'byok'
 export type AIState = 'unconfigured' | 'connected'
 export type OAuthStatus =
@@ -29,6 +35,12 @@ export type ByokErrorCode =
   | 'rate_limited'
   | 'model_not_found'
 
+export interface LiveProbe {
+  ok: boolean
+  /** What OpenCode's singleton actually has loaded right now. */
+  opencode_model: string | null
+}
+
 export interface AIStatusResponse {
   state: AIState
   provider: AIProvider | null
@@ -36,8 +48,24 @@ export interface AIStatusResponse {
   connected_at: string | null
   metadata: Record<string, unknown> | null
   override_model: string | null
-  /** Active OpenCode model id, e.g. ``openrouter/anthropic/claude-sonnet-4.6``. */
+  /** Canonical active model — written via the picker, used by workspace spawn. */
   model: string | null
+  /** Best-effort read of OpenCode's currently-loaded model for drift detection. */
+  live_probe: LiveProbe | null
+}
+
+export interface ProviderModelOption {
+  id: string
+  label: string
+  description: string | null
+}
+
+export interface ProviderModelsResponse {
+  provider: AIProvider
+  default_model: string | null
+  models: ProviderModelOption[]
+  /** ``'live'`` for Ollama (probes /api/tags); ``'catalog'`` for cloud providers. */
+  source: 'catalog' | 'live'
 }
 
 export interface AutodetectResponse {
@@ -95,6 +123,15 @@ export const aiProviderApi = {
         sessionId,
       )}`,
     ),
+  setModel: (model: string) =>
+    request<AIStatusResponse>('/api/integrations/ai/model', {
+      method: 'PUT',
+      body: JSON.stringify({ model }),
+    }),
+  listProviderModels: (provider: AIProvider) =>
+    request<ProviderModelsResponse>(
+      `/api/integrations/ai/models?provider=${encodeURIComponent(provider)}`,
+    ),
   disconnect: () =>
     requestVoid('/api/integrations/ai/disconnect', {
       method: 'POST',
@@ -108,15 +145,33 @@ export const aiProviderApi = {
 
 const STATUS_KEY = ['ai-provider', 'status'] as const
 
-/** Read-only status hook — drives every agent-button gate via useAIRequired. */
+/**
+ * Invalidate every ``ai-provider`` cache key EXCEPT the status query.
+ * Mutations that return the new status payload call ``setQueryData`` to
+ * seed it directly — invalidating the status key on top of that would
+ * trigger an immediate refetch that throws away the fresh data we just
+ * stored (round-trip race + UI flash).
+ */
+function invalidateAINonStatus(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({
+    predicate: (q) =>
+      q.queryKey[0] === 'ai-provider' && q.queryKey[1] !== 'status',
+  })
+}
+
+/** Read-only status hook — drives every agent-button gate via useAIRequired.
+ *
+ * Refetches every 15s so the Settings card and the drift banner reflect
+ * upstream change quickly (the singleton restarts on key/model changes
+ * via the on_key_change hook, which can lag the canonical write by a
+ * second or two). Stale-while-revalidate keeps it from feeling janky.
+ */
 export function useAIProviderStatus() {
   return useQuery({
     queryKey: STATUS_KEY,
     queryFn: aiProviderApi.status,
-    // Background poll keeps "configured" state fresh after a successful
-    // OAuth handshake without forcing a hard reload.
-    refetchInterval: false,
-    staleTime: 30_000,
+    refetchInterval: 15_000,
+    staleTime: 5_000,
   })
 }
 
@@ -136,7 +191,7 @@ export function useAdopt() {
     mutationFn: aiProviderApi.adopt,
     onSuccess: (data) => {
       qc.setQueryData(STATUS_KEY, data)
-      qc.invalidateQueries({ queryKey: ['ai-provider'] })
+      invalidateAINonStatus(qc)
     },
   })
 }
@@ -147,7 +202,7 @@ export function useByok() {
     mutationFn: aiProviderApi.byok,
     onSuccess: (data) => {
       qc.setQueryData(STATUS_KEY, data)
-      qc.invalidateQueries({ queryKey: ['ai-provider'] })
+      invalidateAINonStatus(qc)
     },
   })
 }
@@ -165,6 +220,28 @@ export function useDisconnect() {
 export function useOpenRouterStart() {
   return useMutation({
     mutationFn: aiProviderApi.openrouterStart,
+  })
+}
+
+/** Change the canonical active model. */
+export function useSetModel() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (model: string) => aiProviderApi.setModel(model),
+    onSuccess: (data) => {
+      qc.setQueryData(STATUS_KEY, data)
+      invalidateAINonStatus(qc)
+    },
+  })
+}
+
+/** List the picker's suggested models for *provider*. */
+export function useProviderModels(provider: AIProvider | null) {
+  return useQuery({
+    queryKey: ['ai-provider', 'models', provider],
+    queryFn: () => aiProviderApi.listProviderModels(provider as AIProvider),
+    enabled: !!provider,
+    staleTime: provider === 'ollama' ? 5_000 : 60_000,
   })
 }
 

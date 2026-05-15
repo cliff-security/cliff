@@ -344,3 +344,79 @@ async def test_dispatcher_routes_to_anthropic(httpx_mock) -> None:
     )
     result = await validators.validate("anthropic", "sk-ant-key")
     assert result.ok is True
+
+
+# ---------------------------------------------------------------------------
+# Google AI Studio (ADR-0037)
+# ---------------------------------------------------------------------------
+
+
+async def test_validate_google_happy_path(httpx_mock) -> None:
+    """AI Studio puts the key in ``?key=`` — a 200 from /v1beta/models means
+    the key is valid for at least listing models, which is enough."""
+    httpx_mock.add_response(
+        url="https://generativelanguage.googleapis.com/v1beta/models?key=AIzaTEST",
+        method="GET",
+        status_code=200,
+        json={"models": []},
+    )
+    result = await validators.validate("google", "AIzaTEST")
+    assert result.ok is True
+
+
+async def test_validate_google_auth_failed(httpx_mock) -> None:
+    httpx_mock.add_response(
+        url="https://generativelanguage.googleapis.com/v1beta/models?key=bad",
+        method="GET",
+        status_code=403,
+    )
+    result = await validators.validate("google", "bad")
+    assert result.ok is False
+    assert result.error_code == "auth_failed"
+
+
+async def test_validate_google_network(httpx_mock) -> None:
+    httpx_mock.add_exception(httpx.ConnectError("network down"))
+    result = await validators.validate("google", "AIzaTEST")
+    assert result.ok is False
+    assert result.error_code == "network"
+
+
+# ---------------------------------------------------------------------------
+# Ollama local runtime (ADR-0037)
+# ---------------------------------------------------------------------------
+
+
+async def test_validate_ollama_happy_path(httpx_mock) -> None:
+    """``/api/tags`` 200 means the runtime is reachable."""
+    httpx_mock.add_response(
+        url="http://localhost:11434/api/tags",
+        method="GET",
+        status_code=200,
+        json={"models": [{"name": "llama3.2:latest"}]},
+    )
+    result = await validators.validate("ollama", "local")
+    assert result.ok is True
+
+
+async def test_validate_ollama_custom_base_url(httpx_mock) -> None:
+    """SSH-tunnel and remote-Ollama users supply a non-default base URL."""
+    httpx_mock.add_response(
+        url="http://10.0.0.5:11434/api/tags",
+        method="GET",
+        status_code=200,
+        json={"models": []},
+    )
+    result = await validators.validate(
+        "ollama", "local", base_url="http://10.0.0.5:11434"
+    )
+    assert result.ok is True
+
+
+async def test_validate_ollama_unreachable(httpx_mock) -> None:
+    """A network error returns a network-class verdict the UI can frame
+    as 'Is Ollama running?'."""
+    httpx_mock.add_exception(httpx.ConnectError("connection refused"))
+    result = await validators.validate("ollama", "local")
+    assert result.ok is False
+    assert result.error_code == "network"

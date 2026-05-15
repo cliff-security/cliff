@@ -25,6 +25,16 @@ def _reset_catalog_state():
     catalog._reset_for_tests()
 
 
+@pytest.fixture(autouse=True)
+def _reset_live_probe_cache():
+    """Keep tests isolated from each other's ``get_status`` probe cache (ADR-0037)."""
+    from opensec.ai.service import invalidate_live_probe
+
+    invalidate_live_probe()
+    yield
+    invalidate_live_probe()
+
+
 @pytest.fixture
 async def db():
     conn = await init_db(":memory:")
@@ -219,7 +229,7 @@ async def test_resolve_model_returns_provider_default(
     await service.save_byok("anthropic", "sk-ant-realkey-12345")
     assert (
         await service.resolve_model_for_workspace()
-        == "anthropic/claude-sonnet-4-6"
+        == "anthropic/claude-haiku-4-5"
     )
 
 
@@ -249,10 +259,13 @@ async def test_resolve_model_ignores_app_setting_from_other_provider(
     from opensec.db.repo_setting import upsert_setting
 
     await service.save_byok("anthropic", "sk-ant-realkey-12345")
+    # ``save_byok`` (ADR-0037) writes ``app_setting(model)`` atomically.
+    # We then clobber it with a stale openai value to simulate the
+    # cross-provider drift the test guards against.
     await upsert_setting(db, "model", {"full_id": "openai/gpt-5"})
     assert (
         await service.resolve_model_for_workspace()
-        == "anthropic/claude-sonnet-4-6"
+        == "anthropic/claude-haiku-4-5"
     )
 
 
@@ -484,3 +497,272 @@ async def test_get_status_no_override_returns_none(
     await service.save_byok("anthropic", "sk-ant-key")
     status = await service.get_status()
     assert status.override_model is None
+
+
+# ---------------------------------------------------------------------------
+# ADR-0037 — canonical state, set_model, drift, Ollama, Google
+# ---------------------------------------------------------------------------
+
+
+async def test_save_byok_writes_canonical_model_from_catalog_default(
+    service: AIIntegrationService, db: aiosqlite.Connection
+) -> None:
+    """A fresh BYOK save sets app_setting(model) to the provider's default
+    so workspace spawn + Settings UI see the same value (ADR-0037)."""
+    from opensec.db.repo_setting import get_setting
+
+    await service.save_byok("anthropic", "sk-ant-key")
+    stored = await get_setting(db, "model")
+    assert stored is not None
+    assert stored.value == {"full_id": "anthropic/claude-haiku-4-5"}
+
+
+async def test_save_byok_with_explicit_model_overrides_default(
+    service: AIIntegrationService, db: aiosqlite.Connection
+) -> None:
+    """An explicit model argument wins over the catalog default."""
+    from opensec.db.repo_setting import get_setting
+
+    await service.save_byok(
+        "anthropic", "sk-ant-key", model="anthropic/claude-opus-4-1"
+    )
+    stored = await get_setting(db, "model")
+    assert stored is not None
+    assert stored.value == {"full_id": "anthropic/claude-opus-4-1"}
+
+
+async def test_save_byok_explicit_model_without_prefix_gets_prefixed(
+    service: AIIntegrationService, db: aiosqlite.Connection
+) -> None:
+    """Caller-supplied model without ``provider/`` gets the prefix added."""
+    from opensec.db.repo_setting import get_setting
+
+    await service.save_byok("anthropic", "sk-ant-key", model="claude-opus-4-1")
+    stored = await get_setting(db, "model")
+    assert stored is not None
+    assert stored.value == {"full_id": "anthropic/claude-opus-4-1"}
+
+
+async def test_save_byok_with_mismatched_prefix_ignores_explicit_model(
+    service: AIIntegrationService, db: aiosqlite.Connection
+) -> None:
+    """An explicit model whose prefix doesn't match the provider falls back
+    to the catalog default (the wrong-namespace value is the bug we're
+    catching, not the value we propagate)."""
+    from opensec.db.repo_setting import get_setting
+
+    await service.save_byok(
+        "anthropic", "sk-ant-key", model="openai/gpt-5"
+    )
+    stored = await get_setting(db, "model")
+    assert stored is not None
+    assert stored.value == {"full_id": "anthropic/claude-haiku-4-5"}
+
+
+async def test_save_byok_preserves_prior_user_choice_on_reconnect(
+    service: AIIntegrationService, db: aiosqlite.Connection
+) -> None:
+    """Reconnecting the same provider keeps the user's stored model.
+
+    Anthropic-on-Sonnet user re-saves the integration — they should stay
+    on Sonnet, not get reset to the new Haiku default. (Migration
+    rule from ADR-0037.)"""
+    from opensec.db.repo_setting import get_setting, upsert_setting
+
+    await upsert_setting(
+        db, "model", {"full_id": "anthropic/claude-sonnet-4-6"}
+    )
+    await service.save_byok("anthropic", "sk-ant-key")
+    stored = await get_setting(db, "model")
+    assert stored is not None
+    assert stored.value == {"full_id": "anthropic/claude-sonnet-4-6"}
+
+
+async def test_switching_providers_falls_to_new_provider_default(
+    service: AIIntegrationService, db: aiosqlite.Connection
+) -> None:
+    """Switching anthropic → openrouter rewrites app_setting(model) to the
+    new provider's default — the old stored model's prefix is stale."""
+    from opensec.db.repo_setting import get_setting
+
+    await service.save_byok("anthropic", "sk-ant-key")
+    await service.save_byok("openrouter", "sk-or-key")
+    stored = await get_setting(db, "model")
+    assert stored is not None
+    assert stored.value == {"full_id": "openrouter/tencent/hy3-preview"}
+
+
+async def test_set_model_rejects_unprefixed_id(
+    service: AIIntegrationService,
+) -> None:
+    """``set_model`` insists on an explicit provider prefix."""
+    from opensec.ai.service import ModelPrefixMismatchError
+
+    await service.save_byok("anthropic", "sk-ant-key")
+    with pytest.raises(ModelPrefixMismatchError):
+        await service.set_model("claude-haiku-4-5")  # missing prefix
+
+
+async def test_set_model_rejects_prefix_mismatch(
+    service: AIIntegrationService,
+) -> None:
+    """``set_model`` refuses to write an openai/* id when anthropic is active."""
+    from opensec.ai.service import ModelPrefixMismatchError
+
+    await service.save_byok("anthropic", "sk-ant-key")
+    with pytest.raises(ModelPrefixMismatchError):
+        await service.set_model("openai/gpt-5")
+
+
+async def test_set_model_without_active_provider_raises(
+    service: AIIntegrationService,
+) -> None:
+    """Picker can't fire before a provider exists — fail loudly."""
+    from opensec.ai.service import NoActiveProviderError
+
+    with pytest.raises(NoActiveProviderError):
+        await service.set_model("anthropic/claude-haiku-4-5")
+
+
+async def test_set_model_updates_canonical(
+    service: AIIntegrationService, db: aiosqlite.Connection
+) -> None:
+    """Happy path: the picker writes the new model."""
+    from opensec.db.repo_setting import get_setting
+
+    await service.save_byok("anthropic", "sk-ant-key")
+    await service.set_model("anthropic/claude-sonnet-4-6")
+    stored = await get_setting(db, "model")
+    assert stored is not None
+    assert stored.value == {"full_id": "anthropic/claude-sonnet-4-6"}
+
+
+async def test_set_model_fires_on_key_change(
+    db: aiosqlite.Connection, vault: CredentialVault
+) -> None:
+    """``set_model`` triggers the singleton-restart hook so OpenCode picks
+    up the new opencode.json model without waiting for the next save."""
+    seen: list[dict[str, str]] = []
+
+    async def hook(env: dict[str, str]) -> None:
+        seen.append(env)
+
+    service = AIIntegrationService(db, vault, on_key_change=hook)
+    await service.save_byok("anthropic", "sk-ant-key")
+    seen.clear()
+    await service.set_model("anthropic/claude-sonnet-4-6")
+    assert len(seen) == 1
+    assert seen[0].get("ANTHROPIC_API_KEY") == "sk-ant-key"
+
+
+async def test_resolve_env_for_ollama_injects_base_url_no_key(
+    service: AIIntegrationService,
+) -> None:
+    """Ollama has no API key — the env should carry ``OLLAMA_BASE_URL``
+    only (default to localhost when the user didn't override it)."""
+    await service.save_byok("ollama", "local")
+    env = await service.resolve_env_for_workspace()
+    assert "ANTHROPIC_API_KEY" not in env
+    assert "OPENAI_API_KEY" not in env
+    assert env.get("OLLAMA_BASE_URL") == "http://localhost:11434"
+
+
+async def test_resolve_env_for_ollama_honors_custom_base_url(
+    service: AIIntegrationService,
+) -> None:
+    """A user with Ollama on a non-default port (e.g. via SSH tunnel) sees
+    their base URL flow through to the workspace env."""
+    await service.save_byok(
+        "ollama", "local", base_url="http://10.0.0.5:11434"
+    )
+    env = await service.resolve_env_for_workspace()
+    assert env == {"OLLAMA_BASE_URL": "http://10.0.0.5:11434"}
+
+
+async def test_resolve_env_for_google_uses_gemini_env_var(
+    service: AIIntegrationService,
+) -> None:
+    """Google AI Studio reads ``GEMINI_API_KEY`` (not ``GOOGLE_API_KEY``)."""
+    await service.save_byok("google", "AIzaSyTESTKEY")
+    env = await service.resolve_env_for_workspace()
+    assert env == {"GEMINI_API_KEY": "AIzaSyTESTKEY"}
+
+
+async def test_save_byok_for_ollama_skips_opencode_auth_push(
+    service: AIIntegrationService, monkeypatch
+) -> None:
+    """Ollama doesn't authenticate — the auth.json push is a no-op."""
+    seen: list[tuple[str, dict]] = []
+
+    class _StubClient:
+        async def set_auth(self, opencode_id: str, payload: dict) -> None:
+            seen.append((opencode_id, payload))
+
+    monkeypatch.setattr(
+        "opensec.engine.client.opencode_client", _StubClient()
+    )
+    await service.save_byok("ollama", "local", base_url="http://localhost:11434")
+    # No push for ollama.
+    assert seen == []
+
+
+async def test_get_status_includes_live_probe(
+    service: AIIntegrationService, monkeypatch
+) -> None:
+    """get_status surfaces what OpenCode actually has loaded.
+
+    With a healthy probe and matching model, the UI sees no drift.
+    """
+
+    class _Client:
+        async def get_config(self) -> dict:
+            return {"model": "anthropic/claude-haiku-4-5"}
+
+    monkeypatch.setattr(
+        "opensec.engine.client.opencode_client", _Client()
+    )
+    await service.save_byok("anthropic", "sk-ant-key")
+    status = await service.get_status()
+    assert status.live_probe is not None
+    assert status.live_probe.ok is True
+    assert status.live_probe.opencode_model == "anthropic/claude-haiku-4-5"
+    assert status.model == "anthropic/claude-haiku-4-5"
+
+
+async def test_get_status_surfaces_drift(
+    service: AIIntegrationService, monkeypatch
+) -> None:
+    """When the canonical model and OpenCode's loaded model disagree the
+    UI can render a drift banner — the status payload carries both."""
+
+    class _Client:
+        async def get_config(self) -> dict:
+            return {"model": "anthropic/claude-opus-4-1"}
+
+    monkeypatch.setattr(
+        "opensec.engine.client.opencode_client", _Client()
+    )
+    await service.save_byok("anthropic", "sk-ant-key")
+    status = await service.get_status()
+    assert status.model == "anthropic/claude-haiku-4-5"
+    assert status.live_probe.opencode_model == "anthropic/claude-opus-4-1"
+
+
+async def test_get_status_live_probe_failure_is_not_fatal(
+    service: AIIntegrationService, monkeypatch
+) -> None:
+    """Singleton-down doesn't break the Settings card; it just reports
+    ``live_probe.ok = False`` so the UI can render a calm state."""
+
+    class _Client:
+        async def get_config(self) -> dict:
+            raise RuntimeError("singleton down")
+
+    monkeypatch.setattr(
+        "opensec.engine.client.opencode_client", _Client()
+    )
+    await service.save_byok("anthropic", "sk-ant-key")
+    status = await service.get_status()
+    assert status.live_probe is not None
+    assert status.live_probe.ok is False
+    assert status.live_probe.opencode_model is None
