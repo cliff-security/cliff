@@ -35,6 +35,32 @@ def _reset_live_probe_cache():
     invalidate_live_probe()
 
 
+@pytest.fixture(autouse=True)
+def _isolate_opencode_client(monkeypatch):
+    """Stub ``opencode_client.set_auth`` / ``get_config`` so tests can't
+    reach a running OpenCode singleton on the dev host.
+
+    Without this, ``service.save_byok`` calls ``_sync_opencode_auth`` →
+    ``opencode_client.set_auth("openrouter", {"key": "sk-or-key"})``,
+    which on a dev box with a real ``:8001`` daemon up CLOBBERS the
+    user's OAuth-issued key in OpenCode's ``auth.json``. Re-tested by
+    running ``pytest tests/test_ai_service.py`` against a live daemon
+    and seeing the test placeholders show up in ``~/.local/share/
+    opencode/auth.json``.
+
+    Individual tests that need to assert on ``set_auth`` call shape can
+    override with their own ``monkeypatch.setattr``.
+    """
+    from unittest.mock import AsyncMock
+
+    from opensec.engine.client import opencode_client
+
+    monkeypatch.setattr(opencode_client, "set_auth", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        opencode_client, "get_config", AsyncMock(return_value={})
+    )
+
+
 @pytest.fixture
 async def db():
     conn = await init_db(":memory:")
