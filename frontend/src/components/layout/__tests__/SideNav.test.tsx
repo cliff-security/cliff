@@ -1,12 +1,27 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import type { ReactNode } from 'react'
 import { MemoryRouter } from 'react-router'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import SideNav from '../SideNav'
 import { server } from '../../../mocks/server'
 import { makeFinding } from '../../../test/fixtures/finding'
+
+/**
+ * Install a mock ``navigator.clipboard`` for the click-to-copy chip and
+ * return the spy. jsdom does not ship one, and the call is async so we
+ * have to wait for the writeText promise to resolve before asserting.
+ */
+function mockClipboard() {
+  const writeText = vi.fn().mockResolvedValue(undefined)
+  Object.defineProperty(navigator, 'clipboard', {
+    value: { writeText },
+    configurable: true,
+    writable: true,
+  })
+  return writeText
+}
 
 /**
  * SideNav — the Cliff Cyberdeck navigation rail: 248px-wide aside with the
@@ -106,7 +121,7 @@ describe('SideNav (Cliff Cyberdeck rail)', () => {
     ).toBeInTheDocument()
   })
 
-  it('renders the workspace switcher with the :: glyph, owner/repo name, and expander', async () => {
+  it('renders the workspace switcher with the :: glyph, owner/repo name, and copy affordance', async () => {
     stubIntegrations()
     stubDashboard()
     stubFindings([])
@@ -115,10 +130,13 @@ describe('SideNav (Cliff Cyberdeck rail)', () => {
       expect(screen.getByText('linear/billing')).toBeInTheDocument(),
     )
     expect(screen.getByTestId('sidenav-repo-initials').textContent).toBe('::')
-    const switcher = screen.getByRole('button', { name: /workspace/i })
-    expect(
-      switcher.querySelector('.material-symbols-outlined')?.textContent,
-    ).toBe('expand_more')
+    // The down-arrow ("expand_more") is gone — multi-scope isn't supported,
+    // so the affordance is now Copy.
+    expect(screen.getByTestId('sidenav-copy-icon').textContent).toBe(
+      'content_copy',
+    )
+    const switcher = screen.getByRole('button', { name: /copy repo/i })
+    expect(switcher.getAttribute('title')).toMatch(/click to copy/i)
   })
 
   it('shows the latest assessment repo as the current scope (scan-first flow)', async () => {
@@ -158,7 +176,8 @@ describe('SideNav (Cliff Cyberdeck rail)', () => {
     )
   })
 
-  it('workspace switcher click is a no-op (renders as a non-submitting button)', async () => {
+  it('copies the owner/repo to the clipboard when the scope chip is clicked', async () => {
+    const writeText = mockClipboard()
     stubIntegrations()
     stubDashboard()
     stubFindings([])
@@ -166,11 +185,38 @@ describe('SideNav (Cliff Cyberdeck rail)', () => {
     await waitFor(() =>
       expect(screen.getByText('linear/billing')).toBeInTheDocument(),
     )
-    const switcher = screen.getByRole('button', { name: /workspace/i })
+
+    const switcher = screen.getByRole('button', { name: /copy repo/i })
     expect(switcher.getAttribute('type')).toBe('button')
-    // Clicking should not throw or navigate. No assertion on side effects —
-    // the design is explicit that this is a no-op in alpha.
-    switcher.click()
+    fireEvent.click(switcher)
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith('linear/billing'),
+    )
+  })
+
+  it('flashes a Copied check glyph briefly after a successful copy', async () => {
+    mockClipboard()
+    stubIntegrations()
+    stubDashboard()
+    stubFindings([])
+    renderSideNav()
+    await waitFor(() =>
+      expect(screen.getByText('linear/billing')).toBeInTheDocument(),
+    )
+
+    expect(screen.getByTestId('sidenav-copy-icon').textContent).toBe(
+      'content_copy',
+    )
+    fireEvent.click(screen.getByRole('button', { name: /copy repo/i }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('sidenav-copy-icon').textContent).toBe('check'),
+    )
+    // aria-label flips to the "Copied" wording for screen-reader users.
+    expect(
+      screen.getByRole('button', { name: /copied .* to clipboard/i }),
+    ).toBeInTheDocument()
   })
 
   it('renders the two primary nav items with named labels and icons', () => {

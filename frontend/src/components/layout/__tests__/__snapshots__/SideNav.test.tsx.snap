@@ -45,10 +45,10 @@ exports[`SideNav (Cliff Cyberdeck rail) > snapshots the rendered SideNav with Da
       Current scope
     </div>
     <button
-      aria-label="Workspace: linear/billing"
+      aria-label="Copy repo name to clipboard: linear/billing"
       class="w-full flex items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-cd-card-hov focus-visible:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[var(--cd-green)]"
-      style="background: var(--cd-card); border: 1px solid var(--cd-rule); color: var(--cd-cyan); font-family: var(--cd-mono); font-size: 11.5px; border-radius: 2px;"
-      title="linear/billing"
+      style="background: var(--cd-card); border: 1px solid var(--cd-rule); font-family: var(--cd-mono); font-size: 11.5px; border-radius: 2px; color: var(--cd-cyan);"
+      title="Click to copy linear/billing"
       type="button"
     >
       <span
@@ -65,9 +65,10 @@ exports[`SideNav (Cliff Cyberdeck rail) > snapshots the rendered SideNav with Da
       <span
         aria-hidden="true"
         class="material-symbols-outlined ml-auto"
-        style="font-size: 14px; color: var(--cd-fg-4);"
+        data-testid="sidenav-copy-icon"
+        style="font-size: 14px; color: var(--cd-fg-4); transition: color 120ms ease-out;"
       >
-        expand_more
+        content_copy
       </span>
     </button>
   </div>
@@ -190,10 +191,10 @@ exports[`SideNav (Cliff Cyberdeck rail) > snapshots the rendered SideNav with Is
       Current scope
     </div>
     <button
-      aria-label="Workspace: linear/billing"
+      aria-label="Copy repo name to clipboard: linear/billing"
       class="w-full flex items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-cd-card-hov focus-visible:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[var(--cd-green)]"
-      style="background: var(--cd-card); border: 1px solid var(--cd-rule); color: var(--cd-cyan); font-family: var(--cd-mono); font-size: 11.5px; border-radius: 2px;"
-      title="linear/billing"
+      style="background: var(--cd-card); border: 1px solid var(--cd-rule); font-family: var(--cd-mono); font-size: 11.5px; border-radius: 2px; color: var(--cd-cyan);"
+      title="Click to copy linear/billing"
       type="button"
     >
       <span
@@ -210,9 +211,10 @@ exports[`SideNav (Cliff Cyberdeck rail) > snapshots the rendered SideNav with Is
       <span
         aria-hidden="true"
         class="material-symbols-outlined ml-auto"
-        style="font-size: 14px; color: var(--cd-fg-4);"
+        data-testid="sidenav-copy-icon"
+        style="font-size: 14px; color: var(--cd-fg-4); transition: color 120ms ease-out;"
       >
-        expand_more
+        content_copy
       </span>
     </button>
   </div>
@@ -335,10 +337,10 @@ exports[`SideNav (Cliff Cyberdeck rail) > snapshots the rendered SideNav with Se
       Current scope
     </div>
     <button
-      aria-label="Workspace: linear/billing"
+      aria-label="Copy repo name to clipboard: linear/billing"
       class="w-full flex items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-cd-card-hov focus-visible:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[var(--cd-green)]"
-      style="background: var(--cd-card); border: 1px solid var(--cd-rule); color: var(--cd-cyan); font-family: var(--cd-mono); font-size: 11.5px; border-radius: 2px;"
-      title="linear/billing"
+      style="background: var(--cd-card); border: 1px solid var(--cd-rule); font-family: var(--cd-mono); font-size: 11.5px; border-radius: 2px; color: var(--cd-cyan);"
+      title="Click to copy linear/billing"
       type="button"
     >
       <span
@@ -355,9 +357,10 @@ exports[`SideNav (Cliff Cyberdeck rail) > snapshots the rendered SideNav with Se
       <span
         aria-hidden="true"
         class="material-symbols-outlined ml-auto"
-        style="font-size: 14px; color: var(--cd-fg-4);"
+        data-testid="sidenav-copy-icon"
+        style="font-size: 14px; color: var(--cd-fg-4); transition: color 120ms ease-out;"
       >
-        expand_more
+        content_copy
       </span>
     </button>
   </div>
