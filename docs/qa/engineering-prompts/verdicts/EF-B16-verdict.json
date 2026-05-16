@@ -1,0 +1,22 @@
+{
+  "bug_id": "B16",
+  "verdict": "fixed",
+  "branch": "claude/elated-murdock-fdcba2",
+  "commits": ["cc9dfd1"],
+  "files_changed": [
+    "backend/opensec/api/routes/workspaces.py",
+    "backend/opensec/workspace/context_builder.py",
+    "backend/opensec/agents/template_engine.py",
+    "backend/tests/integration/test_workspace_repo_url_overrides_global.py"
+  ],
+  "tests_added": [
+    "backend/tests/integration/test_workspace_repo_url_overrides_global.py::test_explicit_repo_url_overrides_integration_snapshot",
+    "backend/tests/integration/test_workspace_repo_url_overrides_global.py::test_omitted_repo_url_falls_back_to_integration"
+  ],
+  "evidence": {
+    "before": "docs/qa/evidence/Q01/B14-B20/B16-create-with-repo_url-silently-dropped.json",
+    "after":  "docs/qa/engineering-prompts/evidence/EF-B16/create-with-repo_url-now-persisted.json"
+  },
+  "regression_check": "POST /api/workspaces with explicit repo_url must persist that exact value on the workspace row AND render it into agent templates at create-time; omitting the field must continue to inherit the GitHub integration snapshot (backwards-compat).",
+  "reviewer_notes": "Three observations for the reviewer. (1) The Wave-1 bug write-up framed the fallback as the 'OPENSEC_REPO_URL env var', but in the live code the fallback is the GitHub integration's config.repo_url — which is later exported AS OPENSEC_REPO_URL to the OpenCode subprocess via _resolve_repo_env_vars. Semantically the same 'global default', preserved unchanged for the no-field path. (2) AC3 (CONTEXT/agent templates reference the explicit URL) is satisfied by passing repo_url into write_agents at create-time. This required adding **extra kwargs to AgentTemplateEngine.write_agents and render_all so the value forwards into render_agent (which already accepted **extra). The executor's run-time re-render path (executor.py:677) is unchanged and uses the same value via OPENSEC_REPO_URL. (3) Branch landed on claude/elated-murdock-fdcba2 (worktree branch off main's tip 289954c, matches the #157/#158/#159 single-PR merge pattern) rather than the shared qa/q01-campaign-fixes branch — that branch is checked out at the project root with unrelated WIP (09ae135 is an OpenRouter slug fix, not Wave-1 blocker work), and stepping on it would risk colliding with parallel sessions."
+}

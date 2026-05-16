@@ -182,10 +182,10 @@ async def create_workspace_endpoint(
         response.status_code = 200
         return existing[0]
 
-    # Snapshot the integration's current repo URL onto the workspace so a
-    # later edit to the integration config doesn't silently rebind in-flight
-    # workspaces to a different repo (migration 013).
-    repo_url = await _resolve_github_repo_url(db)
+    # Prefer the explicit body.repo_url (clients pinning a workspace to a
+    # specific repo); fall back to the integration snapshot so omit-the-field
+    # callers keep migration-013 snapshot behavior (EF-B16).
+    repo_url = body.repo_url or await _resolve_github_repo_url(db)
 
     workspace = await context_builder.create_workspace(
         db, finding, initial_focus=body.current_focus, repo_url=repo_url
