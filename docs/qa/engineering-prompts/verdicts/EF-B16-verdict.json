@@ -2,7 +2,7 @@
   "bug_id": "B16",
   "verdict": "fixed",
   "branch": "claude/elated-murdock-fdcba2",
-  "commits": ["cc9dfd1"],
+  "commits": ["88b08743af2e3177899a441e8cfb1ca7c6371c21"],
   "files_changed": [
     "backend/opensec/api/routes/workspaces.py",
     "backend/opensec/workspace/context_builder.py",
