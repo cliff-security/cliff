@@ -7842,7 +7842,7 @@
     },
     "/api/settings/providers/test": {
       "post": {
-        "description": "Cheap probe of the configured provider+model (ADR-0031).\n\nSends a bounded ``\"Say OK\"`` chat call through OpenCode with an 8s\ntimeout and classifies the outcome into\n``{ok, latency_ms, error_code, error_message}``. Always returns HTTP\n200; ``ok`` reflects the probe result.",
+        "description": "End-to-end probe of the configured provider+model (ADR-0031).\n\nSends a bounded ``\"Say OK\"`` chat call through OpenCode with a 30s\ntimeout and classifies the outcome into\n``{ok, latency_ms, error_code, error_message}``. Always returns HTTP\n200; ``ok`` reflects the probe result.",
         "operationId": "test_provider_api_settings_providers_test_post",
         "requestBody": {
           "content": {
