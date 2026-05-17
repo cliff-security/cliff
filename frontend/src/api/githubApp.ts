@@ -80,6 +80,16 @@ export const githubAppApi = {
       '/api/integrations/github/disconnect',
       { method: 'POST', body: '{}' },
     ),
+  /** Manual recovery path (B33): the user pastes the installation_id
+   * from the redirect URL when the GET callback never reached this
+   * instance (typically because the App's globally-configured Setup
+   * URL points at a different deployment than theirs). The backend
+   * runs the same CSRF state check as the GET callback. */
+  setupManual: (payload: { installation_id: number; state: string }) =>
+    request<DeviceFlowStatusResponse>(
+      '/api/integrations/github/setup/manual',
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
 }
 
 // ---------------------------------------------------------------------------
@@ -144,6 +154,21 @@ export function useGithubAppPollNow() {
       // Push the poll result straight into the cache so the modal's
       // useGithubAppStatus picks it up without waiting for its next
       // refetch interval.
+      qc.setQueryData(['github-app', 'status'], data)
+    },
+  })
+}
+
+
+export function useGithubAppManualSetup() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: { installation_id: number; state: string }) =>
+      githubAppApi.setupManual(payload),
+    onSuccess: (data) => {
+      // Push the new status directly into the cache so the modal that
+      // mounts immediately after the recovery POST sees the bound
+      // installation_id without waiting for the next polling tick.
       qc.setQueryData(['github-app', 'status'], data)
     },
   })
