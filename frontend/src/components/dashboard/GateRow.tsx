@@ -26,6 +26,8 @@ export default function GateRow({
   gate,
   onNavigate,
   onAutoFix,
+  onAutoFixError,
+  error,
   pending,
 }: {
   gate: GateRowData
@@ -33,6 +35,17 @@ export default function GateRow({
   onNavigate?: (href: string) => void
   /** Called for the auto-fixable action. */
   onAutoFix?: (checkNames: string[]) => Promise<void> | void
+  /**
+   * Q01R B24 — invoked with a human-readable message when ``onAutoFix``
+   * rejects. The parent decides where to render the message (typically
+   * by passing the same string back as the ``error`` prop so it shows
+   * inline on the same card). Without this, a 4xx from
+   * ``POST /api/posture/fix/{check_name}`` was silently swallowed and
+   * the user saw nothing happen.
+   */
+  onAutoFixError?: (message: string) => void
+  /** Q01R B24 — inline error text rendered on the card. */
+  error?: string | null
   /** External "in flight" flag used by the parent to disable the button. */
   pending?: boolean
 }) {
@@ -51,6 +64,11 @@ export default function GateRow({
       try {
         setLocalPending(true)
         await onAutoFix?.(names)
+      } catch (err) {
+        // Q01R B24 — never swallow a 4xx; surface a parsed message to the
+        // parent so it can render it (inline + wherever else makes sense)
+        // instead of leaving the user staring at a dead button.
+        onAutoFixError?.(formatAutoFixError(err))
       } finally {
         setLocalPending(false)
       }
@@ -116,6 +134,20 @@ export default function GateRow({
             <span>{gate.unit}</span>
             <span className="sr-only">{metricText}</span>
           </div>
+          {error ? (
+            <div
+              role="alert"
+              data-testid={`gate-row-${gate.id}-error`}
+              className="mt-2"
+              style={{
+                fontSize: 12,
+                color: 'var(--error, #b3261e)',
+                textWrap: 'pretty' as never,
+              }}
+            >
+              {error}
+            </div>
+          ) : null}
         </div>
 
         <button
@@ -140,4 +172,41 @@ export default function GateRow({
       </div>
     </li>
   )
+}
+
+/**
+ * Q01R B24 — turn an ``onAutoFix`` rejection into something human-readable.
+ *
+ * The shared ``request`` helper throws ``Error("<status>: <raw body>")``; for
+ * FastAPI 422s the body is a JSON object shaped like
+ * ``{"detail":[{"type":"...","loc":["path","check_name"],"msg":"...","input":"..."}]}``.
+ * We pull the first ``detail[*].msg`` so the user sees the actual reason
+ * (e.g. "Input should be 'security_md' or 'dependabot_config'") instead of
+ * the raw JSON blob.
+ */
+export function formatAutoFixError(err: unknown): string {
+  const fallback = "Auto-fix failed. Try again, or open the posture check to fix it manually."
+  if (!err) return fallback
+  const message = err instanceof Error ? err.message : String(err)
+  // ``request`` throws ``${status}: ${body}``; try to extract the body.
+  const colonIdx = message.indexOf(':')
+  const body = colonIdx >= 0 ? message.slice(colonIdx + 1).trim() : message.trim()
+  // Try JSON first; if that fails, fall back to the raw message.
+  try {
+    const parsed = JSON.parse(body) as unknown
+    if (parsed && typeof parsed === 'object' && 'detail' in parsed) {
+      const detail = (parsed as { detail: unknown }).detail
+      if (Array.isArray(detail) && detail.length > 0) {
+        const first = detail[0]
+        if (first && typeof first === 'object' && 'msg' in first) {
+          const msg = (first as { msg: unknown }).msg
+          if (typeof msg === 'string' && msg.length > 0) return msg
+        }
+      }
+      if (typeof detail === 'string' && detail.length > 0) return detail
+    }
+  } catch {
+    // Not JSON — fall through to the trimmed message.
+  }
+  return message || fallback
 }

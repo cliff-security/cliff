@@ -84,11 +84,19 @@ _NEXT_GRADE: dict[str, str | None] = {
 
 # Posture criteria fields on CriteriaSnapshot that map to known check names
 # the auto-fix surface can address. Order is the sort order for tie-breaking.
+#
+# Q01R B24 — this tuple MUST stay a subset of ``PostureFixCheckName`` in
+# ``opensec.api.routes.posture``. Advertising a check here that the route
+# rejects with 422 produces a dead button on the dashboard's most prominent
+# CTA — exactly the bug Q01R-B24 caught. ``code_owners_exists`` and
+# ``actions_pinned_to_sha`` were removed in IMPL-0013 because no agent
+# template / ``WorkspaceKind`` ships for them yet; they live in BACKLOG as
+# follow-up items and may be re-added once the backend handlers land
+# (template + ``WorkspaceKind`` + ``_CHECK_TO_WORKSPACE_KIND`` entry +
+# ``PostureFixCheckName`` Literal extension, all in one PR).
 _AUTO_FIXABLE_CHECKS: tuple[str, ...] = (
     "security_md",
     "dependabot_config",
-    "code_owners_exists",
-    "actions_pinned_to_sha",
 )
 
 # Map criteria-snapshot field → (canonical check name, display name).

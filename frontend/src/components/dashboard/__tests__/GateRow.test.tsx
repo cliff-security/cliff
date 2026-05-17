@@ -86,4 +86,64 @@ describe('<GateRow />', () => {
     expect(btn.disabled).toBe(true)
     expect(btn).toHaveTextContent('Working…')
   })
+
+  // Q01R B24 — Auto-fix mutation 4xx must never be swallowed silently.
+  // The parent (DashboardPage) catches the rejection from ``onAutoFix`` and
+  // surfaces a human-readable message via the new ``error`` prop. Without
+  // this, the user clicks "Auto-fix" and sees absolutely nothing happen.
+
+  it('renders inline error text on the card when error prop is set', () => {
+    render(
+      <GateRow
+        gate={makeGate({
+          id: 'posture_remaining',
+          status: 'auto_fixable',
+          target: 15,
+          current: 12,
+          action_label: 'Auto-fix 2 of 3',
+          auto_fixable_check_names: ['security_md'],
+        })}
+        error="This check isn't auto-fixable yet"
+      />,
+    )
+    const row = screen.getByTestId('gate-row-posture_remaining')
+    expect(row).toHaveTextContent("This check isn't auto-fixable yet")
+    expect(
+      screen.getByTestId('gate-row-posture_remaining-error'),
+    ).toBeInTheDocument()
+  })
+
+  it('surfaces a rejected onAutoFix as inline error via parent reporter', async () => {
+    const reportError = vi.fn()
+    const onAutoFix = vi
+      .fn()
+      .mockRejectedValue(
+        new Error(
+          '422: {"detail":[{"type":"literal_error","loc":["path","check_name"],"msg":"Input should be \'security_md\' or \'dependabot_config\'","input":"code_owners_exists"}]}',
+        ),
+      )
+    render(
+      <GateRow
+        gate={makeGate({
+          id: 'posture_remaining',
+          status: 'auto_fixable',
+          target: 15,
+          current: 12,
+          action_label: 'Auto-fix 1 of 1',
+          auto_fixable_check_names: ['code_owners_exists'],
+        })}
+        onAutoFix={onAutoFix}
+        onAutoFixError={reportError}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('gate-row-posture_remaining-action'))
+    // Wait a tick for the rejected promise to settle.
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(onAutoFix).toHaveBeenCalled()
+    expect(reportError).toHaveBeenCalledTimes(1)
+    const [errArg] = reportError.mock.calls[0]
+    expect(typeof errArg).toBe('string')
+    expect(errArg).toMatch(/security_md|dependabot_config|auto-fix/i)
+  })
 })
