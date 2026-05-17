@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Polling state machine — ``installation_pending`` and ``device_pending``
 # are non-terminal; the rest are terminal.
@@ -86,3 +86,26 @@ class DeviceFlowStatusResponse(BaseModel):
 class DeviceFlowDisconnectResponse(BaseModel):
     status: Literal["disconnected"] = "disconnected"
     manual_revoke_url: str
+
+
+class DeviceFlowManualSetupRequest(BaseModel):
+    """Payload for the ``POST /setup/manual`` recovery endpoint (B33).
+
+    The user pastes the ``installation_id`` they saw in the redirect URL
+    after clicking Install on github.com — typically because the App's
+    globally-configured Setup URL pointed at a different deployment than
+    theirs (e.g. ``localhost:8000`` when their Cliff is on ``:8088``).
+
+    ``state`` is the same CSRF token that ``POST /connect`` returned in
+    its ``install_url`` query string. Validating it against an in-flight
+    row is what keeps the manual path from being a CSRF bypass: an
+    attacker who tricks the user into pasting an attacker-controlled
+    ``installation_id`` can't bind it without also knowing a state the
+    user's own /connect issued.
+    """
+
+    # GitHub installation IDs are always positive — reject 0 / negative
+    # early so a typo doesn't get persisted into the in-flight row.
+    installation_id: int = Field(..., gt=0)
+    # Same length window as the GET callback's ``state`` query param.
+    state: str = Field(..., min_length=8, max_length=128)

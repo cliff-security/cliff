@@ -1780,6 +1780,28 @@
         "title": "DeviceFlowDisconnectResponse",
         "type": "object"
       },
+      "DeviceFlowManualSetupRequest": {
+        "description": "Payload for the ``POST /setup/manual`` recovery endpoint (B33).\n\nThe user pastes the ``installation_id`` they saw in the redirect URL\nafter clicking Install on github.com \u2014 typically because the App's\nglobally-configured Setup URL pointed at a different deployment than\ntheirs (e.g. ``localhost:8000`` when their Cliff is on ``:8088``).\n\n``state`` is the same CSRF token that ``POST /connect`` returned in\nits ``install_url`` query string. Validating it against an in-flight\nrow is what keeps the manual path from being a CSRF bypass: an\nattacker who tricks the user into pasting an attacker-controlled\n``installation_id`` can't bind it without also knowing a state the\nuser's own /connect issued.",
+        "properties": {
+          "installation_id": {
+            "exclusiveMinimum": 0.0,
+            "title": "Installation Id",
+            "type": "integer"
+          },
+          "state": {
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "installation_id",
+          "state"
+        ],
+        "title": "DeviceFlowManualSetupRequest",
+        "type": "object"
+      },
       "DeviceFlowStatusResponse": {
         "properties": {
           "error": {
@@ -2646,6 +2668,11 @@
             "title": "Ai Provider Ready",
             "type": "boolean"
           },
+          "cliff": {
+            "default": "ok",
+            "title": "Cliff",
+            "type": "string"
+          },
           "model": {
             "default": "",
             "title": "Model",
@@ -2659,11 +2686,6 @@
           "opencode_version": {
             "default": "",
             "title": "Opencode Version",
-            "type": "string"
-          },
-          "cliff": {
-            "default": "ok",
-            "title": "Cliff",
             "type": "string"
           }
         },
@@ -5024,6 +5046,10 @@
       "VersionInfo": {
         "description": "Version handshake for the agent CLI (`cliff status`).\n\n`min_cli` is the lowest CLI version this server promises to speak to.\nA CLI older than this should refuse to operate and tell the user to upgrade.\n`schema_version` bumps when the CLI/server contract changes incompatibly.",
         "properties": {
+          "cliff": {
+            "title": "Cliff",
+            "type": "string"
+          },
           "min_cli": {
             "default": "0.1.0",
             "title": "Min Cli",
@@ -5031,10 +5057,6 @@
           },
           "opencode": {
             "title": "Opencode",
-            "type": "string"
-          },
-          "cliff": {
-            "title": "Cliff",
             "type": "string"
           },
           "schema_version": {
@@ -6826,6 +6848,48 @@
           }
         },
         "summary": "Setup Callback",
+        "tags": [
+          "github-app"
+        ]
+      }
+    },
+    "/api/integrations/github/setup/manual": {
+      "post": {
+        "description": "Manual recovery for B33 \u2014 accept an ``installation_id`` posted from\nthe SPA when the GET callback never fired.\n\nThe shared ``opensec-local-test`` GitHub App's Setup URL is globally\nhardcoded to ``http://localhost:8000/api/integrations/github/setup``\non github.com. Any Cliff deployment bound to a different host port\n(Docker remap, parallel dev stack, reverse proxy) never receives\nthe GET callback. This endpoint lets the user paste the\n``installation_id`` from the redirect URL they ended up on \u2014 Cliff\nthen drives the same registration code path as the GET callback,\n*including the CSRF state check* that prevents an attacker who\ntricks the user into pasting a hostile ``installation_id`` from\nbinding it.",
+        "operationId": "setup_manual_api_integrations_github_setup_manual_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceFlowManualSetupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceFlowStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Setup Manual",
         "tags": [
           "github-app"
         ]
