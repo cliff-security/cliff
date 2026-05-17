@@ -187,6 +187,19 @@ describe('IssuesPage', () => {
     )
   })
 
+  // B27 — the dashboard's Start cards emit URLs like
+  // ``/issues?section=review&open=<id>``. The Issues page must still
+  // pop the side panel when ``open=`` is present alongside other params.
+  it('opens the panel from a combined deep link (?section=review&open=:id)', async () => {
+    const findings = [
+      makeFinding({ id: 'r2', stage: 'generating', workspaceId: 'w-2' }),
+    ]
+    renderPage(findings, ['/issues?section=review&open=r2'])
+    await waitFor(() =>
+      expect(screen.getByRole('dialog', { name: /Issue details/i })).toBeInTheDocument(),
+    )
+  })
+
   // B26 — empty Review card only renders when BOTH Review AND Todo are
   // empty. Previously a single Todo finding still produced "Review is
   // clear" which was misleading when 45 issues sat in Todo.

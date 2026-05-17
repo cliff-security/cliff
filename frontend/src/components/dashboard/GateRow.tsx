@@ -20,6 +20,11 @@ export type GateRowData = {
   action_label: string
   action_href: string
   auto_fixable_check_names?: string[]
+  /** B27 — first matching finding for non-posture gates, so the Start
+   *  card can deep-link the Issues side panel via ``?open=<id>``. The
+   *  ``action_href`` already includes this query param when populated;
+   *  the field is exposed so consumers can also key on it directly. */
+  first_finding_id?: string | null
 }
 
 export default function GateRow({
