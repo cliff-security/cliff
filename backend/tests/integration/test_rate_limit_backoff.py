@@ -20,7 +20,6 @@ fixture from ``tests/integration/conftest.py`` is reused.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import time
 from pathlib import Path  # noqa: TC003 — runtime use in fixture annotation

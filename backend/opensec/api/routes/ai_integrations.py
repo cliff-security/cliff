@@ -24,10 +24,6 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from opensec.ai import autodetect, catalog, openrouter_oauth, validators
-from opensec.ai.validators import (
-    CustomEndpointRejectedError,
-    safe_ollama_tags_url,
-)
 from opensec.ai.models import (
     AIProvider,
     AIStatus,
@@ -48,6 +44,10 @@ from opensec.ai.service import (
     AIIntegrationService,
     ModelPrefixMismatchError,
     NoActiveProviderError,
+)
+from opensec.ai.validators import (
+    CustomEndpointRejectedError,
+    safe_ollama_tags_url,
 )
 from opensec.db.connection import get_db
 

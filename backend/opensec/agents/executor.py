@@ -855,10 +855,8 @@ class AgentExecutor:
                     # the next attempt. Without this we'd leak up to
                     # RATE_LIMIT_MAX_ATTEMPTS-1 sessions per failed run in
                     # the per-workspace OpenCode process.
-                    try:
+                    with contextlib.suppress(httpx.HTTPError, AttributeError):
                         await client.delete_session(session.id)
-                    except (httpx.HTTPError, AttributeError):
-                        pass
                     # Fresh session for the next try.
                     session = await client.create_session()
 
