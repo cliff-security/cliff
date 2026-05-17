@@ -187,15 +187,57 @@ describe('IssuesPage', () => {
     )
   })
 
-  it('renders the empty-Review card only when review is empty AND others are not', async () => {
+  // B26 — empty Review card only renders when BOTH Review AND Todo are
+  // empty. Previously a single Todo finding still produced "Review is
+  // clear" which was misleading when 45 issues sat in Todo.
+  it('renders the empty-Review card only when review AND todo are empty (B26)', async () => {
+    const findings = [makeFinding({ id: 'p1', stage: 'planning' })]
+    renderPage(findings)
+    expect(
+      await screen.findByText(/Manual review queue is clear/i),
+    ).toBeInTheDocument()
+  })
+
+  it('does NOT render the empty-Review card when there are open Todo items (B26)', async () => {
     const findings = [makeFinding({ id: 't1', stage: 'todo' })]
     renderPage(findings)
-    expect(await screen.findByText(/Review is clear\./i)).toBeInTheDocument()
+    await screen.findByLabelText('Todo section')
+    expect(screen.queryByText(/Manual review queue is clear/i)).toBeNull()
+    expect(screen.queryByText(/Review is clear\./i)).toBeNull()
   })
 
   it('does NOT render the empty-Review card when there are zero findings overall', async () => {
     renderPage([])
-    expect(screen.queryByText(/Review is clear\./i)).toBeNull()
+    expect(screen.queryByText(/Manual review queue is clear/i)).toBeNull()
+  })
+
+  // B25 — initial URL filters must hydrate so /issues?severity=critical
+  // actually narrows the list on first render (no manual click needed).
+  describe('URL filter hydration (B25)', () => {
+    it('hydrates severity filter from ?severity=critical on initial render', async () => {
+      const findings = [
+        makeFinding({ id: 'a', stage: 'todo', severity: 'critical' }),
+        makeFinding({ id: 'b', stage: 'todo', severity: 'high' }),
+      ]
+      renderPage(findings, ['/issues?severity=critical'])
+      await screen.findByText('Issue a')
+      expect(screen.getByText('Issue a')).toBeInTheDocument()
+      expect(screen.queryByText('Issue b')).toBeNull()
+    })
+
+    it('hydrates type filter from ?type=posture on initial render', async () => {
+      const findings = [
+        makeFinding({ id: 'p1', stage: 'todo' }),
+        makeFinding({ id: 'p2', stage: 'todo' }),
+      ]
+      // Tag one as a posture finding by manipulating the fixture.
+      findings[0].type = 'posture'
+      findings[1].type = 'vulnerability'
+      renderPage(findings, ['/issues?type=posture'])
+      await screen.findByText('Issue p1')
+      expect(screen.getByText('Issue p1')).toBeInTheDocument()
+      expect(screen.queryByText('Issue p2')).toBeNull()
+    })
   })
 
   it('Severity filter narrows the visible rows', async () => {
