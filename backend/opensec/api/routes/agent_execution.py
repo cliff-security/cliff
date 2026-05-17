@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -17,7 +18,20 @@ from opensec.db.connection import get_db
 from opensec.db.repo_agent_run import get_agent_run, update_agent_run
 from opensec.db.repo_sidebar import get_sidebar
 from opensec.db.repo_workspace import get_workspace
+from opensec.integrations.github_app.client import check_repo_push_access
 from opensec.models import AgentRunUpdate, SidebarState
+
+# Surface link the IssueSidePanel and 412 error body point at when the
+# device-flow token lacks push access. Kept as a module-level constant so
+# the frontend and docs guide can stay in sync via a single edit. Refs
+# ADR-0037 / IMPL-0014 / B30.
+GITHUB_APP_PERMS_DOC_URL = "/docs/guides/setup-github-app.md#required-permissions"
+
+# The single agent type that actually needs to push to GitHub. Other
+# agents read context, talk to the LLM, write files locally — they do
+# not need a write-capable token. Gating only this agent keeps the
+# preflight off the hot path for the 90% of executions that don't care.
+_PUSH_GATED_AGENT_TYPE = "remediation_executor"
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +75,29 @@ class AgentChipResponse(BaseModel):
     agent_type: str
     label: str
     icon: str
+
+
+def _parse_owner_repo_from_url(repo_url: str) -> tuple[str, str] | None:
+    """Parse ``owner/repo`` out of a github HTTPS URL.
+
+    Tolerates a trailing ``.git`` and any extra path segments. Returns
+    ``None`` for anything that doesn't look like a GitHub repo URL — the
+    caller treats that as "skip the preflight" rather than as a failure,
+    because non-GitHub remotes are out of scope for this gate.
+    """
+    try:
+        parsed = urlparse(repo_url)
+    except ValueError:
+        return None
+    if not parsed.netloc.endswith("github.com"):
+        return None
+    parts = [p for p in parsed.path.strip("/").split("/") if p]
+    if len(parts) < 2:
+        return None
+    owner, name = parts[0], parts[1]
+    if name.endswith(".git"):
+        name = name[:-4]
+    return owner, name
 
 
 @router.get("/agents/chips", response_model=list[AgentChipResponse])
@@ -124,6 +161,34 @@ async def execute_agent(
     # Pass the workspace so the snapshotted repo URL wins over the live integration.
     env_vars = await _resolve_repo_env_vars(request, db, workspace=workspace)
     user_note = body.user_note if body else None
+
+    # Q01R / B30 / ADR-0037: preflight push access ONLY for the executor.
+    # The other agents don't push — gating them would waste a GitHub
+    # API call and slow down enrich / plan / etc. If the token or repo
+    # URL is missing we skip the check and let the executor's own
+    # missing-token error path handle it (already clear).
+    if (
+        agent_type == _PUSH_GATED_AGENT_TYPE
+        and env_vars.get("GH_TOKEN")
+        and env_vars.get("OPENSEC_REPO_URL")
+    ):
+        owner_repo = _parse_owner_repo_from_url(env_vars["OPENSEC_REPO_URL"])
+        if owner_repo is not None:
+            owner, repo = owner_repo
+            access = await check_repo_push_access(
+                token=env_vars["GH_TOKEN"],
+                owner=owner,
+                repo=repo,
+            )
+            if not access.can_push:
+                raise HTTPException(
+                    status_code=412,
+                    detail={
+                        "error": "github_app_permissions",
+                        "reason": access.reason,
+                        "remediation_link": GITHUB_APP_PERMS_DOC_URL,
+                    },
+                )
 
     # Launch execution as a background task so we can return immediately.
     async def _run_in_background() -> None:

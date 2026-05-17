@@ -14,6 +14,7 @@ from opensec.agents.executor import AgentExecutionResult
 from opensec.agents.output_parser import ParseResult
 from opensec.api.routes.agent_execution import router
 from opensec.db.connection import get_db
+from opensec.integrations.github_app.client import RepoPushAccess
 from opensec.models import Workspace
 
 # ---------------------------------------------------------------------------
@@ -52,12 +53,13 @@ async def client(app):
         yield c
 
 
-def _make_workspace(workspace_id="ws-1"):
+def _make_workspace(workspace_id="ws-1", repo_url=None):
     return Workspace(
         id=workspace_id,
         finding_id="f-1",
         state="open",
         workspace_dir="/tmp/workspaces/ws-1",
+        repo_url=repo_url,
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
     )
@@ -249,3 +251,171 @@ class TestCancelEndpoint:
             )
 
         assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Push-token preflight (Q01R / B30 / ADR-0037 / IMPL-0014)
+#
+# When the user clicks "Approve & generate fix" the route gates the
+# remediation_executor agent on a GET /repos/{owner}/{repo} preflight that
+# confirms the OAuth token has push access. If the App was misconfigured
+# to declare Contents:read only, the device-flow user token cannot push
+# regardless of what the user can do with a PAT — and without a gate the
+# executor wastes a full run producing local edits that never reach
+# GitHub. The preflight surfaces that situation as 412 with a structured
+# detail body the side panel can render.
+# ---------------------------------------------------------------------------
+
+
+class TestExecutorPushPreflight:
+    @pytest.mark.asyncio
+    async def test_executor_blocked_when_token_lacks_push_returns_412(
+        self, app, client
+    ):
+        executor = app.state.agent_executor
+        executor.check_not_busy = AsyncMock(return_value=None)
+        executor.get_active_run_id = lambda ws_id: "run-1"
+        executor.execute = AsyncMock(return_value=None)
+
+        workspace = _make_workspace(
+            repo_url="https://github.com/cliff-security/NodeGoat",
+        )
+        preflight = AsyncMock(
+            return_value=RepoPushAccess(
+                can_push=False,
+                reason=(
+                    "GitHub reports this token has no push permission "
+                    "on cliff-security/NodeGoat."
+                ),
+            )
+        )
+
+        with patch(
+            "opensec.api.routes.agent_execution.get_workspace",
+            return_value=workspace,
+        ), patch(
+            "opensec.api.routes.agent_execution._resolve_repo_env_vars",
+            new=AsyncMock(return_value={
+                "GH_TOKEN": "ghu_abc",
+                "OPENSEC_REPO_URL": "https://github.com/cliff-security/NodeGoat",
+            }),
+        ), patch(
+            "opensec.api.routes.agent_execution.check_repo_push_access",
+            new=preflight,
+        ):
+            resp = await client.post(
+                "/api/workspaces/ws-1/agents/remediation_executor/execute"
+            )
+
+        assert resp.status_code == 412, resp.text
+        detail = resp.json()["detail"]
+        assert detail["error"] == "github_app_permissions"
+        assert "push" in detail["reason"].lower()
+        assert detail["remediation_link"]
+        # The executor must NOT have been launched.
+        assert executor.execute.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_executor_proceeds_when_token_has_push(self, app, client):
+        executor = app.state.agent_executor
+        executor.check_not_busy = AsyncMock(return_value=None)
+        executor.get_active_run_id = lambda ws_id: "run-1"
+        executor.execute = AsyncMock(return_value=None)
+        executor.push_permission_event = lambda *a, **k: None
+
+        workspace = _make_workspace(
+            repo_url="https://github.com/cliff-security/NodeGoat",
+        )
+        preflight = AsyncMock(
+            return_value=RepoPushAccess(can_push=True, reason="")
+        )
+
+        with patch(
+            "opensec.api.routes.agent_execution.get_workspace",
+            return_value=workspace,
+        ), patch(
+            "opensec.api.routes.agent_execution._resolve_repo_env_vars",
+            new=AsyncMock(return_value={
+                "GH_TOKEN": "ghu_abc",
+                "OPENSEC_REPO_URL": "https://github.com/cliff-security/NodeGoat",
+            }),
+        ), patch(
+            "opensec.api.routes.agent_execution.check_repo_push_access",
+            new=preflight,
+        ):
+            resp = await client.post(
+                "/api/workspaces/ws-1/agents/remediation_executor/execute"
+            )
+
+        assert resp.status_code == 202, resp.text
+
+    @pytest.mark.asyncio
+    async def test_non_executor_agent_does_not_run_preflight(self, app, client):
+        """The preflight only applies to remediation_executor — running the
+        planner or enricher must NOT consume a GitHub API call (and must not
+        be gated on push access)."""
+        executor = app.state.agent_executor
+        executor.check_not_busy = AsyncMock(return_value=None)
+        executor.get_active_run_id = lambda ws_id: "run-1"
+        executor.execute = AsyncMock(return_value=None)
+        executor.push_permission_event = lambda *a, **k: None
+
+        preflight = AsyncMock(
+            return_value=RepoPushAccess(can_push=False, reason="x")
+        )
+
+        with patch(
+            "opensec.api.routes.agent_execution.get_workspace",
+            return_value=_make_workspace(),
+        ), patch(
+            "opensec.api.routes.agent_execution._resolve_repo_env_vars",
+            new=AsyncMock(return_value={}),
+        ), patch(
+            "opensec.api.routes.agent_execution.check_repo_push_access",
+            new=preflight,
+        ):
+            resp = await client.post(
+                "/api/workspaces/ws-1/agents/remediation_planner/execute"
+            )
+
+        assert resp.status_code == 202, resp.text
+        assert preflight.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_executor_skips_preflight_when_no_github_token(
+        self, app, client
+    ):
+        """If GH_TOKEN is not configured at all, the preflight can't run
+        and we let the executor handle the missing-token case the way it
+        always has (its template already errors clearly). Not our job to
+        invent a token to call the preflight with."""
+        executor = app.state.agent_executor
+        executor.check_not_busy = AsyncMock(return_value=None)
+        executor.get_active_run_id = lambda ws_id: "run-1"
+        executor.execute = AsyncMock(return_value=None)
+        executor.push_permission_event = lambda *a, **k: None
+
+        preflight = AsyncMock(
+            return_value=RepoPushAccess(can_push=False, reason="x")
+        )
+
+        with patch(
+            "opensec.api.routes.agent_execution.get_workspace",
+            return_value=_make_workspace(
+                repo_url="https://github.com/cliff-security/NodeGoat"
+            ),
+        ), patch(
+            "opensec.api.routes.agent_execution._resolve_repo_env_vars",
+            new=AsyncMock(return_value={
+                "OPENSEC_REPO_URL": "https://github.com/cliff-security/NodeGoat",
+            }),
+        ), patch(
+            "opensec.api.routes.agent_execution.check_repo_push_access",
+            new=preflight,
+        ):
+            resp = await client.post(
+                "/api/workspaces/ws-1/agents/remediation_executor/execute"
+            )
+
+        assert resp.status_code == 202, resp.text
+        assert preflight.await_count == 0
