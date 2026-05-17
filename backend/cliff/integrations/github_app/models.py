@@ -109,3 +109,30 @@ class DeviceFlowManualSetupRequest(BaseModel):
     installation_id: int = Field(..., gt=0)
     # Same length window as the GET callback's ``state`` query param.
     state: str = Field(..., min_length=8, max_length=128)
+
+
+class PushAccessDiagnoseResponse(BaseModel):
+    """Result of ``GET /api/integrations/github/diagnose`` (IMPL-0018, B35c).
+
+    The Settings page renders this directly: ``can_push=true`` → green
+    "Push verified" pill, otherwise a red "Push blocked" pill showing
+    ``reason`` and a deep-link to the setup guide.
+
+    ``reason`` is whatever :func:`check_repo_push_access` returned. That
+    function is the single canonical source of the user-facing copy for
+    every push-access failure mode — keeping the route a pass-through
+    means the executor's 412 error card (which renders the same
+    ``reason``) and this badge can never drift apart.
+
+    ``repo_url`` is the resolved GitHub repo URL we ran the check
+    against, so the UI can render "Push verified — owner/repo" without
+    re-deriving it. ``checked_at`` is the timestamp of the underlying
+    GitHub call, NOT of the response — i.e. a cached result echoes the
+    original probe time so the user can see "checked 2 min ago" and
+    decide whether to click Refresh.
+    """
+
+    can_push: bool
+    reason: str
+    repo_url: str
+    checked_at: str  # ISO 8601 UTC

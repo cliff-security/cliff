@@ -17,17 +17,22 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 
+from cliff.api.routes.workspaces import _resolve_repo_env_vars
 from cliff.config import settings
 from cliff.db import repo_integration
 from cliff.db.connection import get_db
 from cliff.integrations.github_app import repo as gh_repo
-from cliff.integrations.github_app.client import GitHubDeviceFlowClient
+from cliff.integrations.github_app.client import (
+    GitHubDeviceFlowClient,
+    check_repo_push_access,
+)
 from cliff.integrations.github_app.flow import (
     DeviceFlowOrchestrator,
     InstallationCsrfMismatchError,
@@ -38,6 +43,7 @@ from cliff.integrations.github_app.models import (
     DeviceFlowDisconnectResponse,
     DeviceFlowManualSetupRequest,
     DeviceFlowStatusResponse,
+    PushAccessDiagnoseResponse,
 )
 from cliff.models import IntegrationConfigCreate
 
@@ -629,6 +635,168 @@ async def poll_now(
         github_login=record.github_login,
         error=record.polling_error,
     )
+
+
+# ---------------------------------------------------------------------------
+# Push-access diagnostic (Q01R-W2 / B35c / IMPL-0018)
+#
+# A thin pass-through over check_repo_push_access that the Settings page's
+# <PushAccessBadge> renders on mount. Surfaces the same information the
+# executor's 412 preflight would surface — but BEFORE the user clicks
+# Approve, so a misconfigured GitHub App is visible at the natural
+# "check setup" spot rather than after a 4-minute executor run.
+#
+# Cached for 5 minutes per (token, repo_url) tuple so re-mounting the
+# Settings page doesn't burn GitHub-side rate budget. Refresh via the
+# `?refresh=1` query param when the user fixes the App on github.com and
+# wants to re-verify without waiting for the TTL.
+# ---------------------------------------------------------------------------
+
+
+# 5 minutes — matches the Risk-section guidance in IMPL-0018. Short enough
+# that a real fix lands quickly in the badge; long enough that page
+# re-mounts and side-by-side tabs don't burn a GitHub call each.
+_DIAGNOSE_CACHE_TTL_SECONDS = 5 * 60
+
+
+def _parse_owner_repo_from_url(repo_url: str) -> tuple[str, str] | None:
+    """Best-effort ``owner/repo`` extraction for github.com HTTPS URLs.
+
+    Mirrors the parser the executor route uses for its push preflight
+    (``agent_execution._parse_owner_repo_from_url``). We can't import that
+    helper directly without a route-layer cycle, but the rules are simple
+    enough — and load-bearing enough — that a duplicated 10-liner is
+    cheaper than the refactor. The two MUST stay in lockstep: any URL
+    the executor would accept must also be a URL we'll diagnose, and
+    vice versa.
+
+    Security: exact ``hostname == "github.com"`` check, not substring/
+    endswith, to defeat the CodeQL py/incomplete-url-substring-sanitization
+    patterns (``https://attacker.com/github.com/...`` and
+    ``https://github.com.attacker.com/...``).
+    """
+    if not isinstance(repo_url, str) or not repo_url:
+        return None
+    try:
+        parsed = urlparse(repo_url)
+    except ValueError:
+        return None
+    if parsed.scheme not in ("https", "http"):
+        return None
+    if parsed.hostname != "github.com":
+        return None
+    parts = [p for p in parsed.path.strip("/").split("/") if p]
+    if len(parts) < 2:
+        return None
+    owner, name = parts[0], parts[1]
+    if name.endswith(".git"):
+        name = name[:-4]
+    if not owner or not name:
+        return None
+    return owner, name
+
+
+def _diagnose_cache(request: Request) -> dict[str, tuple[PushAccessDiagnoseResponse, float]]:
+    """Process-local cache keyed by repo URL.
+
+    Why repo URL and not just "the GitHub integration": the user can
+    disconnect and reconnect pointing at a different org/repo. If we
+    keyed solely on integration ID (or didn't key at all), the badge
+    would echo the previous repo's verdict for up to 5 minutes after a
+    reconnect — exactly the failure mode the task brief calls out.
+    """
+    state = request.app.state
+    existing = getattr(state, "github_diagnose_cache", None)
+    if existing is None:
+        existing = {}
+        state.github_diagnose_cache = existing
+    return existing
+
+
+def _evict_expired_diagnose_entries(
+    cache: dict[str, tuple[PushAccessDiagnoseResponse, float]],
+) -> None:
+    now = time.time()
+    fresh = {k: v for k, v in cache.items() if v[1] > now}
+    if len(fresh) != len(cache):
+        cache.clear()
+        cache.update(fresh)
+
+
+@router.get(
+    "/diagnose",
+    response_model=PushAccessDiagnoseResponse,
+)
+async def diagnose_push_access(
+    request: Request,
+    refresh: int = Query(default=0, ge=0, le=1),
+    db: aiosqlite.Connection = Depends(get_db),
+) -> PushAccessDiagnoseResponse:
+    """Verify push access for the currently-configured GitHub repo.
+
+    Resolution path (same as the executor preflight, so the badge and
+    the 412 page agree by construction):
+
+    1. ``_resolve_repo_env_vars`` reads the GitHub integration row +
+       vault token. Returns an empty dict if no enabled GitHub
+       integration exists.
+    2. Parse ``owner/repo`` out of ``CLIFF_REPO_URL``. A non-GitHub
+       remote is treated as "nothing to diagnose" and falls through to
+       404 — the badge is GitHub-App-specific.
+    3. Call :func:`check_repo_push_access` with the stored token. That
+       helper already returns UI-safe ``reason`` strings; we pass the
+       result through untouched.
+
+    The result is cached per repo URL for 5 minutes. ``?refresh=1``
+    forces a fresh GitHub call.
+    """
+    # No app-config gate here on purpose: even if CLIFF_GITHUB_APP_CLIENT_ID
+    # is unset, a PAT-based integration still has a token + repo URL we
+    # can diagnose. The check itself doesn't care about App vs PAT.
+    env_vars = await _resolve_repo_env_vars(request, db)
+    token = env_vars.get("GH_TOKEN")
+    repo_url = env_vars.get("CLIFF_REPO_URL")
+
+    if not token or not repo_url:
+        # No GitHub configured at all → the badge renders nothing. We
+        # deliberately don't surface a red error here: the Settings page
+        # already has a "Connect GitHub" CTA for this state, and a
+        # scary push-access banner on a not-yet-connected install is
+        # confusing.
+        raise HTTPException(
+            status_code=404, detail="GitHub integration not configured"
+        )
+
+    owner_repo = _parse_owner_repo_from_url(repo_url)
+    if owner_repo is None:
+        # Repo URL exists but isn't a github.com URL (or is malformed).
+        # The executor preflight skips this case for the same reason —
+        # we can't diagnose what we can't address.
+        raise HTTPException(
+            status_code=404,
+            detail="GitHub integration is not pointed at a github.com repo",
+        )
+
+    cache = _diagnose_cache(request)
+    _evict_expired_diagnose_entries(cache)
+
+    if not refresh:
+        cached = cache.get(repo_url)
+        if cached is not None:
+            response, _expires_at = cached
+            return response
+
+    owner, repo = owner_repo
+    access = await check_repo_push_access(token=token, owner=owner, repo=repo)
+
+    response = PushAccessDiagnoseResponse(
+        can_push=access.can_push,
+        reason=access.reason,
+        repo_url=repo_url,
+        checked_at=datetime.now(UTC).isoformat(),
+    )
+    cache[repo_url] = (response, time.time() + _DIAGNOSE_CACHE_TTL_SECONDS)
+    return response
 
 
 @router.post("/disconnect", response_model=DeviceFlowDisconnectResponse)

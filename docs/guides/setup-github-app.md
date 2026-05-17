@@ -155,6 +155,36 @@ same org) who accepted the new permissions in step 4 — the token only
 gets re-issued with the new perms after the user (or an org admin)
 explicitly approves them.
 
+### How to verify push access
+
+You don't have to wait until you click **Approve** on a remediation to
+discover that the App's permissions are wrong. Cliff surfaces the same
+preflight result proactively on the Settings page.
+
+1. Open **Settings → Integrations** in the Cliff UI.
+2. On the GitHub integration card you'll see one of:
+   - **Push verified** (green) — the App can push to the configured
+     repo. Nothing to do.
+   - **Push blocked** (red) with a one-line reason — the App is
+     misconfigured. Follow the inline "How to fix" link (it lands you
+     back at the *Required permissions* section above) or run through
+     the five-step recovery in the previous section.
+   - *Nothing* — no GitHub integration is connected yet. Click
+     **Connect** on the GitHub catalog tile first.
+3. After fixing the App on github.com, navigate back to Settings — the
+   badge re-checks automatically when the result is older than five
+   minutes. The cache is keyed on the configured repo URL, so
+   disconnecting and reconnecting against a different repo reflects
+   immediately rather than echoing the previous repo's verdict.
+
+Under the hood the badge calls
+`GET /api/integrations/github/diagnose`, which is a thin wrapper around
+the same `check_repo_push_access` helper the executor uses for its
+preflight. By construction the badge and the 412 error card you'd see
+after clicking **Approve** report the same outcome — so if the badge is
+green you can trust that the executor will not fail at git-push time
+for a permissions reason.
+
 ## What's stored, where?
 
 | Data | Where | Encryption |
