@@ -426,6 +426,33 @@ async def connect(
     )
 
 
+async def _register_installation(
+    *,
+    request: Request,
+    db: aiosqlite.Connection,
+    state: str,
+    installation_id: int,
+) -> None:
+    """Shared registration path for both ``GET /setup`` and ``POST /setup/manual``.
+
+    Wraps :py:meth:`DeviceFlowOrchestrator.attach_installation` so the
+    route layer has one — and only one — way to bind an
+    ``installation_id`` to a CSRF state. The GET callback turns the
+    :class:`InstallationCsrfMismatchError` into a redirect; the POST
+    recovery endpoint turns it into a 400. Either way the underlying
+    validation is identical, which is the load-bearing property that
+    keeps the recovery flow from being a CSRF-bypass.
+
+    Raises :class:`InstallationCsrfMismatchError` on a state we never
+    issued or a replay with a different installation_id (SR-2).
+    """
+    vault, audit = _require_vault_and_audit(request)
+    orchestrator = _get_orchestrator(request, db, vault, audit)
+    await orchestrator.attach_installation(
+        csrf_state=state, installation_id=installation_id
+    )
+
+
 @router.get("/setup")
 async def setup_callback(
     request: Request,
@@ -443,15 +470,16 @@ async def setup_callback(
     db: aiosqlite.Connection = Depends(get_db),
 ) -> RedirectResponse:
     _require_app_configured()
-    vault, audit = _require_vault_and_audit(request)
-    orchestrator = _get_orchestrator(request, db, vault, audit)
     return_path = _pop_return_path(request, state)
 
     redirect_status = "updated" if setup_action == "update" else "complete"
 
     try:
-        await orchestrator.attach_installation(
-            csrf_state=state, installation_id=installation_id
+        await _register_installation(
+            request=request,
+            db=db,
+            state=state,
+            installation_id=installation_id,
         )
     except InstallationCsrfMismatchError:
         return RedirectResponse(
