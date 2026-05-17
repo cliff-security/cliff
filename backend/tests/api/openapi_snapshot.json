@@ -4214,6 +4214,35 @@
         "title": "ProviderTestResult",
         "type": "object"
       },
+      "PushAccessDiagnoseResponse": {
+        "description": "Result of ``GET /api/integrations/github/diagnose`` (IMPL-0018, B35c).\n\nThe Settings page renders this directly: ``can_push=true`` \u2192 green\n\"Push verified\" pill, otherwise a red \"Push blocked\" pill showing\n``reason`` and a deep-link to the setup guide.\n\n``reason`` is whatever :func:`check_repo_push_access` returned. That\nfunction is the single canonical source of the user-facing copy for\nevery push-access failure mode \u2014 keeping the route a pass-through\nmeans the executor's 412 error card (which renders the same\n``reason``) and this badge can never drift apart.\n\n``repo_url`` is the resolved GitHub repo URL we ran the check\nagainst, so the UI can render \"Push verified \u2014 owner/repo\" without\nre-deriving it. ``checked_at`` is the timestamp of the underlying\nGitHub call, NOT of the response \u2014 i.e. a cached result echoes the\noriginal probe time so the user can see \"checked 2 min ago\" and\ndecide whether to click Refresh.",
+        "properties": {
+          "can_push": {
+            "title": "Can Push",
+            "type": "boolean"
+          },
+          "checked_at": {
+            "title": "Checked At",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "repo_url": {
+            "title": "Repo Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "can_push",
+          "reason",
+          "repo_url",
+          "checked_at"
+        ],
+        "title": "PushAccessDiagnoseResponse",
+        "type": "object"
+      },
       "RegistryEntry": {
         "description": "A single integration in the catalog.",
         "properties": {
@@ -6739,6 +6768,52 @@
           }
         },
         "summary": "Connect",
+        "tags": [
+          "github-app"
+        ]
+      }
+    },
+    "/api/integrations/github/diagnose": {
+      "get": {
+        "description": "Verify push access for the currently-configured GitHub repo.\n\nResolution path (same as the executor preflight, so the badge and\nthe 412 page agree by construction):\n\n1. ``_resolve_repo_env_vars`` reads the GitHub integration row +\n   vault token. Returns an empty dict if no enabled GitHub\n   integration exists.\n2. Parse ``owner/repo`` out of ``CLIFF_REPO_URL``. A non-GitHub\n   remote is treated as \"nothing to diagnose\" and falls through to\n   404 \u2014 the badge is GitHub-App-specific.\n3. Call :func:`check_repo_push_access` with the stored token. That\n   helper already returns UI-safe ``reason`` strings; we pass the\n   result through untouched.\n\nThe result is cached per repo URL for 5 minutes. ``?refresh=1``\nforces a fresh GitHub call.",
+        "operationId": "diagnose_push_access_api_integrations_github_diagnose_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "refresh",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1,
+              "minimum": 0,
+              "title": "Refresh",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushAccessDiagnoseResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Diagnose Push Access",
         "tags": [
           "github-app"
         ]
