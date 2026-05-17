@@ -713,10 +713,46 @@ function SPActivity({ workspaceId }: { workspaceId: string | null }) {
   )
 }
 
+/**
+ * URL the activity card's "How to fix" link points to when an agent run
+ * surfaces a structured ``error_details`` string. Kept in sync with the
+ * backend route's ``GITHUB_APP_PERMS_DOC_URL`` constant
+ * (``opensec/api/routes/agent_execution.py``) so the 412 preflight
+ * response and the historical run cards both deep-link to the same
+ * anchor in the setup guide.
+ */
+const GITHUB_APP_PERMS_DOC_URL =
+  '/docs/guides/setup-github-app.md#required-permissions'
+
+/**
+ * Read ``structured_output.error_details`` off an agent run if present.
+ *
+ * The remediation_executor writes ``error_details`` into its structured
+ * output whenever something fails after the LLM step but before the PR
+ * is opened — most commonly the B30 case where the App-issued OAuth
+ * token can't push to an org repo. We render that string inline rather
+ * than letting the panel sit on "Thinking…" forever (B28-adjacent).
+ */
+function errorDetailsOf(run: AgentRun): string | null {
+  const out = run.structured_output as
+    | { error_details?: unknown }
+    | null
+    | undefined
+  if (!out) return null
+  const value = out.error_details
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
 function ActivityRunCard({ run }: { run: AgentRun }) {
   const label = agentLabel(run.agent_type)
   const duration = durationLabel(run.started_at, run.completed_at)
-  const isFailed = run.status === 'failed' || run.status === 'cancelled'
+  const errorDetails = errorDetailsOf(run)
+  const isFailed =
+    run.status === 'failed' ||
+    run.status === 'cancelled' ||
+    errorDetails != null
   const isRunning = run.status === 'running' || run.status === 'queued'
 
   return (
@@ -757,12 +793,54 @@ function ActivityRunCard({ run }: { run: AgentRun }) {
           </span>
         )}
       </div>
-      {run.summary_markdown && !isRunning && (
+      {run.summary_markdown && !isRunning && !errorDetails && (
         <div className="mt-2 text-[11.5px] leading-relaxed text-on-surface-variant">
           <Markdown content={run.summary_markdown} />
         </div>
       )}
+      {errorDetails && <ActivityRunErrorCard message={errorDetails} />}
     </li>
+  )
+}
+
+/**
+ * Inline error state for an agent run whose structured_output reports
+ * ``error_details``. Styled with the design system's tonal layering
+ * (no ``1px solid`` border, no pure black text) and surfaces the
+ * "How to fix" deep link to the GitHub-App setup guide so the user
+ * lands on the actual remediation for the most common cause (B30
+ * App-permissions mismatch). Kept as a small sub-component so the
+ * change to ActivityRunCard stays narrow and reviewable.
+ */
+function ActivityRunErrorCard({ message }: { message: string }) {
+  return (
+    <div
+      className="mt-2 rounded-lg p-2.5"
+      style={{
+        background: 'rgba(239, 100, 100, 0.10)',
+        color: 'var(--on-surface, #2b3437)',
+      }}
+    >
+      <div className="text-[11.5px] leading-relaxed">{message}</div>
+      <div className="mt-1.5">
+        <a
+          href={GITHUB_APP_PERMS_DOC_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-[11.5px] font-semibold hover:underline"
+          style={{ color: 'var(--primary, #4d44e3)' }}
+        >
+          <span
+            className="material-symbols-outlined"
+            style={{ fontSize: 13 }}
+            aria-hidden
+          >
+            help
+          </span>
+          How to fix
+        </a>
+      </div>
+    </div>
   )
 }
 
