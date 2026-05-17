@@ -52,24 +52,37 @@ Cliff instance.
 
 ### "I clicked Install on GitHub and nothing happened in Cliff"
 
-GitHub redirects to the App's `setup_url`, which is hard-coded to
-`http://localhost:8000/api/integrations/github/setup` for V1. If your
-Cliff instance runs on a different host or port (e.g. behind a reverse
-proxy or on a non-default port), the redirect lands on a URL that
-doesn't reach your instance.
+GitHub redirects to the App's `setup_url`, which is **registered
+globally per-App on github.com** and currently hard-coded to
+`http://localhost:8000/api/integrations/github/setup`. If your Cliff
+instance runs anywhere else (Docker remapped to a different host port,
+parallel dev stacks, reverse proxy, hosted at a real domain), GitHub's
+post-install redirect lands on a URL that doesn't reach your instance.
 
-**Workarounds:**
+**The manual recovery flow.** After 30 seconds of polling without a
+callback, the device-flow modal automatically shows a **"Couldn't
+detect your install"** card with an Installation ID input. To recover:
 
-1. Set `CLIFF_BASE_URL` to your real public URL and run Cliff on
-   port 8000 if possible.
-2. Or, after Install on GitHub, copy the `installation_id` from the URL
-   GitHub redirected you to (it'll look like
-   `?installation_id=12345&setup_action=install`) and paste it into the
-   manual fallback field that the modal will surface after ~30 seconds.
-   The CSRF state in the URL is checked the same way regardless.
+1. Open the App's installation page on GitHub:
+   - Personal installs: `https://github.com/settings/installations`
+   - Org installs:
+     `https://github.com/organizations/<org>/settings/installations`
+2. Click **Configure** next to your Cliff install. Look at the URL —
+   it ends with `/installations/<integer>`. Copy that integer.
+3. Paste it into the Installation ID input in Cliff and click
+   **Connect**.
 
-A future release will support a per-instance `setup_url` once
-self-hosted users start running on non-default hosts more often.
+This goes through the same CSRF state validation as the normal
+github.com → Cliff callback would, so a hostile installation_id can't
+be bound to your account even if someone tricks you into pasting one.
+The state the form submits is bound to the most recent **Connect
+GitHub** click in the same tab — if you wait too long or refresh,
+restart the connect flow from the catalog tile.
+
+**Alternative**: set `CLIFF_BASE_URL` to your real public URL and run
+Cliff on host port 8000 if you control the deployment. A future
+release will support a per-instance `setup_url` so self-hosted
+operators can avoid the recovery flow entirely.
 
 ### "The code expired before I authorized"
 
