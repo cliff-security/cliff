@@ -15,6 +15,12 @@ services:
     #     OPENSEC_CREATED: "1970-01-01T00:00:00Z"
     ports:
       - "${OPENSEC_APP_PORT:-8000}:8000"
+      # Uncomment to enable the OpenRouter OAuth onboarding (Tier 2). The
+      # browser hits localhost:3000 after OpenRouter redirects; the
+      # one-shot listener inside the container answers there. BYOK users
+      # (Tier 1/3) don't need this — leaving it commented avoids
+      # squatting the host's port 3000 while the container runs.
+      # - "3000:3000"
     volumes:
       - opensec-data:/data
     environment:

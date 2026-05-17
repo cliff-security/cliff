@@ -81,6 +81,27 @@ a Node dev server) you'll see this card:
 Close the other app and click **Try again**, or click **Use my own API
 key** to fall through to Tier 3.
 
+### Running OpenSec in Docker
+
+The OAuth listener has to be reachable from the host browser. Two
+requirements:
+
+1. **Publish port 3000.** `docker run … -p 3000:3000 …`, or uncomment
+   the `3000:3000` line in the bundled `docker/docker-compose.yml`
+   (left commented by default so BYOK users don't squat the host's
+   port 3000).
+2. **Bind 0.0.0.0 inside the container.** The official image sets
+   `OPENSEC_OAUTH_CALLBACK_HOST=0.0.0.0` automatically. If you've built
+   a custom image and overridden this var, the listener won't see the
+   forwarded traffic and the UI surfaces a *"Port 3000 is busy"* card
+   even though nothing else holds it.
+
+On a host (non-Docker) install, leave `OPENSEC_OAUTH_CALLBACK_HOST`
+unset — it defaults to `127.0.0.1` so the one-shot listener is never
+externally reachable. The state-mismatch / CSRF guard runs identically
+regardless of bind host, so the wider bind in Docker doesn't weaken
+the flow.
+
 ---
 
 ## Tier 3 — Direct BYOK *(your own key)*

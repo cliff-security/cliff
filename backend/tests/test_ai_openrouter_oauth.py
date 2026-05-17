@@ -105,6 +105,91 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+# ---------------------------------------------------------------------------
+# Bind host resolution (Docker fix — OPENSEC_OAUTH_CALLBACK_HOST)
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_callback_host_defaults_to_loopback(monkeypatch) -> None:
+    """Host install: bind to 127.0.0.1 so the listener is not externally reachable."""
+    from opensec.config import Settings
+
+    fresh = Settings()
+    monkeypatch.setattr(oauth, "settings", fresh)
+    assert oauth.resolve_callback_host() == "127.0.0.1"
+
+
+def test_resolve_callback_host_honors_env_override(monkeypatch) -> None:
+    """Docker entrypoint sets OPENSEC_OAUTH_CALLBACK_HOST=0.0.0.0 so the
+    container-published port actually reaches the listener."""
+    from opensec.config import Settings
+
+    overridden = Settings(oauth_callback_host="0.0.0.0")  # noqa: S104 — test fixture
+    monkeypatch.setattr(oauth, "settings", overridden)
+    assert oauth.resolve_callback_host() == "0.0.0.0"  # noqa: S104 — test fixture
+
+
+async def test_listener_binds_on_resolved_host(monkeypatch) -> None:
+    """start_listener must use the configured host. Asserted against a free
+    port on 0.0.0.0 — connectable via 127.0.0.1 (the Docker repro path)."""
+    from opensec.config import Settings
+
+    overridden = Settings(oauth_callback_host="0.0.0.0")  # noqa: S104 — test fixture
+    monkeypatch.setattr(oauth, "settings", overridden)
+
+    store = oauth.OAuthSessionStore()
+    session, _ = store.create()
+
+    async def _on_cb(s, code, state):
+        s.status = "connected"
+
+    port = _free_port()
+    server = await oauth.start_listener(
+        session, on_callback=_on_cb, port=port, timeout_seconds=5.0
+    )
+    try:
+        bound_host = server.sockets[0].getsockname()[0]
+        assert bound_host == "0.0.0.0"  # noqa: S104 — assertion of bind addr
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"http://127.0.0.1:{port}/callback?code=abc&state={session.state}"
+            )
+        assert resp.status_code == 200
+    finally:
+        await oauth.stop_listener(session)
+
+
+async def test_listener_state_mismatch_still_rejected_on_0_0_0_0(monkeypatch) -> None:
+    """Security regression: binding 0.0.0.0 must NOT weaken state-mismatch
+    rejection. Same CSRF guard as the loopback path."""
+    from opensec.config import Settings
+
+    overridden = Settings(oauth_callback_host="0.0.0.0")  # noqa: S104 — test fixture
+    monkeypatch.setattr(oauth, "settings", overridden)
+
+    store = oauth.OAuthSessionStore()
+    session, _ = store.create()
+
+    async def _on_cb(s, code, state):
+        pytest.fail("callback fired despite state mismatch on 0.0.0.0 bind")
+
+    port = _free_port()
+    await oauth.start_listener(
+        session, on_callback=_on_cb, port=port, timeout_seconds=5.0
+    )
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"http://127.0.0.1:{port}/callback?code=x&state=wrong-state"
+            )
+        assert resp.status_code == 400
+        await asyncio.sleep(0.05)
+        assert session.status == "error"
+    finally:
+        await oauth.stop_listener(session)
+
+
 async def test_listener_happy_path_invokes_callback() -> None:
     store = oauth.OAuthSessionStore()
     session, _ = store.create()
