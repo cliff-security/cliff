@@ -798,49 +798,41 @@ function ActivityRunCard({ run }: { run: AgentRun }) {
           <Markdown content={run.summary_markdown} />
         </div>
       )}
-      {errorDetails && <ActivityRunErrorCard message={errorDetails} />}
-    </li>
-  )
-}
-
-/**
- * Inline error state for an agent run whose structured_output reports
- * ``error_details``. Styled with the design system's tonal layering
- * (no ``1px solid`` border, no pure black text) and surfaces the
- * "How to fix" deep link to the GitHub-App setup guide so the user
- * lands on the actual remediation for the most common cause (B30
- * App-permissions mismatch). Kept as a small sub-component so the
- * change to ActivityRunCard stays narrow and reviewable.
- */
-function ActivityRunErrorCard({ message }: { message: string }) {
-  return (
-    <div
-      className="mt-2 rounded-lg p-2.5"
-      style={{
-        background: 'rgba(239, 100, 100, 0.10)',
-        color: 'var(--on-surface, #2b3437)',
-      }}
-    >
-      <div className="text-[11.5px] leading-relaxed">{message}</div>
-      <div className="mt-1.5">
-        <a
-          href={GITHUB_APP_PERMS_DOC_URL}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1 text-[11.5px] font-semibold hover:underline"
-          style={{ color: 'var(--primary, #4d44e3)' }}
+      {errorDetails && (
+        // Inline error surface for an agent run whose structured_output
+        // reports ``error_details``. Tonal layering (no 1px borders, no
+        // pure black) + a "How to fix" deep link to the GitHub-App setup
+        // guide so the user lands on the actual remediation for the most
+        // common cause (B30 App-permissions mismatch).
+        <div
+          className="mt-2 rounded-lg p-2.5"
+          style={{
+            background: 'rgba(239, 100, 100, 0.10)',
+            color: 'var(--on-surface, #2b3437)',
+          }}
         >
-          <span
-            className="material-symbols-outlined"
-            style={{ fontSize: 13 }}
-            aria-hidden
-          >
-            help
-          </span>
-          How to fix
-        </a>
-      </div>
-    </div>
+          <div className="text-[11.5px] leading-relaxed">{errorDetails}</div>
+          <div className="mt-1.5">
+            <a
+              href={GITHUB_APP_PERMS_DOC_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-[11.5px] font-semibold hover:underline"
+              style={{ color: 'var(--primary, #4d44e3)' }}
+            >
+              <span
+                className="material-symbols-outlined"
+                style={{ fontSize: 13 }}
+                aria-hidden
+              >
+                help
+              </span>
+              How to fix
+            </a>
+          </div>
+        </div>
+      )}
+    </li>
   )
 }
 
