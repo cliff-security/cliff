@@ -618,3 +618,140 @@ async def test_engine_assessment_result_carries_scope_fields(
     # planted (non-git) tmpdir it is ``None``. Real clones pick it up. Assert
     # the field is reachable as a string-or-None and didn't raise.
     assert result.commit_sha is None or isinstance(result.commit_sha, str)
+
+
+# Q01R-B23 — when the caller doesn't pin a branch, the engine resolves the
+# repo's real default via ``GET /repos/{owner}/{repo}`` and threads it
+# through every posture probe. Without this fix, every NodeGoat-vintage
+# (``master``-default) repo got 403/404 on branch protection + recent
+# commits because RepoCoords silently defaulted to "main".
+
+
+@pytest.mark.asyncio
+async def test_engine_resolves_default_branch_when_branch_arg_is_none(
+    planted_repo: Path,
+) -> None:
+    gh = AsyncMock()
+    gh.get_repo_info.return_value = {"default_branch": "master"}
+    gh.get_branch_protection.return_value = None
+    gh.list_recent_commits.return_value = []
+    runner = FakeScannerRunner()
+    cloner = FakeRepoCloner(planted_repo)
+
+    result = await run_assessment(
+        "https://github.com/acme/legacy",
+        gh_client=gh,
+        runner=runner,
+        cloner=cloner,
+        assessment_id="asm-b23-master",
+        branch=None,
+    )
+
+    info_calls = [c.args for c in gh.get_repo_info.await_args_list]
+    assert ("acme", "legacy") in info_calls, info_calls
+    # ``get_branch_protection`` is also exercised by
+    # ``default_branch_permissions``, so we assert presence-of-call with
+    # the master ref rather than exact count.
+    bp_calls = [c.args for c in gh.get_branch_protection.await_args_list]
+    assert ("acme", "legacy", "master") in bp_calls, bp_calls
+    gh.list_recent_commits.assert_awaited_once_with("acme", "legacy", "master")
+    assert result.branch == "master"
+
+
+@pytest.mark.asyncio
+async def test_engine_resolves_default_branch_main_for_modern_repos(
+    planted_repo: Path,
+) -> None:
+    gh = AsyncMock()
+    gh.get_repo_info.return_value = {"default_branch": "main"}
+    gh.get_branch_protection.return_value = None
+    gh.list_recent_commits.return_value = []
+    runner = FakeScannerRunner()
+    cloner = FakeRepoCloner(planted_repo)
+
+    result = await run_assessment(
+        "https://github.com/acme/modern",
+        gh_client=gh,
+        runner=runner,
+        cloner=cloner,
+        assessment_id="asm-b23-main",
+        branch=None,
+    )
+
+    bp_calls = [c.args for c in gh.get_branch_protection.await_args_list]
+    assert ("acme", "modern", "main") in bp_calls, bp_calls
+    gh.list_recent_commits.assert_awaited_once_with("acme", "modern", "main")
+    assert result.branch == "main"
+
+
+@pytest.mark.asyncio
+async def test_engine_falls_back_to_main_when_default_branch_lookup_fails(
+    planted_repo: Path,
+) -> None:
+    """``get_repo_info`` returning ``UnableToVerify`` (rate limit / forbidden
+    / network) must not abort the assessment. Fall back to ``main`` so the
+    posture checks degrade to ``unknown`` for branch-scoped probes instead
+    of failing the whole run.
+    """
+    gh = AsyncMock()
+    gh.get_repo_info.return_value = UnableToVerify(reason="http_403")
+    gh.get_branch_protection.return_value = UnableToVerify(reason="http_403")
+    gh.list_recent_commits.return_value = []
+    runner = FakeScannerRunner()
+    cloner = FakeRepoCloner(planted_repo)
+
+    result = await run_assessment(
+        "https://github.com/acme/locked",
+        gh_client=gh,
+        runner=runner,
+        cloner=cloner,
+        assessment_id="asm-b23-unable",
+        branch=None,
+    )
+
+    # The default-branch resolver fires (at minimum) once; downstream
+    # posture checks may also call ``get_repo_info`` for their own
+    # purposes, so we assert presence rather than exact count.
+    info_calls = [c.args for c in gh.get_repo_info.await_args_list]
+    assert ("acme", "locked") in info_calls, info_calls
+    # Falls back to ``main`` so the run completes; the per-check probe will
+    # land as ``unknown`` if the branch genuinely doesn't exist.
+    bp_calls = [c.args for c in gh.get_branch_protection.await_args_list]
+    assert ("acme", "locked", "main") in bp_calls, bp_calls
+    assert result.branch == "main"
+
+
+@pytest.mark.asyncio
+async def test_engine_honours_explicit_branch_kwarg_over_default_branch_lookup(
+    planted_repo: Path,
+) -> None:
+    """When the caller already knows the branch (e.g. a re-scan triggered
+    from a finding on a specific ref), the explicit value wins — the
+    default-branch resolver in ``run_assessment`` is bypassed and the value
+    flows verbatim into every branch-scoped probe.
+    """
+    gh = AsyncMock()
+    gh.get_repo_info.return_value = {"default_branch": "main"}  # would be wrong
+    gh.get_branch_protection.return_value = None
+    gh.list_recent_commits.return_value = []
+    runner = FakeScannerRunner()
+    cloner = FakeRepoCloner(planted_repo)
+
+    result = await run_assessment(
+        "https://github.com/acme/demo",
+        gh_client=gh,
+        runner=runner,
+        cloner=cloner,
+        assessment_id="asm-b23-explicit",
+        branch="release/2",
+    )
+
+    # ``get_repo_info`` is exercised by downstream posture checks
+    # (``secret_scanning_enabled``, ``default_branch_permissions``) as part
+    # of their normal probes — the assertion that matters is that the
+    # explicit branch reached the branch-scoped calls verbatim, not via
+    # the resolver's "default_branch" field.
+    bp_calls = [c.args for c in gh.get_branch_protection.await_args_list]
+    assert ("acme", "demo", "release/2") in bp_calls, bp_calls
+    gh.list_recent_commits.assert_awaited_once_with("acme", "demo", "release/2")
+    assert result.branch == "release/2"
