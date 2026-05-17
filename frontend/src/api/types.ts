@@ -2317,6 +2317,8 @@ export interface components {
             current: number;
             /** Detail */
             detail: string;
+            /** First Finding Id */
+            first_finding_id?: string | null;
             /** Id */
             id: string;
             /** Label */

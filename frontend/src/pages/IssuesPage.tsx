@@ -51,11 +51,53 @@ function IssuesPageContent() {
   const queryClient = useQueryClient()
 
   const [solving, setSolving] = useState<string | null>(null)
-  const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('all')
+  // B25 — hydrate the filter dropdowns from the URL on first render so
+  // deep links like /issues?severity=critical&type=posture actually
+  // narrow the visible list without the user re-selecting the chips.
+  const initialSeverity = (
+    searchParams.get('severity') ?? 'all'
+  ) as SeverityFilter
+  const initialType = (searchParams.get('type') ?? 'all') as TypeFilter
+  const [severityFilter, setSeverityFilter] =
+    useState<SeverityFilter>(initialSeverity)
   /** Type filter — narrows the list to one of the four type buckets the
    *  backend emits. `dependency` + `code` both roll up under
    *  "vulnerability" in the UI per the dropdown's user-facing labelling. */
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>(initialType)
+
+  // Mirror the filter state back into the URL so deep-linkable state
+  // survives reloads and the back button. Compare-before-set so the
+  // effect doesn't fight itself or push duplicate history entries.
+  const syncFilterParam = useCallback(
+    (key: 'severity' | 'type', value: string) => {
+      const next = new URLSearchParams(searchParams)
+      if (value === 'all') {
+        if (!next.has(key)) return
+        next.delete(key)
+      } else {
+        if (next.get(key) === value) return
+        next.set(key, value)
+      }
+      setSearchParams(next, { replace: true })
+    },
+    [searchParams, setSearchParams],
+  )
+
+  const handleSeverityFilterChange = useCallback(
+    (value: SeverityFilter) => {
+      setSeverityFilter(value)
+      syncFilterParam('severity', value)
+    },
+    [syncFilterParam],
+  )
+
+  const handleTypeFilterChange = useCallback(
+    (value: TypeFilter) => {
+      setTypeFilter(value)
+      syncFilterParam('type', value)
+    },
+    [syncFilterParam],
+  )
   const [importOpen, setImportOpen] = useState(false)
   const [showRepoGuard, setShowRepoGuard] = useState(false)
   const [pendingFinding, setPendingFinding] = useState<Finding | null>(null)
@@ -317,9 +359,14 @@ function IssuesPageContent() {
   }
 
   const allFindings = findings ?? []
+  // B26 — only surface the "manual review queue is clear" reassurance
+  // when there is genuinely no Todo waiting either. Previously the card
+  // rendered alongside 45 queued Todo items, which read as a false
+  // all-clear. Empty queue must mean both Review AND Todo are empty.
   const showEmptyReviewCard =
     sections.review.length === 0 &&
-    sections.inProgress.length + sections.todo.length + sections.done.length > 0
+    sections.todo.length === 0 &&
+    sections.inProgress.length + sections.done.length > 0
   const allRepoEmpty = !isLoading && allFindings.length === 0
 
   // Resolve the side-panel target. If the URL points at a finding the list
@@ -335,9 +382,9 @@ function IssuesPageContent() {
         findings={allFindings}
         grade={grade}
         severityFilter={severityFilter}
-        onSeverityFilterChange={setSeverityFilter}
+        onSeverityFilterChange={handleSeverityFilterChange}
         typeFilter={typeFilter}
-        onTypeFilterChange={setTypeFilter}
+        onTypeFilterChange={handleTypeFilterChange}
       />
 
       {importOpen && (
@@ -558,7 +605,7 @@ function IssuesPageContent() {
                         marginBottom: 6,
                       }}
                     >
-                      Review is clear.
+                      Manual review queue is clear.
                     </h2>
                     <p
                       style={{

@@ -62,6 +62,11 @@ class LevelUpGate(BaseModel):
     # Only populated when ``status='auto_fixable'`` so the frontend can fan
     # out parallel ``POST /api/posture/fix/{check_name}`` calls.
     auto_fixable_check_names: list[str] = Field(default_factory=list)
+    # B27 — when a non-posture gate has at least one matching finding,
+    # we surface its id so the dashboard's "Start" card can deep-link the
+    # Issues side panel via ``?open=<id>``. Always ``None`` for the
+    # posture aggregate gate (which is category-level by design).
+    first_finding_id: str | None = None
 
 
 class LevelUp(BaseModel):
@@ -195,10 +200,15 @@ def _findings_by_severity(items: list[Finding], severity: str) -> list[Finding]:
 
 def _resolve_status_for_findings(
     items: list[Finding],
-) -> tuple[LevelUpGateStatus, str]:
-    """Return ``(status, action_href)`` for a finding-based gate.
+) -> tuple[LevelUpGateStatus, str, str | None]:
+    """Return ``(status, action_href, first_finding_id)`` for a finding-based gate.
 
     Picks the most-progressed matching finding (review > in_progress > todo).
+    The third tuple element is the id of the picked finding so the gate
+    builder can both propagate it as ``first_finding_id`` AND ensure the
+    href deep-links the side panel via ``?open=<id>`` (B27 — previously the
+    in_progress / todo branches navigated to the page without opening the
+    panel).
     """
     # ready_to_review has highest priority because the user is being asked to
     # do something concrete on a specific finding.
@@ -208,18 +218,27 @@ def _resolve_status_for_findings(
             and f.derived.section == "review"
             and f.derived.stage == "plan_ready"
         ):
-            return "ready_to_review", f"/issues?open={f.id}"
+            return "ready_to_review", f"/issues?open={f.id}", f.id
     for f in items:
         if (
             f.derived
             and f.derived.section == "review"
             and f.derived.stage in {"pr_ready", "pr_awaiting_val"}
         ):
-            return "pr_ready", f"/issues?open={f.id}"
+            return "pr_ready", f"/issues?open={f.id}", f.id
     for f in items:
         if f.derived and f.derived.section == "in_progress":
-            return "in_progress", "/issues?section=review"
-    return "todo", _todo_href_for(items[0]) if items else ("todo", "/issues")
+            return "in_progress", f"/issues?section=review&open={f.id}", f.id
+    if items:
+        head = items[0]
+        return "todo", _append_open_param(_todo_href_for(head), head.id), head.id
+    return "todo", "/issues", None
+
+
+def _append_open_param(href: str, finding_id: str) -> str:
+    """Append ``open=<id>`` to *href* using the right separator."""
+    sep = "&" if "?" in href else "?"
+    return f"{href}{sep}open={finding_id}"
 
 
 def _todo_href_for(finding: Finding) -> str:
@@ -248,7 +267,7 @@ def _critical_gate(criticals: list[Finding]) -> LevelUpGate | None:
         if n == 1
         else f"Close the {n} open Criticals"
     )
-    status, href = _resolve_status_for_findings(criticals)
+    status, href, first_id = _resolve_status_for_findings(criticals)
     detail = _detail_for_findings(criticals, fallback="open critical")
     return LevelUpGate(
         id="criticals_open",
@@ -260,12 +279,13 @@ def _critical_gate(criticals: list[Finding]) -> LevelUpGate | None:
         status=status,
         action_label=_action_label(status),
         action_href=href,
+        first_finding_id=first_id,
     )
 
 
 def _high_gate(highs: list[Finding]) -> LevelUpGate:
     n = len(highs)
-    status, href = _resolve_status_for_findings(highs)
+    status, href, first_id = _resolve_status_for_findings(highs)
     detail = _detail_for_findings(highs, fallback=f"{n} open · {n - _HIGH_TARGET} over target")
     return LevelUpGate(
         id="highs_over_target",
@@ -277,6 +297,7 @@ def _high_gate(highs: list[Finding]) -> LevelUpGate:
         status=status,
         action_label=_action_label(status),
         action_href=href,
+        first_finding_id=first_id,
     )
 
 
@@ -287,7 +308,7 @@ def _secret_gate(secrets: list[Finding]) -> LevelUpGate:
         if n == 1
         else f"Resolve {n} committed secrets"
     )
-    status, href = _resolve_status_for_findings(secrets)
+    status, href, first_id = _resolve_status_for_findings(secrets)
     detail = _detail_for_findings(secrets, fallback="committed secret")
     return LevelUpGate(
         id="secrets_open",
@@ -299,6 +320,7 @@ def _secret_gate(secrets: list[Finding]) -> LevelUpGate:
         status=status,
         action_label=_action_label(status),
         action_href=href,
+        first_finding_id=first_id,
     )
 
 

@@ -3274,6 +3274,17 @@
             "title": "Detail",
             "type": "string"
           },
+          "first_finding_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Finding Id"
+          },
           "id": {
             "title": "Id",
             "type": "string"

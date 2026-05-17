@@ -56,6 +56,29 @@ describe('<GateRow />', () => {
     expect(onNavigate).toHaveBeenCalledWith('/issues?open=fnd-1')
   })
 
+  // B27 — when the backend supplies an in_progress / todo deep-link
+  // (``/issues?section=review&open=<id>``), the row must pass the full
+  // URL through to ``onNavigate`` verbatim so the Issues page can pop
+  // the side panel from the ``?open`` param.
+  it('in_progress action_href with both section and open params is passed through unchanged', () => {
+    const onNavigate = vi.fn()
+    render(
+      <GateRow
+        gate={makeGate({
+          status: 'in_progress',
+          action_label: 'Open Review',
+          action_href: '/issues?section=review&open=fnd-7',
+          first_finding_id: 'fnd-7',
+        })}
+        onNavigate={onNavigate}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('gate-row-criticals_open-action'))
+    expect(onNavigate).toHaveBeenCalledWith(
+      '/issues?section=review&open=fnd-7',
+    )
+  })
+
   it('auto_fixable status fires onAutoFix with the check names', async () => {
     const onAutoFix = vi.fn().mockResolvedValue(undefined)
     render(

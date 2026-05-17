@@ -182,7 +182,11 @@ def test_grade_b_to_a_with_executor_running_emits_in_progress() -> None:
     gate = out.gates[0]
     assert gate.status == "in_progress"
     assert gate.action_label == "Open Review"
-    assert gate.action_href == "/issues?section=review"
+    # B27 — non-posture gates deep-link the first matching finding so the
+    # dashboard's Start card opens the side panel rather than just
+    # navigating to the page.
+    assert gate.action_href == "/issues?section=review&open=i-006"
+    assert gate.first_finding_id == "i-006"
 
 
 def test_grade_b_to_a_high_findings_target_three() -> None:
@@ -415,6 +419,119 @@ def test_high_findings_under_target_emits_no_gate() -> None:
     )
     assert out is not None
     assert out.gates == []
+
+
+# ─── B27 — non-posture gates deep-link the first matching finding ──────────
+
+
+def test_critical_gate_in_progress_includes_first_finding_id_and_open_param() -> None:
+    """B27 — the dashboard's Start cards must deep-link the first matching
+    finding so the side panel opens on click. Previously the in_progress
+    branch fell back to ``/issues?section=review`` with no open= param,
+    which just navigated to the page without opening anything.
+    """
+    snap = _all_passing_criteria().model_copy(update={"no_critical_vulns": False})
+    crit = _finding(
+        id="i-009",
+        type="dependency",
+        severity="critical",
+        section="in_progress",
+        stage="generating",
+    )
+    out = derive_level_up(
+        grade="B",
+        criteria_snapshot=snap,
+        open_findings=[crit],
+        posture_findings=[],
+    )
+    assert out is not None
+    gate = out.gates[0]
+    assert gate.first_finding_id == "i-009"
+    assert "open=i-009" in gate.action_href
+
+
+def test_critical_gate_todo_includes_first_finding_id_and_open_param() -> None:
+    snap = _all_passing_criteria().model_copy(update={"no_critical_vulns": False})
+    crit = _finding(
+        id="i-010",
+        type="dependency",
+        severity="critical",
+        section="todo",
+        stage="todo",
+    )
+    out = derive_level_up(
+        grade="B",
+        criteria_snapshot=snap,
+        open_findings=[crit],
+        posture_findings=[],
+    )
+    assert out is not None
+    gate = out.gates[0]
+    assert gate.first_finding_id == "i-010"
+    assert "open=i-010" in gate.action_href
+
+
+def test_high_gate_includes_first_finding_id_when_over_target() -> None:
+    snap = _all_passing_criteria().model_copy(update={"no_high_vulns": False})
+    highs = [
+        _finding(id=f"h-{i}", type="dependency", severity="high")
+        for i in range(5)
+    ]
+    out = derive_level_up(
+        grade="B",
+        criteria_snapshot=snap,
+        open_findings=highs,
+        posture_findings=[],
+    )
+    assert out is not None
+    gate = out.gates[0]
+    assert gate.first_finding_id == "h-0"
+    assert "open=h-0" in gate.action_href
+
+
+def test_secret_gate_includes_first_finding_id() -> None:
+    snap = _all_passing_criteria().model_copy(update={"no_secrets_detected": False})
+    secret = _finding(
+        id="i-sec-1",
+        type="secret",
+        severity="high",
+        section="todo",
+        stage="todo",
+    )
+    out = derive_level_up(
+        grade="B",
+        criteria_snapshot=snap,
+        open_findings=[secret],
+        posture_findings=[],
+    )
+    assert out is not None
+    gate = out.gates[0]
+    assert gate.first_finding_id == "i-sec-1"
+    assert "open=i-sec-1" in gate.action_href
+
+
+def test_posture_gate_does_not_set_first_finding_id() -> None:
+    """The posture aggregate gate is special — it bundles many checks and
+    the action is a category-level navigation, so there is no single
+    finding to deep-link.
+    """
+    snap = _all_passing_criteria().model_copy(
+        update={
+            "branch_protection_enabled": False,
+            "posture_checks_passing": 14,
+        }
+    )
+    posture = [_posture_finding(name="branch_protection", passing=False)]
+    out = derive_level_up(
+        grade="B",
+        criteria_snapshot=snap,
+        open_findings=[],
+        posture_findings=posture,
+    )
+    assert out is not None
+    gate = out.gates[0]
+    assert gate.id == "posture_remaining"
+    assert gate.first_finding_id is None
 
 
 # ─── grade transitions ─────────────────────────────────────────────────────
