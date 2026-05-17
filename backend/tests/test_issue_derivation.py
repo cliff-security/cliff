@@ -67,12 +67,20 @@ def make_sidebar(
     )
 
 
-def make_run(agent_type: str, status: str = "running") -> AgentRun:
+def make_run(
+    agent_type: str,
+    status: str = "running",
+    *,
+    permission_pending: bool = False,
+    permission_request: dict | None = None,
+) -> AgentRun:
     return AgentRun(
         id=f"run-{agent_type}",
         workspace_id="w-1",
         agent_type=agent_type,
         status=status,  # type: ignore[arg-type]
+        permission_pending=permission_pending,
+        permission_request=permission_request,
     )
 
 
@@ -518,3 +526,114 @@ def test_empty_plan_dict_is_not_plan_ready() -> None:
     )
     assert result.section != "review"
     assert result.stage != "plan_ready"
+
+
+# ----------------------------------------------------------------------------
+# Awaiting-permission stage (ask-tier tool-use approval gate)
+# ----------------------------------------------------------------------------
+
+
+def test_awaiting_permission_routes_running_executor_to_review() -> None:
+    """A running remediation_executor that's blocked on an ask-tier tool must
+    leave the in-flight ``generating`` bucket and land in Review under the new
+    ``awaiting_permission`` stage."""
+    result = derive(
+        make_finding(status="in_progress"),
+        workspace=make_workspace(),
+        sidebar=make_sidebar(plan={"steps": [{"title": "Bump dep"}]}),
+        latest_runs_by_type={
+            "remediation_executor": make_run(
+                "remediation_executor",
+                "running",
+                permission_pending=True,
+                permission_request={
+                    "id": "perm-1",
+                    "tool": "bash",
+                    "patterns": ["rm", "-rf", "build/"],
+                },
+            ),
+        },
+    )
+
+    assert result.section == "review"
+    assert result.stage == "awaiting_permission"
+
+
+def test_awaiting_permission_false_still_generating() -> None:
+    """Negative guard — a running executor with no pending permission stays in
+    ``generating``."""
+    result = derive(
+        make_finding(status="in_progress"),
+        workspace=make_workspace(),
+        sidebar=make_sidebar(plan={"steps": [{"title": "Bump dep"}]}),
+        latest_runs_by_type={
+            "remediation_executor": make_run(
+                "remediation_executor", "running", permission_pending=False
+            ),
+        },
+    )
+
+    assert result.section == "in_progress"
+    assert result.stage == "generating"
+
+
+def test_failed_executor_with_stale_pending_flag_still_failed() -> None:
+    """Ordering guard. Reconcile clears ``permission_pending`` when it flips a
+    run to ``failed``, but ``derive()`` must be robust even if a stale flag
+    leaks through — a failed run is always ``review/failed``."""
+    result = derive(
+        make_finding(status="in_progress"),
+        workspace=make_workspace(),
+        sidebar=make_sidebar(plan={"steps": [{"title": "Bump dep"}]}),
+        latest_runs_by_type={
+            "remediation_executor": make_run(
+                "remediation_executor", "failed", permission_pending=True
+            ),
+        },
+    )
+
+    assert result.section == "review"
+    assert result.stage == "failed"
+
+
+def test_pr_url_dominates_pending_permission() -> None:
+    """If a PR is already open, the row is ``pr_ready`` regardless of any
+    pending permission flag on the executor run — the PR existence check sits
+    above the permission check in the derivation table."""
+    result = derive(
+        make_finding(status="in_progress"),
+        workspace=make_workspace(),
+        sidebar=make_sidebar(
+            plan={"steps": []},
+            pull_request={
+                "status": "pr_created",
+                "pr_url": "https://github.com/o/r/pull/42",
+                "branch_name": "opensec/fix/cve-2024-1234",
+            },
+        ),
+        latest_runs_by_type={
+            "remediation_executor": make_run(
+                "remediation_executor", "running", permission_pending=True
+            ),
+        },
+    )
+
+    assert result.section == "review"
+    assert result.stage == "pr_ready"
+
+
+def test_no_executor_run_existing_branches_unchanged_regression() -> None:
+    """Regression guard — when the executor run is absent, the permission
+    field has no effect and the existing branches (plan_ready, etc.) keep
+    routing as before."""
+    result = derive(
+        make_finding(status="in_progress"),
+        workspace=make_workspace(),
+        sidebar=make_sidebar(plan={"steps": [{"title": "Bump dep"}]}),
+        latest_runs_by_type={
+            "remediation_planner": make_run("remediation_planner", "completed"),
+        },
+    )
+
+    assert result.section == "review"
+    assert result.stage == "plan_ready"

@@ -132,17 +132,24 @@ function IssuesPageContent() {
   // bucket Review renders flat (no sub-headers) so the typical case stays
   // uncluttered.
   const reviewSplit = useMemo(() => {
+    const approvals: Finding[] = []
     const plans: Finding[] = []
     const prs: Finding[] = []
     const errors: Finding[] = []
     for (const f of sections.review) {
       const stage = f.derived?.stage
-      if (stage === 'failed') errors.push(f)
+      // Approval requests come first — the agent is literally paused
+      // waiting for the user, which is more urgent than a finished plan
+      // or a ready PR.
+      if (stage === 'awaiting_permission') approvals.push(f)
+      else if (stage === 'failed') errors.push(f)
       else if (stage === 'plan_ready') plans.push(f)
       else if (stage === 'pr_ready' || stage === 'pr_awaiting_val') prs.push(f)
     }
-    const nonEmpty = [errors, plans, prs].filter((b) => b.length > 0).length
-    return { plans, prs, errors, useSubheaders: nonEmpty > 1 }
+    const nonEmpty = [approvals, errors, plans, prs].filter(
+      (b) => b.length > 0,
+    ).length
+    return { approvals, plans, prs, errors, useSubheaders: nonEmpty > 1 }
   }, [sections.review])
 
   const openPanel = useCallback(
@@ -406,6 +413,26 @@ function IssuesPageContent() {
               <div style={{ paddingTop: 10 }}>
                 {reviewSplit.useSubheaders ? (
                   <>
+                    {reviewSplit.approvals.length > 0 && (
+                      <>
+                        <div
+                          className="cd-hairline"
+                          style={{ padding: '8px 18px' }}
+                          data-testid="review-bucket-approvals"
+                        >
+                          Awaiting approval · {reviewSplit.approvals.length}
+                        </div>
+                        {reviewSplit.approvals.map((f) => (
+                          <IssueRow
+                            key={f.id}
+                            finding={f}
+                            onInspect={openInspect}
+                            onActivate={handleActivate}
+                            starting={solving === f.id}
+                          />
+                        ))}
+                      </>
+                    )}
                     {reviewSplit.errors.length > 0 && (
                       <>
                         <div className="cd-hairline" style={{ padding: '8px 18px' }}>

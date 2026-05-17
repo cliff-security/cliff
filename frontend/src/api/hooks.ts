@@ -159,6 +159,28 @@ export function useCancelAgentRun(workspaceId: string | undefined) {
   })
 }
 
+// Approve or deny a parked agent-permission request. Approve → the
+// executor resumes; deny → the run ends and ``derive()`` routes the
+// finding to ``review/failed`` with the existing Retry CTA. Invalidating
+// agent-runs is the load-bearing call — it bumps the row out of the
+// "Needs you" bucket as soon as the marker clears server-side. Sidebar +
+// findings are belt-and-suspenders for the rare race where the executor
+// races ahead to plan_ready / pr_ready before our refetch fires.
+export function useRespondToPermission(workspaceId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ runId, approved }: { runId: string; approved: boolean }) =>
+      api.respondToPermission(workspaceId!, runId, approved),
+    onSuccess: () => {
+      if (workspaceId) {
+        qc.invalidateQueries({ queryKey: ['agent-runs', workspaceId] })
+        qc.invalidateQueries({ queryKey: ['sidebar', workspaceId] })
+      }
+      qc.invalidateQueries({ queryKey: ['findings'] })
+    },
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Workspaces (Phase 5)
 // ---------------------------------------------------------------------------

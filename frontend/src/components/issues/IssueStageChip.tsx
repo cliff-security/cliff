@@ -28,6 +28,7 @@ export type IssueStage =
   | 'plan_ready'
   | 'pr_ready'
   | 'pr_awaiting_val'
+  | 'awaiting_permission'
   | 'failed'
   | 'fixed'
   | 'false_positive'
@@ -52,6 +53,7 @@ const STAGE_VISUALS: Record<IssueStage, StageVisual> = {
   plan_ready:      { label: 'Plan ready',          tone: 'ready' },
   pr_ready:        { label: 'PR ready',            tone: 'ready' },
   pr_awaiting_val: { label: 'Awaiting validation', tone: 'awaiting' },
+  awaiting_permission: { label: 'Awaiting approval', tone: 'awaiting' },
   failed:          { label: 'Error',               tone: 'error',    icon: 'block' },
   fixed:           { label: 'Fixed',               tone: 'positive', icon: 'check' },
   false_positive:  { label: 'False positive',      tone: 'positive', icon: 'check' },

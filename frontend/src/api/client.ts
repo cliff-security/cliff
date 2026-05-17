@@ -58,6 +58,11 @@ export type IssueStage =
   | 'todo'
   | 'planning' | 'generating' | 'pushing' | 'opening_pr' | 'validating'
   | 'plan_ready' | 'pr_ready' | 'pr_awaiting_val'
+  // Remediation executor parked on an ask-tier tool request — surfaces in
+  // the Review section's "Needs you" bucket. Backend-side this is driven
+  // by the persisted ``permission_pending`` flag on the latest executor
+  // run (see migration 022).
+  | 'awaiting_permission'
   | 'failed'
   | 'fixed' | 'false_positive' | 'wont_fix' | 'accepted' | 'deferred';
 
@@ -150,6 +155,14 @@ export type AgentRunStatus =
   // the request and the executor's backoff retry budget was exhausted.
   | 'rate_limited';
 
+// Shape of a parked permission request, persisted on the agent_run row
+// (migration 022). Mirrors the SSE ``permission_request`` event payload.
+export interface PermissionRequest {
+  id: string;
+  tool: string;
+  patterns: string[];
+}
+
 export interface AgentRun {
   id: string;
   workspace_id: string;
@@ -164,6 +177,11 @@ export interface AgentRun {
   last_error: string | null;
   started_at: string | null;
   completed_at: string | null;
+  // Agent-permission approval gate. Set while the executor is parked on
+  // an ask-tier tool request; cleared on resolve. Source of truth for
+  // the "Awaiting approval" prompt — survives reload.
+  permission_pending: boolean;
+  permission_request: PermissionRequest | null;
 }
 
 export interface AgentRunCreate {

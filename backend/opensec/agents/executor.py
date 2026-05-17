@@ -709,6 +709,40 @@ class AgentExecutor:
             # Signal completion to any SSE listener
             queue.put_nowait({"type": "done"})
 
+    async def _patch_permission_marker(
+        self,
+        db: aiosqlite.Connection,
+        agent_run_id: str,
+        permission_id: str,
+        *,
+        pending: bool,
+        request: dict[str, Any] | None,
+    ) -> None:
+        """Set or clear the agent-permission marker. Never raises.
+
+        A DB hiccup here must not strand the agent — the SSE callback
+        still fires and reconcile-on-startup cleans up if everything
+        falls over.
+        """
+        if not agent_run_id:
+            return
+        try:
+            await update_agent_run(
+                db,
+                agent_run_id,
+                AgentRunUpdate(
+                    permission_pending=pending,
+                    permission_request=request,
+                ),
+            )
+        except Exception:  # noqa: BLE001
+            verb = "persist" if pending else "clear"
+            logger.exception(
+                "Failed to %s permission_pending marker "
+                "(agent_run=%s, permission=%s)",
+                verb, agent_run_id, permission_id,
+            )
+
     async def execute(
         self,
         workspace_id: str,
@@ -836,6 +870,7 @@ class AgentExecutor:
                         on_permission=on_permission,
                         agent_run_id=agent_run.id,
                         agent_type=agent_type,
+                        db=db,
                     )
                     break
                 except AgentRateLimitError as exc:
@@ -880,6 +915,7 @@ class AgentExecutor:
                     agent_run_id=agent_run.id,
                     agent_type=agent_type,
                     send_delay=0.0,
+                    db=db,
                 )
                 retry_result = parse_agent_response(
                     retry_text, agent_type=agent_type
@@ -1200,6 +1236,7 @@ class AgentExecutor:
         agent_run_id: str = "",
         agent_type: str = "",
         send_delay: float = 0.5,
+        db: aiosqlite.Connection,
     ) -> str:
         """Send a prompt and collect the streamed response.
 
@@ -1223,6 +1260,7 @@ class AgentExecutor:
                 on_permission=on_permission,
                 agent_run_id=agent_run_id,
                 agent_type=agent_type,
+                db=db,
             )
         finally:
             if not send_task.done():
@@ -1253,6 +1291,7 @@ class AgentExecutor:
         agent_run_id: str = "",
         agent_type: str = "",
         stall_timeout: float = 60.0,
+        db: aiosqlite.Connection,
     ) -> str:
         """Collect the full response from OpenCode via SSE stream.
 
@@ -1328,19 +1367,37 @@ class AgentExecutor:
                 "waiting for user approval",
                 tool, permission_id,
             )
+            patterns_list = event.get("patterns", [])
             pending = _PendingApproval(
                 permission_id=permission_id,
                 tool=tool,
-                patterns=event.get("patterns", []),
+                patterns=patterns_list,
                 event=asyncio.Event(),
             )
             self._pending_approvals[agent_run_id] = pending
+
+            # Persist the marker so issue_derivation.derive() can route the
+            # finding to Review / awaiting_permission. Without this, the
+            # only signal is the in-memory dict + SSE event — which means
+            # a page reload, or a user not looking at this workspace,
+            # would never see the prompt.
+            await self._patch_permission_marker(
+                db,
+                agent_run_id,
+                permission_id,
+                pending=True,
+                request={
+                    "id": permission_id,
+                    "tool": tool,
+                    "patterns": patterns_list,
+                },
+            )
 
             if on_permission:
                 on_permission({
                     "id": permission_id,
                     "tool": tool,
-                    "patterns": event.get("patterns", []),
+                    "patterns": patterns_list,
                     "run_id": agent_run_id,
                 })
 
@@ -1355,6 +1412,13 @@ class AgentExecutor:
             # Extend the stall timer to exclude user decision time
             nonlocal last_event_time
             last_event_time = time.monotonic()
+
+            # Clear the persisted marker. Covers approve, deny, AND the
+            # disconnect-auto-deny path (the SSE stream endpoint calls
+            # deny_tool on client disconnect, which sets pending.event).
+            await self._patch_permission_marker(
+                db, agent_run_id, permission_id, pending=False, request=None,
+            )
 
             if pending.approved:
                 await client.grant_permission(

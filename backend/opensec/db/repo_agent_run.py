@@ -12,7 +12,12 @@ from opensec.models import AgentRun, AgentRunCreate, AgentRunUpdate
 if TYPE_CHECKING:
     import aiosqlite
 
-_JSON_FIELDS = {"input_json", "evidence_json", "structured_output"}
+_JSON_FIELDS = {
+    "input_json",
+    "evidence_json",
+    "structured_output",
+    "permission_request",
+}
 
 
 def _row_to_agent_run(row: aiosqlite.Row) -> AgentRun:
@@ -32,6 +37,10 @@ def _row_to_agent_run(row: aiosqlite.Row) -> AgentRun:
         last_error=row["last_error"],
         started_at=row["started_at"],
         completed_at=row["completed_at"],
+        permission_pending=bool(row["permission_pending"]),
+        permission_request=(
+            json.loads(row["permission_request"]) if row["permission_request"] else None
+        ),
     )
 
 
@@ -128,6 +137,11 @@ async def update_agent_run(
         if key in fields and fields[key] is not None:
             fields[key] = json.dumps(fields[key])
 
+    # SQLite has no native bool — coerce permission_pending to 0/1 so the
+    # CHECK constraint on migration 022 stays happy.
+    if "permission_pending" in fields and fields["permission_pending"] is not None:
+        fields["permission_pending"] = int(bool(fields["permission_pending"]))
+
     set_clause = ", ".join(f"{k} = ?" for k in fields)
     values = [*fields.values(), run_id]
 
@@ -154,12 +168,18 @@ async def reconcile_orphaned_agent_runs(db: aiosqlite.Connection) -> int:
         "**Agent run interrupted.** The backend restarted while this agent "
         "was working. Click Approve / Start to retry."
     )
+    # Also clear the agent-permission marker — if the backend died while a
+    # ``_PendingApproval`` was parked, the row will come back as ``failed``
+    # and must route to the existing ``failed`` stage (Retry CTA), never to
+    # a stale ``awaiting_permission``.
     cursor = await db.execute(
         """
         UPDATE agent_run
            SET status = 'failed',
                completed_at = COALESCE(completed_at, ?),
-               summary_markdown = COALESCE(summary_markdown, ?)
+               summary_markdown = COALESCE(summary_markdown, ?),
+               permission_pending = 0,
+               permission_request = NULL
          WHERE status IN ('queued', 'running')
         """,
         (now_iso, interrupted_msg),

@@ -18,15 +18,19 @@
  * runs) is loaded lazily via existing hooks when a workspace exists.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { api } from '../../api/client'
 import type { AgentRun, ExceptionReason, Finding, IssueStage } from '../../api/client'
 import {
   useAgentRuns,
   useCancelAgentRun,
   useExecuteAgent,
   useRejectFinding,
+  useRespondToPermission,
   useSidebar,
   useUpdateFinding,
 } from '../../api/hooks'
+import { friendlyPermissionError } from '../../lib/permissionErrorMessage'
 import { useAIRequired } from '../../api/aiProvider'
 import { useOpenAIProvider } from '../ai-provider'
 import { CliffSpinner } from '../CliffSpinner'
@@ -66,6 +70,11 @@ function sectionsForStage(stage: IssueStage): SectionKey[] {
   // PR / Plan / Validation cards stay above ``activity`` because they're
   // the actionable surfaces.
   if (stage === 'plan_ready') return ['plan', 'activity', 'finding']
+  // Awaiting approval: activity-first so the user sees what the agent was
+  // doing right before it paused (the failed step, if any, is in activity);
+  // the plan itself is the supporting context — they already approved it
+  // earlier, the decision now is about ONE command.
+  if (stage === 'awaiting_permission') return ['activity', 'plan', 'finding']
   // Failed: surface the most recent error context (activity) at the top so
   // the user lands on the actual reason, with the plan still available
   // below if they want to retry. No PR exists in this state by definition.
@@ -147,6 +156,38 @@ export function IssueSidePanel({
       document.removeEventListener('mousedown', onClick)
     }
   }, [closePanel])
+
+  // SSE nudge — when the side panel is open on a workspace, subscribe to
+  // the agent-execution stream and cache-bust ``agent-runs`` whenever the
+  // backend emits a ``permission_request`` event. The polled query (3s
+  // while a run is active) remains the source of truth for rendering the
+  // prompt; this just lets the row light up instantly when the panel is
+  // already open. On any SSE error we silently fall back to polling — no
+  // user-visible failure, no reconnection storm.
+  const queryClient = useQueryClient()
+  useEffect(() => {
+    if (!workspaceId) return
+    let es: EventSource | null = null
+    try {
+      es = api.streamAgentExecution(workspaceId)
+    } catch {
+      return
+    }
+    const nudge = () => {
+      queryClient.invalidateQueries({
+        queryKey: ['agent-runs', workspaceId],
+      })
+    }
+    es.addEventListener('permission_request', nudge)
+    es.addEventListener('error', () => {
+      // EventSource auto-reconnects on transient errors; nothing to do
+      // here. The poll fallback continues regardless.
+    })
+    return () => {
+      es?.removeEventListener('permission_request', nudge)
+      es?.close()
+    }
+  }, [workspaceId, queryClient])
 
   return (
     <aside
@@ -845,6 +886,7 @@ function DefaultFooter({
   const workspaceId = finding.derived?.workspace_id ?? null
   const executeAgent = useExecuteAgent(workspaceId ?? undefined)
   const cancelAgentRun = useCancelAgentRun(workspaceId ?? undefined)
+  const respondToPermission = useRespondToPermission(workspaceId ?? undefined)
   const updateFinding = useUpdateFinding()
   const aiRequired = useAIRequired()
   const { open: openAIProvider } = useOpenAIProvider()
@@ -854,8 +896,49 @@ function DefaultFooter({
   // executing. There is at most one running run per workspace (the
   // AgentBusy guard enforces it), so first-match is correct.
   const { data: agentRuns } = useAgentRuns(workspaceId ?? undefined)
-  const runningRunId =
-    agentRuns?.find((r) => r.status === 'running')?.id ?? null
+  const runningRun =
+    agentRuns?.find((r) => r.status === 'running') ?? null
+
+  if (stage === 'awaiting_permission') {
+    const req = runningRun?.permission_request ?? null
+    if (!req || !runningRun) {
+      // Brief race — derive() saw the marker but our poll hasn't refreshed
+      // yet. Render a non-actionable holding state so the footer never
+      // blanks (which would let the user keep clicking through to other
+      // affordances that don't apply right now).
+      return (
+        <div className="flex items-center gap-3 w-full">
+          <CliffSpinner size={14} label="Loading approval details" />
+          <div className="flex-1 min-w-0">
+            <div className="text-[12.5px] font-semibold text-on-surface">
+              Waiting for approval details
+            </div>
+            <div className="text-[11px] text-on-surface-variant">
+              The agent paused on a command — fetching the details now.
+            </div>
+          </div>
+        </div>
+      )
+    }
+    return (
+      <PermissionPrompt
+        tool={req.tool}
+        patterns={req.patterns}
+        pending={respondToPermission.isPending}
+        errorMessage={
+          respondToPermission.isError
+            ? friendlyPermissionError(respondToPermission.error)
+            : null
+        }
+        onApprove={() =>
+          respondToPermission.mutate({ runId: runningRun.id, approved: true })
+        }
+        onDeny={() =>
+          respondToPermission.mutate({ runId: runningRun.id, approved: false })
+        }
+      />
+    )
+  }
 
   if (stage === 'todo') {
     return (
@@ -892,9 +975,9 @@ function DefaultFooter({
         </div>
         <TextButton
           onClick={() => {
-            if (runningRunId) cancelAgentRun.mutate(runningRunId)
+            if (runningRun) cancelAgentRun.mutate(runningRun.id)
           }}
-          disabled={!runningRunId || cancelAgentRun.isPending}
+          disabled={!runningRun || cancelAgentRun.isPending}
         >
           {cancelAgentRun.isPending ? 'Cancelling…' : 'Cancel run'}
         </TextButton>
@@ -1087,6 +1170,81 @@ function RejectFooter({
       <ErrorButton icon="block" onClick={submit} disabled={!reason || reject.isPending}>
         Reject
       </ErrorButton>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Permission prompt — the agent-permission approval gate footer. Renders
+// when the latest remediation_executor run is parked on an ask-tier tool
+// request (rm, git reset --hard, …) and the persisted ``permission_request``
+// is loaded. Approve resumes the agent; Deny ends the run cleanly and the
+// row falls through to the existing ``failed`` stage with a Retry CTA.
+// ---------------------------------------------------------------------------
+
+function PermissionPrompt({
+  tool,
+  patterns,
+  pending,
+  errorMessage,
+  onApprove,
+  onDeny,
+}: {
+  tool: string
+  patterns: string[]
+  pending: boolean
+  errorMessage: string | null
+  onApprove: () => void
+  onDeny: () => void
+}) {
+  // Format the command as a single readable line. For bash this is the
+  // command-line; for edit it's the target path; for external_directory
+  // it's the directory the agent tried to reach.
+  const detail = patterns.join(' ') || '(no detail)'
+  return (
+    <div className="flex flex-col gap-1.5 w-full" data-testid="permission-prompt">
+      <div className="flex items-center gap-3 w-full">
+        <div className="flex-1 min-w-0">
+          <div className="text-[12.5px] font-semibold text-on-surface">
+            Approval needed
+          </div>
+          <div
+            className="text-[11px] text-on-surface-variant truncate font-mono"
+            title={`${tool} ${detail}`}
+            data-testid="permission-prompt-detail"
+          >
+            {tool} · {detail}
+          </div>
+        </div>
+        <PrimaryButton
+          icon="check_circle"
+          kbd="A"
+          onClick={onApprove}
+          disabled={pending}
+          data-testid="permission-approve"
+        >
+          {pending ? 'Working…' : 'Approve'}
+        </PrimaryButton>
+        <ErrorButton
+          icon="block"
+          kbd="X"
+          onClick={onDeny}
+          disabled={pending}
+          data-testid="permission-deny"
+        >
+          Deny
+        </ErrorButton>
+      </div>
+      {errorMessage && (
+        <div
+          role="alert"
+          data-testid="permission-error"
+          className="text-[11px]"
+          style={{ color: 'var(--cd-red, #ef6464)' }}
+        >
+          {errorMessage}
+        </div>
+      )}
     </div>
   )
 }

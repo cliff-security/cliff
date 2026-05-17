@@ -190,6 +190,23 @@
             ],
             "title": "Next Action Hint"
           },
+          "permission_pending": {
+            "default": false,
+            "title": "Permission Pending",
+            "type": "boolean"
+          },
+          "permission_request": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Permission Request"
+          },
           "started_at": {
             "anyOf": [
               {
@@ -335,6 +352,29 @@
               }
             ],
             "title": "Next Action Hint"
+          },
+          "permission_pending": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Permission Pending"
+          },
+          "permission_request": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Permission Request"
           },
           "status": {
             "anyOf": [
@@ -3041,6 +3081,7 @@
               "plan_ready",
               "pr_ready",
               "pr_awaiting_val",
+              "awaiting_permission",
               "failed",
               "fixed",
               "false_positive",
