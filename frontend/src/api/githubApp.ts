@@ -45,6 +45,15 @@ export interface DeviceFlowDisconnectResponse {
   manual_revoke_url: string
 }
 
+export interface PushAccessDiagnoseResponse {
+  can_push: boolean
+  reason: string
+  repo_url: string
+  /** ISO 8601 UTC. Backend echoes the *probe* time, not the response
+   *  time — so a cached result still shows "checked 2 min ago". */
+  checked_at: string
+}
+
 // ---------------------------------------------------------------------------
 // Raw API
 // ---------------------------------------------------------------------------
@@ -90,6 +99,15 @@ export const githubAppApi = {
       '/api/integrations/github/setup/manual',
       { method: 'POST', body: JSON.stringify(payload) },
     ),
+  /** Probe push access against the currently-configured GitHub repo.
+   *  Backend caches for 5 minutes; pass ``refresh: true`` to force a
+   *  fresh GitHub call after the user fixes the App on github.com. */
+  diagnose: (opts?: { refresh?: boolean }) => {
+    const qs = opts?.refresh ? '?refresh=1' : ''
+    return request<PushAccessDiagnoseResponse>(
+      `/api/integrations/github/diagnose${qs}`,
+    )
+  },
 }
 
 // ---------------------------------------------------------------------------
@@ -174,6 +192,43 @@ export function useGithubAppManualSetup() {
   })
 }
 
+
+/**
+ * Probe push access for the configured GitHub repo (IMPL-0018 / B35c).
+ *
+ * Returns ``data: null`` on 404 so the badge can render nothing without
+ * a thrown error bubbling through React Query's ``isError`` state. Every
+ * other failure mode bubbles as a normal query error so the operator
+ * gets a visible signal instead of a phantom "everything looks fine".
+ *
+ * Stale window matches the backend cache (5 minutes) so the SPA and the
+ * server agree on what "fresh" means. Background refetch on focus is
+ * disabled — the user comes back to the Settings page after fixing the
+ * App on github.com, and the explicit Refresh button is the natural
+ * way to re-probe.
+ */
+export function useGitHubPushDiagnose() {
+  return useQuery({
+    queryKey: ['github-app', 'diagnose'],
+    queryFn: async (): Promise<PushAccessDiagnoseResponse | null> => {
+      try {
+        return await githubAppApi.diagnose()
+      } catch (err) {
+        // 404 = GitHub not configured. The badge renders nothing in
+        // this state — don't surface a query error to the caller, since
+        // the absence of a GitHub integration is normal pre-onboarding.
+        if (err instanceof Error && err.message.startsWith('404:')) {
+          return null
+        }
+        throw err
+      }
+    },
+    // 5 min — matches the server-side cache so we don't re-fetch faster
+    // than the backend is willing to re-probe.
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  })
+}
 
 export function useGithubAppDisconnect() {
   const qc = useQueryClient()

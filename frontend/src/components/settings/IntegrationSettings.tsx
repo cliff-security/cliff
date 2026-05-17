@@ -25,6 +25,7 @@ import type {
 import { GithubAppConnectButton } from './GithubAppConnectButton'
 import { GithubAppDeviceFlowModal } from './GithubAppDeviceFlowModal'
 import { GithubAppMigrationBanner } from './GithubAppMigrationBanner'
+import { PushAccessBadge } from './PushAccessBadge'
 import { RepoPickerDialog } from '@/components/repo/RepoPickerDialog'
 
 // ---------------------------------------------------------------------------
@@ -581,6 +582,18 @@ function ConfiguredCard({
           }}
         >
           {voiceError(integration.provider_name, health.error_message)}
+        </div>
+      )}
+
+      {/* Push-access diagnostic (IMPL-0018 / B35c). Shown only on the
+       *  GitHub row — the badge fetches /api/integrations/github/diagnose
+       *  on mount and renders green if the App can push, red with a
+       *  How-to-fix link otherwise, or nothing if no GitHub integration
+       *  is configured. Lives below the disconnect row so it doesn't
+       *  squeeze the existing controls on narrow widths. */}
+      {integration.provider_name.toLowerCase() === 'github' && (
+        <div style={{ marginTop: 10 }}>
+          <PushAccessBadge />
         </div>
       )}
     </div>
