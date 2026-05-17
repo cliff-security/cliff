@@ -72,11 +72,25 @@ User token for reads, installation token for writes.
 
 **Why not:** complexity for a single-user OSS tool. Hard to justify until we have a use case neither solves alone.
 
+## Amendment — 2026-05-17 (Q01R Wave 2)
+
+Wave 2 QA found that the App declaring `Contents:write` is **not sufficient** for the user-OAuth token from the device flow to actually push. The user-to-server token carries the intersection of (App declared permissions) × (Installation effective permissions for the target) × (user's repo permissions). On an existing installation, declaring new permissions on the App only takes effect after an org admin **re-approves** the install — until then, the installation's effective permissions remain at the pre-amendment subset.
+
+This means two operational realities must be documented in code as well as docs:
+
+1. **Setup URL is per-deployment.** The App's globally-configured Setup URL only fits one canonical deployment (`http://localhost:8000` for dev, the hosted prod URL when shipped). Local/dev/Docker-on-arbitrary-port deployments need a recovery flow to bind the install manually. Implemented by IMPL-0016 (manual `POST /setup/manual` + UI poll-and-recovery).
+2. **Runtime push-access verification is mandatory.** Static App-declared permissions don't tell the truth at request time. The `check_repo_push_access` preflight (from IMPL-0014) must consult the installation's effective permissions, not just the user's repo permissions. Implemented by IMPL-0017 (extend `check_repo_push_access`) and surfaced proactively by IMPL-0018 (Settings push-access badge).
+
+The original decision still stands — **user OAuth tokens for git operations** — but the operational story now includes these two enforcement points.
+
 ## References
 
 - ADR-0024 — Repo cloning and agentic remediation
 - ADR-0035 — GitHub App + Device Flow onboarding
 - IMPL-0010 — GitHub App + Device Flow implementation
 - IMPL-0014 — Q01R push-token preflight + App permission docs
+- IMPL-0016 — Q01R W2: GitHub App callback flexibility (Wave 2 amendment)
+- IMPL-0017 — Q01R W2: preflight teeth + terminal-error UI (Wave 2 amendment)
+- IMPL-0018 — Q01R W2: push-access diagnostic (Wave 2 amendment)
 - GitHub Docs: [Differences between GitHub Apps and OAuth apps](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/differences-between-github-apps-and-oauth-apps)
 - GitHub Docs: [About user-to-server requests](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/identifying-and-authorizing-users-for-github-apps)
