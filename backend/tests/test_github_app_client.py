@@ -24,7 +24,9 @@ from opensec.integrations.github_app.client import (
     GitHubDeviceFlowClient,
     GitHubDeviceFlowError,
     PollTokenResult,
+    RepoPushAccess,
     UserInfo,
+    check_repo_push_access,
 )
 
 
@@ -315,3 +317,240 @@ async def test_refresh_token_returns_error_kind_on_invalid_grant():
     client = _client_with_handler(handler)
     with pytest.raises(GitHubDeviceFlowError):
         await client.refresh_access_token(refresh_token="bad")
+
+
+# ---------------------------------------------------------------------------
+# check_repo_push_access (Q01R / B30 / ADR-0037 / IMPL-0014)
+#
+# Preflight that verifies the user OAuth token returned by the device flow
+# actually has push access to the target repo. The device-flow token's
+# effective perms are (App declared perms) intersected with (user repo perms);
+# if the App only declares Contents:read the token cannot push regardless of
+# what the user can do via gh CLI / a PAT. The fix is to validate up front
+# and surface a structured error pointing at the App-permissions doc, rather
+# than let the executor "succeed" with an unpushable branch.
+# ---------------------------------------------------------------------------
+
+
+def _push_handler(payload: dict, status: int = 200):
+    def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, json=payload)
+
+    return _handler
+
+
+@pytest.mark.asyncio
+async def test_check_repo_push_access_returns_can_push_true_when_permission_is_true():
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["auth"] = request.headers.get("authorization")
+        captured["accept"] = request.headers.get("accept")
+        return httpx.Response(
+            200,
+            json={
+                "name": "NodeGoat",
+                "full_name": "cliff-security/NodeGoat",
+                "permissions": {
+                    "admin": False,
+                    "maintain": False,
+                    "push": True,
+                    "triage": True,
+                    "pull": True,
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    result = await check_repo_push_access(
+        token="ghu_abc",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    assert isinstance(result, RepoPushAccess)
+    assert result.can_push is True
+    assert result.reason == ""
+    assert captured["url"] == (
+        "https://api.example.invalid/repos/cliff-security/NodeGoat"
+    )
+    assert captured["auth"] == "Bearer ghu_abc"
+    assert captured["accept"] == "application/vnd.github+json"
+
+
+@pytest.mark.asyncio
+async def test_check_repo_push_access_returns_can_push_false_when_permission_is_false():
+    handler = _push_handler(
+        {
+            "full_name": "cliff-security/NodeGoat",
+            "permissions": {
+                "admin": False,
+                "push": False,
+                "pull": True,
+            },
+        }
+    )
+    transport = httpx.MockTransport(handler)
+    result = await check_repo_push_access(
+        token="ghu_abc",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    assert result.can_push is False
+    # Reason must mention App permissions so the UI can tell the user
+    # what to actually go fix.
+    reason_lower = result.reason.lower()
+    assert "push" in reason_lower
+    assert "permission" in reason_lower or "app" in reason_lower
+
+
+@pytest.mark.asyncio
+async def test_check_repo_push_access_returns_can_push_false_when_permissions_missing():
+    """When the response omits the ``permissions`` block entirely, default
+    to *cannot push* — anything else risks blind-firing the executor."""
+    handler = _push_handler({"full_name": "cliff-security/NodeGoat"})
+    transport = httpx.MockTransport(handler)
+    result = await check_repo_push_access(
+        token="ghu_abc",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    assert result.can_push is False
+    assert result.reason  # non-empty
+
+
+@pytest.mark.asyncio
+async def test_check_repo_push_access_handles_404_with_clear_reason():
+    """A 404 from GitHub means the token can't even see the repo —
+    typically the App isn't installed on this org/repo, or the user
+    revoked it. Reason text needs to be actionable."""
+    handler = _push_handler({"message": "Not Found"}, status=404)
+    transport = httpx.MockTransport(handler)
+    result = await check_repo_push_access(
+        token="ghu_abc",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    assert result.can_push is False
+    assert "not visible" in result.reason.lower() or "404" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_check_repo_push_access_handles_401_with_clear_reason():
+    """A 401 means the token is bad/expired — surface that distinctly so
+    the UI can prompt re-auth instead of an App permissions update."""
+    handler = _push_handler({"message": "Bad credentials"}, status=401)
+    transport = httpx.MockTransport(handler)
+    result = await check_repo_push_access(
+        token="ghu_bad",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    assert result.can_push is False
+    reason_lower = result.reason.lower()
+    assert (
+        "token" in reason_lower
+        or "auth" in reason_lower
+        or "401" in result.reason
+    )
+
+
+@pytest.mark.asyncio
+async def test_check_repo_push_access_fails_open_on_429_rate_limit():
+    """A 429 from GitHub during a spike must NOT silently block every
+    executor run. The preflight is a UX shortcut, not a correctness
+    guarantee — on transient failures we let the executor proceed and
+    surface GitHub's real error if the push actually fails."""
+    handler = _push_handler({"message": "API rate limit exceeded"}, status=429)
+    transport = httpx.MockTransport(handler)
+    result = await check_repo_push_access(
+        token="ghu_abc",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    assert result.can_push is True
+    assert "skipped" in result.reason.lower()
+    assert "429" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_check_repo_push_access_fails_open_on_5xx():
+    """5xx is GitHub having a bad day — same reasoning as 429."""
+    handler = _push_handler({"message": "Internal Server Error"}, status=503)
+    transport = httpx.MockTransport(handler)
+    result = await check_repo_push_access(
+        token="ghu_abc",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    assert result.can_push is True
+    assert "skipped" in result.reason.lower()
+    assert "503" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_check_repo_push_access_fails_open_on_network_error():
+    """Network/DNS/timeout — same reasoning: don't let a flaky preflight
+    become a hard gate."""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("DNS lookup failed")
+
+    transport = httpx.MockTransport(handler)
+    result = await check_repo_push_access(
+        token="ghu_abc",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    assert result.can_push is True
+    assert "skipped" in result.reason.lower()
+    # Surface the exception class name so logs/metrics can distinguish
+    # DNS vs read-timeout vs connection-reset without parsing free text.
+    assert "ConnectError" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_check_repo_push_access_does_not_echo_token_in_reason():
+    """Defensive: even if GitHub ever reflects the auth header into a
+    response body, the reason string must not leak the token. The
+    current implementation builds reasons from static strings + the
+    parsed status, which is exactly what this test guards."""
+    handler = _push_handler(
+        {"message": "Reflected: Bearer ghu_secret_token"}, status=403
+    )
+    transport = httpx.MockTransport(handler)
+    result = await check_repo_push_access(
+        token="ghu_secret_token",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    assert result.can_push is False
+    assert "ghu_secret_token" not in result.reason
+    assert "Bearer" not in result.reason

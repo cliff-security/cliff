@@ -90,18 +90,57 @@ supported).
 
 ## What permissions does the App ask for?
 
-V1 is read-only:
+OpenSec needs write access on **Contents** and **Pull requests** so the
+remediation_executor agent can push a fix branch and open a draft PR on
+your behalf. The other read-only permissions back the posture checks
+(branch protection, pinned actions, etc.) and basic repo metadata.
 
-- **Contents: Read** — read code for context (CODEOWNERS, vulnerable
-  files, configs).
-- **Metadata: Read** — basic repo metadata.
-- **Code scanning alerts: Read** — pull CodeQL findings.
-- **Pull requests: Read** — link existing PRs to remediations.
+### Required permissions
 
-A future scope-elevation flow will let you grant `Contents: Write` and
-`Pull requests: Write` so OpenSec can create remediation PRs
-automatically. Until then, OpenSec drafts the patch and asks you to
-push it.
+| Permission | Level | Why |
+|---|---|---|
+| Contents | **Read & write** | Clone the repo, commit the fix, push the branch |
+| Pull requests | **Read & write** | Open the draft PR; comment back on it |
+| Metadata | Read-only (mandatory) | Default branch, languages, basic repo info |
+| Actions | Read-only | Read workflow files for the `actions_pinned_to_sha` posture check |
+| Administration | Read-only | Read branch-protection rules for the `branch_protection` posture check |
+
+> Why these exact levels? See [ADR-0037](../adr/0037-github-app-write-permissions.md).
+> Short version: the OAuth user token returned by the device flow
+> carries the **intersection** of (App declared permissions) and (user
+> repo permissions). If the App declares only `Contents: read` the
+> token cannot push **regardless of what the signed-in user can do via
+> `gh` CLI or a PAT.** OpenSec preflights every executor run with
+> `GET /repos/{owner}/{repo}` and refuses to launch the executor when
+> `permissions.push` is `false` — fail fast beats a "success" message
+> that silently produces an unpushable branch.
+
+### What if I see a "Push to remote failed: Permission denied" error?
+
+That's the symptom of an App whose permissions are still on the V1
+read-only set. To fix:
+
+1. Open <https://github.com/settings/apps> (or your org's settings if
+   you registered the App there), click **Edit** on your OpenSec App.
+2. Under **Permissions → Repository permissions** update:
+   - **Contents**: Read-only -> **Read & write**
+   - **Pull requests**: Read-only -> **Read & write**
+   - **Actions**: not set -> **Read-only**
+   - **Administration**: not set -> **Read-only**
+3. Save. GitHub will tell you "X installations need to approve these
+   new permissions" — that's normal.
+4. Visit `https://github.com/settings/installations`, click
+   **Configure** next to OpenSec, and click **Accept new permissions**.
+   (Org installs land at
+   `https://github.com/organizations/<org>/settings/installations`.)
+5. Retry the failed remediation in OpenSec — the preflight will
+   re-check and the executor will now be able to push.
+
+If after step 5 you still see the error, double-check that the user
+who completed the device flow is the same user (or a member of the
+same org) who accepted the new permissions in step 4 — the token only
+gets re-issued with the new perms after the user (or an org admin)
+explicitly approves them.
 
 ## What's stored, where?
 
@@ -136,11 +175,15 @@ this.**
 5. **Redirect on update:** ✓ checked.
 6. **Webhook → Active:** ✗ **unchecked.** Webhooks are out of scope for
    V1.
-7. **Permissions** (read-only for V1):
-   - Repository → Contents: Read-only
+7. **Permissions** (mirror the matrix from
+   [the required-permissions section above](#required-permissions);
+   ADR-0037 explains why each level is needed):
+   - Repository → Contents: **Read & write**
+   - Repository → Pull requests: **Read & write**
    - Repository → Metadata: Read-only
+   - Repository → Actions: Read-only
+   - Repository → Administration: Read-only
    - Repository → Code scanning alerts: Read-only
-   - Repository → Pull requests: Read-only
 8. **Where can this GitHub App be installed?** → Any account.
 9. Click **Create GitHub App**.
 10. On the next page, scroll down to **Device flow** and check
