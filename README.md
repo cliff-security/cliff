@@ -18,7 +18,7 @@
 
 The security industry was built for companies with security teams. The next ten years won't have those companies.
 
-Cliff is the AI security teammate every team without a security team needs. Drop in a finding — from Snyk, Trivy, your own scanner, or a CSV — and Cliff opens a workspace, enriches the context, finds the owner, drafts the plan, files the ticket, and validates the close. Most teams cut their per-CVE workflow from days to about an hour. You steer; Cliff does the legwork.
+Cliff is the AI security teammate every team without a security team needs. Drop in a finding — from Snyk, Trivy, your own scanner, or a CSV — and Cliff opens a workspace, enriches the context, finds the owner, drafts the plan, files the ticket, and validates the close. The whole loop runs in a single chat thread — no dashboards to flip between, no per-CVE retracing. You steer; Cliff does the legwork.
 
 Built on [OpenCode](https://github.com/anomalyco/opencode). Self-hosted, AGPL-3.0, runs natively on macOS and Linux or in a single Docker container.
 
@@ -96,9 +96,9 @@ Cliff scans the codebase, opens a workspace per finding, and walks you from plan
 
 What if your security posture was as legible as your build status?
 
-Cliff scores your repo continuously and issues a public badge for your README — A through F. Closed criticals, no committed secrets, posture checks passing: that's the work that earns it. The badge is a signal — to potential users, to the enterprise prospect who just sent you a security questionnaire, to yourself — that someone on this project takes care of the boring parts.
+Cliff scores your repo against a posture rubric — closed criticals, no committed secrets, posture checks passing — and writes a completion summary you can paste in your README and share. The grade in the hero is the one Cliff issued for itself.
 
-The badge in the hero is the one Cliff issues for itself.
+The full public Cliff badge — a live, continuously-scored README badge — ships in v1.2, once enough maintainers have earned one that it actually means something. We're not rushing that. The point of a security badge is that it's credible, not that it exists.
 
 [Read the rubric](docs/guides/badge.md)
 
@@ -113,9 +113,9 @@ The badge in the hero is the one Cliff issues for itself.
 
 ## About
 
-Cliff is a product of Cliff — a small team that publishes its bug bounty methodology and the tools that apply it. Cliff is the remediation copilot; Cliff is the lab.
+Cliff is built by Cliff Security — a small team that runs a bug-bounty research practice and publishes the methodology behind it. The research finds the bugs in production browsers and other major targets; Cliff helps maintainers fix theirs.
 
-Both exist because the founder was the security person for his own projects and got tired of being it.
+Cliff exists because the founder was the security person for his own projects and got tired of being it.
 
 ---
 
