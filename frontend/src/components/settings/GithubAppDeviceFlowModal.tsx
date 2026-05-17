@@ -4,6 +4,18 @@ import {
   useGithubAppStatus,
   type DeviceFlowConnectResponse,
 } from '@/api/githubApp'
+import { ManualRecoveryCard } from './ManualRecoveryCard'
+
+/** Pull the ``state`` query param out of the install_url returned by
+ * POST /connect. Inlined here (not imported) so the modal doesn't
+ * depend on its parent button. */
+function extractCsrfState(installUrl: string): string {
+  try {
+    return new URL(installUrl).searchParams.get('state') ?? ''
+  } catch {
+    return ''
+  }
+}
 
 /**
  * Modal that walks the user through the device flow once we have a
@@ -25,6 +37,15 @@ import {
  * case, Material Symbols for icons.
  */
 const COUNTDOWN_VISIBLE_BELOW_MS = 2 * 60 * 1000  // start showing under 2 min
+
+// B33: how long we wait for the post-install GET callback to fire
+// before showing the manual recovery card. 30s is a balance between
+// "slow GitHub redirect" (median ~3-8s end-to-end on a healthy network)
+// and "GitHub never came back at all because the App's Setup URL
+// pointed at the wrong port". The user keeps a "still waiting…"
+// spinner alongside the recovery card so a slow network doesn't feel
+// rushed — the card is the *alternate* path, not a replacement.
+const MANUAL_RECOVERY_TIMEOUT_MS = 30 * 1000
 
 export function GithubAppDeviceFlowModal({
   connect,
@@ -82,6 +103,30 @@ export function GithubAppDeviceFlowModal({
     }
     return undefined
   }, [status?.status, onDismiss])
+
+  // B33: surface the manual-recovery card after 30s of polling /status
+  // still in ``installation_pending`` (i.e. the GitHub-driven GET
+  // callback hasn't fired). The csrf state is extracted from the
+  // install_url — that's what the backend's manual-setup endpoint
+  // validates against, so a state that didn't come from this /connect
+  // can't bind a hostile installation_id.
+  const csrfState = extractCsrfState(connect.install_url)
+  const [showRecoveryCard, setShowRecoveryCard] = useState(false)
+  useEffect(() => {
+    const id = window.setTimeout(
+      () => setShowRecoveryCard(true),
+      MANUAL_RECOVERY_TIMEOUT_MS,
+    )
+    return () => window.clearTimeout(id)
+  }, [])
+  // Hide the card the moment we get past installation_pending — either
+  // the user pasted an id (status flipped to device_pending) or the
+  // GET callback arrived. Either way the card has done its job and the
+  // device-flow UI should take over uncluttered.
+  const installAttached =
+    !!status &&
+    status.installation_id !== null &&
+    status.status !== 'installation_pending'
 
   // Move focus to the modal heading on mount + Escape to dismiss. Both
   // are basic dialog hygiene that screen readers + keyboard users
@@ -234,6 +279,15 @@ export function GithubAppDeviceFlowModal({
                 </>
               )}
             </p>
+
+            {/* B33: after 30s with no GET callback, surface the manual
+                recovery card. The "still waiting…" line above stays
+                visible alongside the card so a slow network doesn't
+                feel rushed — the card is an alternate path, not a
+                replacement for waiting. */}
+            {showRecoveryCard && !installAttached && csrfState && (
+              <ManualRecoveryCard csrfState={csrfState} />
+            )}
           </>
         )}
 
