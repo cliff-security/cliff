@@ -266,10 +266,20 @@ export function useAgentRuns(workspaceId: string | undefined) {
     queryKey: ['agent-runs', workspaceId],
     queryFn: () => api.listAgentRuns(workspaceId!),
     enabled: !!workspaceId,
+    // Always keep a background poll going while a workspace panel is
+    // open: when an agent IS running we tick fast (2 s) so the
+    // "Thinking…" widget updates promptly; when nothing is running we
+    // still tick at 5 s so the panel observes the freshly-completed
+    // planner flipping derived.stage → ``plan_ready`` (which is what
+    // makes the footer's "Approve & generate fix" button appear). The
+    // previous behaviour (``false`` between runs) stalled the UI on the
+    // stale "Thinking…" widget and blocked plan approval — B28/B29.
     refetchInterval: (query) => {
       const runs = query.state.data
-      const hasActive = runs?.some((r) => r.status === 'running' || r.status === 'queued')
-      return hasActive ? 3_000 : false
+      const hasActive = runs?.some(
+        (r) => r.status === 'running' || r.status === 'queued',
+      )
+      return hasActive ? 2_000 : 5_000
     },
   })
 }
