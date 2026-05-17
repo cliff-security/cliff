@@ -42,6 +42,43 @@ Phase 7 — Ticket workflow (depends on Phase 6b, deferred to post-MVP):
 
 ## App Builder (Vertical 2)
 
+### Q01R Wave 1.5 — UI happy path unblockers (EXEC-Q01R, IMPL-0012/0013/0014, ADR-0037)
+
+Nine defects (B22–B30) found in the Q01 re-run QA campaign on 2026-05-17 against a fresh Docker container, UI-only via Claude in Chrome. Two P0 hard blockers prevent any UI-only user from producing a real remediation PR. Plans land into `main`; Wave 2 re-runs the QA after merge.
+
+Per-bug reports: `docs/qa/QA-0001-Q01R-rerun-ui-only.md` + `docs/qa/evidence/Q01R/B*.md`.
+
+**PR-Q01R-A — IMPL-0013 (posture autofix + default branch)**
+
+- [ ] **Q1**: Shrink `_AUTO_FIXABLE_CHECKS` in `backend/opensec/api/routes/_level_up.py` from 4 to 2 (only `security_md`, `dependabot_config` until handlers exist) — closes B24a
+- [ ] **Q2**: Add `onError` toast + inline error rendering on the Auto-fix card in `frontend/src/components/dashboard/GateRow.tsx`; parse 422 body into a useful message — closes B24b
+- [ ] **Q3**: Resolve the repo's default branch via `GET /repos/{owner}/{repo}` once per assessment; pass through `RepoCoords` in `backend/opensec/assessment/posture/`; remove the `branch="main"` default — closes B23
+- [ ] **Q4**: Unit tests in `test_routes_level_up.py`, `test_routes_posture.py`, `test_assessment_posture.py` per IMPL-0013
+
+**PR-Q01R-B — IMPL-0014 + ADR-0037 (push token preflight + App permissions)**
+
+- [ ] **Q5**: Manual ops — update `opensec-local-test` GitHub App permissions to Contents:write + Pull requests:write + Actions:read + Administration:read — closes B30 root cause
+- [ ] **Q6**: Add `check_repo_push_access(token, owner, repo)` in `backend/opensec/integrations/github_app/client.py` using `GET /repos/{owner}/{repo}` `permissions.push` field
+- [ ] **Q7**: Gate executor trigger on preflight in `backend/opensec/api/routes/workspaces.py`; return 412 with structured detail when push not allowed
+- [ ] **Q8**: Render `agent_run.structured_output.error_details` as an inline error state in `frontend/src/components/issues/IssueSidePanel.tsx` (with "How to fix App permissions" link)
+- [ ] **Q9**: Document required App permissions in `docs/guides/setup-github-app.md` (new or amended)
+
+**PR-Q01R-C — IMPL-0012 (UI reactivity + plan flow + Issues polish)**
+
+- [ ] **Q10**: `useOpenRouterPolling` in `frontend/src/api/aiProvider.ts` — add `window.focus` listener + fallback to `/api/integrations/ai/status` when per-session record is gone — closes B22
+- [ ] **Q11**: `useAgentRuns` in `frontend/src/api/hooks.ts` — always poll at 5s while panel is open, 2s when an agent is active — closes B28 (and unlocks B29)
+- [ ] **Q12**: `DefaultFooter` at `stage='plan_ready'` in `frontend/src/components/issues/IssueSidePanel.tsx` — wrap onClick in approve-then-execute sequence so sidebar.plan.approved is correctly set to true — closes B29
+- [ ] **Q13**: Hydrate `severityFilter` (and `typeFilter`) from `useSearchParams` on mount in `frontend/src/pages/IssuesPage.tsx`; write back on change — closes B25
+- [ ] **Q14**: Tighten `showEmptyReviewCard` condition in `IssuesPage.tsx:313` to also require `sections.todo.length === 0`; rename heading to "Manual review queue is clear" — closes B26
+- [ ] **Q15**: Backend `_level_up.py` gate builders — add `first_finding_id` to gate payload; href becomes `/issues?...&open=<finding_id>` — closes B27
+
+**Follow-up (separate work, not Wave 1.5):**
+
+- [ ] Agent template + `WorkspaceKind` value for `code_owners_exists` (re-expand `_AUTO_FIXABLE_CHECKS`)
+- [ ] Agent template + `WorkspaceKind` value for `actions_pinned_to_sha` (re-expand `_AUTO_FIXABLE_CHECKS`)
+- [ ] Re-evaluate user-OAuth-token vs installation-access-token strategy when a use case for user-less execution emerges (per ADR-0037 alternatives section)
+- [ ] If 5s polling cost is ever measured as a problem, migrate `useAgentRuns` to SSE via the existing `/agent-execution/stream` endpoint
+
 ### Sidenav redesign follow-up (PRD-0006, IMPL-0008-sidenav-redesign) — shipped
 
 Closed by `feat/prd-0006-sidenav-redesign` (PR #134 / commit `b413e00`, merged 2026-05-04). 224px named rail with logo block, workspace switcher, Issues count badge, and labeled Settings footer per Claude Design's `IPSideNav`. Frontend-only, no backend, no migration.

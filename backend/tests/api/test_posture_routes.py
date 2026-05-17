@@ -129,6 +129,40 @@ async def test_fix_unknown_check_returns_422(db_client, fake_spawner):
     assert fake_spawner.calls == []
 
 
+# Q01R B24 — lock the contract for the two check names the dashboard
+# historically advertised but the backend never supported. The frontend
+# fix is the registry shrink in ``_AUTO_FIXABLE_CHECKS``; these tests
+# pin the 422 shape so the registry and the route enum stay in lockstep.
+
+
+async def test_fix_code_owners_exists_returns_422(db_client, fake_spawner):
+    resp = await db_client.post("/api/posture/fix/code_owners_exists")
+    assert resp.status_code == 422
+    assert fake_spawner.calls == []
+    body = resp.json()
+    assert isinstance(body.get("detail"), list)
+    assert body["detail"], "FastAPI 422 body must include a non-empty detail list"
+    first = body["detail"][0]
+    assert first.get("loc")[-1] == "check_name"
+    msg = first.get("msg", "")
+    assert "security_md" in msg
+    assert "dependabot_config" in msg
+
+
+async def test_fix_actions_pinned_to_sha_returns_422(db_client, fake_spawner):
+    resp = await db_client.post("/api/posture/fix/actions_pinned_to_sha")
+    assert resp.status_code == 422
+    assert fake_spawner.calls == []
+    body = resp.json()
+    assert isinstance(body.get("detail"), list)
+    assert body["detail"], "FastAPI 422 body must include a non-empty detail list"
+    first = body["detail"][0]
+    assert first.get("loc")[-1] == "check_name"
+    msg = first.get("msg", "")
+    assert "security_md" in msg
+    assert "dependabot_config" in msg
+
+
 async def test_fix_without_any_assessment_returns_409(db_client, fake_spawner):
     # No assessment ever run — posture fix has no repo target.
     resp = await db_client.post("/api/posture/fix/security_md")

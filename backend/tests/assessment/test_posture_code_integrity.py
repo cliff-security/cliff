@@ -64,7 +64,7 @@ async def test_secret_scanning_enabled_pass() -> None:
         {"security_and_analysis": {"secret_scanning": {"status": "enabled"}}}
     )
     result = await check_secret_scanning_enabled(
-        client, RepoCoords(owner="o", repo="r")
+        client, RepoCoords(owner="o", repo="r", branch="main")
     )
     assert result.status == "pass"
 
@@ -75,7 +75,7 @@ async def test_secret_scanning_disabled_fail() -> None:
         {"security_and_analysis": {"secret_scanning": {"status": "disabled"}}}
     )
     result = await check_secret_scanning_enabled(
-        client, RepoCoords(owner="o", repo="r")
+        client, RepoCoords(owner="o", repo="r", branch="main")
     )
     assert result.status == "fail"
 
@@ -84,7 +84,7 @@ async def test_secret_scanning_disabled_fail() -> None:
 async def test_secret_scanning_unknown_when_pat_lacks_scope() -> None:
     client = _StubClient(UnableToVerify(reason="http_403"))
     result = await check_secret_scanning_enabled(
-        client, RepoCoords(owner="o", repo="r")
+        client, RepoCoords(owner="o", repo="r", branch="main")
     )
     assert result.status == "unknown"
     assert result.detail == {"reason": "http_403"}

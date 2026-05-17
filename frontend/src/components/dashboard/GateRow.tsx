@@ -8,6 +8,7 @@
 import { useState } from 'react'
 import LevelUpProgressPuck from './LevelUpProgressPuck'
 import GateStatusChip, { type GateStatus } from './GateStatusChip'
+import { formatAutoFixError } from './formatAutoFixError'
 
 export type GateRowData = {
   id: string
@@ -31,6 +32,8 @@ export default function GateRow({
   gate,
   onNavigate,
   onAutoFix,
+  onAutoFixError,
+  error,
   pending,
 }: {
   gate: GateRowData
@@ -38,6 +41,17 @@ export default function GateRow({
   onNavigate?: (href: string) => void
   /** Called for the auto-fixable action. */
   onAutoFix?: (checkNames: string[]) => Promise<void> | void
+  /**
+   * Q01R B24 — invoked with a human-readable message when ``onAutoFix``
+   * rejects. The parent decides where to render the message (typically
+   * by passing the same string back as the ``error`` prop so it shows
+   * inline on the same card). Without this, a 4xx from
+   * ``POST /api/posture/fix/{check_name}`` was silently swallowed and
+   * the user saw nothing happen.
+   */
+  onAutoFixError?: (message: string) => void
+  /** Q01R B24 — inline error text rendered on the card. */
+  error?: string | null
   /** External "in flight" flag used by the parent to disable the button. */
   pending?: boolean
 }) {
@@ -56,6 +70,11 @@ export default function GateRow({
       try {
         setLocalPending(true)
         await onAutoFix?.(names)
+      } catch (err) {
+        // Q01R B24 — never swallow a 4xx; surface a parsed message to the
+        // parent so it can render it (inline + wherever else makes sense)
+        // instead of leaving the user staring at a dead button.
+        onAutoFixError?.(formatAutoFixError(err))
       } finally {
         setLocalPending(false)
       }
@@ -121,6 +140,20 @@ export default function GateRow({
             <span>{gate.unit}</span>
             <span className="sr-only">{metricText}</span>
           </div>
+          {error ? (
+            <div
+              role="alert"
+              data-testid={`gate-row-${gate.id}-error`}
+              className="mt-2"
+              style={{
+                fontSize: 12,
+                color: 'var(--error, #b3261e)',
+                textWrap: 'pretty' as never,
+              }}
+            >
+              {error}
+            </div>
+          ) : null}
         </div>
 
         <button
@@ -146,3 +179,4 @@ export default function GateRow({
     </li>
   )
 }
+

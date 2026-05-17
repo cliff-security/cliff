@@ -200,6 +200,84 @@ describe('IssueSidePanel — Refine inline state (F5)', () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// Activity error_details rendering (Q01R / B30 / IMPL-0014)
+//
+// When the executor reports an error in its structured_output the side panel
+// must surface it inline — historically the side panel sat on "Thinking…"
+// indefinitely while the agent run had a clear "Push to remote failed:
+// Permission denied" message in its structured_output. The error card must
+// also link to the setup-github-app guide so the user can fix the underlying
+// App permission gap (the actual root cause per ADR-0037).
+// ---------------------------------------------------------------------------
+
+describe('IssueSidePanel — Activity error_details (B30)', () => {
+  function withAgentRuns(workspaceId: string, runs: unknown[]) {
+    server.use(
+      http.get(`/api/workspaces/${workspaceId}/agent-runs`, () =>
+        HttpResponse.json(runs),
+      ),
+    )
+  }
+
+  it('renders an inline error card with the executor error message', async () => {
+    withAgentRuns('ws-1', [
+      {
+        id: 'run-fail',
+        workspace_id: 'ws-1',
+        agent_type: 'remediation_executor',
+        status: 'completed',
+        input_json: null,
+        summary_markdown: 'Patch applied locally',
+        confidence: 0.9,
+        evidence_json: null,
+        structured_output: {
+          status: 'needs_approval',
+          pr_url: null,
+          error_details:
+            'Push to remote failed: Permission to cliff-security/NodeGoat.git denied to galanko.',
+        },
+        next_action_hint: null,
+        started_at: '2026-05-17T12:00:00Z',
+        completed_at: '2026-05-17T12:05:00Z',
+      },
+    ])
+    renderPanel(findingForStage('failed'))
+    expect(
+      await screen.findByText(/Push to remote failed/i),
+    ).toBeInTheDocument()
+    const link = screen.getByRole('link', { name: /How to fix/i })
+    expect(link).toHaveAttribute(
+      'href',
+      expect.stringContaining('setup-github-app'),
+    )
+  })
+
+  it('does not render an error card when structured_output has no error_details', async () => {
+    withAgentRuns('ws-1', [
+      {
+        id: 'run-ok',
+        workspace_id: 'ws-1',
+        agent_type: 'remediation_executor',
+        status: 'completed',
+        input_json: null,
+        summary_markdown: 'Patch applied and pushed',
+        confidence: 0.9,
+        evidence_json: null,
+        structured_output: { status: 'pr_created', pr_url: 'https://x' },
+        next_action_hint: null,
+        started_at: '2026-05-17T12:00:00Z',
+        completed_at: '2026-05-17T12:05:00Z',
+      },
+    ])
+    renderPanel(findingForStage('pr_ready'))
+    // Wait for the activity section to render the success row, then assert
+    // no error link appears.
+    await screen.findByText(/Patch applied and pushed/i)
+    expect(screen.queryByRole('link', { name: /How to fix/i })).toBeNull()
+  })
+})
+
 describe('IssueSidePanel — Reject reason picker (F6)', () => {
   it('clicking Reject swaps the footer to a reason picker (still 72px)', () => {
     renderPanel(findingForStage('plan_ready'))
