@@ -229,7 +229,9 @@ async def update_workspace_endpoint(
         and workspace.kind == "finding_remediation"
         and workspace.finding_id is not None
     ):
-        await mark_resolved_on_workspace_close(db, workspace.finding_id)
+        await mark_resolved_on_workspace_close(
+            db, workspace.finding_id, workspace_id=workspace.id
+        )
 
     return workspace
 

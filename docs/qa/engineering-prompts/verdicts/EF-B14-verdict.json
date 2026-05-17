@@ -1,0 +1,31 @@
+{
+  "bug_id": "B14",
+  "verdict": "fixed",
+  "branch": "claude/agitated-curie-104fa8",
+  "commits": [
+    "0ffa46971bdf1b64a6ea7cf021ff4e6072f0054e",
+    "db0110c8a3eb7b9c0c1b4c98c72d958a1dffbd80",
+    "a6ac3956684a565570fa24fa106a4028f579bde0"
+  ],
+  "files_changed": [
+    "backend/opensec/db/repo_finding.py",
+    "backend/opensec/api/routes/workspaces.py",
+    "backend/opensec/agents/executor.py",
+    "backend/tests/integration/test_close_reconciles_pr_url.py",
+    "backend/tests/integration/test_advance_finding_pr_url.py"
+  ],
+  "tests_added": [
+    "backend/tests/integration/test_close_reconciles_pr_url.py::test_close_auto_populates_pr_url_from_latest_executor_run",
+    "backend/tests/integration/test_close_reconciles_pr_url.py::test_close_leaves_pr_url_null_when_no_executor_run_exists",
+    "backend/tests/integration/test_close_reconciles_pr_url.py::test_close_warns_when_executor_ran_but_pr_url_missing",
+    "backend/tests/integration/test_advance_finding_pr_url.py::test_advance_finding_status_persists_pr_url_on_executor_success",
+    "backend/tests/integration/test_advance_finding_pr_url.py::test_advance_finding_status_preserves_existing_pr_url",
+    "backend/tests/integration/test_advance_finding_pr_url.py::test_advance_finding_status_skips_pr_url_when_not_pr_created"
+  ],
+  "evidence": {
+    "before": "docs/qa/evidence/Q01/B14-B20/B14-fsevents-finding-pr_url-null.json",
+    "after": "docs/qa/engineering-prompts/evidence/EF-B14/post-close-finding.json"
+  },
+  "regression_check": "test_close_auto_populates_pr_url_from_latest_executor_run — fails on main with TypeError (mark_resolved_on_workspace_close has no workspace_id kwarg), passes on this branch with reconciled pr_url written to Finding.",
+  "reviewer_notes": "Two-layer fix: (1) executor success path persists verified pr_url onto Finding (forward defence) — _advance_finding_status now writes pr_url alongside the status='remediated' advance whenever the executor produced status='pr_created' and the PR URL has already been verified live on GitHub by the existing verification step in AgentExecutor.run(); (2) close handler reconciles from AgentRun history when the Finding row still lacks pr_url (backstop for runs whose structured_output never reached the Finding column). Existing posture-finding close path (no executor runs) still flips status with pr_url=null unchanged. Test coverage spans 6 DB-level integration tests + 3 HTTP-level TestClient tests against PATCH /api/workspaces. Full backend non-e2e suite (1267 tests) green; ruff clean. RESIDUAL (not auto-recovered): the exact QA-0001 fsevents case — executor crashed/timed out mid-stream AFTER gh pr create succeeded but BEFORE emitting parseable output — has no DB breadcrumb (status='failed', structured_output=null) so reconciliation can't recover the orphan PR. A WARNING log fires for observability. Per CEO direction this is an agent-reliability problem (executor should write intermediate state, post-mortem detect orphan branches, or checkpoint per tool call) and belongs in the agent layer, NOT in the close handler — forcing a 4XX rejection would punish users for a failure mode they can't act on from the UI. Tracked in KNOWN_ISSUES.md under 'Orphan PR after executor mid-stream crash/timeout (EF-B14 residual)'."
+}
