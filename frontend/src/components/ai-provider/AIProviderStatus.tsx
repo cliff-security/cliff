@@ -17,7 +17,6 @@ import {
   useDisconnect,
   type AIStatusResponse,
 } from '@/api/aiProvider'
-import { parseApiError } from '@/api/client'
 import { useProviderTest } from '@/api/providers'
 import { ModelPicker } from './ModelPicker'
 import {
