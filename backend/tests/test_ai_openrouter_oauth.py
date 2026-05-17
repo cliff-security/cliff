@@ -178,16 +178,16 @@ async def test_listener_state_mismatch_still_rejected_on_0_0_0_0(monkeypatch) ->
     await oauth.start_listener(
         session, on_callback=_on_cb, port=port, timeout_seconds=5.0
     )
-
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"http://127.0.0.1:{port}/callback?code=x&state=wrong-state"
-        )
-    assert resp.status_code == 400
-    await asyncio.sleep(0.05)
-    assert session.status == "error"
-
-    await oauth.stop_listener(session)
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"http://127.0.0.1:{port}/callback?code=x&state=wrong-state"
+            )
+        assert resp.status_code == 400
+        await asyncio.sleep(0.05)
+        assert session.status == "error"
+    finally:
+        await oauth.stop_listener(session)
 
 
 async def test_listener_happy_path_invokes_callback() -> None:
