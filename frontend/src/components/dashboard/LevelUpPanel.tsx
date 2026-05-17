@@ -20,12 +20,19 @@ export default function LevelUpPanel({
   data,
   onNavigate,
   onAutoFix,
+  onAutoFixError,
+  autoFixErrors,
   onViewRubric,
   autoFixPending,
 }: {
   data: LevelUpPanelData
   onNavigate?: (href: string) => void
   onAutoFix?: (checkNames: string[]) => Promise<void> | void
+  /** Q01R B24 — forwarded from each ``GateRow`` so the parent can record
+   * which gate's auto-fix failed and why. */
+  onAutoFixError?: (gateId: string, message: string) => void
+  /** Q01R B24 — map of gate id -> inline error message to render on its card. */
+  autoFixErrors?: Record<string, string | null | undefined>
   onViewRubric?: () => void
   /** Map of gate id -> in-flight flag, for the auto-fix action. */
   autoFixPending?: Record<string, boolean>
@@ -120,6 +127,12 @@ export default function LevelUpPanel({
               gate={gate}
               onNavigate={onNavigate}
               onAutoFix={onAutoFix}
+              onAutoFixError={
+                onAutoFixError
+                  ? (message) => onAutoFixError(gate.id, message)
+                  : undefined
+              }
+              error={autoFixErrors?.[gate.id] ?? null}
               pending={autoFixPending?.[gate.id]}
             />
           ))}
