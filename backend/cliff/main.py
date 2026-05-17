@@ -55,7 +55,7 @@ from cliff.engine.process import opencode_process
 from cliff.integrations.audit import AuditLogger
 from cliff.integrations.gateway import MCPConfigResolver
 from cliff.integrations.ingest_worker import ingest_worker_loop
-from cliff.integrations.vault import CredentialVault
+from cliff.integrations.vault import CredentialKeyError, CredentialVault
 from cliff.workspace.context_builder import WorkspaceContextBuilder
 from cliff.workspace.workspace_dir_manager import WorkspaceDirManager
 
@@ -67,6 +67,30 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+def _init_vault(app: FastAPI, db: object) -> None:
+    """Construct the credential vault and attach it to ``app.state.vault``.
+
+    Vault init is non-fatal: a misconfigured or missing key shouldn't keep the
+    rest of the app from starting (health, findings, etc. still work). But the
+    failure mode MUST be visible: previously a bare ``except Exception``
+    swallowed every error — including key-format problems — under the same
+    "set CLIFF_CREDENTIAL_KEY to enable" warning, even when the env var was
+    set. Operators then chased a non-existent missing-key bug while every
+    credential-protected route silently 503'd (B32).
+
+    Now ``CredentialKeyError`` (a normal, user-fixable config issue) logs at
+    WARNING with the actual reason, and any other ``Exception`` is logged at
+    WARNING with ``exc_info=True`` so the traceback reaches the operator.
+    """
+    try:
+        app.state.vault = CredentialVault(db)
+        logger.info("Credential vault initialized")
+    except CredentialKeyError as exc:
+        logger.warning("Credential vault not configured: %s", exc)
+    except Exception:
+        logger.warning("Credential vault failed to initialize", exc_info=True)
 
 
 @asynccontextmanager
@@ -148,11 +172,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Credential vault (non-fatal if key not configured)
     app.state.vault = None
     if db_connection._db is not None:
-        try:
-            app.state.vault = CredentialVault(db_connection._db)
-            logger.info("Credential vault initialized")
-        except Exception:
-            logger.warning("Credential vault not available — set CLIFF_CREDENTIAL_KEY to enable")
+        _init_vault(app, db_connection._db)
 
     # Best-effort one-shot migration: lift any legacy api_key:*
     # app_setting into the new ai_integration table so users coming
