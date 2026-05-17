@@ -79,6 +79,43 @@ Per-bug reports: `docs/qa/QA-0001-Q01R-rerun-ui-only.md` + `docs/qa/evidence/Q01
 - [ ] Re-evaluate user-OAuth-token vs installation-access-token strategy when a use case for user-less execution emerges (per ADR-0037 alternatives section)
 - [ ] If 5s polling cost is ever measured as a problem, migrate `useAgentRuns` to SSE via the existing `/agent-execution/stream` endpoint
 
+### Q01R Wave 2 — fresh-Docker + push-access cluster (EXEC-Q01R-W2, IMPL-0015/0016/0017/0018, ADR-0037 amendment)
+
+Five defects (B31–B35) found in the Q01R re-run QA on 2026-05-17 against main @ 71ce1d7 (all Wave 1.5 PRs merged). Three are P0 — they together block any fresh-Docker UI-only user from completing onboarding and producing a real PR. Wave 3 re-runs the QA after merge.
+
+Per-bug reports: `docs/qa/QA-0001-Q01R-Wave2-rerun.md` + `docs/qa/evidence/Q01R-W2/B*.md`.
+
+**PR-Q01R-W2-A — IMPL-0015 (vault key UX)**
+
+- [ ] **Q16**: `_try_env_var` in `backend/opensec/integrations/vault.py:97-103` — accept both standard AND URL-safe base64 keys. Closes B31
+- [ ] **Q17**: Split the bare `except Exception` in `backend/opensec/main.py:148-155` into `except CredentialKeyError` (log reason) + `except Exception` (log with `exc_info=True`). Closes B32
+- [ ] **Q18**: Unit tests in `backend/tests/integrations/test_vault.py` covering both decoders + garbage input; lifespan test asserts the proper warning message on bad env var
+
+**PR-Q01R-W2-B — IMPL-0016 (GitHub App callback flexibility)**
+
+- [ ] **Q19**: Factor the install-registration logic in `backend/opensec/integrations/github_app/flow.py` so both GET callback and a new POST manual route share it
+- [ ] **Q20**: Add `POST /api/integrations/github/setup/manual` (`backend/opensec/api/routes/ai_integrations.py` or wherever GitHub routes live) accepting `{installation_id, state}` with CSRF state validation. Closes B33 (backend)
+- [ ] **Q21**: UI 30 s poll after Install click + `<ManualRecoveryCard>` showing installation_id paste field in `frontend/src/components/ai-provider/GitHubAppInstall.tsx` (grep for the actual file). Closes B33 (UI)
+- [ ] **Q22**: Add Troubleshooting section to `docs/guides/setup-github-app.md` for the recovery flow
+
+**PR-Q01R-W2-C — IMPL-0017 (preflight teeth + UI terminal error)**
+
+- [ ] **Q23**: Extend `check_repo_push_access` in `backend/opensec/integrations/github_app/client.py:316-` to ALSO consult installation permissions via `GET /repos/{owner}/{repo}/installation`; return can_push=False with org-admin message when install perms < user perms. Closes B35a
+- [ ] **Q24**: Add `'executor_failed'` stage to the side panel's stage derivation in `frontend/src/components/issues/IssueSidePanel.tsx`; when `latest_run.agent_type === 'remediation_executor' && status === 'completed' && error_details != null` → header pill becomes "Needs attention" + bottom button becomes "Retry". Closes B35b
+- [ ] **Q25**: Tests: install-perms-aware preflight test, stage-derivation test, integration test that POST `/agents/remediation_executor/execute` returns 412 when install perms are insufficient
+
+**PR-Q01R-W2-D — IMPL-0018 (push-access diagnostic)**
+
+- [ ] **Q26**: `GET /api/integrations/github/diagnose` — calls `check_repo_push_access` against the configured repo; returns structured result. Closes B35c (backend)
+- [ ] **Q27**: `<PushAccessBadge>` on Settings page — green "Push verified" or red "Push blocked: {reason}" with "How to fix" link
+- [ ] **Q28**: Docs section in `docs/guides/setup-github-app.md` pointing at the Settings badge
+
+**Deferred (not Wave 2):**
+
+- [ ] **B34 reproduction** — device-flow Authorize click was flaky in W2 QA; needs more data before deciding if it's a real bug. File a follow-up task only if it reproduces in Wave 3.
+- [ ] Switch from user OAuth tokens to installation access tokens (the ADR-0037 alternative) — defer until a use case for non-user-bound execution emerges
+- [ ] Caching for `/diagnose` endpoint result (5 min) + a refresh button on the Settings badge
+
 ### Sidenav redesign follow-up (PRD-0006, IMPL-0008-sidenav-redesign) — shipped
 
 Closed by `feat/prd-0006-sidenav-redesign` (PR #134 / commit `b413e00`, merged 2026-05-04). 224px named rail with logo block, workspace switcher, Issues count badge, and labeled Settings footer per Claude Design's `IPSideNav`. Frontend-only, no backend, no migration.
