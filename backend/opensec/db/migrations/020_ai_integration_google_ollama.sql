@@ -3,10 +3,22 @@
 --
 -- SQLite has no ALTER TABLE for CHECK constraints; we rebuild the table
 -- preserving rows, the unique index, and the FK cascade.
+--
+-- H2 fix: ``PRAGMA foreign_keys`` is a no-op inside a transaction, and
+-- ``executescript`` runs each statement under its own implicit txn — so
+-- the previous ``foreign_keys = OFF`` couldn't be relied on, and the
+-- ``DROP TABLE ai_integration`` would trip the ``integration_config →
+-- ai_integration`` cascade on any installed instance that already held
+-- a row, silently losing the user's AI integration on upgrade.
+--
+-- Correct pattern for SQLite table-rebuilds: wrap everything in one
+-- explicit transaction and use ``PRAGMA defer_foreign_keys = ON`` —
+-- that DOES work inside a transaction; FKs are checked only at commit.
 
-PRAGMA foreign_keys = OFF;
+BEGIN;
+PRAGMA defer_foreign_keys = ON;
 
-CREATE TABLE IF NOT EXISTS ai_integration_new (
+CREATE TABLE ai_integration_new (
     id              TEXT PRIMARY KEY,
     integration_id  TEXT NOT NULL UNIQUE
                     REFERENCES integration_config(id) ON DELETE CASCADE,
@@ -39,4 +51,4 @@ ALTER TABLE ai_integration_new RENAME TO ai_integration;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_integration_provider
     ON ai_integration(provider);
 
-PRAGMA foreign_keys = ON;
+COMMIT;

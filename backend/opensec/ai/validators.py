@@ -62,11 +62,40 @@ _PRIVATE_HOST_NAMES = frozenset(
 
 
 def _ip_is_unsafe(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    """Return True if *ip* should not be reachable from the validator."""
+    """Return True if *ip* should not be reachable from the validator.
+
+    Strict policy: rejects loopback + RFC1918 private + link-local +
+    multicast + reserved + unspecified. Used for the "custom"
+    OpenAI-compatible provider and for LLM-output URLs (the reference
+    verifier) — both sources we cannot trust to point at the public
+    internet.
+    """
     return (
         ip.is_loopback
         or ip.is_private
         or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
+
+
+def _ip_is_obviously_unsafe(
+    ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> bool:
+    """Looser policy for Ollama: rejects only clearly-malicious targets.
+
+    Ollama is **designed** to be loopback-by-default and remote-via-SSH-
+    tunnel by intent (the picker advertises ``http://localhost:11434``
+    and SSH-tunnel/remote-Ollama users supply ``http://10.0.0.x:11434``).
+    So loopback + RFC1918 private stay allowed. What we still reject:
+
+    * link-local — would let a malformed base URL hit cloud-metadata
+      services (``169.254.169.254``);
+    * multicast / reserved / unspecified — never legitimate Ollama hosts.
+    """
+    return (
+        ip.is_link_local
         or ip.is_multicast
         or ip.is_reserved
         or ip.is_unspecified
@@ -283,15 +312,16 @@ async def validate_google(api_key: str) -> ValidationResult:
 
     The list-models endpoint authenticates with the API key but performs
     no generation, so it's the cheapest valid call to verify the key.
+
+    The key is passed via ``httpx.params`` so it's properly URL-encoded
+    (M3). A key containing ``&``, ``#``, ``?`` or whitespace would otherwise
+    silently break the URL or inject extra parameters reaching Google.
     """
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models"
-        f"?key={api_key}"
-    )
+    url = "https://generativelanguage.googleapis.com/v1beta/models"
     headers = {"content-type": "application/json"}
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
-            resp = await client.get(url, headers=headers)
+            resp = await client.get(url, params={"key": api_key}, headers=headers)
     except (httpx.TimeoutException, httpx.HTTPError):
         return ValidationResult(
             ok=False,
@@ -301,16 +331,72 @@ async def validate_google(api_key: str) -> ValidationResult:
     return _interpret_response(resp, "Google AI Studio")
 
 
+async def safe_ollama_tags_url(base_url: str | None) -> str:
+    """Validate a user-supplied Ollama base URL and return the tags URL.
+
+    Loopback and RFC1918 stay allowed (the SSH-tunnel / remote-Ollama
+    use case explicitly depends on them). Only obviously-malicious IP
+    classes (link-local incl. 169.254.169.254 cloud metadata, multicast,
+    reserved, unspecified) are rejected. Reconstructs the URL via
+    ``urlunparse`` from validated parts so the SSRF taint flow is broken
+    for static analysis (M1, M2).
+    """
+    raw = base_url or "http://localhost:11434"
+    parsed = urlparse(raw)
+    if parsed.scheme not in ("http", "https"):
+        msg = "Ollama base URL must use http:// or https://"
+        raise CustomEndpointRejectedError(msg)
+    if not parsed.hostname:
+        msg = "Ollama base URL is missing a host."
+        raise CustomEndpointRejectedError(msg)
+    host = parsed.hostname.lower()
+
+    try:
+        bare_ip: ipaddress.IPv4Address | ipaddress.IPv6Address | None = (
+            ipaddress.ip_address(host)
+        )
+    except ValueError:
+        bare_ip = None
+    if bare_ip is not None and _ip_is_obviously_unsafe(bare_ip):
+        msg = (
+            "Ollama base URL must not point at a link-local, multicast, "
+            "reserved, or unspecified address."
+        )
+        raise CustomEndpointRejectedError(msg)
+    if bare_ip is None and host not in _PRIVATE_HOST_NAMES:
+        for addr in await _resolve_host_addresses(host):
+            if _ip_is_obviously_unsafe(addr):
+                msg = (
+                    f"Ollama base URL host {host!r} resolves to a "
+                    "link-local, multicast, reserved, or unspecified "
+                    "address."
+                )
+                raise CustomEndpointRejectedError(msg)
+
+    safe_scheme = "https" if parsed.scheme == "https" else "http"
+    netloc = host if parsed.port is None else f"{host}:{parsed.port}"
+    return urlunparse((safe_scheme, netloc, "/api/tags", "", "", ""))
+
+
 async def validate_ollama(base_url: str | None = None) -> ValidationResult:
     """Probe a local Ollama install at ``{base_url}/api/tags``.
 
-    No API key — Ollama is a localhost-by-default service. The validator
-    is happy when ``/api/tags`` returns 200 (the runtime is up and
-    responsive). We deliberately do not reject loopback URLs here:
-    Ollama's whole point is loopback. The SSRF defense for "custom" stays
-    strict; "ollama" trusts the user's explicit choice of a local runtime.
+    No API key — Ollama is loopback-by-default. The validator is happy
+    when ``/api/tags`` returns 200 (runtime up + responsive).
+
+    The URL goes through ``safe_ollama_tags_url`` so a malformed or
+    obviously-malicious ``base_url`` (e.g. ``http://169.254.169.254/``
+    AWS metadata) is rejected up-front (M1). Loopback + RFC1918 stay
+    allowed — the SSH-tunnel and remote-Ollama use cases depend on it.
     """
-    url = (base_url or "http://localhost:11434").rstrip("/") + "/api/tags"
+    try:
+        url = await safe_ollama_tags_url(base_url)
+    except CustomEndpointRejectedError as exc:
+        return ValidationResult(
+            ok=False,
+            error_code="no_access",
+            error_message=str(exc),
+        )
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
             resp = await client.get(url)

@@ -24,6 +24,10 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from opensec.ai import autodetect, catalog, openrouter_oauth, validators
+from opensec.ai.validators import (
+    CustomEndpointRejectedError,
+    safe_ollama_tags_url,
+)
 from opensec.ai.models import (
     AIProvider,
     AIStatus,
@@ -415,23 +419,26 @@ async def list_provider_models(
     )
 
 
-# Shared httpx client for Ollama /api/tags probes. Lazily constructed so
-# imports don't try to create a client without a running event loop.
-_ollama_client: httpx.AsyncClient | None = None
-
-
-def _get_ollama_client() -> httpx.AsyncClient:
-    global _ollama_client
-    if _ollama_client is None:
-        _ollama_client = httpx.AsyncClient(timeout=4.0)
-    return _ollama_client
-
-
 async def _ollama_tags(base_url: str) -> list[ProviderModelOption]:
-    """Probe Ollama's /api/tags and convert to picker options."""
-    url = base_url.rstrip("/") + "/api/tags"
+    """Probe Ollama's /api/tags and convert to picker options.
+
+    Uses a per-call ``AsyncClient`` (M8): the previous module-global
+    client was never closed at app shutdown and surfaced as
+    ``unclosed transport`` warnings in CI; the cost of one client per
+    picker open is negligible.
+
+    URL is validated through ``safe_ollama_tags_url`` (M2) so a stored
+    ``base_url`` that points at an obviously-malicious target (cloud
+    metadata, link-local) returns an empty list rather than triggering
+    an outbound SSRF.
+    """
     try:
-        resp = await _get_ollama_client().get(url)
+        url = await safe_ollama_tags_url(base_url)
+    except CustomEndpointRejectedError:
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            resp = await client.get(url)
     except httpx.HTTPError:
         return []
     if resp.status_code >= 300:

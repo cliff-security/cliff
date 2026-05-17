@@ -182,9 +182,9 @@ class AgentRun(BaseModel):
     structured_output: dict[str, Any] | None = None
     next_action_hint: str | None = None
     # EF-B17 — canonical error surface for any non-success terminal state
-    # (failed, cancelled, rate_limited). The dashboard and AgentRunCard
-    # render this verbatim; ``evidence_json['error']`` is still written
-    # for backwards compatibility with consumers that grep the JSON blob.
+    # (failed, cancelled, rate_limited). Dashboard and AgentRunCard render
+    # this verbatim. ``evidence_json`` is no longer written by failure
+    # handlers (migration 021 made ``last_error`` the single column).
     last_error: str | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None

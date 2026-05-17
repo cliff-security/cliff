@@ -108,7 +108,7 @@ def _rate_limit_backoff_delay(attempt: int) -> float:
     base = RATE_LIMIT_BASE_DELAY_SECONDS
     exp = base * (2 ** max(attempt - 1, 0))
     jitter = random.uniform(0.0, base) if base > 0 else 0.0
-    return min(exp, RATE_LIMIT_MAX_DELAY_SECONDS) + jitter
+    return min(exp + jitter, RATE_LIMIT_MAX_DELAY_SECONDS)
 
 # ---------------------------------------------------------------------------
 # Permission tier classification for tool-use approval.
@@ -851,6 +851,14 @@ class AgentExecutor:
                         delay, exc,
                     )
                     await asyncio.sleep(delay)
+                    # Best-effort tear-down of the throttled session before
+                    # the next attempt. Without this we'd leak up to
+                    # RATE_LIMIT_MAX_ATTEMPTS-1 sessions per failed run in
+                    # the per-workspace OpenCode process.
+                    try:
+                        await client.delete_session(session.id)
+                    except (httpx.HTTPError, AttributeError):
+                        pass
                     # Fresh session for the next try.
                     session = await client.create_session()
 
@@ -908,7 +916,9 @@ class AgentExecutor:
                         parse_result.structured_output["references"] = (
                             ref_check.kept
                         )
-                except Exception:  # noqa: BLE001 — never fail a run on this
+                except (httpx.HTTPError, ValueError, TypeError):
+                    # Networking, bad URLs, or upstream shape surprises —
+                    # log but never fail the run on reference verification.
                     logger.warning(
                         "Reference verification raised for workspace %s",
                         workspace_id,
@@ -939,7 +949,10 @@ class AgentExecutor:
                             agent_run.id,
                             corrections,
                         )
-                except Exception:  # noqa: BLE001 — never fail a run on this
+                except (ValueError, TypeError, KeyError):
+                    # Evidence guard is pure data manipulation; the only
+                    # realistic raise surface is malformed structured
+                    # output. Log but never fail the run on it.
                     logger.warning(
                         "Evidence guard raised for workspace %s",
                         workspace_id,
@@ -1026,13 +1039,21 @@ class AgentExecutor:
 
             # 9. Update AgentRun in DB
             duration = time.monotonic() - start_time
+            # An agent run is only "completed" when parse succeeded AND
+            # the PR (if any) verified. Without parse_result.success the
+            # sidebar/context were never written (block 8a-c was skipped),
+            # so rendering the row green would mis-signal a silent failure
+            # — caught by the architect review of EF-B17 (more rate-limit
+            # retries → more parse-failure-after-retry paths).
+            parse_failed = not parse_result.success
             run_status: Literal["completed", "failed"] = (
-                "failed" if verification_error else "completed"
+                "failed"
+                if verification_error or parse_failed
+                else "completed"
             )
-            evidence_json = (
-                {"error": verification_error, "type": "PRVerificationError"}
-                if verification_error
-                else None
+            failure_message = (
+                verification_error
+                or (parse_result.error if parse_failed else None)
             )
             await update_agent_run(
                 db,
@@ -1040,15 +1061,14 @@ class AgentExecutor:
                 AgentRunUpdate(
                     status=run_status,
                     summary_markdown=(
-                        verification_error
-                        if verification_error
+                        failure_message
+                        if failure_message
                         else parse_result.summary
                     ),
                     confidence=parse_result.confidence,
                     structured_output=parse_result.structured_output,
                     next_action_hint=parse_result.suggested_next_action,
-                    evidence_json=evidence_json,
-                    last_error=verification_error,
+                    last_error=failure_message,
                 ),
             )
 
@@ -1074,7 +1094,6 @@ class AgentExecutor:
                 AgentRunUpdate(
                     status="failed",
                     summary_markdown="Agent timed out. Partial response may be available.",
-                    evidence_json={"error": timeout_error, "type": "AgentTimeoutError"},
                     last_error=timeout_error,
                 ),
             )
@@ -1110,11 +1129,6 @@ class AgentExecutor:
                 AgentRunUpdate(
                     status="rate_limited",
                     summary_markdown=_humanize_process_error(str(exc)),
-                    evidence_json={
-                        "error": str(exc),
-                        "type": "AgentRateLimitError",
-                        "attempts": RATE_LIMIT_MAX_ATTEMPTS,
-                    },
                     last_error=last_error,
                 ),
             )
@@ -1138,7 +1152,6 @@ class AgentExecutor:
                 AgentRunUpdate(
                     status="failed",
                     summary_markdown=_humanize_process_error(str(exc)),
-                    evidence_json={"error": str(exc)},
                     last_error=str(exc),
                 ),
             )
@@ -1163,7 +1176,6 @@ class AgentExecutor:
                 AgentRunUpdate(
                     status="failed",
                     summary_markdown=f"Unexpected error: {exc}",
-                    evidence_json={"error": str(exc), "type": type(exc).__name__},
                     last_error=str(exc),
                 ),
             )

@@ -716,7 +716,10 @@ function SPActivity({ workspaceId }: { workspaceId: string | null }) {
 function ActivityRunCard({ run }: { run: AgentRun }) {
   const label = agentLabel(run.agent_type)
   const duration = durationLabel(run.started_at, run.completed_at)
-  const isFailed = run.status === 'failed' || run.status === 'cancelled'
+  const isFailed =
+    run.status === 'failed' ||
+    run.status === 'cancelled' ||
+    run.status === 'rate_limited'
   const isRunning = run.status === 'running' || run.status === 'queued'
 
   return (

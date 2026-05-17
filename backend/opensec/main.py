@@ -83,7 +83,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # to skip this whole tree — Spotlight indexing of per-workspace
     # node_modules was pinning load average ~17 under concurrent
     # workspaces. Harmless on Linux (just an unused dot-file).
-    (data_dir / ".metadata_never_index").touch(exist_ok=True)
+    spotlight_marker = data_dir / ".metadata_never_index"
+    if not spotlight_marker.exists():
+        spotlight_marker.touch()
     db_path = data_dir / "opensec.db"
     first_run = not db_path.exists()
     if first_run:
@@ -233,14 +235,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # "this key authenticates", not just "a key is present" (Q01-B02).
         # Only a definitive auth rejection (401/403 → ``auth_failed``) flips
         # readiness off; network blips, rate limits and billing errors leave
-        # it untouched so the signal doesn't flap on a transient probe.
+        # the prior readiness value untouched so the signal doesn't flap on
+        # a transient probe (L6).
+        prior_ok = getattr(app.state, "ai_provider_credential_ok", False)
         try:
             verdict = await service.verify_active_credential()
         except Exception:
             logger.warning(
-                "AI credential verification failed", exc_info=True
+                "AI credential verification raised (likely transient); "
+                "keeping prior readiness=%s",
+                prior_ok,
+                exc_info=True,
             )
-            app.state.ai_provider_credential_ok = False
+            app.state.ai_provider_credential_ok = prior_ok
             return
         app.state.ai_provider_credential_ok = (
             verdict is not None and verdict.error_code != "auth_failed"
@@ -251,7 +258,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # AND so the singleton OpenCode (started just below) inherits the
     # current AI provider key from boot zero rather than waiting for
     # the first connect / disconnect hook.
-    await _refresh_ai_env_cache()
+    #
+    # Skip the live-probe on the boot path (M5): the upstream HTTPS
+    # round-trip would block ``lifespan`` for up to 5s, hanging the
+    # first post-Docker-restart request. The probe runs as a background
+    # task so /healthz answers immediately; readiness flips when it
+    # completes.
+    await _refresh_ai_env_cache(verify=False)
+    asyncio.create_task(_refresh_ai_env_cache(verify=True))
 
     async def _ai_env_resolver() -> dict[str, str]:
         return dict(app.state.ai_env_cache)

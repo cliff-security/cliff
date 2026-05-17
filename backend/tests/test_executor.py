@@ -165,9 +165,16 @@ class TestAgentExecutor:
         mock_sidebar.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_parse_failure_still_completes(self, mock_pool, mock_context_builder,
+    async def test_parse_failure_marks_failed(self, mock_pool, mock_context_builder,
         mock_db, workspace_dir):
-        """When LLM returns text but no valid JSON, status is still completed."""
+        """When LLM returns text but no valid JSON, the run is FAILED.
+
+        Previously this returned ``completed`` while skipping the sidebar
+        + context writes — a silent green-row state. The architect review
+        of EF-B17 flagged it (more retries = more parse-after-retry
+        misses). Now the executor flips to ``failed`` and populates
+        ``last_error`` from ``parse_result.error``.
+        """
         response_text = "I analyzed the vulnerability but forgot to return JSON."
         mock_pool.get_or_start.return_value = _make_mock_client(response_text)
 
@@ -178,7 +185,7 @@ class TestAgentExecutor:
                 "opensec.agents.executor.create_agent_run",
                 return_value=_make_mock_agent_run(),
             ),
-            patch("opensec.agents.executor.update_agent_run"),
+            patch("opensec.agents.executor.update_agent_run") as mock_update,
             patch("opensec.agents.executor.list_agent_runs", return_value=[]),
             patch("opensec.agents.executor.map_and_upsert") as mock_sidebar,
             patch("opensec.agents.executor._advance_finding_status", return_value=None),
@@ -187,12 +194,17 @@ class TestAgentExecutor:
                 "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
             )
 
-        assert result.status == "completed"
+        assert result.status == "failed"
         assert result.parse_result.success is False
         assert result.sidebar_updated is False
-        # Context builder should NOT have been called (no structured output)
+        # Context builder + sidebar must NOT be touched on parse failure.
         mock_context_builder.update_context.assert_not_called()
         mock_sidebar.assert_not_called()
+        # The DB row must carry the parse error in last_error so the UI
+        # can surface "we couldn't read the agent's output".
+        final_update = mock_update.call_args_list[-1][0][2]
+        assert final_update.status == "failed"
+        assert final_update.last_error
 
     @pytest.mark.asyncio
     async def test_busy_workspace_raises(self, mock_pool, mock_context_builder,
@@ -477,7 +489,12 @@ class TestAgentExecutor:
     @pytest.mark.asyncio
     async def test_retry_still_fails(self, mock_pool, mock_context_builder,
         mock_db, workspace_dir):
-        """When both attempts fail to produce JSON, result is completed but not parsed."""
+        """Both attempts produce no JSON → run marked FAILED (not completed).
+
+        Architect review of EF-B17: marking the row ``completed`` while
+        the sidebar/context blocks were skipped masks the failure with
+        a green row in the UI.
+        """
         bad_response = "I'll try to read the files instead of returning JSON."
         mock_pool.get_or_start.return_value = _make_mock_client(bad_response)
 
@@ -497,7 +514,7 @@ class TestAgentExecutor:
                 "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
             )
 
-        assert result.status == "completed"
+        assert result.status == "failed"
         assert result.parse_result.success is False
         assert result.sidebar_updated is False
         mock_sidebar.assert_not_called()

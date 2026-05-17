@@ -23,12 +23,15 @@ Never raises. A reference that cannot be positively disproven is kept.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import re
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
 import httpx
+
+from opensec.ai.validators import _ip_is_unsafe
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +74,19 @@ def _sanitize_reason(url: str) -> str | None:
         return "unparseable"
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         return "not_http_url"
+    # SSRF defense (L2): drop bare-IP references in loopback / private /
+    # link-local / multicast / reserved / unspecified ranges. The agent
+    # output is LLM-controlled, so a prompt-injected finding could try
+    # to coerce a probe at ``http://169.254.169.254/...`` (cloud
+    # metadata) or ``http://localhost:.../shutdown``. References can
+    # only legitimately point at the public internet.
+    host = (parsed.hostname or "").lower()
+    try:
+        bare_ip = ipaddress.ip_address(host)
+    except ValueError:
+        bare_ip = None
+    if bare_ip is not None and _ip_is_unsafe(bare_ip):
+        return "unsafe_ip"
     # GitHub commit URLs carry a SHA that must be a real git object name.
     if parsed.netloc.lower() in ("github.com", "www.github.com"):
         commit = _GITHUB_COMMIT_RE.match(parsed.path)

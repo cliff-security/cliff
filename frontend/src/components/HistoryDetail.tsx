@@ -41,7 +41,10 @@ export default function HistoryDetail({ workspace }: HistoryDetailProps) {
   }, [workspace.current_focus])
 
   const completedRuns = (agentRuns ?? []).filter(
-    (r) => r.status === 'completed' || r.status === 'failed',
+    (r) =>
+      r.status === 'completed' ||
+      r.status === 'failed' ||
+      r.status === 'rate_limited',
   )
 
   const tabs = [

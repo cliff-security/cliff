@@ -9,8 +9,9 @@ The root cause: OpenCode wraps an upstream provider 429 into a
 1. A retry-able rate-limit (1-2 throttles followed by success) now finishes
    the run with ``status == 'completed'`` instead of failing on attempt 1.
 2. A persistent rate-limit terminates the run with ``status='rate_limited'``
-   AND ``last_error`` populated AND ``evidence_json['error']`` populated —
-   no silent 76 s timeouts.
+   AND ``last_error`` populated — no silent 76 s timeouts. (``last_error``
+   is the canonical error column since migration 021; the older
+   ``evidence_json['error']`` mirror is no longer written.)
 
 The tests mock the workspace pool's OpenCode client so they're pure unit
 tests of the retry loop in ``executor.execute``; the in-memory aiosqlite
@@ -223,14 +224,15 @@ async def test_rate_limit_exhausted_terminates_with_status_and_last_error(
     # stall-poller tail as the success case; still well below 18 s.
     assert elapsed < 18.0, f"exhausted retry took too long ({elapsed:.1f}s)"
 
-    # DB update must carry status, last_error, and evidence_json.error.
+    # DB update must carry status + last_error (canonical column since
+    # migration 021).
     final_call = mock_update.call_args_list[-1]
     final_update = final_call[0][2]
     assert final_update.status == "rate_limited"
     assert final_update.last_error and "rate limit" in final_update.last_error.lower()
-    assert final_update.evidence_json is not None
-    assert "error" in final_update.evidence_json
-    assert final_update.evidence_json.get("type") == "AgentRateLimitError"
+    # evidence_json is intentionally not written on failure paths anymore
+    # (drop confirmed by /architect: nothing consumed the JSON mirror).
+    assert final_update.evidence_json is None
 
 
 @pytest.mark.asyncio

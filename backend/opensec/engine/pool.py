@@ -153,7 +153,6 @@ class WorkspaceProcess:
     process: asyncio.subprocess.Process | None = None
     client: OpenCodeClient | None = None
     last_activity: float = field(default_factory=time.monotonic)
-    _healthy: bool = False
 
     def touch(self) -> None:
         """Update last_activity timestamp."""
@@ -298,6 +297,18 @@ class WorkspaceProcessPool:
         # Giving each workspace its own cache eliminates the contention.
         npm_cache = workspace_dir / ".npm-cache"
         npm_cache.mkdir(parents=True, exist_ok=True)
+        # Refuse to follow a symlink — workspace_dir is OpenSec-owned, but
+        # if anything ever pre-creates ``.npm-cache`` as a symlink out of
+        # the workspace, npm install would silently write elsewhere.
+        # We resolve both sides so /tmp -> /private/tmp on macOS doesn't
+        # false-positive.
+        if (
+            npm_cache.is_symlink()
+            or not npm_cache.resolve().is_relative_to(workspace_dir.resolve())
+        ):
+            raise RuntimeError(
+                f"refusing to use non-real npm cache dir at {npm_cache}"
+            )
         merged_env_vars["NPM_CONFIG_CACHE"] = str(npm_cache)
 
         # Reconcile the workspace's opencode.json model with the active AI
@@ -359,7 +370,6 @@ class WorkspaceProcessPool:
             await self._wait_for_healthy(wp, timeout=30.0)
 
             wp.client = OpenCodeClient(base_url=wp.base_url)
-            wp._healthy = True
 
             # Push AI auth *before* publishing to ``self._processes``: the
             # ``get_or_start`` fast path reads that dict outside the per-

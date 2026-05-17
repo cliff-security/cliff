@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, field_validator
 
 AIProvider = Literal[
     "openrouter", "anthropic", "openai", "google", "ollama", "custom"
@@ -177,6 +177,27 @@ class BYOKRequest(BaseModel):
     api_key: SecretStr = Field(..., min_length=1)
     base_url: str | None = None
     model: str | None = None
+
+    @field_validator("base_url")
+    @classmethod
+    def _base_url_must_look_like_url(cls, value: str | None) -> str | None:
+        """Reject obviously-malformed base URLs at the wire (M1).
+
+        We don't apply the DNS-aware SSRF check here — the per-provider
+        validator (``validate_ollama`` / ``validate_custom``) does that
+        with the provider-specific policy (Ollama keeps loopback +
+        RFC1918; custom rejects them). Stopping bad URL shapes here
+        means a non-URL string ("'); DROP TABLE--", "foo bar") never
+        reaches the validator or the per-workspace env injection.
+        """
+        if value is None or value == "":
+            return None
+        from urllib.parse import urlparse
+        parsed = urlparse(value)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            msg = "base_url must be a http:// or https:// URL with a host"
+            raise ValueError(msg)
+        return value
 
 
 class SetModelRequest(BaseModel):

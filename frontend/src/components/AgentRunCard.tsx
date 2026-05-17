@@ -5,7 +5,9 @@ const agentLabels: Record<string, string> = {
   finding_enricher: 'Finding Enricher',
   owner_resolver: 'Owner Resolver',
   exposure_analyzer: 'Exposure Analyzer',
+  evidence_collector: 'Evidence Collector',
   remediation_planner: 'Remediation Planner',
+  remediation_executor: 'Remediation Executor',
   validation_checker: 'Validation Checker',
 }
 
