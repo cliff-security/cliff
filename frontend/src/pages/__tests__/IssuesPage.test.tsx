@@ -245,7 +245,7 @@ describe('IssuesPage', () => {
       ]
       // Tag one as a posture finding by manipulating the fixture.
       findings[0].type = 'posture'
-      findings[1].type = 'vulnerability'
+      findings[1].type = 'code'
       renderPage(findings, ['/issues?type=posture'])
       await screen.findByText('Issue p1')
       expect(screen.getByText('Issue p1')).toBeInTheDocument()
