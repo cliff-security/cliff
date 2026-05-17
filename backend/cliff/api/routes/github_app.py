@@ -17,8 +17,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
@@ -674,8 +675,6 @@ def _parse_owner_repo_from_url(repo_url: str) -> tuple[str, str] | None:
     patterns (``https://attacker.com/github.com/...`` and
     ``https://github.com.attacker.com/...``).
     """
-    from urllib.parse import urlparse
-
     if not isinstance(repo_url, str) or not repo_url:
         return None
     try:
@@ -789,8 +788,6 @@ async def diagnose_push_access(
 
     owner, repo = owner_repo
     access = await check_repo_push_access(token=token, owner=owner, repo=repo)
-
-    from datetime import UTC, datetime
 
     response = PushAccessDiagnoseResponse(
         can_push=access.can_push,
