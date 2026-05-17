@@ -145,12 +145,17 @@ ENV OPENSEC_APP_HOST=0.0.0.0 \
     OPENSEC_OPENCODE_BIN=/app/bin/opencode \
     OPENSEC_SCANNER_BIN_DIR=/app/bin \
     OPENSEC_DATA_DIR=/data \
+    OPENSEC_OAUTH_CALLBACK_HOST=0.0.0.0 \
     HOME=/home/opensec
 
 # Persistent data volume
 VOLUME ["/data"]
 
-EXPOSE 8000
+# 8000 is the app; 3000 is the one-shot OpenRouter OAuth callback listener
+# (only bound while a connect flow is in progress). Publish 3000 only if
+# users will run the OAuth onboarding inside the container — otherwise
+# the BYOK paths suffice.
+EXPOSE 8000 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
