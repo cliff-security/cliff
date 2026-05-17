@@ -419,3 +419,115 @@ class TestExecutorPushPreflight:
 
         assert resp.status_code == 202, resp.text
         assert preflight.await_count == 0
+
+
+# ---------------------------------------------------------------------------
+# URL parser (security): _parse_owner_repo_from_url
+# ---------------------------------------------------------------------------
+# Direct unit tests for the helper that feeds the preflight. Guards against
+# CodeQL py/incomplete-url-substring-sanitization regressions — the parser
+# must use an exact hostname match, not a substring/endswith check.
+
+
+class TestParseOwnerRepoFromUrl:
+    def test_canonical_https_url(self):
+        from opensec.api.routes.agent_execution import _parse_owner_repo_from_url
+
+        assert _parse_owner_repo_from_url(
+            "https://github.com/owner/repo"
+        ) == ("owner", "repo")
+
+    def test_strips_trailing_dot_git(self):
+        from opensec.api.routes.agent_execution import _parse_owner_repo_from_url
+
+        assert _parse_owner_repo_from_url(
+            "https://github.com/owner/repo.git"
+        ) == ("owner", "repo")
+
+    def test_extra_path_segments_ignored(self):
+        from opensec.api.routes.agent_execution import _parse_owner_repo_from_url
+
+        assert _parse_owner_repo_from_url(
+            "https://github.com/owner/repo/pulls/1"
+        ) == ("owner", "repo")
+
+    def test_rejects_github_com_in_path(self):
+        """Bypass attempt: attacker domain with 'github.com' in the path
+        must not be parsed as a GitHub URL."""
+        from opensec.api.routes.agent_execution import _parse_owner_repo_from_url
+
+        assert (
+            _parse_owner_repo_from_url(
+                "https://attacker.com/github.com/owner/repo"
+            )
+            is None
+        )
+
+    def test_rejects_github_com_as_subdomain_prefix(self):
+        """Bypass attempt: 'github.com.attacker.com' would pass a naive
+        ``endswith('github.com')`` check but is a different hostname."""
+        from opensec.api.routes.agent_execution import _parse_owner_repo_from_url
+
+        assert (
+            _parse_owner_repo_from_url(
+                "https://github.com.attacker.com/owner/repo"
+            )
+            is None
+        )
+
+    def test_rejects_subdomain_of_github_com(self):
+        """``raw.githubusercontent.com`` and similar must not be accepted —
+        the preflight calls the v3 API which only lives at api.github.com /
+        github.com proper."""
+        from opensec.api.routes.agent_execution import _parse_owner_repo_from_url
+
+        assert (
+            _parse_owner_repo_from_url(
+                "https://raw.githubusercontent.com/owner/repo"
+            )
+            is None
+        )
+
+    def test_rejects_non_github_host(self):
+        from opensec.api.routes.agent_execution import _parse_owner_repo_from_url
+
+        assert (
+            _parse_owner_repo_from_url("https://gitlab.com/owner/repo")
+            is None
+        )
+
+    def test_rejects_non_http_scheme(self):
+        """``javascript:`` / ``file://`` / SSH URLs should be rejected so
+        the preflight never tries to GET them."""
+        from opensec.api.routes.agent_execution import _parse_owner_repo_from_url
+
+        assert (
+            _parse_owner_repo_from_url("git@github.com:owner/repo.git")
+            is None
+        )
+        assert (
+            _parse_owner_repo_from_url("file:///github.com/owner/repo")
+            is None
+        )
+
+    def test_rejects_missing_repo_segment(self):
+        from opensec.api.routes.agent_execution import _parse_owner_repo_from_url
+
+        assert _parse_owner_repo_from_url("https://github.com/owner") is None
+        assert _parse_owner_repo_from_url("https://github.com/") is None
+
+    def test_rejects_empty_and_non_string(self):
+        from opensec.api.routes.agent_execution import _parse_owner_repo_from_url
+
+        assert _parse_owner_repo_from_url("") is None
+        # Guard against accidental None being passed from a caller that
+        # forgot to validate.
+        assert _parse_owner_repo_from_url(None) is None  # type: ignore[arg-type]
+
+    def test_hostname_case_insensitive(self):
+        """RFC 3986: host is case-insensitive. Don't reject GITHUB.COM."""
+        from opensec.api.routes.agent_execution import _parse_owner_repo_from_url
+
+        assert _parse_owner_repo_from_url(
+            "https://GitHub.com/owner/repo"
+        ) == ("owner", "repo")

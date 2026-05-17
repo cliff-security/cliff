@@ -84,12 +84,26 @@ def _parse_owner_repo_from_url(repo_url: str) -> tuple[str, str] | None:
     ``None`` for anything that doesn't look like a GitHub repo URL — the
     caller treats that as "skip the preflight" rather than as a failure,
     because non-GitHub remotes are out of scope for this gate.
+
+    Security: uses ``urlparse`` and an exact ``hostname == "github.com"``
+    check (not a substring / endswith). This rejects bypass attempts like
+    ``https://attacker.com/github.com/owner/repo`` (github.com in path) and
+    ``https://github.com.attacker.com/owner/repo`` (github.com as a subdomain
+    prefix of an attacker domain). See CodeQL rule
+    py/incomplete-url-substring-sanitization.
     """
+    if not isinstance(repo_url, str) or not repo_url:
+        return None
     try:
         parsed = urlparse(repo_url)
     except ValueError:
         return None
-    if not parsed.netloc.endswith("github.com"):
+    # Exact hostname match — case-insensitive per RFC 3986 (urlparse already
+    # lowercases ``hostname``). Reject anything without an https scheme so a
+    # crafted ``javascript:`` or ``file://`` URL can't slip through.
+    if parsed.scheme not in ("https", "http"):
+        return None
+    if parsed.hostname != "github.com":
         return None
     parts = [p for p in parsed.path.strip("/").split("/") if p]
     if len(parts) < 2:
@@ -97,6 +111,8 @@ def _parse_owner_repo_from_url(repo_url: str) -> tuple[str, str] | None:
     owner, name = parts[0], parts[1]
     if name.endswith(".git"):
         name = name[:-4]
+    if not owner or not name:
+        return None
     return owner, name
 
 
