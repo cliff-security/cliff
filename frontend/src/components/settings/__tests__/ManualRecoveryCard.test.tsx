@@ -63,9 +63,7 @@ afterEach(() => {
 describe('ManualRecoveryCard (standalone)', () => {
   it('renders the installation ID input + hidden CSRF state field', () => {
     render(
-      wrap(
-        <ManualRecoveryCard csrfState="abc123xyz" onAttached={() => {}} />,
-      ),
+      wrap(<ManualRecoveryCard csrfState="abc123xyz" />),
     )
 
     const idInput = screen.getByTestId('github-manual-recovery-input')
@@ -103,13 +101,8 @@ describe('ManualRecoveryCard (standalone)', () => {
       ),
     )
 
-    const onAttached = vi.fn()
     const user = userEvent.setup()
-    render(
-      wrap(
-        <ManualRecoveryCard csrfState="abc123xyz" onAttached={onAttached} />,
-      ),
-    )
+    render(wrap(<ManualRecoveryCard csrfState="abc123xyz" />))
 
     await user.type(
       screen.getByTestId('github-manual-recovery-input'),
@@ -122,7 +115,6 @@ describe('ManualRecoveryCard (standalone)', () => {
       installation_id: 12345,
       state: 'abc123xyz',
     })
-    expect(onAttached).toHaveBeenCalled()
   })
 
   it('surfaces backend 400 errors inline (CSRF state mismatch)', async () => {
@@ -137,13 +129,8 @@ describe('ManualRecoveryCard (standalone)', () => {
       ),
     )
 
-    const onAttached = vi.fn()
     const user = userEvent.setup()
-    render(
-      wrap(
-        <ManualRecoveryCard csrfState="wrong-state" onAttached={onAttached} />,
-      ),
-    )
+    render(wrap(<ManualRecoveryCard csrfState="wrong-state" />))
 
     await user.type(
       screen.getByTestId('github-manual-recovery-input'),
@@ -151,13 +138,12 @@ describe('ManualRecoveryCard (standalone)', () => {
     )
     await user.click(screen.getByTestId('github-manual-recovery-submit'))
 
+    // The 400 surfaces an inline error rather than crashing or
+    // dismissing — the user's recourse is to restart the flow from
+    // the catalog tile rather than retry with the dead csrf_state.
     expect(
       await screen.findByTestId('github-manual-recovery-error'),
     ).toBeInTheDocument()
-    // The 400 ran → onAttached must NOT be called → user must restart
-    // the flow from the catalog tile rather than try again with the
-    // same dead csrf_state.
-    expect(onAttached).not.toHaveBeenCalled()
   })
 
   it('rejects empty or non-numeric installation IDs client-side', async () => {
@@ -171,11 +157,7 @@ describe('ManualRecoveryCard (standalone)', () => {
         },
       ),
     )
-    render(
-      wrap(
-        <ManualRecoveryCard csrfState="abc123xyz" onAttached={() => {}} />,
-      ),
-    )
+    render(wrap(<ManualRecoveryCard csrfState="abc123xyz" />))
 
     // Submit button stays disabled when the input is empty — defensive.
     const submit = screen.getByTestId('github-manual-recovery-submit')

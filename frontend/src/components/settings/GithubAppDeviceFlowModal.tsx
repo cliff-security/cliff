@@ -286,14 +286,7 @@ export function GithubAppDeviceFlowModal({
                 feel rushed — the card is an alternate path, not a
                 replacement for waiting. */}
             {showRecoveryCard && !installAttached && csrfState && (
-              <ManualRecoveryCard
-                csrfState={csrfState}
-                onAttached={() => {
-                  // No state change needed — the manual setup mutation
-                  // pushes the new /status into the query cache, which
-                  // flips installAttached to true and hides the card.
-                }}
-              />
+              <ManualRecoveryCard csrfState={csrfState} />
             )}
           </>
         )}

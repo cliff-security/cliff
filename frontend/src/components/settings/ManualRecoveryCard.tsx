@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { parseApiError } from '@/api/client'
 import { useGithubAppManualSetup } from '@/api/githubApp'
 
 /**
@@ -25,16 +26,11 @@ import { useGithubAppManualSetup } from '@/api/githubApp'
  */
 export function ManualRecoveryCard({
   csrfState,
-  onAttached,
 }: {
   /** CSRF state issued by the most recent POST /connect. The backend
    * refuses any installation_id that wasn't bound to a state it
    * issued, so an empty/mismatched value will 400. */
   csrfState: string
-  /** Called once the manual POST succeeds and the row is bound. The
-   * parent re-mounts the device-flow modal so the user can complete
-   * the per-device authorize step. */
-  onAttached: () => void
 }) {
   const manualSetup = useGithubAppManualSetup()
   const [installationId, setInstallationId] = useState('')
@@ -55,21 +51,21 @@ export function ManualRecoveryCard({
       return
     }
     try {
+      // The mutation pushes the resulting /status into the query cache
+      // on success, which causes the modal's ``installAttached`` to flip
+      // true and unmount this card. No imperative callback needed.
       await manualSetup.mutateAsync({
         installation_id: parsed,
         state: csrfState,
       })
-      onAttached()
     } catch (err) {
-      // The backend's 400 detail string is intentionally vague (no echo
-      // of the state value); surface it verbatim. A failed CSRF check
-      // is the most likely cause and the user's recourse is to start
-      // the connect flow over from the catalog tile.
-      const message =
-        err instanceof Error
-          ? err.message.replace(/^\d+:\s*/, '')
-          : 'Could not register installation.'
-      setSubmissionError(message)
+      // parseApiError unwraps the ``NNN: body`` shape that ``request``
+      // throws and pulls FastAPI's ``detail`` field out of the JSON body
+      // — that's the human-readable string the backend wrote (e.g. the
+      // CSRF mismatch message). The recourse for any failure here is to
+      // start the connect flow over from the catalog tile.
+      const { message } = parseApiError(err)
+      setSubmissionError(message || 'Could not register installation.')
     }
   }
 
