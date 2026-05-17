@@ -227,3 +227,48 @@ async def test_run_all_fetches_branch_protection_only_once(tmp_path: Path) -> No
     gh.list_recent_commits.return_value = []
     await run_all_posture_checks(tmp_path, gh_client=gh, coords=COORDS)
     assert gh.get_branch_protection.await_count == 1
+
+
+# Q01R-B23 — posture checks must honour the repo's real default branch.
+# Before this fix RepoCoords.branch defaulted to "main", which 403'd on
+# branch protection and 404'd on commits for every ``master``-default
+# repo (NodeGoat and friends). The runner now resolves the default branch
+# from /repos/{owner}/{repo} and passes it through; these tests pin that
+# the orchestrator threads the value into the GitHub calls verbatim.
+
+
+@pytest.mark.asyncio
+async def test_run_all_uses_master_when_coords_branch_is_master(
+    tmp_path: Path,
+) -> None:
+    gh = AsyncMock()
+    gh.get_branch_protection.return_value = None
+    gh.list_recent_commits.return_value = []
+    coords = RepoCoords(owner="acme", repo="legacy", branch="master")
+    await run_all_posture_checks(tmp_path, gh_client=gh, coords=coords)
+    gh.get_branch_protection.assert_awaited_once_with("acme", "legacy", "master")
+    gh.list_recent_commits.assert_awaited_once_with("acme", "legacy", "master")
+
+
+@pytest.mark.asyncio
+async def test_run_all_uses_main_when_coords_branch_is_main(
+    tmp_path: Path,
+) -> None:
+    gh = AsyncMock()
+    gh.get_branch_protection.return_value = None
+    gh.list_recent_commits.return_value = []
+    coords = RepoCoords(owner="acme", repo="modern", branch="main")
+    await run_all_posture_checks(tmp_path, gh_client=gh, coords=coords)
+    gh.get_branch_protection.assert_awaited_once_with("acme", "modern", "main")
+    gh.list_recent_commits.assert_awaited_once_with("acme", "modern", "main")
+
+
+def test_repo_coords_branch_is_required() -> None:
+    """RepoCoords must not silently default to ``main`` anymore.
+
+    Defaulting hid B23: callers that forgot to pass ``branch`` quietly
+    queried ``/branches/main/...`` on master-default repos. Making the
+    field required forces the caller to compute the right value.
+    """
+    with pytest.raises(TypeError):
+        RepoCoords(owner="acme", repo="app")  # type: ignore[call-arg]

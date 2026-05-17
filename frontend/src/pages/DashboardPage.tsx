@@ -8,7 +8,7 @@
  */
 
 import type React from 'react'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router'
 import {
@@ -445,15 +445,45 @@ function ReportCard({ data }: { data: DashboardPayload }) {
     weekly_delta: number
   }>
 
+  const [autoFixErrors, setAutoFixErrors] = useState<
+    Record<string, string | null>
+  >({})
+
   const handleAutoFix = async (checkNames: string[]) => {
-    // Fan out parallel POST /api/posture/fix/{check_name}. Existing 409 guard
-    // returns "already running"; surface that as a no-op rather than an error.
-    await Promise.allSettled(
+    // Fan out parallel POST /api/posture/fix/{check_name}. The route's 409
+    // guard ("already running") is a deliberate no-op; any other rejection
+    // is something the user needs to see (Q01R B24). We use ``allSettled``
+    // so one bad check doesn't cancel the others, then re-throw a combined
+    // error if every call rejected — that re-throw is what ``GateRow``
+    // catches and forwards to ``onAutoFixError``.
+    const results = await Promise.allSettled(
       checkNames.map((name) =>
         fixMutation.mutateAsync({ checkName: name as PostureFixableCheck }),
       ),
     )
     queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+
+    const rejections = results.flatMap((r, i) => {
+      if (r.status !== 'rejected') return []
+      const msg = r.reason instanceof Error ? r.reason.message : String(r.reason)
+      // 409 with "workspace_already_running" is the deliberate no-op — skip it.
+      if (msg.startsWith('409:') && msg.includes('workspace_already_running')) {
+        return []
+      }
+      return [{ name: checkNames[i], reason: r.reason as unknown }]
+    })
+
+    if (rejections.length > 0) {
+      // Re-throw the first real rejection so ``GateRow``'s onClickAction
+      // ``catch`` fires and forwards a parsed message via ``onAutoFixError``.
+      throw rejections[0].reason instanceof Error
+        ? rejections[0].reason
+        : new Error(String(rejections[0].reason))
+    }
+  }
+
+  const handleAutoFixError = (gateId: string, message: string) => {
+    setAutoFixErrors((prev) => ({ ...prev, [gateId]: message }))
   }
 
   const handleReassess = () => {
@@ -547,6 +577,8 @@ function ReportCard({ data }: { data: DashboardPayload }) {
               }}
               onNavigate={(href) => navigate(href)}
               onAutoFix={handleAutoFix}
+              onAutoFixError={handleAutoFixError}
+              autoFixErrors={autoFixErrors}
               onViewRubric={() =>
                 document
                   .querySelector<HTMLDialogElement>(

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+from opensec.ai import catalog as ai_catalog
 from opensec.config import settings
 
 if TYPE_CHECKING:
@@ -45,7 +46,13 @@ class OpenCodeProcess:
             "Starting OpenCode server on %s:%d", settings.opencode_host, settings.opencode_port
         )
 
-        env = {**os.environ, **self._extra_env} if self._extra_env else None
+        # Scrub host-inherited AI-provider env vars before layering on the
+        # resolved ones — OpenSec owns the AI-provider environment, and a
+        # polluted host (e.g. Claude Desktop's ``ANTHROPIC_BASE_URL``
+        # without ``/v1``) must not leak into the engine. (QA Q01 B07.)
+        _scrub = ai_catalog.provider_env_var_names()
+        env = {k: v for k, v in os.environ.items() if k not in _scrub}
+        env.update(self._extra_env)
 
         self._process = await asyncio.create_subprocess_exec(
             str(binary),

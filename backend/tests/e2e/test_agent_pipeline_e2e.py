@@ -129,10 +129,35 @@ def template_engine() -> AgentTemplateEngine:
 
 
 @pytest.fixture
-async def pool():
-    """Process pool using ports 4230-4240 to avoid conflicts with other E2E tests."""
+async def pool(db):
+    """Process pool using ports 4230-4240 to avoid conflicts with other E2E tests.
+
+    Wires an ``env_resolver`` that drains ``OPENAI_API_KEY`` from the host
+    env into the spawned workspace OpenCode subprocess. Without it the
+    pool's provider-env-var scrubber (commit 2321931 — workspace isolation
+    from host AI env) strips the host key and OpenCode 401s with "Missing
+    Authentication header" — which is what we test, not what we want to
+    test against.
+    """
+    import os
+
+    async def _env_resolver() -> dict[str, str]:
+        key = os.environ.get("OPENAI_API_KEY", "")
+        return {"OPENAI_API_KEY": key} if key else {}
+
+    async def _model_resolver() -> str | None:
+        # Without a canonical model the per-workspace opencode.json carries
+        # no ``model`` field and OpenCode falls back to a built-in default
+        # (typically anthropic/claude-3-5-sonnet) that needs a key we
+        # haven't injected. Pin to a cheap, available OpenAI model so the
+        # /auth push for the OpenAI key actually matches the request's
+        # provider.
+        return "openai/gpt-4.1-nano"
+
     p = WorkspaceProcessPool(
         port_allocator=PortAllocator(start=4230, end=4240),
+        env_resolver=_env_resolver,
+        model_resolver=_model_resolver,
     )
     yield p
     await p.stop_all()

@@ -53,7 +53,7 @@ async def test_stale_collaborators_pass_when_all_recent() -> None:
             },
         ]
     )
-    result = await check_stale_collaborators(client, RepoCoords(owner="o", repo="r"))
+    result = await check_stale_collaborators(client, RepoCoords(owner="o", repo="r", branch="main"))
     assert result.status == "pass"
     assert result.detail["threshold_days"] == STALE_DAYS
 
@@ -74,7 +74,7 @@ async def test_stale_collaborators_fail_above_90_days() -> None:
             },
         ]
     )
-    result = await check_stale_collaborators(client, RepoCoords(owner="o", repo="r"))
+    result = await check_stale_collaborators(client, RepoCoords(owner="o", repo="r", branch="main"))
     assert result.status == "fail"
     assert result.detail["stale_count"] == 1
     assert result.detail["stale"][0]["login"] == "alice"
@@ -92,14 +92,14 @@ async def test_stale_collaborators_excludes_read_only_users() -> None:
             }
         ]
     )
-    result = await check_stale_collaborators(client, RepoCoords(owner="o", repo="r"))
+    result = await check_stale_collaborators(client, RepoCoords(owner="o", repo="r", branch="main"))
     assert result.status == "pass"
 
 
 @pytest.mark.asyncio
 async def test_stale_collaborators_unknown_on_pat_failure() -> None:
     client = _StubClient(list_collaborators=UnableToVerify(reason="http_403"))
-    result = await check_stale_collaborators(client, RepoCoords(owner="o", repo="r"))
+    result = await check_stale_collaborators(client, RepoCoords(owner="o", repo="r", branch="main"))
     assert result.status == "unknown"
     assert result.detail == {"reason": "http_403"}
 
@@ -120,7 +120,7 @@ async def test_stale_collaborators_uses_user_events_fallback() -> None:
         ],
         get_user_last_event=_iso(days_ago=3),
     )
-    result = await check_stale_collaborators(client, RepoCoords(owner="o", repo="r"))
+    result = await check_stale_collaborators(client, RepoCoords(owner="o", repo="r", branch="main"))
     assert result.status == "pass"
     assert result.detail["eligible"] == 1
     assert "stale" not in result.detail
@@ -139,7 +139,7 @@ async def test_stale_collaborators_fail_via_events_fallback() -> None:
         ],
         get_user_last_event=_iso(days_ago=400),
     )
-    result = await check_stale_collaborators(client, RepoCoords(owner="o", repo="r"))
+    result = await check_stale_collaborators(client, RepoCoords(owner="o", repo="r", branch="main"))
     assert result.status == "fail"
     assert result.detail["stale_count"] == 1
     assert result.detail["stale"][0]["login"] == "galanko"
@@ -160,7 +160,7 @@ async def test_stale_collaborators_pass_when_events_unverifiable() -> None:
         ],
         get_user_last_event=None,
     )
-    result = await check_stale_collaborators(client, RepoCoords(owner="o", repo="r"))
+    result = await check_stale_collaborators(client, RepoCoords(owner="o", repo="r", branch="main"))
     assert result.status == "pass"
     assert result.detail["unverifiable"] == ["private-user"]
 
@@ -170,7 +170,7 @@ async def test_broad_team_permissions_advisory_with_no_method_available() -> Non
     """When the client doesn't support list_repo_teams, degrade to unknown."""
     client = _StubClient()
     result = await check_broad_team_permissions(
-        client, RepoCoords(owner="o", repo="r")
+        client, RepoCoords(owner="o", repo="r", branch="main")
     )
     assert result.status == "unknown"
 
@@ -184,7 +184,7 @@ async def test_broad_team_permissions_advisory_when_supported() -> None:
         ]
     )
     result = await check_broad_team_permissions(
-        client, RepoCoords(owner="o", repo="r")
+        client, RepoCoords(owner="o", repo="r", branch="main")
     )
     assert result.status == "advisory"
     assert result.detail["flagged_count"] == 1
@@ -203,7 +203,7 @@ async def test_broad_team_permissions_pass_when_no_teams_flagged() -> None:
         ]
     )
     result = await check_broad_team_permissions(
-        client, RepoCoords(owner="o", repo="r")
+        client, RepoCoords(owner="o", repo="r", branch="main")
     )
     assert result.status == "pass"
     assert result.detail["flagged_count"] == 0
@@ -216,7 +216,7 @@ async def test_default_branch_permissions_pass_when_protected() -> None:
         get_branch_protection={"required_status_checks": {}},
     )
     result = await check_default_branch_permissions(
-        client, RepoCoords(owner="o", repo="r")
+        client, RepoCoords(owner="o", repo="r", branch="main")
     )
     assert result.status == "pass"
 
@@ -228,6 +228,6 @@ async def test_default_branch_permissions_fail_when_no_rule() -> None:
         get_branch_protection=None,
     )
     result = await check_default_branch_permissions(
-        client, RepoCoords(owner="o", repo="r")
+        client, RepoCoords(owner="o", repo="r", branch="main")
     )
     assert result.status == "fail"

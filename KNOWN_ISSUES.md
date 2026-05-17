@@ -205,3 +205,22 @@ Tracked here so nothing in the deferred list gets lost. Session G is the planned
 **Workaround:** None; first-paint is still fine.
 
 **Fix idea:** Route-level code splitting via `React.lazy` on the less-hot pages (`HistoryPage`, `SettingsPage`, `WorkspacePage`). Session F will add `html-to-image` (~80 KB gzipped) behind a dynamic import; follow the same pattern for the workspace sidebar. Track bundle size in CI via `size-limit` or similar if the number keeps growing.
+
+---
+
+### Orphan PR after executor mid-stream crash/timeout (EF-B14 residual)
+
+**Status:** Open — agent-layer fix tracked, not user-facing for now.
+
+**Why this is here:** PR #163 reconciles `Finding.pr_url` from `AgentRun.structured_output` on close, which fixes the common drift case (executor completed, recorded `pr_url`, but the column was never written). It does NOT recover the rare case where the `remediation_executor` agent dies mid-stream (timeout, OpenCode crash, host pause) AFTER `gh pr create` succeeded on GitHub but BEFORE the agent emitted parseable structured output. In that path the AgentRun row is `status='failed'`, `structured_output=null`, sidebar untouched — the DB has no record that a PR was opened, even though one exists on GitHub. The QA-0001 fsevents incident (Q01 §B14, PR #6 on cliff-security/NodeGoat) sits exactly here.
+
+**Why not policy-fix it:** Blocking close with a 4XX would punish users for an agent reliability failure they can't act on from the UI. The fix belongs in the agent layer.
+
+**Detection today:** When close happens against a workspace with executor runs but no recoverable `pr_url`, `mark_resolved_on_workspace_close` emits a `WARNING` log (`EF-B14: finding=… workspace=… — executor ran N time(s) but pr_url could not be reconciled …`). That's our only signal until the agent layer ships a real fix.
+
+**Fix ideas (agent-layer):**
+1. Executor writes intermediate state every N seconds (branch_name as soon as it's pushed, pr_url as soon as `gh pr create` returns) instead of only at terminal parse. A crash mid-stream then still leaves enough breadcrumbs to reconcile.
+2. On workspace open, post-mortem detect orphan branches by listing `gh pr list --head opensec/fix/<finding-slug>` and patching `Finding.pr_url` if a match exists.
+3. Executor checkpoint: write `RepoAgentStatus` to disk after each major tool call so a crash after `git push` but before `gh pr create` is recoverable on retry.
+
+**Workaround for affected users:** Click the link or `gh pr list` on the target repo; PATCH the finding directly: `curl -X PATCH /api/findings/<id> -d '{"pr_url":"https://…"}'`. (Not great — that's why we're not making the close handler force this.)

@@ -69,6 +69,12 @@ class OpenCodeClient:
             created_at=data.get("created_at"),
         )
 
+    async def delete_session(self, session_id: str) -> None:
+        """Delete an OpenCode session. Caller should suppress errors."""
+        client = await self._get_client()
+        resp = await client.delete(f"/session/{session_id}")
+        resp.raise_for_status()
+
     async def list_sessions(self) -> list[SessionSummary]:
         """List all active sessions."""
         client = await self._get_client()

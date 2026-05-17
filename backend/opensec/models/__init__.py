@@ -133,7 +133,16 @@ class Message(BaseModel):
 # AgentRun
 # ---------------------------------------------------------------------------
 
-AgentRunStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
+AgentRunStatus = Literal[
+    "queued",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+    # EF-B17 — terminal state when the upstream AI provider rate-limited
+    # the request and our backoff retry budget was exhausted.
+    "rate_limited",
+]
 
 AgentType = Literal[
     "finding_enricher",
@@ -158,6 +167,9 @@ class AgentRunUpdate(BaseModel):
     evidence_json: dict[str, Any] | None = None
     structured_output: dict[str, Any] | None = None
     next_action_hint: str | None = None
+    last_error: str | None = None
+    permission_pending: bool | None = None
+    permission_request: dict[str, Any] | None = None
 
 
 class AgentRun(BaseModel):
@@ -171,8 +183,19 @@ class AgentRun(BaseModel):
     evidence_json: dict[str, Any] | None = None
     structured_output: dict[str, Any] | None = None
     next_action_hint: str | None = None
+    # EF-B17 — canonical error surface for any non-success terminal state
+    # (failed, cancelled, rate_limited). Dashboard and AgentRunCard render
+    # this verbatim. ``evidence_json`` is no longer written by failure
+    # handlers (migration 021 made ``last_error`` the single column).
+    last_error: str | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    # Agent-permission approval gate (migration 022). Set by the executor
+    # while a ``_PendingApproval`` is parked, cleared when the asyncio
+    # event resolves. Read by ``issue_derivation.derive`` to route the
+    # finding into Review / awaiting_permission.
+    permission_pending: bool = False
+    permission_request: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------

@@ -131,9 +131,14 @@ class WorkspaceContextBuilder:
                 json.dumps(manifest, indent=2) + "\n"
             )
 
-        # 4. Render agent templates (finding only — no enrichment yet)
+        # 4. Render agent templates (finding only — no enrichment yet).
+        # Pass repo_url so {{ repo_url }} resolves to the workspace's pinned
+        # URL from creation onward (EF-B16); the executor re-renders with the
+        # same value via OPENSEC_REPO_URL at run time.
         finding_dict = finding.model_dump(mode="json")
-        self._template_engine.write_agents(ws_dir.agents_dir, finding=finding_dict)
+        self._template_engine.write_agents(
+            ws_dir.agents_dir, finding=finding_dict, repo_url=repo_url
+        )
 
         # 5. Store path in DB
         await update_workspace_dir(db, workspace.id, str(ws_dir.root))

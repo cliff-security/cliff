@@ -14,6 +14,7 @@
 
 import { useState } from 'react'
 import { useByok, type AIProvider, type BYOKErrorBody } from '@/api/aiProvider'
+import { parseApiError } from '@/api/client'
 import { providerIcon } from './types'
 
 interface Props {
@@ -52,6 +53,22 @@ const PROVIDERS: Record<AIProvider, ProviderInfo> = {
     keyHint: 'sk-or-',
     blurb: 'Generate a key in your OpenRouter account and paste it below.',
   },
+  google: {
+    name: 'Google AI Studio',
+    consoleUrl: 'https://aistudio.google.com/apikey',
+    consoleLabel: 'Open Google AI Studio',
+    keyHint: 'AIza',
+    blurb:
+      'Generate a key in Google AI Studio. The free tier covers light agent use.',
+  },
+  ollama: {
+    name: 'Local (Ollama)',
+    consoleUrl: 'https://ollama.com/library',
+    consoleLabel: 'Browse the Ollama model library',
+    keyHint: '',
+    blurb:
+      'Talks to a local Ollama runtime. No API key — just the base URL.',
+  },
   custom: {
     name: 'Custom endpoint',
     consoleUrl: '',
@@ -65,6 +82,9 @@ const PROVIDERS: Record<AIProvider, ProviderInfo> = {
 const TILES: { id: AIProvider; subtitle: string }[] = [
   { id: 'anthropic', subtitle: 'Recommended' },
   { id: 'openai', subtitle: 'Tuned for Claude' },
+  { id: 'openrouter', subtitle: 'Many models, one key' },
+  { id: 'google', subtitle: 'Gemini, free tier' },
+  { id: 'ollama', subtitle: 'Local, no key' },
   { id: 'custom', subtitle: 'OpenAI-compatible' },
 ]
 
@@ -75,17 +95,22 @@ export function DirectBYOKForm({
 }: Props) {
   const [provider, setProvider] = useState<AIProvider>(initialProvider)
   const [apiKey, setApiKey] = useState('')
-  const [baseUrl, setBaseUrl] = useState('')
+  const [baseUrl, setBaseUrl] = useState(
+    initialProvider === 'ollama' ? 'http://localhost:11434' : '',
+  )
   const [model, setModel] = useState('')
   const [error, setError] = useState<BYOKErrorBody | null>(null)
   const byok = useByok()
 
   const info = PROVIDERS[provider]
   const isOpenAIClass = provider === 'openai' || provider === 'custom'
+  const isOllama = provider === 'ollama'
+  const isCustom = provider === 'custom'
 
-  const requiredFieldsFilled =
-    apiKey.length >= 4 &&
-    (provider !== 'custom' || (baseUrl.length > 0 && model.length > 0))
+  const requiredFieldsFilled = isOllama
+    ? baseUrl.length > 0
+    : apiKey.length >= 4 &&
+      (!isCustom || (baseUrl.length > 0 && model.length > 0))
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -93,24 +118,22 @@ export function DirectBYOKForm({
     try {
       await byok.mutateAsync({
         provider,
-        api_key: apiKey,
-        base_url: provider === 'custom' ? baseUrl : undefined,
-        model: provider === 'custom' ? model : undefined,
+        // Ollama: server requires non-empty api_key field; "local" is the
+        // placeholder the service substitutes anyway.
+        api_key: isOllama ? 'local' : apiKey,
+        base_url: isCustom || isOllama ? baseUrl : undefined,
+        model: isCustom ? model : undefined,
       })
       onConnected()
     } catch (err) {
-      const msg = err instanceof Error ? err.message : ''
-      const match = msg.match(/^\d+:\s*(.*)$/s)
-      if (match) {
-        try {
-          const body = JSON.parse(match[1])
-          if (body?.detail?.error_code) {
-            setError(body.detail as BYOKErrorBody)
-            return
-          }
-        } catch {
-          // fall through
-        }
+      const detail = parseApiError(err).detail
+      if (
+        detail &&
+        typeof detail === 'object' &&
+        'error_code' in detail
+      ) {
+        setError(detail as BYOKErrorBody)
+        return
       }
       setError({
         error_code: 'network',
@@ -132,7 +155,7 @@ export function DirectBYOKForm({
 
       <fieldset className="space-y-3">
         <legend className="sr-only">Provider</legend>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {TILES.map((t) => {
             const selected = provider === t.id
             const tileInfo = PROVIDERS[t.id]
@@ -145,6 +168,12 @@ export function DirectBYOKForm({
                 onClick={() => {
                   setProvider(t.id)
                   setError(null)
+                  if (t.id === 'ollama' && !baseUrl) {
+                    setBaseUrl('http://localhost:11434')
+                  }
+                  if (t.id !== 'ollama' && t.id !== 'custom') {
+                    setBaseUrl('')
+                  }
                 }}
                 className={
                   selected
@@ -206,7 +235,7 @@ export function DirectBYOKForm({
         </div>
       </div>
 
-      {provider === 'custom' && (
+      {isCustom && (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="space-y-1.5">
             <span className="text-sm font-medium text-on-surface">
@@ -233,36 +262,72 @@ export function DirectBYOKForm({
         </div>
       )}
 
-      <label className="block space-y-1.5">
-        <span className="text-sm font-medium text-on-surface">API key</span>
-        <input
-          id="ai-api-key"
-          type="password"
-          autoComplete="off"
-          spellCheck={false}
-          value={apiKey}
-          onChange={(e) => {
-            setApiKey(e.target.value)
-            setError(null)
-          }}
-          placeholder={info.keyHint ? `${info.keyHint}…` : '…'}
-          className="w-full rounded-xl bg-surface-container-high px-4 py-3 text-sm font-mono text-on-surface outline-none focus:bg-surface-container-highest focus:ring-2 focus:ring-primary/30"
-        />
-        {byok.isPending && (
-          <p className="flex items-center gap-2 text-xs text-on-surface-variant">
-            <SpinnerIcon className="h-3.5 w-3.5 text-primary" />
-            Validating with {info.name}…
+      {isOllama && (
+        <label className="block space-y-1.5">
+          <span className="text-sm font-medium text-on-surface">Base URL</span>
+          <input
+            type="url"
+            value={baseUrl}
+            onChange={(e) => {
+              setBaseUrl(e.target.value)
+              setError(null)
+            }}
+            placeholder="http://localhost:11434"
+            className="w-full rounded-xl bg-surface-container-high px-4 py-3 text-sm font-mono text-on-surface outline-none focus:bg-surface-container-highest focus:ring-2 focus:ring-primary/30"
+          />
+          <p className="text-xs leading-relaxed text-on-surface-variant">
+            We probe <span className="font-mono">/api/tags</span> to confirm
+            Ollama is reachable. Pick a model from the picker after connecting.
           </p>
-        )}
-        {error && (
-          <p
-            role="alert"
-            className="rounded-xl bg-error-container px-4 py-3 text-sm leading-relaxed text-on-error-container"
-          >
-            {error.error_message}
-          </p>
-        )}
-      </label>
+          {byok.isPending && (
+            <p className="flex items-center gap-2 text-xs text-on-surface-variant">
+              <SpinnerIcon className="h-3.5 w-3.5 text-primary" />
+              Reaching Ollama…
+            </p>
+          )}
+          {error && (
+            <p
+              role="alert"
+              className="rounded-xl bg-error-container px-4 py-3 text-sm leading-relaxed text-on-error-container"
+            >
+              {error.error_message}
+            </p>
+          )}
+        </label>
+      )}
+
+      {!isOllama && (
+        <label className="block space-y-1.5">
+          <span className="text-sm font-medium text-on-surface">API key</span>
+          <input
+            id="ai-api-key"
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            value={apiKey}
+            onChange={(e) => {
+              setApiKey(e.target.value)
+              setError(null)
+            }}
+            placeholder={info.keyHint ? `${info.keyHint}…` : '…'}
+            className="w-full rounded-xl bg-surface-container-high px-4 py-3 text-sm font-mono text-on-surface outline-none focus:bg-surface-container-highest focus:ring-2 focus:ring-primary/30"
+          />
+          {byok.isPending && (
+            <p className="flex items-center gap-2 text-xs text-on-surface-variant">
+              <SpinnerIcon className="h-3.5 w-3.5 text-primary" />
+              Validating with {info.name}…
+            </p>
+          )}
+          {error && (
+            <p
+              role="alert"
+              className="rounded-xl bg-error-container px-4 py-3 text-sm leading-relaxed text-on-error-container"
+            >
+              {error.error_message}
+            </p>
+          )}
+        </label>
+      )}
 
       <p className="text-xs leading-relaxed text-on-surface-variant">
         Typical session: $0.05 – $0.20. A $5 top-up at your provider covers

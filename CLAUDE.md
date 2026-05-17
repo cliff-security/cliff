@@ -225,22 +225,40 @@ Each workspace gets an isolated environment. See `docs/adr/0014-workspace-runtim
 
 Key files: `backend/opensec/workspace/`, `backend/opensec/engine/pool.py`, `backend/opensec/agents/`
 
-## AI provider integration (ADR-0036)
+## AI provider integration (ADR-0037, supersedes ADR-0036)
 
 OpenSec's AI provider key flows into per-workspace OpenCode subprocesses
-via env vars at spawn time, never via `opencode.json` or `auth.json`
-(both have known OpenCode reliability issues). Three onboarding tiers:
+via env vars at spawn time, plus a parallel push to OpenCode's `auth.json`
+(both paths because OpenCode 1.3.x prefers `auth.json` on the outbound
+request). Six supported providers: OpenRouter, Anthropic, OpenAI, Google,
+Ollama, custom OpenAI-compatible.
+
+**One canonical state, derived everywhere else.** Provider + key live in
+`ai_integration` + `credential` vault entry. Active model is
+`app_setting(key="model")`. Per-workspace `opencode.json` and the
+singleton `opencode.json` are reconciled from these two at every save +
+spawn. `OPENSEC_AI_MODEL_OVERRIDE_*` env vars are a DEV/CI escape hatch
+only — the UI picker is the canonical write path.
+
+**Three onboarding tiers (ADR-0035):**
 
 - **Tier 1**: auto-detect existing keys (`~/.claude/.credentials.json`,
   `ANTHROPIC_API_KEY`/`OPENROUTER_API_KEY`/`OPENAI_API_KEY` env vars,
   `~/.aider/.env`, `~/.config/openai/`).
 - **Tier 2**: OpenRouter OAuth PKCE — backend runs the handshake on
   `localhost:3000`. Two clicks.
-- **Tier 3**: direct BYOK with deep-linked provider instructions.
+- **Tier 3**: direct BYOK with deep-linked provider instructions
+  (Anthropic, OpenAI, Google AI Studio, Local Ollama, Custom).
 
-Default model is **Sonnet 4.6** wherever available. Override via
-`OPENSEC_AI_MODEL_OVERRIDE_<PROVIDER>` env vars (no UI affordance).
-Encryption reuses `CredentialVault` (AES-256-GCM, ADR-0016).
+**Defaults per provider:** OpenRouter → `tencent/hy3-preview`; Anthropic →
+`claude-haiku-4-5`; OpenAI → `gpt-5`; Google → `gemini-2.5-flash`;
+Ollama → user-picked from `/api/tags`. Users override via the picker in
+Settings.
+
+**Drift detection.** `GET /api/integrations/ai/status` returns both the
+canonical model and a live probe of OpenCode's `/config`. When they
+disagree the Settings card shows a red banner with a one-click reconcile,
+and `opensec status` reports `drifted: true` with both values.
 
 Key files: `backend/opensec/ai/`, `backend/opensec/api/routes/ai_integrations.py`,
 `frontend/src/components/ai-provider/`. User-facing guide:

@@ -281,3 +281,50 @@ async def test_run_semgrep_passes_exclude_for_each_skip_dir(
     assert excludes >= SKIP_DIRS, (
         f"semgrep --exclude missing entries: {SKIP_DIRS - excludes}"
     )
+
+
+@pytest.mark.asyncio
+async def test_run_semgrep_uses_relative_target_and_multi_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Semgrep runs with ``cwd=target`` and ``.`` as the scan target (so paths
+    come back repo-relative — Q01-B05) and with every rule pack in
+    ``SEMGREP_CONFIGS`` (recall — Q01-B04)."""
+    from opensec.assessment.scanners.runner import SEMGREP_CONFIGS
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    capture_file = tmp_path / "semgrep-capture.json"
+    _make_executable(
+        bin_dir / "semgrep",
+        (
+            f"#!{sys.executable}\n"
+            "import json, os, sys\n"
+            f"capture_file = {str(capture_file)!r}\n"
+            "if '--version' in sys.argv:\n"
+            "    print('1.70.0')\n"
+            "    sys.exit(0)\n"
+            "json.dump({'argv': sys.argv, 'cwd': os.getcwd()}, "
+            "open(capture_file, 'w'))\n"
+            "print('{\"results\":[],\"errors\":[]}')\n"
+        ),
+    )
+
+    monkeypatch.setenv("PATH", os.environ.get("PATH", "/usr/bin:/bin"))
+    runner = SubprocessScannerRunner(bin_dir=bin_dir)
+    target = tmp_path / "repo"
+    target.mkdir()
+
+    await runner.run_semgrep(target, timeout=10)
+
+    captured = json.loads(capture_file.read_text())
+    argv = captured["argv"]
+    # B05: scan target is ``.`` (relative), and cwd is the repo — never an
+    # absolute clone path on the command line.
+    assert argv[-1] == "."
+    assert Path(captured["cwd"]).resolve() == target.resolve()
+    assert not any(str(target) in a for a in argv[1:])
+    # B04: every configured rule pack is passed via its own --config flag.
+    configs = {argv[i + 1] for i, a in enumerate(argv) if a == "--config"}
+    assert configs == set(SEMGREP_CONFIGS)
+    assert "p/owasp-top-ten" in configs

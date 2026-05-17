@@ -41,6 +41,12 @@ class HealthStatus(BaseModel):
     opencode: str = "unknown"
     opencode_version: str = ""
     model: str = ""
+    # True only when an AI provider credential is present *and* reachable by
+    # the per-workspace subprocesses (i.e. it resolved into the env cache the
+    # process pool injects). A configured model string alone is not enough —
+    # see the BYOK auth-propagation bug. ``opensec status`` turns a False
+    # here into a ``no_ai_provider_credential`` blocker.
+    ai_provider_ready: bool = False
 
 
 class VersionInfo(BaseModel):

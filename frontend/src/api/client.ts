@@ -58,6 +58,11 @@ export type IssueStage =
   | 'todo'
   | 'planning' | 'generating' | 'pushing' | 'opening_pr' | 'validating'
   | 'plan_ready' | 'pr_ready' | 'pr_awaiting_val'
+  // Remediation executor parked on an ask-tier tool request — surfaces in
+  // the Review section's "Needs you" bucket. Backend-side this is driven
+  // by the persisted ``permission_pending`` flag on the latest executor
+  // run (see migration 022).
+  | 'awaiting_permission'
   | 'failed'
   | 'fixed' | 'false_positive' | 'wont_fix' | 'accepted' | 'deferred';
 
@@ -145,7 +150,18 @@ export interface MessageCreate {
 }
 
 export type AgentRunStatus =
-  | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+  | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+  // EF-B17 — terminal state when the upstream AI provider rate-limited
+  // the request and the executor's backoff retry budget was exhausted.
+  | 'rate_limited';
+
+// Shape of a parked permission request, persisted on the agent_run row
+// (migration 022). Mirrors the SSE ``permission_request`` event payload.
+export interface PermissionRequest {
+  id: string;
+  tool: string;
+  patterns: string[];
+}
 
 export interface AgentRun {
   id: string;
@@ -158,8 +174,14 @@ export interface AgentRun {
   evidence_json: Record<string, unknown> | null;
   structured_output: Record<string, unknown> | null;
   next_action_hint: string | null;
+  last_error: string | null;
   started_at: string | null;
   completed_at: string | null;
+  // Agent-permission approval gate. Set while the executor is parked on
+  // an ask-tier tool request; cleared on resolve. Source of truth for
+  // the "Awaiting approval" prompt — survives reload.
+  permission_pending: boolean;
+  permission_request: PermissionRequest | null;
 }
 
 export interface AgentRunCreate {
@@ -175,6 +197,7 @@ export interface AgentRunUpdate {
   evidence_json?: Record<string, unknown>;
   structured_output?: Record<string, unknown>;
   next_action_hint?: string;
+  last_error?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -433,6 +456,45 @@ export async function requestVoid(
     const text = await resp.text();
     throw new Error(`${resp.status}: ${text}`);
   }
+}
+
+/**
+ * Parse the ``NNN: body`` shape that ``request`` / ``requestVoid`` throw
+ * back into structured fields. Best-effort: tries to JSON-parse the body
+ * (FastAPI HTTPException) so callers can pull a ``detail`` field. Falls
+ * back to the raw message when the shape doesn't match.
+ */
+export interface ParsedApiError {
+  status: number | null;
+  message: string;
+  detail: unknown;
+}
+
+export function parseApiError(err: unknown): ParsedApiError {
+  const raw = err instanceof Error ? err.message : String(err ?? '');
+  const match = raw.match(/^(\d+):\s*([\s\S]*)$/);
+  if (!match) {
+    return { status: null, message: raw, detail: null };
+  }
+  const status = Number.parseInt(match[1], 10);
+  const body = match[2];
+  try {
+    const parsed = JSON.parse(body);
+    if (parsed && typeof parsed === 'object') {
+      const detail = (parsed as { detail?: unknown }).detail;
+      // FastAPI returns ``{detail: "string"}`` or ``{detail: {...}}``.
+      const message =
+        typeof detail === 'string'
+          ? detail
+          : detail && typeof detail === 'object' && 'error_message' in detail
+            ? String((detail as { error_message: unknown }).error_message ?? body)
+            : body;
+      return { status, message, detail: detail ?? null };
+    }
+  } catch {
+    // Not JSON — fall through to the raw body.
+  }
+  return { status, message: body, detail: null };
 }
 
 // ---------------------------------------------------------------------------

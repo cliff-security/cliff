@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +22,7 @@ import httpx
 from opensec.agents.errors import (
     AgentBusyError,
     AgentProcessError,
+    AgentRateLimitError,
     AgentTimeoutError,
 )
 from opensec.agents.output_parser import ParseResult, parse_agent_response
@@ -34,7 +36,9 @@ from opensec.db.repo_agent_run import (
 from opensec.db.repo_finding import get_finding, update_finding
 from opensec.db.repo_workspace import get_workspace
 from opensec.models import AgentRunCreate, AgentRunUpdate, FindingUpdate
+from opensec.services.evidence_guard import guard_evidence_output
 from opensec.services.pr_verifier import verify_pr_url
+from opensec.services.reference_verifier import clean_references
 from opensec.workspace.context_document import ContextDocument
 from opensec.workspace.workspace_dir import AGENT_TYPE_TO_SECTION, CONTEXT_SECTIONS
 
@@ -48,11 +52,63 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TIMEOUT: float = 120.0
+# Overall ceiling for a non-tool agent run — a generous backstop, not the
+# primary failure mechanism. Under low concurrency a structured-output
+# completion finishes in well under 20 s, but under ~6-way concurrency the
+# provider serialises/rate-limits and a *still-progressing* run can take
+# 80-120 s (Q01-B12 — a tighter 75 s ceiling killed those mid-stream). The
+# real fast-fail for a genuinely *hung* agent is the no-output stall in
+# ``_collect_response`` (Q01-B10), which fires long before this. Tool
+# agents (remediation_executor) override this — see ``execute`` — to 600 s.
+DEFAULT_TIMEOUT: float = 150.0
 # Extra buffer for asyncio.wait_for when permission waits are possible.
 # The real timeout is enforced by stall detection, which accounts for
 # time spent waiting for user permission decisions.
 PERMISSION_WAIT_BUFFER: float = 600.0
+
+# ---------------------------------------------------------------------------
+# Provider rate-limit backoff (EF-B17)
+# ---------------------------------------------------------------------------
+# Upstream LLM providers (Anthropic, OpenRouter, OpenAI) start returning 429
+# when the workspace pool runs more than one concurrent agent. OpenCode wraps
+# the upstream 429 into a ``session.error`` SSE event that surfaces to the
+# executor as an ``AgentRateLimitError``. Under pool>=2 (the Wave-2 cap)
+# this used to fail the run on the first throttle; we now retry with
+# exponential backoff + jitter up to ``RATE_LIMIT_MAX_ATTEMPTS`` before
+# terminating the run with status ``rate_limited``.
+#
+# Tests monkey-patch these to 0.0 to avoid sleeping in unit suites.
+RATE_LIMIT_MAX_ATTEMPTS: int = 3
+RATE_LIMIT_BASE_DELAY_SECONDS: float = 2.0
+RATE_LIMIT_MAX_DELAY_SECONDS: float = 16.0
+
+# Substring signals that an OpenCode error message wraps an upstream
+# provider rate-limit. Single source of truth — ``_humanize_process_error``
+# below uses the same set to render the user-facing copy.
+_RATE_LIMIT_SUBSTRINGS: tuple[str, ...] = (
+    "rate limit",
+    "429",
+    "too many requests",
+)
+
+
+def _looks_like_rate_limit(message: str) -> bool:
+    """Return True if ``message`` carries any of the rate-limit signals."""
+    lowered = message.lower()
+    return any(s in lowered for s in _RATE_LIMIT_SUBSTRINGS)
+
+
+def _rate_limit_backoff_delay(attempt: int) -> float:
+    """Exponential backoff with full jitter for retry ``attempt`` (1-based).
+
+    attempt=1 -> base, attempt=2 -> 2*base, attempt=3 -> 4*base, capped at
+    ``RATE_LIMIT_MAX_DELAY_SECONDS``. Adds up to one base-delay of jitter
+    so concurrent workspaces don't all wake at the same instant.
+    """
+    base = RATE_LIMIT_BASE_DELAY_SECONDS
+    exp = base * (2 ** max(attempt - 1, 0))
+    jitter = random.uniform(0.0, base) if base > 0 else 0.0
+    return min(exp + jitter, RATE_LIMIT_MAX_DELAY_SECONDS)
 
 # ---------------------------------------------------------------------------
 # Permission tier classification for tool-use approval.
@@ -275,6 +331,45 @@ _AGENT_TYPE_LABELS: dict[str, str] = {
     "validation_checker": "validation checking",
 }
 
+# Per-agent guidance appended to the prompt. Currently only the enricher,
+# whose ``references`` array is shipped verbatim into the evidence sidebar
+# as authoritative citations — weaker models fabricate specific identifiers
+# (404ing GHSA IDs, commit URLs with garbled SHAs). The verifier in the
+# executor is the deterministic safety net; this just lowers the rate at
+# the source. (Q01-B08.)
+_AGENT_GUIDANCE: dict[str, str] = {
+    "finding_enricher": (
+        "## Reference rules (strict)\n\n"
+        "The \"references\" array is shown to a security engineer as "
+        "authoritative citations. A fabricated citation is worse than a "
+        "missing one.\n\n"
+        "- ONLY include a URL you are confident resolves. When unsure, "
+        "omit it — a short all-real list beats a long list with one "
+        "fabricated entry.\n"
+        "- Prefer the NVD page for a CVE you cite "
+        "(https://nvd.nist.gov/vuln/detail/<CVE>) and generic "
+        "authoritative docs (OWASP, CWE/MITRE, the vendor advisory index).\n"
+        "- NEVER invent a GitHub advisory (GHSA-...) ID or a commit SHA. "
+        "If you have not actually seen a specific identifier, do not "
+        "construct one — omit the reference entirely.\n"
+    ),
+    "evidence_collector": (
+        "## Completeness rules\n\n"
+        "Every field must be a genuine best-effort answer — an empty "
+        "``affected_files`` or a null ``current_version`` is a worse "
+        "outcome than an imperfect one.\n\n"
+        "- ``current_version``: the version currently in the repo. The "
+        "finding's asset label already carries it (e.g. ``minimist@1.2.5`` "
+        "-> ``1.2.5``) — never return null for a dependency finding.\n"
+        "- ``affected_files``: for a dependency finding the manifest and "
+        "lock files that pin the package (``package.json``, "
+        "``package-lock.json``, ``yarn.lock``, …) are always affected — "
+        "list them rather than returning an empty array.\n"
+        "- ``fix_safety``: a major-version jump (e.g. 4.x -> 7.x) is "
+        "``breaking_change`` or worse — never ``safe_bump``.\n"
+    ),
+}
+
 
 def _load_workspace_data(
     workspace_dir: str, agent_type: str
@@ -358,11 +453,14 @@ def build_agent_prompt(
             f"> {user_note}\n"
         )
 
+    guidance = _AGENT_GUIDANCE.get(agent_type, "")
+    guidance_text = f"\n{guidance}\n" if guidance else ""
+
     return f"""\
 IMPORTANT: This is a programmatic agent execution request. Respond with ONLY \
 a JSON code block — no tool calls, no file reads, no conversation.
 
-{finding_text}{prior_text}{refinement_text}
+{finding_text}{prior_text}{refinement_text}{guidance_text}
 Run {label} on the finding above. Respond with a single \
 ```json code block matching this exact schema:
 
@@ -444,8 +542,20 @@ async def _advance_finding_status(
     if target_ord <= current_ord:
         return None
 
-    # 4. Update
-    await update_finding(db, finding.id, FindingUpdate(status=target))
+    # 4. Update — also persist pr_url when the executor successfully opened a
+    # PR (EF-B14). The pr_url has already been verified live on GitHub by
+    # the verification step earlier in run(), so we know it's real. Skip the
+    # write when the Finding already has a pr_url so an explicit user-supplied
+    # value (PATCH /findings/{id}) is never clobbered.
+    update_fields: dict[str, Any] = {"status": target}
+    if (
+        agent_type == "remediation_executor"
+        and structured_output.get("status") == "pr_created"
+        and structured_output.get("pr_url")
+        and not finding.pr_url
+    ):
+        update_fields["pr_url"] = structured_output["pr_url"]
+    await update_finding(db, finding.id, FindingUpdate(**update_fields))
     logger.info(
         "Finding %s status advanced: %s -> %s (agent: %s)",
         finding.id, finding.status, target, agent_type,
@@ -481,7 +591,17 @@ def _humanize_process_error(raw: str) -> str:
             "down. Wait a minute and click Approve to retry, or switch to a "
             "different model in Settings → AI provider."
         )
-    if "unauthorized" in lowered or "401" in lowered or "invalid api key" in lowered:
+    if (
+        "unauthorized" in lowered
+        or "401" in lowered
+        or "invalid api key" in lowered
+        # Anthropic/OpenAI return this verbatim when the outbound request
+        # carries no credential at all — the BYOK auth-propagation failure
+        # mode. It is deterministic, so surface the actionable message
+        # immediately rather than letting it read as a generic engine error.
+        or "missing authentication" in lowered
+        or "authentication header" in lowered
+    ):
         return (
             "**AI provider rejected the credentials.** The configured API "
             "key is missing, revoked, or wrong for this model. Re-connect "
@@ -504,7 +624,10 @@ class AgentExecutionResult:
 
     agent_run_id: str
     agent_type: str
-    status: Literal["completed", "failed"]
+    # EF-B17 — ``rate_limited`` joins ``failed`` as a non-success terminal
+    # state. Callers that key off ``status == 'failed'`` should also treat
+    # ``rate_limited`` as terminal-non-success; see ``pipeline.run_pipeline``.
+    status: Literal["completed", "failed", "rate_limited"]
     parse_result: ParseResult
     sidebar_updated: bool = False
     context_version: int | None = None
@@ -585,6 +708,40 @@ class AgentExecutor:
         if queue:
             # Signal completion to any SSE listener
             queue.put_nowait({"type": "done"})
+
+    async def _patch_permission_marker(
+        self,
+        db: aiosqlite.Connection,
+        agent_run_id: str,
+        permission_id: str,
+        *,
+        pending: bool,
+        request: dict[str, Any] | None,
+    ) -> None:
+        """Set or clear the agent-permission marker. Never raises.
+
+        A DB hiccup here must not strand the agent — the SSE callback
+        still fires and reconcile-on-startup cleans up if everything
+        falls over.
+        """
+        if not agent_run_id:
+            return
+        try:
+            await update_agent_run(
+                db,
+                agent_run_id,
+                AgentRunUpdate(
+                    permission_pending=pending,
+                    permission_request=request,
+                ),
+            )
+        except Exception:  # noqa: BLE001
+            verb = "persist" if pending else "clear"
+            logger.exception(
+                "Failed to %s permission_pending marker "
+                "(agent_run=%s, permission=%s)",
+                verb, agent_run_id, permission_id,
+            )
 
     async def execute(
         self,
@@ -698,13 +855,45 @@ class AgentExecutor:
                 else timeout
             )
 
-            response_text = await self._send_and_collect(
-                client, session.id, prompt,
-                timeout=effective_timeout, on_progress=on_progress,
-                on_permission=on_permission,
-                agent_run_id=agent_run.id,
-                agent_type=agent_type,
-            )
+            # EF-B17 — provider rate-limit retry with exponential backoff.
+            # Each attempt uses a fresh OpenCode session because the previous
+            # one already consumed the prompt that triggered the throttle.
+            # ``session`` is reassigned so downstream code (parse-failure
+            # retry below) keeps targeting the session that produced the
+            # eventually-successful response.
+            response_text = ""
+            for attempt in range(1, RATE_LIMIT_MAX_ATTEMPTS + 1):
+                try:
+                    response_text = await self._send_and_collect(
+                        client, session.id, prompt,
+                        timeout=effective_timeout, on_progress=on_progress,
+                        on_permission=on_permission,
+                        agent_run_id=agent_run.id,
+                        agent_type=agent_type,
+                        db=db,
+                    )
+                    break
+                except AgentRateLimitError as exc:
+                    if attempt >= RATE_LIMIT_MAX_ATTEMPTS:
+                        # Out of budget — let the outer handler convert to
+                        # status=rate_limited with last_error populated.
+                        raise
+                    delay = _rate_limit_backoff_delay(attempt)
+                    logger.warning(
+                        "Agent %s rate-limited on attempt %d/%d; "
+                        "sleeping %.1fs before retry: %s",
+                        agent_type, attempt, RATE_LIMIT_MAX_ATTEMPTS,
+                        delay, exc,
+                    )
+                    await asyncio.sleep(delay)
+                    # Best-effort tear-down of the throttled session before
+                    # the next attempt. Without this we'd leak up to
+                    # RATE_LIMIT_MAX_ATTEMPTS-1 sessions per failed run in
+                    # the per-workspace OpenCode process.
+                    with contextlib.suppress(httpx.HTTPError, AttributeError):
+                        await client.delete_session(session.id)
+                    # Fresh session for the next try.
+                    session = await client.create_session()
 
             # 7. Parse response
             parse_result = parse_agent_response(
@@ -726,12 +915,83 @@ class AgentExecutor:
                     agent_run_id=agent_run.id,
                     agent_type=agent_type,
                     send_delay=0.0,
+                    db=db,
                 )
                 retry_result = parse_agent_response(
                     retry_text, agent_type=agent_type
                 )
                 if retry_result.success:
                     parse_result = retry_result
+
+            # 7b-ref. Reference verification (Q01-B08). The finding_enricher
+            # emits ``references`` as free-text and weaker models fabricate
+            # specific identifiers — GHSA IDs that 404, commit URLs with
+            # garbled SHAs — which then ship into the evidence sidebar with
+            # the same authority as a real NVD link. Drop the ones we can
+            # structurally disprove or that the host 404s. Best-effort: a
+            # verifier failure must never fail the run.
+            if (
+                parse_result.success
+                and agent_type == "finding_enricher"
+                and parse_result.structured_output
+            ):
+                try:
+                    ref_check = await clean_references(
+                        parse_result.structured_output.get("references")
+                    )
+                    if ref_check.dropped:
+                        logger.warning(
+                            "finding_enricher references dropped "
+                            "(workspace=%s run=%s): %s",
+                            workspace_id,
+                            agent_run.id,
+                            ref_check.dropped,
+                        )
+                        parse_result.structured_output["references"] = (
+                            ref_check.kept
+                        )
+                except (httpx.HTTPError, ValueError, TypeError):
+                    # Networking, bad URLs, or upstream shape surprises —
+                    # log but never fail the run on reference verification.
+                    logger.warning(
+                        "Reference verification raised for workspace %s",
+                        workspace_id,
+                        exc_info=True,
+                    )
+
+            # 7b-ev. Evidence guards (Q01-B11, B13). The evidence_collector
+            # classifies fix safety and reports the current version as
+            # free-text — both drift under model/concurrency variance. For a
+            # dependency finding OpenSec already knows the authoritative
+            # versions from the scanner, so reconcile the agent's output
+            # against them (a major-version jump is never a ``safe_bump``;
+            # ``current_version`` is backfilled). Best-effort.
+            if (
+                parse_result.success
+                and agent_type == "evidence_collector"
+                and parse_result.structured_output
+            ):
+                try:
+                    corrections = guard_evidence_output(
+                        parse_result.structured_output, finding_data
+                    )
+                    if corrections:
+                        logger.info(
+                            "evidence_collector output corrected "
+                            "(workspace=%s run=%s): %s",
+                            workspace_id,
+                            agent_run.id,
+                            corrections,
+                        )
+                except (ValueError, TypeError, KeyError):
+                    # Evidence guard is pure data manipulation; the only
+                    # realistic raise surface is malformed structured
+                    # output. Log but never fail the run on it.
+                    logger.warning(
+                        "Evidence guard raised for workspace %s",
+                        workspace_id,
+                        exc_info=True,
+                    )
 
             # 7c. PR URL verification (B16). The remediation_executor is the
             # only agent that claims to have opened a PR. If the emitted
@@ -813,13 +1073,21 @@ class AgentExecutor:
 
             # 9. Update AgentRun in DB
             duration = time.monotonic() - start_time
+            # An agent run is only "completed" when parse succeeded AND
+            # the PR (if any) verified. Without parse_result.success the
+            # sidebar/context were never written (block 8a-c was skipped),
+            # so rendering the row green would mis-signal a silent failure
+            # — caught by the architect review of EF-B17 (more rate-limit
+            # retries → more parse-failure-after-retry paths).
+            parse_failed = not parse_result.success
             run_status: Literal["completed", "failed"] = (
-                "failed" if verification_error else "completed"
+                "failed"
+                if verification_error or parse_failed
+                else "completed"
             )
-            evidence_json = (
-                {"error": verification_error, "type": "PRVerificationError"}
-                if verification_error
-                else None
+            failure_message = (
+                verification_error
+                or (parse_result.error if parse_failed else None)
             )
             await update_agent_run(
                 db,
@@ -827,14 +1095,14 @@ class AgentExecutor:
                 AgentRunUpdate(
                     status=run_status,
                     summary_markdown=(
-                        verification_error
-                        if verification_error
+                        failure_message
+                        if failure_message
                         else parse_result.summary
                     ),
                     confidence=parse_result.confidence,
                     structured_output=parse_result.structured_output,
                     next_action_hint=parse_result.suggested_next_action,
-                    evidence_json=evidence_json,
+                    last_error=failure_message,
                 ),
             )
 
@@ -853,12 +1121,14 @@ class AgentExecutor:
         except AgentTimeoutError:
             self._cleanup_workspace_state(workspace_id, agent_run.id)
             duration = time.monotonic() - start_time
+            timeout_error = f"Agent timed out after {timeout:.0f}s"
             await update_agent_run(
                 db,
                 agent_run.id,
                 AgentRunUpdate(
                     status="failed",
                     summary_markdown="Agent timed out. Partial response may be available.",
+                    last_error=timeout_error,
                 ),
             )
             return AgentExecutionResult(
@@ -868,7 +1138,42 @@ class AgentExecutor:
                 parse_result=ParseResult(
                     success=False, raw_text="", error="timeout"
                 ),
-                error=f"Agent timed out after {timeout:.0f}s",
+                error=timeout_error,
+                duration_seconds=duration,
+            )
+
+        # EF-B17 — must precede ``AgentProcessError`` because
+        # ``AgentRateLimitError`` is a subclass of it.
+        except AgentRateLimitError as exc:
+            self._cleanup_workspace_state(workspace_id, agent_run.id)
+            duration = time.monotonic() - start_time
+            next_delay = _rate_limit_backoff_delay(RATE_LIMIT_MAX_ATTEMPTS)
+            last_error = (
+                f"Provider rate limit reached after "
+                f"{RATE_LIMIT_MAX_ATTEMPTS} attempts; retry in "
+                f"~{next_delay:.0f}s. Upstream: {exc}"
+            )
+            logger.warning(
+                "Agent %s terminated rate_limited after %d attempts: %s",
+                agent_type, RATE_LIMIT_MAX_ATTEMPTS, exc,
+            )
+            await update_agent_run(
+                db,
+                agent_run.id,
+                AgentRunUpdate(
+                    status="rate_limited",
+                    summary_markdown=_humanize_process_error(str(exc)),
+                    last_error=last_error,
+                ),
+            )
+            return AgentExecutionResult(
+                agent_run_id=agent_run.id,
+                agent_type=agent_type,
+                status="rate_limited",
+                parse_result=ParseResult(
+                    success=False, raw_text="", error=str(exc)
+                ),
+                error=last_error,
                 duration_seconds=duration,
             )
 
@@ -881,7 +1186,7 @@ class AgentExecutor:
                 AgentRunUpdate(
                     status="failed",
                     summary_markdown=_humanize_process_error(str(exc)),
-                    evidence_json={"error": str(exc)},
+                    last_error=str(exc),
                 ),
             )
             return AgentExecutionResult(
@@ -905,7 +1210,7 @@ class AgentExecutor:
                 AgentRunUpdate(
                     status="failed",
                     summary_markdown=f"Unexpected error: {exc}",
-                    evidence_json={"error": str(exc), "type": type(exc).__name__},
+                    last_error=str(exc),
                 ),
             )
             return AgentExecutionResult(
@@ -931,6 +1236,7 @@ class AgentExecutor:
         agent_run_id: str = "",
         agent_type: str = "",
         send_delay: float = 0.5,
+        db: aiosqlite.Connection,
     ) -> str:
         """Send a prompt and collect the streamed response.
 
@@ -954,6 +1260,7 @@ class AgentExecutor:
                 on_permission=on_permission,
                 agent_run_id=agent_run_id,
                 agent_type=agent_type,
+                db=db,
             )
         finally:
             if not send_task.done():
@@ -984,6 +1291,7 @@ class AgentExecutor:
         agent_run_id: str = "",
         agent_type: str = "",
         stall_timeout: float = 60.0,
+        db: aiosqlite.Connection,
     ) -> str:
         """Collect the full response from OpenCode via SSE stream.
 
@@ -1003,6 +1311,12 @@ class AgentExecutor:
         # Tool agents need longer stall timeout for git/build operations
         if agent_type in _TOOL_AGENT_TYPES:
             stall_timeout = max(stall_timeout, 180.0)
+
+        # A genuinely hung agent emits no events of any kind. Catch that fast
+        # (Q01-B10) rather than dead-waiting the full overall ceiling — but
+        # use a wider window than the with-content stall so a slow first
+        # token under heavy concurrency (Q01-B12) is not mistaken for a hang.
+        no_output_stall = max(90.0, stall_timeout)
 
         async def _handle_permission(event: dict) -> None:
             """Handle a permission request based on tool tier."""
@@ -1053,19 +1367,37 @@ class AgentExecutor:
                 "waiting for user approval",
                 tool, permission_id,
             )
+            patterns_list = event.get("patterns", [])
             pending = _PendingApproval(
                 permission_id=permission_id,
                 tool=tool,
-                patterns=event.get("patterns", []),
+                patterns=patterns_list,
                 event=asyncio.Event(),
             )
             self._pending_approvals[agent_run_id] = pending
+
+            # Persist the marker so issue_derivation.derive() can route the
+            # finding to Review / awaiting_permission. Without this, the
+            # only signal is the in-memory dict + SSE event — which means
+            # a page reload, or a user not looking at this workspace,
+            # would never see the prompt.
+            await self._patch_permission_marker(
+                db,
+                agent_run_id,
+                permission_id,
+                pending=True,
+                request={
+                    "id": permission_id,
+                    "tool": tool,
+                    "patterns": patterns_list,
+                },
+            )
 
             if on_permission:
                 on_permission({
                     "id": permission_id,
                     "tool": tool,
-                    "patterns": event.get("patterns", []),
+                    "patterns": patterns_list,
                     "run_id": agent_run_id,
                 })
 
@@ -1080,6 +1412,13 @@ class AgentExecutor:
             # Extend the stall timer to exclude user decision time
             nonlocal last_event_time
             last_event_time = time.monotonic()
+
+            # Clear the persisted marker. Covers approve, deny, AND the
+            # disconnect-auto-deny path (the SSE stream endpoint calls
+            # deny_tool on client disconnect, which sets pending.event).
+            await self._patch_permission_marker(
+                db, agent_run_id, permission_id, pending=False, request=None,
+            )
 
             if pending.approved:
                 await client.grant_permission(
@@ -1101,9 +1440,14 @@ class AgentExecutor:
                     if on_progress:
                         on_progress(event["content"])
                 elif event["type"] == "error":
-                    raise AgentProcessError(
-                        f"OpenCode error: {event.get('message', 'unknown')}"
-                    )
+                    message = event.get("message", "unknown")
+                    wrapped = f"OpenCode error: {message}"
+                    # EF-B17 — classify provider rate-limit early so the
+                    # executor retry loop can apply exponential backoff
+                    # instead of treating it as a fatal process error.
+                    if _looks_like_rate_limit(message):
+                        raise AgentRateLimitError(wrapped)
+                    raise AgentProcessError(wrapped)
                 elif event["type"] == "done":
                     return collected_text
                 elif event["type"] == "permission_request":
@@ -1133,6 +1477,17 @@ class AgentExecutor:
                         with contextlib.suppress(asyncio.CancelledError):
                             await stream_task
                         return collected_text
+                    if idle > no_output_stall and not collected_text:
+                        # No events of any kind for a long stretch and
+                        # nothing collected — the agent is hung. Fail fast
+                        # (Q01-B10); the run-all loop re-runs it next pass.
+                        stream_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await stream_task
+                        raise AgentTimeoutError(
+                            f"Agent produced no output for "
+                            f"{no_output_stall:.0f}s — treating as hung."
+                        )
                     # Check effective timeout (wall clock minus permission wait)
                     effective_elapsed = (
                         time.monotonic() - stream_start - permission_wait_total

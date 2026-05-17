@@ -34,6 +34,7 @@ from opensec.assessment.posture import (
     RepoCoords,
     run_all_posture_checks,
 )
+from opensec.assessment.scanners.runner import SEMGREP_RULESETS_LABEL
 from opensec.assessment.scope import (
     capture_commit_sha,
     count_dependencies,
@@ -131,7 +132,7 @@ async def run_assessment(
     db: aiosqlite.Connection | None = None,
     on_step: Callable[[str], Awaitable[None]] | None = None,
     on_tool: Callable[[AssessmentTool], Awaitable[None]] | None = None,
-    branch: str = "main",
+    branch: str | None = None,
 ) -> AssessmentResult:
     """Clone -> Trivy -> Semgrep -> posture -> persist -> close-pass -> assemble.
 
@@ -142,8 +143,21 @@ async def run_assessment(
     ``source_id`` disappeared this run as ``status='closed'``. When ``db`` is
     ``None`` (test mode), the engine still computes counts and emits the
     callbacks but does not touch the DB.
+
+    ``branch`` defaults to ``None``, in which case the engine resolves the
+    repo's real default branch from ``GET /repos/{owner}/{repo}`` before any
+    branch-scoped posture probe runs (Q01R-B23). If that lookup fails
+    (rate-limited, forbidden, unauthenticated, network error), the engine
+    falls back to ``main`` so the run completes — the branch-scoped probes
+    will then degrade to ``unknown`` on a master-default repo rather than
+    blowing up the whole assessment. Pass ``branch=...`` explicitly to skip
+    the lookup when the caller already knows the ref.
     """
-    coords = _coords_from_repo_url(repo_url, branch=branch)
+    owner, repo = _owner_repo_from_url(repo_url)
+    resolved_branch = (
+        branch if branch is not None else await _resolve_default_branch(gh_client, owner, repo)
+    )
+    coords = _coords_from_repo_url(repo_url, branch=resolved_branch)
 
     tools: dict[str, AssessmentTool] = {
         "trivy": AssessmentTool(
@@ -169,7 +183,7 @@ async def run_assessment(
     scanned_deps: int | None = None
     ecosystems: list[str] = []
 
-    async with cloner.clone(repo_url, branch=branch) as repo_path:
+    async with cloner.clone(repo_url, branch=resolved_branch) as repo_path:
         # Best-effort scope capture. None of these are critical-path; failures
         # are silently swallowed so an assessment never breaks over UI text.
         commit_sha = await capture_commit_sha(repo_path)
@@ -298,7 +312,7 @@ async def run_assessment(
                     value=sg_count,
                     text=_pluralize(sg_count, "finding"),
                 ),
-                "ran": "Static analysis (p/security-audit)",
+                "ran": f"Static analysis ({SEMGREP_RULESETS_LABEL})",
                 "scope": sg_scope,
                 "duration_ms": durations_ms.get("semgrep"),
             }
@@ -343,7 +357,7 @@ async def run_assessment(
             assessment_id,
             AssessmentUpdate(
                 commit_sha=commit_sha,
-                branch=branch,
+                branch=resolved_branch,
                 scanned_files=scanned_files,
                 scanned_deps=scanned_deps,
             ),
@@ -365,7 +379,7 @@ async def run_assessment(
         ],
         tools=list(tools.values()),
         commit_sha=commit_sha,
-        branch=branch,
+        branch=resolved_branch,
         scanned_files=scanned_files,
         scanned_deps=scanned_deps,
     )
@@ -493,8 +507,10 @@ def _format_trivy_scope(deps: int | None, ecosystems: list[str]) -> str:
 
 def _format_semgrep_scope(files: int | None) -> str:
     if files is None:
-        return "p/security-audit"
-    return f"{files} {'file' if files == 1 else 'files'} · p/security-audit"
+        return SEMGREP_RULESETS_LABEL
+    return (
+        f"{files} {'file' if files == 1 else 'files'} · {SEMGREP_RULESETS_LABEL}"
+    )
 
 
 def _format_posture_scope(total: int) -> str:
@@ -575,6 +591,12 @@ def _build_snapshot(
 
 def _coords_from_repo_url(repo_url: str, *, branch: str) -> RepoCoords:
     """Parse `owner/repo` out of an HTTPS or SSH URL."""
+    owner, repo = _owner_repo_from_url(repo_url)
+    return RepoCoords(owner=owner, repo=repo, branch=branch)
+
+
+def _owner_repo_from_url(repo_url: str) -> tuple[str, str]:
+    """Parse ``(owner, repo)`` out of an HTTPS or SSH GitHub URL."""
     if repo_url.startswith("git@") and ":" in repo_url:
         path = repo_url.split(":", 1)[1]
     else:
@@ -587,7 +609,50 @@ def _coords_from_repo_url(repo_url: str, *, branch: str) -> RepoCoords:
     owner, _, repo = path.partition("/")
     if not owner or not repo:
         raise ValueError(f"cannot parse owner/repo from repo_url: {repo_url!r}")
-    return RepoCoords(owner=owner, repo=repo, branch=branch)
+    return owner, repo
+
+
+async def _resolve_default_branch(
+    gh_client: GithubAPI, owner: str, repo: str
+) -> str:
+    """Resolve the repo's real default branch via ``GET /repos/{owner}/{repo}``.
+
+    Q01R-B23 — before this fix the posture engine hardcoded ``main`` for
+    every probe, which 403'd on branch protection and 404'd on
+    ``/commits?sha=main`` for every ``master``-default repo (NodeGoat and
+    friends). Falls back to ``main`` when the client doesn't expose
+    ``get_repo_info`` (older test fakes) or when the call returns
+    :class:`UnableToVerify` (rate-limited / forbidden / network error) —
+    the per-check probe will then degrade to ``unknown`` rather than
+    aborting the whole run.
+    """
+    from opensec.assessment.posture.github_client import UnableToVerify
+
+    getter = getattr(gh_client, "get_repo_info", None)
+    if getter is None:
+        return "main"
+    info = await getter(owner, repo)
+    if isinstance(info, UnableToVerify):
+        # Operator-visible breadcrumb: when the fallback fires on a
+        # master-default repo, every branch-scoped probe will degrade to
+        # ``unknown`` — without this log line that's silent on the wire.
+        logger.info(
+            "default-branch lookup unavailable for %s/%s (%s); falling back to 'main'",
+            owner,
+            repo,
+            info.reason,
+        )
+        return "main"
+    if isinstance(info, dict):
+        candidate = info.get("default_branch")
+        if isinstance(candidate, str) and candidate:
+            return candidate
+    logger.info(
+        "default-branch missing/invalid in repo info for %s/%s; falling back to 'main'",
+        owner,
+        repo,
+    )
+    return "main"
 
 
 __all__ = [

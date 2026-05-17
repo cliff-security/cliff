@@ -218,7 +218,13 @@ ALL_CHECKS: tuple[PostureCheckName, ...] = (
 class RepoCoords:
     owner: str
     repo: str
-    branch: str = "main"
+    # Q01R-B23 — ``branch`` no longer defaults to ``main``. Defaulting hid
+    # the bug where every master-default repo (NodeGoat and friends) got
+    # 403 on ``/branches/main/protection`` and 404 on
+    # ``/commits?sha=main``. Callers must resolve the real default branch
+    # (typically via ``GithubClient.get_repo_info`` -> ``default_branch``)
+    # and pass it through explicitly.
+    branch: str
 
 
 @dataclass(frozen=True)

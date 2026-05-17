@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -387,6 +388,204 @@ async def test_empty_env_vars_still_injects_git_ceiling(
     passed_env = mock_exec.call_args.kwargs.get("env")
     assert passed_env is not None
     assert passed_env["GIT_CEILING_DIRECTORIES"] == "/tmp/ws-empty-env"
+
+
+async def test_start_injects_npm_cache(
+    pool: WorkspaceProcessPool, tmp_path: Path
+):
+    """Each workspace gets ``NPM_CONFIG_CACHE=<workspace>/.npm-cache``
+    so concurrent ``npm install`` invocations don't contend on ~/.npm
+    (EF-B15). The cache dir is created on disk too."""
+    mock_proc = _make_mock_subprocess()
+    mock_httpx = _make_mock_httpx_healthy()
+
+    ws_dir = tmp_path / "ws-npm"
+    ws_dir.mkdir()
+
+    with (
+        patch(
+            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=mock_proc),
+        ) as mock_exec,
+        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+    ):
+        await pool.start("ws-npm", ws_dir)
+
+    passed_env = mock_exec.call_args.kwargs.get("env")
+    assert passed_env is not None
+    assert passed_env["NPM_CONFIG_CACHE"] == str(ws_dir / ".npm-cache")
+    assert (ws_dir / ".npm-cache").is_dir()
+
+
+# ---------------------------------------------------------------------------
+# opencode.json model reconciliation (QA Q01 B06b)
+# ---------------------------------------------------------------------------
+
+
+async def test_start_reconciles_opencode_model(tmp_path: Path):
+    """The pool rewrites the workspace's opencode.json `model` from the
+    model_resolver before spawn. Without it OpenCode falls back to a
+    built-in default that routes through the wrong provider and 401s."""
+    ws_dir = tmp_path / "ws-model"
+    ws_dir.mkdir()
+    (ws_dir / "opencode.json").write_text(
+        '{"$schema": "https://opencode.ai/config.json", '
+        '"permission": {"bash": "ask"}}'
+    )
+
+    pool = WorkspaceProcessPool(
+        port_allocator=PortAllocator(start=5100, end=5109),
+        host="127.0.0.1",
+        model_resolver=AsyncMock(return_value="anthropic/claude-sonnet-4-6"),
+    )
+    mock_proc = _make_mock_subprocess()
+    mock_httpx = _make_mock_httpx_healthy()
+
+    with (
+        patch(
+            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=mock_proc),
+        ),
+        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+    ):
+        await pool.start("ws-model", ws_dir)
+
+    config = json.loads((ws_dir / "opencode.json").read_text())
+    assert config["model"] == "anthropic/claude-sonnet-4-6"
+    # Existing keys are preserved.
+    assert config["permission"] == {"bash": "ask"}
+
+
+async def test_start_without_model_resolver_leaves_opencode_json_untouched(
+    tmp_path: Path,
+):
+    """No model_resolver wired → the pool must not touch opencode.json."""
+    ws_dir = tmp_path / "ws-nomodel"
+    ws_dir.mkdir()
+    original = '{"permission": {"bash": "ask"}}'
+    (ws_dir / "opencode.json").write_text(original)
+
+    pool = WorkspaceProcessPool(
+        port_allocator=PortAllocator(start=5100, end=5109),
+        host="127.0.0.1",
+    )
+    mock_proc = _make_mock_subprocess()
+    mock_httpx = _make_mock_httpx_healthy()
+
+    with (
+        patch(
+            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=mock_proc),
+        ),
+        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+    ):
+        await pool.start("ws-nomodel", ws_dir)
+
+    assert (ws_dir / "opencode.json").read_text() == original
+
+
+async def test_start_model_resolver_returning_none_leaves_untouched(
+    tmp_path: Path,
+):
+    """When no AI provider is configured the resolver returns None — the
+    pool leaves opencode.json alone rather than writing `model: null`."""
+    ws_dir = tmp_path / "ws-modelnone"
+    ws_dir.mkdir()
+    original = '{"permission": {"bash": "ask"}}'
+    (ws_dir / "opencode.json").write_text(original)
+
+    pool = WorkspaceProcessPool(
+        port_allocator=PortAllocator(start=5100, end=5109),
+        host="127.0.0.1",
+        model_resolver=AsyncMock(return_value=None),
+    )
+    mock_proc = _make_mock_subprocess()
+    mock_httpx = _make_mock_httpx_healthy()
+
+    with (
+        patch(
+            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=mock_proc),
+        ),
+        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+    ):
+        await pool.start("ws-modelnone", ws_dir)
+
+    assert (ws_dir / "opencode.json").read_text() == original
+
+
+# ---------------------------------------------------------------------------
+# Host AI-provider env var scrubbing (QA Q01 B07)
+# ---------------------------------------------------------------------------
+
+
+async def test_start_scrubs_host_ai_provider_env_vars(pool: WorkspaceProcessPool):
+    """A polluted host environment (e.g. Claude Desktop exports
+    ANTHROPIC_BASE_URL without /v1, plus an empty ANTHROPIC_API_KEY) must
+    not leak into the workspace subprocess. The resolver's values win."""
+    mock_proc = _make_mock_subprocess()
+    mock_httpx = _make_mock_httpx_healthy()
+
+    with (
+        patch(
+            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=mock_proc),
+        ) as mock_exec,
+        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+        patch("opensec.engine.pool.os") as mock_os,
+    ):
+        mock_os.environ = {
+            "PATH": "/usr/bin",
+            "ANTHROPIC_BASE_URL": "https://api.anthropic.com",
+            "ANTHROPIC_API_KEY": "",  # empty host value — must not shadow
+            "OPENAI_BASE_URL": "https://evil.example",
+        }
+        await pool.start(
+            "ws-scrub",
+            Path("/tmp/ws-scrub"),
+            env_vars={"ANTHROPIC_API_KEY": "sk-ant-real"},
+        )
+
+    passed_env = mock_exec.call_args.kwargs.get("env")
+    # Host AI-provider pollution scrubbed.
+    assert "ANTHROPIC_BASE_URL" not in passed_env
+    assert "OPENAI_BASE_URL" not in passed_env
+    # Resolver/caller value layered back on; non-AI host env preserved.
+    assert passed_env["ANTHROPIC_API_KEY"] == "sk-ant-real"
+    assert passed_env["PATH"] == "/usr/bin"
+
+
+async def test_start_keeps_resolver_supplied_base_url(
+    pool: WorkspaceProcessPool,
+):
+    """A *_BASE_URL the resolver/caller explicitly supplies (BYOK custom
+    endpoint) survives — only host-inherited ones are scrubbed."""
+    mock_proc = _make_mock_subprocess()
+    mock_httpx = _make_mock_httpx_healthy()
+
+    with (
+        patch(
+            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=mock_proc),
+        ) as mock_exec,
+        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+        patch("opensec.engine.pool.os") as mock_os,
+    ):
+        mock_os.environ = {
+            "PATH": "/usr/bin",
+            "ANTHROPIC_BASE_URL": "https://api.anthropic.com",
+        }
+        await pool.start(
+            "ws-byok-url",
+            Path("/tmp/ws-byok-url"),
+            env_vars={
+                "ANTHROPIC_API_KEY": "sk-ant-real",
+                "ANTHROPIC_BASE_URL": "https://proxy.internal/v1",
+            },
+        )
+
+    passed_env = mock_exec.call_args.kwargs.get("env")
+    assert passed_env["ANTHROPIC_BASE_URL"] == "https://proxy.internal/v1"
 
 
 # ---------------------------------------------------------------------------

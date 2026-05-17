@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, field_validator
 
-AIProvider = Literal["openrouter", "anthropic", "openai", "custom"]
+AIProvider = Literal[
+    "openrouter", "anthropic", "openai", "google", "ollama", "custom"
+]
 AISource = Literal["autodetect", "openrouter-oauth", "byok"]
 AIState = Literal["unconfigured", "connected"]
 
@@ -50,18 +52,21 @@ class AIIntegrationCreate(BaseModel):
 
 
 class AIStatus(BaseModel):
-    """Wire shape for ``GET /api/integrations/ai/status``."""
+    """Wire shape for ``GET /api/integrations/ai/status``.
+
+    ``model`` is the canonical active model — the one OpenSec writes into
+    ``app_setting(key="model")`` and pushes into every workspace spawn.
+    Per ADR-0037 there is one canonical state and one read; the
+    on_key_change hook restarts the singleton OpenCode synchronously on
+    every model/key write, so there is no separate "what's loaded right
+    now" signal worth exposing on the wire (architect health-check, M9).
+    """
 
     state: AIState
     provider: AIProvider | None = None
     source: AISource | None = None
     connected_at: str | None = None
     metadata: dict | None = None
-    override_model: str | None = None
-    # The active model OpenSec routes through OpenCode for this provider —
-    # either the catalog default or the env-var override. Always populated
-    # when ``state == "connected"`` so the Settings card can surface
-    # "running Claude Sonnet 4.6" without re-resolving on the frontend.
     model: str | None = None
 
 
@@ -144,9 +149,62 @@ class BYOKRequest(BaseModel):
     validation errors, repr, logging. Call sites that need the raw key
     must use ``api_key.get_secret_value()`` explicitly; that explicit
     unwrap is the only place we want to deal with the raw string.
+
+    For Ollama the ``api_key`` is just a non-empty placeholder (the
+    transport doesn't authenticate) but the field stays required so the
+    wire shape doesn't fork. The UI sends "local" automatically.
     """
 
     provider: AIProvider
     api_key: SecretStr = Field(..., min_length=1)
     base_url: str | None = None
     model: str | None = None
+
+    @field_validator("base_url")
+    @classmethod
+    def _base_url_must_look_like_url(cls, value: str | None) -> str | None:
+        """Reject obviously-malformed base URLs at the wire (M1).
+
+        We don't apply the DNS-aware SSRF check here — the per-provider
+        validator (``validate_ollama`` / ``validate_custom``) does that
+        with the provider-specific policy (Ollama keeps loopback +
+        RFC1918; custom rejects them). Stopping bad URL shapes here
+        means a non-URL string ("'); DROP TABLE--", "foo bar") never
+        reaches the validator or the per-workspace env injection.
+        """
+        if value is None or value == "":
+            return None
+        from urllib.parse import urlparse
+        parsed = urlparse(value)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            msg = "base_url must be a http:// or https:// URL with a host"
+            raise ValueError(msg)
+        return value
+
+
+class SetModelRequest(BaseModel):
+    """Inbound payload for ``PUT /api/integrations/ai/model``.
+
+    The model id must include a provider prefix; the service rejects ids
+    whose prefix doesn't match the currently active provider so a stale
+    setting never silently re-points at the wrong namespace.
+    """
+
+    model: str = Field(..., min_length=1)
+
+
+class ProviderModelOption(BaseModel):
+    """One entry in the per-provider model picker dropdown."""
+
+    id: str
+    label: str
+    description: str | None = None
+
+
+class ProviderModelsResponse(BaseModel):
+    """Wire shape for ``GET /api/integrations/ai/models?provider=X``."""
+
+    provider: AIProvider
+    default_model: str | None
+    models: list[ProviderModelOption]
+    source: Literal["catalog", "live"]

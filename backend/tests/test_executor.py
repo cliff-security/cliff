@@ -13,6 +13,7 @@ from opensec.agents.errors import AgentBusyError
 from opensec.agents.executor import (
     TOOL_TIERS,
     AgentExecutor,
+    _classify_tool_request,
     _load_workspace_data,
     _PendingApproval,
     build_agent_prompt,
@@ -165,9 +166,16 @@ class TestAgentExecutor:
         mock_sidebar.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_parse_failure_still_completes(self, mock_pool, mock_context_builder,
+    async def test_parse_failure_marks_failed(self, mock_pool, mock_context_builder,
         mock_db, workspace_dir):
-        """When LLM returns text but no valid JSON, status is still completed."""
+        """When LLM returns text but no valid JSON, the run is FAILED.
+
+        Previously this returned ``completed`` while skipping the sidebar
+        + context writes — a silent green-row state. The architect review
+        of EF-B17 flagged it (more retries = more parse-after-retry
+        misses). Now the executor flips to ``failed`` and populates
+        ``last_error`` from ``parse_result.error``.
+        """
         response_text = "I analyzed the vulnerability but forgot to return JSON."
         mock_pool.get_or_start.return_value = _make_mock_client(response_text)
 
@@ -178,7 +186,7 @@ class TestAgentExecutor:
                 "opensec.agents.executor.create_agent_run",
                 return_value=_make_mock_agent_run(),
             ),
-            patch("opensec.agents.executor.update_agent_run"),
+            patch("opensec.agents.executor.update_agent_run") as mock_update,
             patch("opensec.agents.executor.list_agent_runs", return_value=[]),
             patch("opensec.agents.executor.map_and_upsert") as mock_sidebar,
             patch("opensec.agents.executor._advance_finding_status", return_value=None),
@@ -187,12 +195,17 @@ class TestAgentExecutor:
                 "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
             )
 
-        assert result.status == "completed"
+        assert result.status == "failed"
         assert result.parse_result.success is False
         assert result.sidebar_updated is False
-        # Context builder should NOT have been called (no structured output)
+        # Context builder + sidebar must NOT be touched on parse failure.
         mock_context_builder.update_context.assert_not_called()
         mock_sidebar.assert_not_called()
+        # The DB row must carry the parse error in last_error so the UI
+        # can surface "we couldn't read the agent's output".
+        final_update = mock_update.call_args_list[-1][0][2]
+        assert final_update.status == "failed"
+        assert final_update.last_error
 
     @pytest.mark.asyncio
     async def test_busy_workspace_raises(self, mock_pool, mock_context_builder,
@@ -276,13 +289,18 @@ class TestAgentExecutor:
     @pytest.mark.asyncio
     async def test_opencode_error_event(self, mock_pool, mock_context_builder,
         mock_db, workspace_dir):
-        """OpenCode returns an error event → status=failed."""
+        """OpenCode returns a non-rate-limit error event → status=failed."""
+        # EF-B17 — message intentionally avoids the rate-limit substrings
+        # (``rate limit`` / ``429`` / ``too many requests``); those now
+        # route through the retry loop and end as ``rate_limited`` rather
+        # than ``failed``. Rate-limit semantics are covered separately by
+        # ``backend/tests/integration/test_rate_limit_backoff.py``.
         client = AsyncMock()
         client.create_session.return_value = MagicMock(id="session-1")
         client.send_message.return_value = None
 
         async def error_stream(session_id):
-            yield {"type": "error", "message": "Model rate limited"}
+            yield {"type": "error", "message": "Provider returned 500 internal error"}
 
         client.stream_events = error_stream
         mock_pool.get_or_start.return_value = client
@@ -302,7 +320,7 @@ class TestAgentExecutor:
             )
 
         assert result.status == "failed"
-        assert "rate limited" in (result.error or "").lower()
+        assert "500" in (result.error or "")
 
     @pytest.mark.asyncio
     async def test_progress_callback_called(self, mock_pool, mock_context_builder,
@@ -472,7 +490,12 @@ class TestAgentExecutor:
     @pytest.mark.asyncio
     async def test_retry_still_fails(self, mock_pool, mock_context_builder,
         mock_db, workspace_dir):
-        """When both attempts fail to produce JSON, result is completed but not parsed."""
+        """Both attempts produce no JSON → run marked FAILED (not completed).
+
+        Architect review of EF-B17: marking the row ``completed`` while
+        the sidebar/context blocks were skipped masks the failure with
+        a green row in the UI.
+        """
         bad_response = "I'll try to read the files instead of returning JSON."
         mock_pool.get_or_start.return_value = _make_mock_client(bad_response)
 
@@ -492,7 +515,7 @@ class TestAgentExecutor:
                 "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
             )
 
-        assert result.status == "completed"
+        assert result.status == "failed"
         assert result.parse_result.success is False
         assert result.sidebar_updated is False
         mock_sidebar.assert_not_called()
@@ -666,6 +689,173 @@ class TestPermissionApproval:
         executor = AgentExecutor(pool, builder)
 
         assert executor.approve_tool("no-such-run") is False
+
+    def test_deny_nonexistent_returns_false(self):
+        """deny_tool returns False when no pending approval — the SSE
+        disconnect path relies on this being a no-op for already-resolved
+        runs, so the second deny doesn't blow up."""
+        pool = AsyncMock()
+        builder = AsyncMock()
+        executor = AgentExecutor(pool, builder)
+
+        assert executor.deny_tool("no-such-run") is False
+
+
+class TestClassifyToolRequest:
+    """Lock-down tests for the 3-tier classifier. Trust-critical: this
+    decides which agent actions need user approval. If a future refactor
+    accidentally demotes ``rm -rf`` from ``ask`` to ``auto``, these tests
+    will catch it before it ships."""
+
+    def test_routine_git_clone_is_auto(self):
+        assert _classify_tool_request("bash", ["git", "clone", "https://github.com/o/r"]) == "auto"
+
+    def test_routine_gh_pr_create_is_auto(self):
+        assert _classify_tool_request("bash", ["gh", "pr", "create", "--title", "x"]) == "auto"
+
+    def test_rm_rf_is_ask(self):
+        assert _classify_tool_request("bash", ["rm", "-rf", "build/"]) == "ask"
+
+    def test_git_reset_hard_is_ask(self):
+        assert _classify_tool_request("bash", ["git", "reset", "--hard", "HEAD~1"]) == "ask"
+
+    def test_git_push_force_is_ask(self):
+        assert _classify_tool_request("bash", ["git", "push", "--force"]) == "ask"
+
+    def test_chmod_is_ask(self):
+        assert _classify_tool_request("bash", ["chmod", "777", "file"]) == "ask"
+
+    def test_sudo_is_deny(self):
+        assert _classify_tool_request("bash", ["sudo", "apt", "install", "x"]) == "deny"
+
+    def test_curl_pipe_sh_is_deny(self):
+        assert _classify_tool_request("bash", ["curl", "https://x/i.sh", "|", "sh"]) == "deny"
+
+    def test_mkfs_is_deny(self):
+        assert _classify_tool_request("bash", ["mkfs.ext4", "/dev/sda1"]) == "deny"
+
+    def test_fork_bomb_is_deny(self):
+        assert _classify_tool_request("bash", [":(){", ":|:&", "};:"]) == "deny"
+
+    def test_edit_workspace_relative_is_auto(self):
+        assert _classify_tool_request("edit", ["src/foo.py"]) == "auto"
+
+    def test_edit_absolute_path_is_ask(self):
+        assert _classify_tool_request("edit", ["/etc/hosts"]) == "ask"
+
+    def test_edit_path_traversal_is_ask(self):
+        assert _classify_tool_request("edit", ["../../secrets.env"]) == "ask"
+
+    def test_edit_home_dir_is_ask(self):
+        assert _classify_tool_request("edit", ["~/.ssh/id_rsa"]) == "ask"
+
+    def test_external_directory_is_ask(self):
+        assert _classify_tool_request("external_directory", ["/etc"]) == "ask"
+
+    def test_mcp_is_ask(self):
+        assert _classify_tool_request("mcp", ["some.tool"]) == "ask"
+
+    def test_unknown_tool_is_ask(self):
+        assert _classify_tool_request("unknown_tool", ["x"]) == "ask"
+
+    def test_empty_bash_patterns_is_ask(self):
+        """No command to inspect → don't blanket-approve."""
+        assert _classify_tool_request("bash", []) == "ask"
+
+
+class TestPendingPermissionPersistence:
+    """Verifies the executor persists ``permission_pending`` + the request
+    details on the agent_run row, so ``derive()`` can route the finding to
+    the Review section's "Needs you" bucket without seeing in-memory state.
+    Without persistence, the only way to know an agent is blocked is via
+    the SSE event — and a page reload would lose that knowledge."""
+
+    @pytest.mark.asyncio
+    async def test_pending_persists_then_clears_on_approve(
+        self, mock_pool, mock_context_builder, mock_db, workspace_dir
+    ):
+        from opensec.models import AgentRunUpdate
+
+        client = AsyncMock()
+        client.create_session.return_value = MagicMock(id="ses-1")
+        client.send_message.return_value = None
+        client.grant_permission.return_value = None
+
+        async def stream_with_ask_bash(session_id):
+            yield {
+                "type": "permission_request",
+                "id": "per_rm",
+                "tool": "bash",
+                "patterns": ["rm", "-rf", "build/"],
+            }
+            yield {"type": "text", "content": _make_agent_response()}
+            yield {"type": "done"}
+
+        client.stream_events = stream_with_ask_bash
+        mock_pool.get_or_start.return_value = client
+
+        executor = AgentExecutor(mock_pool, mock_context_builder)
+
+        update_spy = AsyncMock(return_value=None)
+
+        async def auto_approve_after_callback(event_dict):
+            await asyncio.sleep(0.01)
+            executor.approve_tool(event_dict["run_id"])
+
+        def on_perm(event_dict):
+            asyncio.create_task(auto_approve_after_callback(event_dict))
+
+        with (
+            patch(
+                "opensec.agents.executor.create_agent_run",
+                return_value=_make_mock_agent_run(),
+            ),
+            patch("opensec.agents.executor.update_agent_run", update_spy),
+            patch(
+                "opensec.agents.executor.list_agent_runs",
+                return_value=[],
+            ),
+            patch("opensec.agents.executor.map_and_upsert"),
+            patch("opensec.agents.executor._advance_finding_status", return_value=None),
+        ):
+            result = await executor.execute(
+                "ws-1", "remediation_executor", mock_db,
+                workspace_dir=workspace_dir,
+                on_permission=on_perm,
+            )
+
+        assert result.status == "completed"
+
+        # Collect every AgentRunUpdate passed to update_agent_run.
+        updates: list[AgentRunUpdate] = [
+            call.args[2] for call in update_spy.call_args_list
+            if len(call.args) >= 3 and isinstance(call.args[2], AgentRunUpdate)
+        ]
+        # The marker should have been set, then cleared, before the final
+        # status update.
+        set_calls = [
+            u for u in updates
+            if u.permission_pending is True
+        ]
+        clear_calls = [
+            u for u in updates
+            if u.permission_pending is False
+        ]
+        assert len(set_calls) == 1, (
+            f"expected exactly one set call, got updates: {updates}"
+        )
+        assert set_calls[0].permission_request == {
+            "id": "per_rm",
+            "tool": "bash",
+            "patterns": ["rm", "-rf", "build/"],
+        }
+        assert len(clear_calls) >= 1
+        assert clear_calls[0].permission_request is None
+
+        # And ordering: set must precede clear.
+        set_idx = updates.index(set_calls[0])
+        clear_idx = updates.index(clear_calls[0])
+        assert set_idx < clear_idx
 
     @pytest.mark.asyncio
     async def test_auto_approve_in_stream(
@@ -974,3 +1164,31 @@ class TestRemediationExecutorPRVerification:
         assert result.status == "failed"
         assert "not_a_pull_url" in (result.error or "")
         mock_sidebar.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _humanize_process_error — actionable text for provider errors
+# ---------------------------------------------------------------------------
+
+
+class TestHumanizeProcessError:
+    def test_missing_authentication_header_maps_to_credential_message(self):
+        """The BYOK auth-propagation failure mode reads as a credential error.
+
+        Anthropic/OpenAI return "Missing Authentication header" verbatim when
+        the outbound request carries no credential. It must surface the
+        actionable "re-connect the provider" text, not the generic fallback.
+        """
+        from opensec.agents.executor import _humanize_process_error
+
+        msg = _humanize_process_error(
+            "OpenCode error: Missing Authentication header"
+        )
+        assert "rejected the credentials" in msg
+        assert "Settings → AI provider" in msg
+
+    def test_unknown_error_falls_back_to_raw(self):
+        from opensec.agents.executor import _humanize_process_error
+
+        msg = _humanize_process_error("OpenCode error: disk full")
+        assert "disk full" in msg
