@@ -26,22 +26,6 @@ class _StubAudit:
 
 
 @pytest.fixture(autouse=True)
-def _reset_live_probe_cache():
-    """Reset the module-level live-probe cache between tests.
-
-    The cache (ADR-0037) is process-global. Every realistic save path
-    invalidates it via ``_fire_key_change``, but a test that reads
-    ``/status`` twice without an intervening write could see stale
-    state. Auto-resetting between tests keeps isolation explicit.
-    """
-    from opensec.ai.service import invalidate_live_probe
-
-    invalidate_live_probe()
-    yield
-    invalidate_live_probe()
-
-
-@pytest.fixture(autouse=True)
 def _stub_opencode_auth_sync(monkeypatch):
     """Don't try to talk to a real OpenCode in route tests.
 
@@ -295,28 +279,12 @@ async def test_status_connected_after_byok(ai_client, httpx_mock) -> None:
     body = resp.json()
     assert body["state"] == "connected"
     assert body["provider"] == "anthropic"
-    assert body["override_model"] is None
     # Active model surfaced for the Settings card hero treatment. New default
-    # in ADR-0037 is Haiku 4.5; Sonnet stays available via the picker.
+    # in ADR-0037 is Haiku 4.5; Sonnet stays available via the picker. Post-M9
+    # the response does NOT carry override_model or live_probe.
     assert body["model"] == "anthropic/claude-haiku-4-5"
-
-
-async def test_status_surfaces_override_model(
-    ai_client, monkeypatch, httpx_mock
-) -> None:
-    monkeypatch.setenv("OPENSEC_AI_MODEL_OVERRIDE_ANTHROPIC", "claude-opus-4-1")
-    httpx_mock.add_response(
-        url="https://api.anthropic.com/v1/messages",
-        method="POST",
-        status_code=200,
-        json={"content": []},
-    )
-    await ai_client.post(
-        "/api/integrations/ai/byok",
-        json={"provider": "anthropic", "api_key": "sk-ant-byok"},
-    )
-    resp = await ai_client.get("/api/integrations/ai/status")
-    assert resp.json()["override_model"] == "claude-opus-4-1"
+    assert "override_model" not in body
+    assert "live_probe" not in body
 
 
 # ---------------------------------------------------------------------------
@@ -547,8 +515,13 @@ async def test_byok_saves_ollama_with_base_url(ai_client, httpx_mock) -> None:
     assert body["provider"] == "ollama"
 
 
-async def test_status_includes_live_probe_field(ai_client, httpx_mock) -> None:
-    """``GET /status`` now carries ``live_probe`` so the UI can detect drift."""
+async def test_status_does_not_include_live_probe_or_override_model(
+    ai_client, httpx_mock
+) -> None:
+    """Post-M9 ``GET /status`` no longer carries ``live_probe`` or
+    ``override_model``. The on_key_change hook keeps the singleton's
+    loaded model in lockstep with canonical state, so there is no
+    separate "what's actually loaded" signal to surface."""
     httpx_mock.add_response(
         url="https://api.anthropic.com/v1/messages",
         method="POST",
@@ -561,8 +534,15 @@ async def test_status_includes_live_probe_field(ai_client, httpx_mock) -> None:
     )
     resp = await ai_client.get("/api/integrations/ai/status")
     body = resp.json()
-    assert "live_probe" in body
-    # The live_probe is a structured object — `ok` is always a bool.
-    assert body["live_probe"] is None or isinstance(
-        body["live_probe"].get("ok"), bool
-    )
+    assert "live_probe" not in body
+    assert "override_model" not in body
+    # The remaining fields stay: state, provider, source, connected_at,
+    # metadata, model.
+    assert set(body.keys()) <= {
+        "state",
+        "provider",
+        "source",
+        "connected_at",
+        "metadata",
+        "model",
+    }

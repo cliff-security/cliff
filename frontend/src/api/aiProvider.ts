@@ -35,23 +35,14 @@ export type ByokErrorCode =
   | 'rate_limited'
   | 'model_not_found'
 
-export interface LiveProbe {
-  ok: boolean
-  /** What OpenCode's singleton actually has loaded right now. */
-  opencode_model: string | null
-}
-
 export interface AIStatusResponse {
   state: AIState
   provider: AIProvider | null
   source: AISource | null
   connected_at: string | null
   metadata: Record<string, unknown> | null
-  override_model: string | null
   /** Canonical active model — written via the picker, used by workspace spawn. */
   model: string | null
-  /** Best-effort read of OpenCode's currently-loaded model for drift detection. */
-  live_probe: LiveProbe | null
 }
 
 export interface ProviderModelOption {
@@ -161,10 +152,11 @@ function invalidateAINonStatus(qc: ReturnType<typeof useQueryClient>) {
 
 /** Read-only status hook — drives every agent-button gate via useAIRequired.
  *
- * Refetches every 15s so the Settings card and the drift banner reflect
- * upstream change quickly (the singleton restarts on key/model changes
- * via the on_key_change hook, which can lag the canonical write by a
- * second or two). Stale-while-revalidate keeps it from feeling janky.
+ * Refetches every 15s so the Settings card reflects upstream change
+ * quickly. The drift banner that the 15s cadence used to feed was
+ * removed in M9 (architect health-check): on_key_change restarts the
+ * singleton synchronously, so canonical state and the loaded model
+ * can't disagree by more than one event loop tick.
  */
 export function useAIProviderStatus() {
   return useQuery({

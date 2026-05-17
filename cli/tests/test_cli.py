@@ -36,26 +36,18 @@ def _stub_ai_integration_status(
     httpx_mock,
     *,
     model: str | None = None,
-    opencode_model: str | None = None,
 ) -> None:
     """Stub ``GET /api/integrations/ai/status`` for ``opensec status``.
 
-    ADR-0037 added a second probe inside ``status``: the CLI hits this
-    endpoint after ``/health`` + version-handshake to surface the canonical
-    AI model and detect drift against OpenCode's live model. Tests of the
-    status command need to mock it or pytest-httpx flags the unmatched
-    request as an error.
-
-    When ``opencode_model`` is omitted the response carries no live probe,
-    so the CLI's drift check is a no-op (matches a freshly-configured
-    happy path where canonical == live).
+    ADR-0037 / architect M9: the live-probe + drift signal were removed.
+    The CLI now only reads the canonical ``model`` field; the singleton
+    OpenCode is restarted synchronously by ``on_key_change`` on every
+    canonical-state write, so there is no separate "what's actually
+    loaded" value to surface.
     """
-    body: dict = {"model": model}
-    if opencode_model is not None:
-        body["live_probe"] = {"opencode_model": opencode_model}
     httpx_mock.add_response(
         url="http://test-server/api/integrations/ai/status",
-        json=body,
+        json={"model": model},
     )
 
 

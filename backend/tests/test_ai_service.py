@@ -26,16 +26,6 @@ def _reset_catalog_state():
 
 
 @pytest.fixture(autouse=True)
-def _reset_live_probe_cache():
-    """Keep tests isolated from each other's ``get_status`` probe cache (ADR-0037)."""
-    from opensec.ai.service import invalidate_live_probe
-
-    invalidate_live_probe()
-    yield
-    invalidate_live_probe()
-
-
-@pytest.fixture(autouse=True)
 def _isolate_opencode_client(monkeypatch):
     """Stub ``opencode_client.set_auth`` / ``get_config`` so tests can't
     reach a running OpenCode singleton on the dev host.
@@ -434,14 +424,10 @@ async def test_disconnect_emits_audit_event(
 # ---------------------------------------------------------------------------
 
 
-async def test_get_status_surfaces_active_override(
-    service: AIIntegrationService, monkeypatch
-) -> None:
-    monkeypatch.setenv("OPENSEC_AI_MODEL_OVERRIDE_ANTHROPIC", "claude-opus-4-1")
-    await service.save_byok("anthropic", "sk-ant-key")
-    status = await service.get_status()
-    assert status.state == "connected"
-    assert status.override_model == "claude-opus-4-1"
+# M9: ``override_model`` field was removed from AIStatus per architect
+# health-check (one canonical state, one read). The env override stays as
+# a dev escape hatch (``catalog.resolve_model``) but is no longer surfaced
+# on the wire. The tests for it are no longer applicable.
 
 
 # ---------------------------------------------------------------------------
@@ -515,14 +501,6 @@ async def test_save_byok_survives_opencode_unavailable(
 
     record = await service.save_byok("anthropic", "sk-ant-key")
     assert record.provider == "anthropic"
-
-
-async def test_get_status_no_override_returns_none(
-    service: AIIntegrationService,
-) -> None:
-    await service.save_byok("anthropic", "sk-ant-key")
-    status = await service.get_status()
-    assert status.override_model is None
 
 
 # ---------------------------------------------------------------------------
@@ -732,63 +710,16 @@ async def test_save_byok_for_ollama_skips_opencode_auth_push(
     assert seen == []
 
 
-async def test_get_status_includes_live_probe(
-    service: AIIntegrationService, monkeypatch
+async def test_get_status_returns_canonical_model_post_save(
+    service: AIIntegrationService,
 ) -> None:
-    """get_status surfaces what OpenCode actually has loaded.
-
-    With a healthy probe and matching model, the UI sees no drift.
+    """Post-M9: ``get_status`` is the single read. It returns the
+    canonical model from ``app_setting(model)`` (resolved via
+    ``_resolve_canonical_model``) — no separate live probe of OpenCode,
+    no drift signal. ``on_key_change`` guarantees the singleton's
+    loaded model matches the canonical write before the next request.
     """
-
-    class _Client:
-        async def get_config(self) -> dict:
-            return {"model": "anthropic/claude-haiku-4-5"}
-
-    monkeypatch.setattr(
-        "opensec.engine.client.opencode_client", _Client()
-    )
     await service.save_byok("anthropic", "sk-ant-key")
     status = await service.get_status()
-    assert status.live_probe is not None
-    assert status.live_probe.ok is True
-    assert status.live_probe.opencode_model == "anthropic/claude-haiku-4-5"
+    assert status.state == "connected"
     assert status.model == "anthropic/claude-haiku-4-5"
-
-
-async def test_get_status_surfaces_drift(
-    service: AIIntegrationService, monkeypatch
-) -> None:
-    """When the canonical model and OpenCode's loaded model disagree the
-    UI can render a drift banner — the status payload carries both."""
-
-    class _Client:
-        async def get_config(self) -> dict:
-            return {"model": "anthropic/claude-opus-4-1"}
-
-    monkeypatch.setattr(
-        "opensec.engine.client.opencode_client", _Client()
-    )
-    await service.save_byok("anthropic", "sk-ant-key")
-    status = await service.get_status()
-    assert status.model == "anthropic/claude-haiku-4-5"
-    assert status.live_probe.opencode_model == "anthropic/claude-opus-4-1"
-
-
-async def test_get_status_live_probe_failure_is_not_fatal(
-    service: AIIntegrationService, monkeypatch
-) -> None:
-    """Singleton-down doesn't break the Settings card; it just reports
-    ``live_probe.ok = False`` so the UI can render a calm state."""
-
-    class _Client:
-        async def get_config(self) -> dict:
-            raise RuntimeError("singleton down")
-
-    monkeypatch.setattr(
-        "opensec.engine.client.opencode_client", _Client()
-    )
-    await service.save_byok("anthropic", "sk-ant-key")
-    status = await service.get_status()
-    assert status.live_probe is not None
-    assert status.live_probe.ok is False
-    assert status.live_probe.opencode_model is None

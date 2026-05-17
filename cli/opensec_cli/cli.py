@@ -146,34 +146,25 @@ def status(client: Client) -> None:
         # Re-raise so the wrapper handles it as a structured error.
         raise
 
-    # ADR-0037: surface canonical model + live OpenCode model so the user
-    # can see drift from the CLI. We treat the AI integration status
-    # endpoint as the source of truth for canonical model; the /health
-    # response carries what OpenCode actually has loaded. If the
-    # endpoint isn't available (e.g. no vault) we degrade gracefully.
+    # ADR-0037: report the canonical active model. The prior CLI surfaced
+    # a "drift" signal between canonical state and a live OpenCode probe;
+    # the architect health-check (M9) removed the probe as redundant —
+    # the on_key_change hook restarts the singleton synchronously on
+    # every write, so there is no drift to surface. ``/health.model``
+    # remains the singleton's view of its own config and is used as the
+    # fallback when the AI status endpoint isn't yet available (no vault).
     canonical_model: str | None = None
-    live_model: str | None = health.get("model") or None
-    drifted = False
     try:
         ai_status = client.get("/api/integrations/ai/status")
         canonical_model = ai_status.get("model")
-        live_probe = ai_status.get("live_probe") or {}
-        opencode_model = live_probe.get("opencode_model")
-        if opencode_model:
-            live_model = opencode_model
-        if (
-            canonical_model
-            and opencode_model
-            and canonical_model != opencode_model
-        ):
-            drifted = True
     except HTTPError:
         pass
+    model = canonical_model or health.get("model") or ""
 
     blockers: list[str] = []
     if health.get("opencode") != "ok":
         blockers.append("opencode_engine_unavailable")
-    if not (canonical_model or live_model):
+    if not model:
         blockers.append("no_llm_model_configured")
     # A model string alone is not enough — the agent runtime also needs a
     # provider credential that actually reaches the workspace subprocess.
@@ -181,16 +172,8 @@ def status(client: Client) -> None:
     # connected-but-broken BYOK key), so guard against that false-positive.
     if not health.get("ai_provider_ready", False):
         blockers.append("no_ai_provider_credential")
-    if drifted:
-        blockers.append("model_drift")
 
-    next_action: str | None
-    if drifted:
-        next_action = "model set <canonical> # or use Settings -> Reconcile"
-    elif blockers:
-        next_action = None
-    else:
-        next_action = "scan <repo_url>"
+    next_action: str | None = "scan <repo_url>" if not blockers else None
 
     emit(
         {
@@ -200,10 +183,7 @@ def status(client: Client) -> None:
             "schema_version": version["schema_version"],
             "min_cli": version["min_cli"],
             "cli_version": __version__,
-            "model": canonical_model or live_model or "",
-            "canonical_model": canonical_model,
-            "opencode_model": live_model,
-            "drifted": drifted,
+            "model": model,
             "blockers": blockers,
             "next": next_action,
         }

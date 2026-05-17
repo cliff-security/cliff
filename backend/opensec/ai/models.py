@@ -51,31 +51,15 @@ class AIIntegrationCreate(BaseModel):
     metadata: dict | None = None
 
 
-class LiveProbe(BaseModel):
-    """Reflects what OpenCode's singleton currently has loaded.
-
-    ``opencode_model`` is the model id returned by OpenCode's ``/config``
-    endpoint, which is the model agent calls will actually use. If it
-    disagrees with ``AIStatus.model`` (the canonical setting) the Settings
-    UI surfaces a drift banner and offers one-click reconcile.
-    """
-
-    ok: bool
-    opencode_model: str | None = None
-
-
 class AIStatus(BaseModel):
     """Wire shape for ``GET /api/integrations/ai/status``.
 
-    ``model`` is the **canonical** active model — the one OpenSec writes
-    into ``app_setting(key="model")`` and pushes into every workspace
-    spawn. ``live_probe.opencode_model`` is what the singleton OpenCode
-    has *right now*. The two should match. Drift is rendered as a banner
-    in the UI with a [Reconcile] action.
-
-    ``override_model`` is preserved for back-compat with the old
-    ``OPENSEC_AI_MODEL_OVERRIDE_*`` env var — DEV-ONLY in v0.2, no longer
-    surfaced in the picker (ADR-0037).
+    ``model`` is the canonical active model — the one OpenSec writes into
+    ``app_setting(key="model")`` and pushes into every workspace spawn.
+    Per ADR-0037 there is one canonical state and one read; the
+    on_key_change hook restarts the singleton OpenCode synchronously on
+    every model/key write, so there is no separate "what's loaded right
+    now" signal worth exposing on the wire (architect health-check, M9).
     """
 
     state: AIState
@@ -83,9 +67,7 @@ class AIStatus(BaseModel):
     source: AISource | None = None
     connected_at: str | None = None
     metadata: dict | None = None
-    override_model: str | None = None
     model: str | None = None
-    live_probe: LiveProbe | None = None
 
 
 class DetectedKey(BaseModel):

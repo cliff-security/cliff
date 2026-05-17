@@ -32,7 +32,6 @@ interface _AIStubState {
   source: 'autodetect' | 'openrouter-oauth' | 'byok' | null
   connected_at: string | null
   metadata: Record<string, unknown> | null
-  override_model: string | null
   model: string | null
 }
 
@@ -42,7 +41,6 @@ const _AI_UNCONFIGURED: _AIStubState = {
   source: null,
   connected_at: null,
   metadata: null,
-  override_model: null,
   model: null,
 }
 
@@ -323,7 +321,6 @@ export const sessionHandlers = [
       source: 'byok',
       connected_at: new Date().toISOString(),
       metadata: null,
-      override_model: null,
       model: _MODEL_FOR_PROVIDER[provider] ?? null,
     }
     return HttpResponse.json(_aiState)

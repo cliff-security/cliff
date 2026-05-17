@@ -15,7 +15,6 @@ import { useEffect, useRef, useState } from 'react'
 import {
   useAIProviderStatus,
   useDisconnect,
-  useSetModel,
   type AIStatusResponse,
 } from '@/api/aiProvider'
 import { parseApiError } from '@/api/client'
@@ -171,15 +170,11 @@ function ConnectedCard({
   const modelName = formatModel(status.model)
   const source = sourceCopy(status)
 
-  // Drift detection — what the canonical config says vs. what OpenCode has
-  // loaded right now. The probe returns ``ok: false`` when the singleton is
-  // down, which we deliberately don't treat as drift (singleton-down is its
-  // own UX problem, surfaced by the "Live" indicator failing).
-  const probe = status.live_probe
-  const driftedModel =
-    probe?.ok && status.model && probe.opencode_model
-      ? probe.opencode_model !== status.model
-      : false
+  // M9 (architect health-check): the drift banner + live-probe were
+  // removed. The on_key_change hook restarts the singleton OpenCode
+  // synchronously on every canonical-state write, so there is no drift
+  // signal worth showing — and rendering one made the read look like
+  // there were two sources of truth when ADR-0037 specifies one.
 
   // Mono detail line — source · connected timestamp. The model now has
   // its own row so it gets the breathing room it needs for the picker
@@ -353,39 +348,6 @@ function ConnectedCard({
         </button>
       </div>
 
-      {driftedModel && (
-        <DriftBanner
-          canonical={status.model!}
-          loaded={probe!.opencode_model!}
-        />
-      )}
-
-      {status.override_model && (
-        <div
-          className="font-mono"
-          style={{
-            marginTop: 10,
-            paddingLeft: 50,
-            fontSize: 10.5,
-            letterSpacing: '0.10em',
-            color: 'var(--cd-fg-4)',
-            textTransform: 'uppercase',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-          }}
-        >
-          <span
-            className="material-symbols-outlined"
-            style={{ fontSize: 13 }}
-            aria-hidden
-          >
-            terminal
-          </span>
-          dev override env active — ui picker is canonical
-        </div>
-      )}
-
       {showPicker && (
         <ModelPicker
           provider={provider as Parameters<typeof ModelPicker>[0]['provider']}
@@ -403,79 +365,6 @@ function ConnectedCard({
         />
       )}
     </section>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Drift banner
-// ---------------------------------------------------------------------------
-
-function DriftBanner({
-  canonical,
-  loaded,
-}: {
-  canonical: string
-  loaded: string
-}) {
-  const setModel = useSetModel()
-  const [error, setError] = useState<string | null>(null)
-  const onReconcile = async () => {
-    setError(null)
-    try {
-      await setModel.mutateAsync(canonical)
-    } catch (err) {
-      setError(parseApiError(err).message || 'Could not reconcile.')
-    }
-  }
-  return (
-    <div
-      role="alert"
-      data-testid="ai-provider-drift-banner"
-      style={{
-        marginTop: 12,
-        marginLeft: 50,
-        padding: '10px 12px',
-        background: 'var(--cd-red-soft, rgba(220, 38, 38, 0.10))',
-        border: '1px solid var(--cd-red-line, rgba(220, 38, 38, 0.35))',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span
-          className="material-symbols-outlined"
-          style={{ fontSize: 16, color: 'var(--cd-red, #d33)' }}
-          aria-hidden
-        >
-          sync_problem
-        </span>
-        <span style={{ fontSize: 12.5, color: 'var(--cd-fg-1)', flex: 1 }}>
-          OpenCode is running{' '}
-          <code className="font-mono" style={{ fontSize: 11.5 }}>
-            {loaded}
-          </code>{' '}
-          but the saved configuration says{' '}
-          <code className="font-mono" style={{ fontSize: 11.5 }}>
-            {canonical}
-          </code>
-          .
-        </span>
-        <button
-          type="button"
-          onClick={onReconcile}
-          disabled={setModel.isPending}
-          className="cd-btn cd-btn--primary cd-btn--sm"
-        >
-          {setModel.isPending ? 'Reconciling…' : 'Reconcile'}
-        </button>
-      </div>
-      {error && (
-        <p style={{ fontSize: 11.5, color: 'var(--cd-red, #d33)', margin: 0 }}>
-          {error}
-        </p>
-      )}
-    </div>
   )
 }
 

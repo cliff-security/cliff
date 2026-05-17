@@ -2,7 +2,7 @@
   "components": {
     "schemas": {
       "AIStatus": {
-        "description": "Wire shape for ``GET /api/integrations/ai/status``.\n\n``model`` is the **canonical** active model \u2014 the one OpenSec writes\ninto ``app_setting(key=\"model\")`` and pushes into every workspace\nspawn. ``live_probe.opencode_model`` is what the singleton OpenCode\nhas *right now*. The two should match. Drift is rendered as a banner\nin the UI with a [Reconcile] action.\n\n``override_model`` is preserved for back-compat with the old\n``OPENSEC_AI_MODEL_OVERRIDE_*`` env var \u2014 DEV-ONLY in v0.2, no longer\nsurfaced in the picker (ADR-0037).",
+        "description": "Wire shape for ``GET /api/integrations/ai/status``.\n\n``model`` is the canonical active model \u2014 the one OpenSec writes into\n``app_setting(key=\"model\")`` and pushes into every workspace spawn.\nPer ADR-0037 there is one canonical state and one read; the\non_key_change hook restarts the singleton OpenCode synchronously on\nevery model/key write, so there is no separate \"what's loaded right\nnow\" signal worth exposing on the wire (architect health-check, M9).",
         "properties": {
           "connected_at": {
             "anyOf": [
@@ -14,16 +14,6 @@
               }
             ],
             "title": "Connected At"
-          },
-          "live_probe": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LiveProbe"
-              },
-              {
-                "type": "null"
-              }
-            ]
           },
           "metadata": {
             "anyOf": [
@@ -47,17 +37,6 @@
               }
             ],
             "title": "Model"
-          },
-          "override_model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Override Model"
           },
           "provider": {
             "anyOf": [
@@ -3311,31 +3290,6 @@
           }
         },
         "title": "ListReposRequest",
-        "type": "object"
-      },
-      "LiveProbe": {
-        "description": "Reflects what OpenCode's singleton currently has loaded.\n\n``opencode_model`` is the model id returned by OpenCode's ``/config``\nendpoint, which is the model agent calls will actually use. If it\ndisagrees with ``AIStatus.model`` (the canonical setting) the Settings\nUI surfaces a drift banner and offers one-click reconcile.",
-        "properties": {
-          "ok": {
-            "title": "Ok",
-            "type": "boolean"
-          },
-          "opencode_model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Opencode Model"
-          }
-        },
-        "required": [
-          "ok"
-        ],
-        "title": "LiveProbe",
         "type": "object"
       },
       "MarkSummarySeenResponse": {

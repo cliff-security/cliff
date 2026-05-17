@@ -29,17 +29,6 @@ def _stub_opencode_auth_sync(monkeypatch):
     )
 
 
-@pytest.fixture(autouse=True)
-def _reset_live_probe_cache():
-    """Reset the module-level live-probe cache between tests so a probe
-    cached by an earlier test doesn't leak into this one."""
-    from opensec.ai.service import invalidate_live_probe
-
-    invalidate_live_probe()
-    yield
-    invalidate_live_probe()
-
-
 @pytest.fixture
 def non_mocked_hosts() -> list[str]:
     """Let httpx requests to the local OAuth callback bypass pytest-httpx."""

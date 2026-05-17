@@ -42,7 +42,6 @@ from opensec.ai.models import (
     AIProvider,
     AISource,
     AIStatus,
-    LiveProbe,
     ValidationResult,
 )
 from opensec.config import settings as app_settings
@@ -72,12 +71,6 @@ MODEL_SETTING_KEY = "model"
 _OPENCODE_AUTH_PROVIDERS: frozenset[AIProvider] = frozenset(
     {"openrouter", "anthropic", "openai", "google"}
 )
-
-# Live-probe TTL (seconds). ``get_status`` polls every 15s in the UI, but
-# the singleton's loaded model rarely changes outside our own writes — so
-# a small cache eliminates ~95% of the HTTP round-trips to ``:4096/config``.
-_LIVE_PROBE_TTL_SECONDS = 5.0
-
 
 class ModelPrefixMismatchError(ValueError):
     """Raised when a model id's prefix doesn't match the active provider."""
@@ -127,33 +120,23 @@ class AIIntegrationService:
     async def get_status(self) -> AIStatus:
         """Compose the wire-shape status payload.
 
-        Returns the canonical model (the value workspace spawns use), the
-        env-override warning if any, and a live probe of OpenCode's
-        singleton so the UI can detect drift between "what we asked for"
-        and "what's actually loaded." The probe is TTL-cached so the 15s
-        UI poll doesn't hammer the singleton.
+        Returns the canonical model (the value workspace spawns use).
+        Per ADR-0037 / architect health-check M9, this is the **one**
+        read: the on_key_change hook restarts the singleton OpenCode
+        synchronously on every write, so a separate live probe + drift
+        signal added complexity without changing product behavior.
         """
         record = await self.get_active()
         if record is None:
-            # No provider configured → no model to compare against; skip
-            # the singleton probe entirely.
             return AIStatus(state="unconfigured")
         canonical_model = await self._resolve_canonical_model(record.provider)
-        override = (
-            catalog.resolve_model(record.provider)
-            if catalog.has_override(record.provider)
-            else None
-        )
-        live_probe = await _cached_live_probe()
         return AIStatus(
             state="connected",
             provider=record.provider,
             source=record.source,
             connected_at=record.connected_at,
             metadata=record.metadata,
-            override_model=override,
             model=canonical_model,
-            live_probe=live_probe,
         )
 
     async def sync_to_opencode(self) -> None:
@@ -491,16 +474,15 @@ class AIIntegrationService:
 
         Resolution priority:
           1. ``explicit_model`` (caller-supplied via BYOK form's model
-             field, etc.).
-          2. Existing ``app_setting(model)`` IF its prefix matches *provider*
-             (preserves the user's prior choice when reconnecting).
-          3. Catalog default for *provider*.
+             field, etc.) — only honored if its provider prefix matches.
+          2. ``_resolve_canonical_model`` (existing setting if its
+             prefix matches; else catalog default).
         Writes a row only if a non-empty model id resolves. For Ollama on
         a fresh connect with no explicit model and no prior setting, the
         canonical row is wiped — the picker will land on /api/tags and
-        the user picks before spawning a workspace.
+        the user picks before spawning a workspace. (M12: this used to
+        re-implement ``_resolve_canonical_model`` inline.)
         """
-        # Caller-supplied wins. Auto-prefix if the caller omitted it.
         if explicit_model:
             if "/" not in explicit_model:
                 explicit_model = f"{provider}/{explicit_model}"
@@ -512,19 +494,7 @@ class AIIntegrationService:
                 )
                 explicit_model = None
 
-        chosen: str | None = explicit_model
-
-        if chosen is None:
-            stored = await get_setting(self._db, MODEL_SETTING_KEY)
-            if stored and isinstance(stored.value, dict):
-                stored_value = stored.value.get("full_id")
-                if isinstance(stored_value, str) and stored_value.startswith(
-                    f"{provider}/"
-                ):
-                    chosen = stored_value
-
-        if chosen is None:
-            chosen = catalog.resolve_model(provider)
+        chosen = explicit_model or await self._resolve_canonical_model(provider)
 
         if not chosen:
             # No default and no explicit pick (Ollama on fresh connect).
@@ -649,11 +619,11 @@ class AIIntegrationService:
         """Call the on_key_change hook with the current env, if any.
 
         Never raises — singleton restart failures are non-fatal for the
-        save path; the user can retry from the UI. Invalidates the
-        live-probe cache so the next ``get_status`` reflects the
-        singleton's new state.
+        save path; the user can retry from the UI. Post-M9, this hook
+        IS the consistency boundary between canonical state and the
+        singleton OpenCode (the prior live-probe + drift signal was
+        redundant and has been removed).
         """
-        invalidate_live_probe()
         if self._on_key_change is None:
             return
         env = await self.resolve_env_for_workspace()
@@ -709,51 +679,6 @@ def _safe_write_opencode_config(model_full_id: str) -> None:
             "Could not write opencode.json for %s", model_full_id, exc_info=True
         )
         return
-    invalidate_live_probe()
-
-
-# Process-wide live-probe cache. Concurrent ``get_status`` calls share the
-# result; concurrent calls during a refresh end up serialized on the lock,
-# so the singleton sees at most one in-flight ``/config`` per TTL window.
-_live_probe_cache: tuple[float, LiveProbe] | None = None
-_live_probe_lock: asyncio.Lock | None = None
-
-
-async def _cached_live_probe() -> LiveProbe:
-    """Return a cached live probe of OpenCode's loaded model.
-
-    The probe is TTL-cached (``_LIVE_PROBE_TTL_SECONDS``); ``invalidate_live_probe``
-    expires it immediately when the service writes a new model so the next
-    ``get_status`` reflects the change without waiting for the TTL.
-    """
-    global _live_probe_cache, _live_probe_lock
-    if _live_probe_lock is None:
-        _live_probe_lock = asyncio.Lock()
-    now = time.monotonic()
-    cached = _live_probe_cache
-    if cached is not None and now - cached[0] < _LIVE_PROBE_TTL_SECONDS:
-        return cached[1]
-    async with _live_probe_lock:
-        cached = _live_probe_cache
-        if cached is not None and now - cached[0] < _LIVE_PROBE_TTL_SECONDS:
-            return cached[1]
-        try:
-            from opensec.engine.client import opencode_client
-
-            config = await opencode_client.get_config()
-        except Exception:  # noqa: BLE001 — singleton-down is non-fatal
-            probe = LiveProbe(ok=False, opencode_model=None)
-        else:
-            model = config.get("model") if isinstance(config, dict) else None
-            probe = LiveProbe(ok=True, opencode_model=model or None)
-        _live_probe_cache = (time.monotonic(), probe)
-        return probe
-
-
-def invalidate_live_probe() -> None:
-    """Expire the cached live probe so the next ``get_status`` re-reads."""
-    global _live_probe_cache
-    _live_probe_cache = None
 
 
 __all__ = [
@@ -762,5 +687,4 @@ __all__ = [
     "NoActiveProviderError",
     "CREDENTIAL_KEY_NAME",
     "MODEL_SETTING_KEY",
-    "invalidate_live_probe",
 ]
