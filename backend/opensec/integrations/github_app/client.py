@@ -324,9 +324,13 @@ async def check_repo_push_access(
 ) -> RepoPushAccess:
     """Verify that ``token`` can push to ``owner/repo`` before triggering work.
 
-    On any error path we default to ``can_push=False`` with a reason string
-    that's safe to render in the UI and points at the actual remediation
-    (update App permissions vs. reconnect GitHub).
+    On a definitive negative (404 / 401 / 403 / 200 with ``push=false``)
+    we return ``can_push=False`` with a UI-safe reason pointing at the
+    actual remediation. On a *transient* failure (network error, 429,
+    5xx) we ``can_push=True`` with a reason annotating that the check
+    was skipped — the executor will run and surface GitHub's real error
+    if the push genuinely can't proceed. Rationale: a flaky preflight
+    must never become a hard gate; that's worse than no preflight.
     """
     url = f"{api_base_url.rstrip('/')}{REPO_PATH_TEMPLATE.format(owner=owner, repo=repo)}"
     kwargs: dict = {"timeout": timeout}
@@ -343,13 +347,29 @@ async def check_repo_push_access(
                 },
             )
         except httpx.HTTPError as exc:
+            # Network / timeout / DNS — fail OPEN. The executor will hit
+            # GitHub itself; if push is truly broken it'll surface there.
             return RepoPushAccess(
-                can_push=False,
+                can_push=True,
                 reason=(
-                    f"Could not reach GitHub to verify push access "
+                    f"Skipped push preflight: could not reach GitHub "
                     f"({exc.__class__.__name__})."
                 ),
             )
+
+    # Transient HTTP failures (rate limit, server error) — also fail OPEN.
+    # GitHub returns 429 with rate-limit headers; treating that as "no
+    # push access" would silently block every executor run during a
+    # spike. The executor will retry GitHub itself and either succeed or
+    # surface a real 4xx.
+    if resp.status_code == 429 or 500 <= resp.status_code < 600:
+        return RepoPushAccess(
+            can_push=True,
+            reason=(
+                f"Skipped push preflight: GitHub returned HTTP "
+                f"{resp.status_code} (transient)."
+            ),
+        )
 
     if resp.status_code == 404:
         return RepoPushAccess(

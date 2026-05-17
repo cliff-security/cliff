@@ -468,3 +468,89 @@ async def test_check_repo_push_access_handles_401_with_clear_reason():
         or "auth" in reason_lower
         or "401" in result.reason
     )
+
+
+@pytest.mark.asyncio
+async def test_check_repo_push_access_fails_open_on_429_rate_limit():
+    """A 429 from GitHub during a spike must NOT silently block every
+    executor run. The preflight is a UX shortcut, not a correctness
+    guarantee — on transient failures we let the executor proceed and
+    surface GitHub's real error if the push actually fails."""
+    handler = _push_handler({"message": "API rate limit exceeded"}, status=429)
+    transport = httpx.MockTransport(handler)
+    result = await check_repo_push_access(
+        token="ghu_abc",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    assert result.can_push is True
+    assert "skipped" in result.reason.lower()
+    assert "429" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_check_repo_push_access_fails_open_on_5xx():
+    """5xx is GitHub having a bad day — same reasoning as 429."""
+    handler = _push_handler({"message": "Internal Server Error"}, status=503)
+    transport = httpx.MockTransport(handler)
+    result = await check_repo_push_access(
+        token="ghu_abc",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    assert result.can_push is True
+    assert "skipped" in result.reason.lower()
+    assert "503" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_check_repo_push_access_fails_open_on_network_error():
+    """Network/DNS/timeout — same reasoning: don't let a flaky preflight
+    become a hard gate."""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("DNS lookup failed")
+
+    transport = httpx.MockTransport(handler)
+    result = await check_repo_push_access(
+        token="ghu_abc",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    assert result.can_push is True
+    assert "skipped" in result.reason.lower()
+    # Surface the exception class name so logs/metrics can distinguish
+    # DNS vs read-timeout vs connection-reset without parsing free text.
+    assert "ConnectError" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_check_repo_push_access_does_not_echo_token_in_reason():
+    """Defensive: even if GitHub ever reflects the auth header into a
+    response body, the reason string must not leak the token. The
+    current implementation builds reasons from static strings + the
+    parsed status, which is exactly what this test guards."""
+    handler = _push_handler(
+        {"message": "Reflected: Bearer ghu_secret_token"}, status=403
+    )
+    transport = httpx.MockTransport(handler)
+    result = await check_repo_push_access(
+        token="ghu_secret_token",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    assert result.can_push is False
+    assert "ghu_secret_token" not in result.reason
+    assert "Bearer" not in result.reason
