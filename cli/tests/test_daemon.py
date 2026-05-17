@@ -1,7 +1,7 @@
 """Unit tests for the daemon-management module helpers.
 
 These don't start a real daemon — they exercise the small pure helpers in
-:mod:`opensec_cli.daemon`. Process-level behaviour (start/stop/restart) is
+:mod:`cliff_cli.daemon`. Process-level behaviour (start/stop/restart) is
 covered end-to-end by ``tests/install/smoke.sh``.
 """
 
@@ -18,17 +18,17 @@ from click.testing import CliRunner
 
 @pytest.fixture
 def fake_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Re-import the daemon module with OPENSEC_HOME pointed at a tmpdir.
+    """Re-import the daemon module with CLIFF_HOME pointed at a tmpdir.
 
-    The module reads OPENSEC_HOME at import time, so we have to reload it
+    The module reads CLIFF_HOME at import time, so we have to reload it
     after monkeypatching the env var.
     """
     home = tmp_path / "home"
     home.mkdir()
-    monkeypatch.setenv("OPENSEC_HOME", str(home))
+    monkeypatch.setenv("CLIFF_HOME", str(home))
     import importlib
 
-    import opensec_cli.daemon as daemon_mod
+    import cliff_cli.daemon as daemon_mod
 
     importlib.reload(daemon_mod)
     return home, daemon_mod
@@ -41,7 +41,7 @@ def fake_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 def test_read_env_file_basic(fake_home):
     home, daemon = fake_home
-    env_file = home / "config" / "opensec.env"
+    env_file = home / "config" / "cliff.env"
     env_file.parent.mkdir(parents=True)
     env_file.write_text(
         "# comment\n"
@@ -63,7 +63,7 @@ def test_read_env_file_basic(fake_home):
 
 
 def test_read_env_file_missing_returns_empty(tmp_path):
-    from opensec_cli.daemon import _read_env_file
+    from cliff_cli.daemon import _read_env_file
 
     assert _read_env_file(tmp_path / "nope.env") == {}
 
@@ -74,13 +74,13 @@ def test_read_env_file_missing_returns_empty(tmp_path):
 
 
 def test_pid_alive_for_self():
-    from opensec_cli.daemon import _pid_alive
+    from cliff_cli.daemon import _pid_alive
 
     assert _pid_alive(os.getpid()) is True
 
 
 def test_pid_alive_for_unused_pid():
-    from opensec_cli.daemon import _pid_alive
+    from cliff_cli.daemon import _pid_alive
 
     # PID 999999 is well above any sensible system limit on test runners.
     assert _pid_alive(999_999) is False
@@ -108,7 +108,7 @@ def test_read_pidfile_returns_live_pid(fake_home):
 
 
 def test_port_free_then_in_use():
-    from opensec_cli.daemon import _port_free
+    from cliff_cli.daemon import _port_free
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind(("127.0.0.1", 0))
@@ -137,7 +137,7 @@ def test_config_set_and_get_roundtrip(fake_home, monkeypatch):
     # Re-import cli so it picks up the reloaded daemon module.
     import importlib
 
-    import opensec_cli.cli as cli_mod
+    import cliff_cli.cli as cli_mod
 
     importlib.reload(cli_mod)
 
@@ -153,7 +153,7 @@ def test_config_set_and_get_roundtrip(fake_home, monkeypatch):
     res = runner.invoke(cli_mod.main, ["config", "get", "MY_KEY"])
     assert res.output.strip() == "second"
 
-    # File permissions should be 0600 (the env file holds OPENSEC_CREDENTIAL_KEY).
+    # File permissions should be 0600 (the env file holds CLIFF_CREDENTIAL_KEY).
     mode = oct(daemon.ENV_FILE.stat().st_mode & 0o777)
     assert mode == "0o600"
 
@@ -168,7 +168,7 @@ def stop_env(fake_home, monkeypatch):
     """Daemon module + canned process_sweep stubs for stop/restart/uninstall tests.
 
     Returns a dict with mutable state so tests can adjust the stubs:
-      - owned: list[FoundProcess] returned by find_opensec_processes
+      - owned: list[FoundProcess] returned by find_cliff_processes
       - squatters: list[PortSquatter] returned by find_port_squatters
       - bound_ports: list[int] returned by verify_ports_free
       - kills: tuple[killed, alive] returned by kill_processes
@@ -177,7 +177,7 @@ def stop_env(fake_home, monkeypatch):
       - alive_pids: set of pids that _pid_alive should report as alive
     """
     home, daemon = fake_home
-    from opensec_cli.process_sweep import FoundProcess, PortSquatter
+    from cliff_cli.process_sweep import FoundProcess, PortSquatter
 
     state = {
         "owned": [],
@@ -189,7 +189,7 @@ def stop_env(fake_home, monkeypatch):
         "alive_pids": set(),
     }
 
-    monkeypatch.setattr(daemon, "find_opensec_processes", lambda home_: list(state["owned"]))
+    monkeypatch.setattr(daemon, "find_cliff_processes", lambda home_: list(state["owned"]))
     monkeypatch.setattr(
         daemon,
         "find_port_squatters",
@@ -232,7 +232,7 @@ def test_stop_says_not_running_when_no_pidfile_and_no_owned(stop_env):
     runner = CliRunner()
     res = runner.invoke(daemon.stop_cmd)
     assert res.exit_code == 0
-    assert res.output.strip() == "OpenSec is not running."
+    assert res.output.strip() == "Cliff is not running."
     # Crucially: no signals sent.
     assert state["sigs"] == []
     assert state["kill_calls"] == []
@@ -284,23 +284,23 @@ def test_stop_reports_squatter_but_does_not_signal_it(stop_env):
     assert res.exit_code == 0
     assert state["sigs"] == []
     assert state["kill_calls"] == []
-    assert "OpenSec is not running." in res.output
+    assert "Cliff is not running." in res.output
     # Squatter is reported on stderr (or mixed_output for CliRunner).
-    assert "9000" in res.output and "not OpenSec" in res.output
+    assert "9000" in res.output and "not Cliff" in res.output
 
 
 def test_stop_uses_configured_port_from_env_file(stop_env):
-    """OPENSEC_APP_PORT in env file must be picked up by the sweep."""
+    """CLIFF_APP_PORT in env file must be picked up by the sweep."""
     home, daemon, state, *_ = stop_env
     daemon.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    daemon.ENV_FILE.write_text("OPENSEC_APP_PORT=8765\n")
+    daemon.ENV_FILE.write_text("CLIFF_APP_PORT=8765\n")
     captured: dict = {}
 
     def _fps(ports, owned_pids):
         captured["ports"] = list(ports)
         return []
 
-    import opensec_cli.daemon as d
+    import cliff_cli.daemon as d
     d.find_port_squatters = _fps  # noqa: SLF001 — direct attr write for the test
     runner = CliRunner()
     runner.invoke(d.stop_cmd)
@@ -474,7 +474,7 @@ def test_doctor_json_envelope_on_empty_home(fake_home):
     home, daemon = fake_home
     import importlib
 
-    import opensec_cli.cli as cli_mod
+    import cliff_cli.cli as cli_mod
 
     importlib.reload(cli_mod)
 

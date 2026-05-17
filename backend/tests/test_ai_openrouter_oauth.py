@@ -10,7 +10,7 @@ import socket
 import httpx
 import pytest
 
-from opensec.ai import openrouter_oauth as oauth
+from cliff.ai import openrouter_oauth as oauth
 
 
 @pytest.fixture(autouse=True)
@@ -106,13 +106,13 @@ def _free_port() -> int:
 
 
 # ---------------------------------------------------------------------------
-# Bind host resolution (Docker fix — OPENSEC_OAUTH_CALLBACK_HOST)
+# Bind host resolution (Docker fix — CLIFF_OAUTH_CALLBACK_HOST)
 # ---------------------------------------------------------------------------
 
 
 def test_resolve_callback_host_defaults_to_loopback(monkeypatch) -> None:
     """Host install: bind to 127.0.0.1 so the listener is not externally reachable."""
-    from opensec.config import Settings
+    from cliff.config import Settings
 
     fresh = Settings()
     monkeypatch.setattr(oauth, "settings", fresh)
@@ -120,9 +120,9 @@ def test_resolve_callback_host_defaults_to_loopback(monkeypatch) -> None:
 
 
 def test_resolve_callback_host_honors_env_override(monkeypatch) -> None:
-    """Docker entrypoint sets OPENSEC_OAUTH_CALLBACK_HOST=0.0.0.0 so the
+    """Docker entrypoint sets CLIFF_OAUTH_CALLBACK_HOST=0.0.0.0 so the
     container-published port actually reaches the listener."""
-    from opensec.config import Settings
+    from cliff.config import Settings
 
     overridden = Settings(oauth_callback_host="0.0.0.0")  # noqa: S104 — test fixture
     monkeypatch.setattr(oauth, "settings", overridden)
@@ -132,7 +132,7 @@ def test_resolve_callback_host_honors_env_override(monkeypatch) -> None:
 async def test_listener_binds_on_resolved_host(monkeypatch) -> None:
     """start_listener must use the configured host. Asserted against a free
     port on 0.0.0.0 — connectable via 127.0.0.1 (the Docker repro path)."""
-    from opensec.config import Settings
+    from cliff.config import Settings
 
     overridden = Settings(oauth_callback_host="0.0.0.0")  # noqa: S104 — test fixture
     monkeypatch.setattr(oauth, "settings", overridden)
@@ -163,7 +163,7 @@ async def test_listener_binds_on_resolved_host(monkeypatch) -> None:
 async def test_listener_state_mismatch_still_rejected_on_0_0_0_0(monkeypatch) -> None:
     """Security regression: binding 0.0.0.0 must NOT weaken state-mismatch
     rejection. Same CSRF guard as the loopback path."""
-    from opensec.config import Settings
+    from cliff.config import Settings
 
     overridden = Settings(oauth_callback_host="0.0.0.0")  # noqa: S104 — test fixture
     monkeypatch.setattr(oauth, "settings", overridden)

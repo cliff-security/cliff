@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from opensec.engine.process import OpenCodeProcess
+from cliff.engine.process import OpenCodeProcess
 
 
 def test_is_running_false_initially():
@@ -38,10 +38,10 @@ async def test_start_scrubs_host_ai_provider_env_vars():
             OpenCodeProcess, "_wait_for_healthy", new=AsyncMock()
         ),
         patch(
-            "opensec.engine.process.asyncio.create_subprocess_exec",
+            "cliff.engine.process.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=mock_subproc),
         ) as mock_exec,
-        patch("opensec.engine.process.os") as mock_os,
+        patch("cliff.engine.process.os") as mock_os,
     ):
         mock_os.environ = {
             "PATH": "/usr/bin",

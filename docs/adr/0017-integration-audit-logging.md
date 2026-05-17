@@ -6,7 +6,7 @@
 
 ## Context
 
-OpenSec integrations interact with systems that protect organizations — vulnerability scanners, ticketing platforms, code repositories, cloud security platforms. Every interaction is a security event. If we can't prove exactly what OpenSec did, when, and why, enterprises won't trust us.
+Cliff integrations interact with systems that protect organizations — vulnerability scanners, ticketing platforms, code repositories, cloud security platforms. Every interaction is a security event. If we can't prove exactly what Cliff did, when, and why, enterprises won't trust us.
 
 The challenge is amplified by agentic workflows: the AI model decides which MCP tools to invoke and with what parameters. OWASP's MCP Top 10 identifies "Lack of Audit and Telemetry" as a core risk. NIST SP 800-92 defines audit-grade log management as covering the full lifecycle: generating, transmitting, storing, analyzing, and disposing of log data.
 
@@ -45,7 +45,7 @@ Key design choices:
 
 ## Consequences
 
-- **Easier:** Every external API call is traceable to a specific workspace, finding, and agent. Security teams can review exactly what OpenSec did.
+- **Easier:** Every external API call is traceable to a specific workspace, finding, and agent. Security teams can review exactly what Cliff did.
 - **Easier:** Hash-chain tamper evidence gives users confidence that audit logs haven't been modified. This is a concrete trust signal for enterprise adoption.
 - **Easier:** Correlation IDs allow tracing multi-step remediation workflows end-to-end (enrichment → planning → ticket creation → validation → status update).
 - **Easier:** No external dependencies — audit logging works out-of-the-box in any deployment.

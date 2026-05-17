@@ -23,7 +23,7 @@ function makeWrapper() {
 /**
  * B22 — when the browser regains focus mid-flight (e.g. the user has
  * just dismissed the OpenRouter consent screen and tabbed back to
- * OpenSec) the polling hook needs to fire an immediate refetch so it
+ * Cliff) the polling hook needs to fire an immediate refetch so it
  * observes the now-terminal status. The default 1 s poll already gets
  * us there eventually, but tabbing back from a fully-paused tab in
  * Chrome means the next tick happens way later than 1 s.

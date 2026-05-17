@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from opensec.models import AssessmentCreate, CompletionCreate, CriteriaSnapshot
+from cliff.models import AssessmentCreate, CompletionCreate, CriteriaSnapshot
 
 
 async def _new_assessment(db, repo_url: str = "https://github.com/acme/web"):
-    from opensec.db.dao.assessment import create_assessment
+    from cliff.db.dao.assessment import create_assessment
 
     return await create_assessment(db, AssessmentCreate(repo_url=repo_url))
 
@@ -22,7 +22,7 @@ def _criteria() -> CriteriaSnapshot:
 
 
 async def test_create_and_get_completion(db):
-    from opensec.db.dao.completion import create_completion, get_completion
+    from cliff.db.dao.completion import create_completion, get_completion
 
     a = await _new_assessment(db)
     created = await create_completion(
@@ -46,13 +46,13 @@ async def test_create_and_get_completion(db):
 
 
 async def test_get_completion_missing(db):
-    from opensec.db.dao.completion import get_completion
+    from cliff.db.dao.completion import get_completion
 
     assert await get_completion(db, "nope") is None
 
 
 async def test_get_completion_for_assessment(db):
-    from opensec.db.dao.completion import create_completion, get_completion_for_assessment
+    from cliff.db.dao.completion import create_completion, get_completion_for_assessment
 
     a = await _new_assessment(db)
     created = await create_completion(
@@ -65,7 +65,7 @@ async def test_get_completion_for_assessment(db):
 
 
 async def test_record_share_action_is_idempotent(db):
-    from opensec.db.dao.completion import create_completion, get_completion, record_share_action
+    from cliff.db.dao.completion import create_completion, get_completion, record_share_action
 
     a = await _new_assessment(db)
     c = await create_completion(
@@ -86,6 +86,6 @@ async def test_record_share_action_is_idempotent(db):
 
 
 async def test_record_share_action_missing_completion_returns_none(db):
-    from opensec.db.dao.completion import record_share_action
+    from cliff.db.dao.completion import record_share_action
 
     assert await record_share_action(db, "nonexistent", "download") is None

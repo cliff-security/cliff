@@ -49,7 +49,7 @@ data (verified by the four belt-and-suspenders tests).
 
 `ticket_link` exists in the schema (migration `001_initial_schema.sql`) but has
 **no repository functions and no production read/write path** anywhere in
-`backend/opensec/`. There is therefore nothing to leak today.
+`backend/cliff/`. There is therefore nothing to leak today.
 
 The V14 suite still exercises the table at the schema level: rows are inserted
 via raw SQL and read back through a local `_list_ticket_links` helper that makes

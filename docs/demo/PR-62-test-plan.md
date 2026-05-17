@@ -5,21 +5,21 @@ Hands-on verification of the "from zero to secure" onboarding flow end-to-end.
 ## Prerequisites
 
 Container already running on **http://localhost:18000** with the flag on.
-- `OPENSEC_V1_1_FROM_ZERO_TO_SECURE_ENABLED=true`
-- Health: `curl -sf http://localhost:18000/health` returns `{"opensec":"ok",...}`
+- `CLIFF_V1_1_FROM_ZERO_TO_SECURE_ENABLED=true`
+- Health: `curl -sf http://localhost:18000/health` returns `{"cliff":"ok",...}`
 - Flag: `curl -sf http://localhost:18000/api/config/feature-flags` returns `{"v1_1_from_zero_to_secure_enabled":true}`
 
 If you need to restart:
 
 ```bash
 cd docker
-OPENSEC_APP_PORT=18000 OPENSEC_V1_1_FROM_ZERO_TO_SECURE_ENABLED=true docker compose up -d
+CLIFF_APP_PORT=18000 CLIFF_V1_1_FROM_ZERO_TO_SECURE_ENABLED=true docker compose up -d
 # and to stop:
 docker compose down
 ```
 
 You will need:
-- A **public GitHub repo URL** you don't mind scanning. Good demo targets: `https://github.com/galanko/OpenSec`, `https://github.com/expressjs/express`, `https://github.com/tj/node-tap`.
+- A **public GitHub repo URL** you don't mind scanning. Good demo targets: `https://github.com/galanko/Cliff`, `https://github.com/expressjs/express`, `https://github.com/tj/node-tap`.
 - (Optional) A **GitHub PAT** with `repo` scope if you want to test a private repo or raise rate limits. Public repos work without one.
 
 ---
@@ -31,7 +31,7 @@ Walks you through the full onboarding wizard and verifies the dashboard + comple
 **Step 1 — Open the wizard.**
 1. Visit http://localhost:18000/onboarding/welcome in your browser.
 2. ✅ You should see the `Welcome` screen ("Ethos Security" branded card with a "Continue" CTA).
-3. ❌ If you see the `/findings` page instead → flag didn't reach the container. Check `docker compose logs opensec | grep v1_1` or re-run with the env var.
+3. ❌ If you see the `/findings` page instead → flag didn't reach the container. Check `docker compose logs cliff | grep v1_1` or re-run with the env var.
 
 **Step 2 — Connect the repo.**
 1. Click Continue → you're on `/onboarding/connect`.
@@ -51,21 +51,21 @@ Walks you through the full onboarding wizard and verifies the dashboard + comple
 2. ✅ You should see step rows turn green as clone → lockfile parse → OSV lookup → posture checks complete.
 3. Tail the container to watch it in real time:
    ```bash
-   docker compose logs -f opensec | grep -E "clone|osv|posture|assessment"
+   docker compose logs -f cliff | grep -E "clone|osv|posture|assessment"
    ```
 4. ✅ When the run completes (~30–90s for a small repo), the UI redirects to `/dashboard`.
-5. ❌ If it stays stuck at `running`, the assessment probably crashed. Check `docker compose logs opensec | grep -i error`.
+5. ❌ If it stays stuck at `running`, the assessment probably crashed. Check `docker compose logs cliff | grep -i error`.
 
 **Step 5 — Dashboard.**
 1. On `/dashboard`, verify:
    - A **grade ring** (A–F) is visible with criteria filled in.
    - The **posture-check list** shows pass/fail for all 5 checks (SECURITY.md, dependabot, branch protection, signed commits, pinned-actions).
-   - The **findings table** on the right shows rows if the repo had vulnerabilities (sources labelled `opensec-assessment`).
+   - The **findings table** on the right shows rows if the repo had vulnerabilities (sources labelled `cliff-assessment`).
 2. Take a screenshot if anything looks off.
 
 **Step 6 — Completion block (conditional on grade).**
 1. If the repo got grade A with all criteria met, you'll see the **completion celebration** banner above the report card.
-2. Click "Save .png" → browser should start a download of a 1200×630 PNG (`opensec-summary-<repo>-<date>.png`).
+2. Click "Save .png" → browser should start a download of a 1200×630 PNG (`cliff-summary-<repo>-<date>.png`).
 3. Open the PNG — it should render the card with your grade, repo name, and date.
 4. ✅ Verify the file is non-trivial size (>10 KB).
 5. Click "Copy text" / "Copy markdown" — should silently succeed (toast/confirm depending on the UI).
@@ -80,7 +80,7 @@ Verifies the backend gate actually blocks writes when the flag is off. **This is
 ```bash
 cd docker
 docker compose down
-OPENSEC_APP_PORT=18000 docker compose up -d   # no flag override == default off
+CLIFF_APP_PORT=18000 docker compose up -d   # no flag override == default off
 sleep 8
 curl -sf http://localhost:18000/api/config/feature-flags
 # expect: {"v1_1_from_zero_to_secure_enabled":false}
@@ -114,7 +114,7 @@ curl -s -o /dev/null -w "run:      %{http_code}\n" \
 **Step 4 — Flip the flag back on and verify writes work.**
 ```bash
 docker compose down
-OPENSEC_APP_PORT=18000 OPENSEC_V1_1_FROM_ZERO_TO_SECURE_ENABLED=true docker compose up -d
+CLIFF_APP_PORT=18000 CLIFF_V1_1_FROM_ZERO_TO_SECURE_ENABLED=true docker compose up -d
 sleep 8
 curl -s -o /dev/null -w "run: %{http_code}\n" \
   -X POST http://localhost:18000/api/assessment/run \
@@ -138,7 +138,7 @@ curl -s http://localhost:18000/api/assessment/run \
   -d '{"repo_url":"https://evil.example.com/acme/x"}'
 ```
 ✅ Response body should include `"repo_url host 'evil.example.com' is not in the token-injection allowlist"` (the engine rejects before clone).
-Check `docker compose logs opensec | tail -20` for the stack trace.
+Check `docker compose logs cliff | tail -20` for the stack trace.
 
 **Step 3 — Try a leading-dash host.**
 ```bash
@@ -157,7 +157,7 @@ Covers the Gap #3 fix: a malformed advisory in the middle of a run must not stra
 This is hard to trigger from outside without patched fixtures, but you can verify the behavior exists:
 
 ```bash
-docker compose exec opensec grep -n "failed to persist" /app/backend/opensec/api/_background.py
+docker compose exec cliff grep -n "failed to persist" /app/backend/cliff/api/_background.py
 ```
 ✅ Expect two lines referencing the per-posture-check and per-finding logging. That's the resilience you'd want to see.
 
@@ -185,11 +185,11 @@ npm run test:e2e   # or: npx playwright test
 - [ ] Scenario 2: wizard redirects to /findings with flag off
 - [ ] Scenario 3: non-GitHub host rejected with token allowlist message
 - [ ] Scenario 3: leading-dash host rejected
-- [ ] No `ERROR` lines in `docker compose logs opensec` during a normal run
+- [ ] No `ERROR` lines in `docker compose logs cliff` during a normal run
 - [ ] Container stops cleanly (`docker compose down` → no orphans)
 
 ## Known gaps to flag for review
 
-- The `OPENSEC_CREDENTIAL_KEY` warning at startup is pre-existing; the onboarding flow stores the PAT in `app_setting` not the real vault (documented in the route comment; vault integration is a follow-up).
+- The `CLIFF_CREDENTIAL_KEY` warning at startup is pre-existing; the onboarding flow stores the PAT in `app_setting` not the real vault (documented in the route comment; vault integration is a follow-up).
 - If the repo has no lockfile the OSV phase returns zero findings — that's correct, not a bug, but the progress list currently doesn't explain it.
 - The assessment does NOT fall back to a second grader if the GitHub API rate-limits without a PAT — posture checks return `advisory`, which the grader treats as pass. If you want stricter grading, supply a PAT.

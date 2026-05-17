@@ -3,7 +3,7 @@ import { GithubAppConnectButton } from './GithubAppConnectButton'
 /**
  * One-line banner shown above the configured-integrations list when:
  * - The shared GitHub App onboarding surface is configured on this
- *   instance (env var ``OPENSEC_GITHUB_APP_CLIENT_ID`` is set), AND
+ *   instance (env var ``CLIFF_GITHUB_APP_CLIENT_ID`` is set), AND
  * - The user has an active PAT-style GitHub integration.
  *
  * Click → triggers the device flow exactly as a fresh "Connect GitHub"

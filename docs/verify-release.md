@@ -1,11 +1,11 @@
-# Verifying an OpenSec release
+# Verifying an Cliff release
 
-Every OpenSec image published to `ghcr.io/galanko/opensec` carries
+Every Cliff image published to `ghcr.io/galanko/cliff` carries
 three independent attestations, all rooted in Sigstore's transparency
 log:
 
 1. **A keyless code-signing signature** — proves the image was built
-   and signed by the `release.yml` workflow on `galanko/OpenSec` from
+   and signed by the `release.yml` workflow on `galanko/Cliff` from
    a tag matching `v*`.
 2. **A SLSA build provenance attestation** — proves *what* built the
    image (the workflow run, the runner, the inputs).
@@ -16,29 +16,29 @@ You don't need anything but `cosign` and `gh` to verify them.
 
 ## TL;DR
 
-Pin to the digest from the [release page](https://github.com/galanko/OpenSec/releases),
+Pin to the digest from the [release page](https://github.com/galanko/Cliff/releases),
 then:
 
 ```bash
 DIGEST=sha256:...     # from the release page or `docker buildx imagetools inspect`
 
 # 1. Signature
-cosign verify ghcr.io/galanko/opensec@${DIGEST} \
-  --certificate-identity-regexp 'https://github\.com/galanko/OpenSec/\.github/workflows/release\.yml@.*' \
+cosign verify ghcr.io/galanko/cliff@${DIGEST} \
+  --certificate-identity-regexp 'https://github\.com/galanko/Cliff/\.github/workflows/release\.yml@.*' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
 # 2. Build provenance
-gh attestation verify oci://ghcr.io/galanko/opensec@${DIGEST} \
+gh attestation verify oci://ghcr.io/galanko/cliff@${DIGEST} \
   --owner galanko
 
 # 3. SBOM
 cosign verify-attestation --type cyclonedx \
-  --certificate-identity-regexp 'https://github\.com/galanko/OpenSec/\.github/workflows/release\.yml@.*' \
+  --certificate-identity-regexp 'https://github\.com/galanko/Cliff/\.github/workflows/release\.yml@.*' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  ghcr.io/galanko/opensec@${DIGEST}
+  ghcr.io/galanko/cliff@${DIGEST}
 ```
 
-If all three commands exit 0, the image is exactly what `galanko/OpenSec`'s
+If all three commands exit 0, the image is exactly what `galanko/Cliff`'s
 `release.yml` produced and signed.
 
 ## What each verification proves
@@ -49,7 +49,7 @@ Confirms two things:
 
 1. The image digest you specified was signed by **someone holding a
    GitHub OIDC identity token issued to a workflow named
-   `.github/workflows/release.yml` in `galanko/OpenSec`**. Nobody else's
+   `.github/workflows/release.yml` in `galanko/Cliff`**. Nobody else's
    identity (including any PAT, any other repo, any local dev signing
    key) will satisfy that regex.
 2. The signature is recorded in the Sigstore transparency log
@@ -67,7 +67,7 @@ Output includes:
 ```
 ✓ Verification succeeded!
   ↪ predicate type:  https://slsa.dev/provenance/v1
-  ↪ source repo:     galanko/OpenSec
+  ↪ source repo:     galanko/Cliff
   ↪ source ref:      refs/tags/v0.1.0-alpha
   ↪ workflow:        .github/workflows/release.yml
 ```
@@ -100,5 +100,5 @@ that whoever handed you the SBOM didn't tamper with it.
 ## Reporting a verification failure
 
 If any of the commands above fails on a tagged release, don't pull the
-image. Email security reports to `galank@gmail.com` with `[OpenSec
+image. Email security reports to `galank@gmail.com` with `[Cliff
 Security]` in the subject — see [SECURITY.md](../SECURITY.md).

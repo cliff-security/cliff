@@ -17,21 +17,21 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from opensec.assessment.engine import (
+from cliff.assessment.engine import (
     RepoCloner,
     _coords_from_repo_url,
     derive_grade,
     run_assessment,
 )
-from opensec.assessment.posture.github_client import UnableToVerify
-from opensec.assessment.scanners.models import (
+from cliff.assessment.posture.github_client import UnableToVerify
+from cliff.assessment.scanners.models import (
     SemgrepFinding,
     SemgrepResult,
     TrivyResult,
     TrivySecret,
     TrivyVulnerability,
 )
-from opensec.models.assessment import AssessmentTool, CriteriaSnapshot
+from cliff.models.assessment import AssessmentTool, CriteriaSnapshot
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 

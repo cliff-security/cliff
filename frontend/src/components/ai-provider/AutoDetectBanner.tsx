@@ -13,7 +13,7 @@ import {
 } from '@/api/aiProvider'
 import { providerLabel } from './types'
 
-const DISMISS_KEY = 'opensec.aiAutodetectBanner.dismissed'
+const DISMISS_KEY = 'cliff.aiAutodetectBanner.dismissed'
 
 interface Props {
   onConfigureManually: () => void
@@ -63,7 +63,7 @@ export function AutoDetectBanner({ onConfigureManually }: Props) {
           We found a {providerName} API key in your environment.
         </p>
         <p className="text-xs text-on-surface-variant">
-          Use it for OpenSec? It's encrypted at rest and never logged.
+          Use it for Cliff? It's encrypted at rest and never logged.
         </p>
         {adopt.error && (
           <p className="mt-1 text-xs text-error">

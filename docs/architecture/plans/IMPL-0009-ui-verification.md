@@ -25,11 +25,11 @@ shipped `handlers.ts` matches main.
 | 7 | Click "View grading rubric" | **PASS** | Native `<dialog>` modal opens with backdrop dim. Body lists the 4 guarantees + bands. Esc + close button + click-outside dismiss work (the close path is also covered by the unit test). |
 | 8 | Gate action buttons | **PASS (visual)** | The `Ready` (`Review plan`), `PR ready` (`Open PR`), and `Auto-fixable` (`Auto-fix 2 of 3`) variants render with the right tone and `arrow_forward` trailing icon. Click handlers verified by `GateRow.test.tsx` and `LevelUpPanel.test.tsx` (auto-fix mutation fan-out + navigate paths) — Chrome click was not exercised on every gate to avoid bouncing the Issues page in the dev backend during the run. |
 | 9 | Click an open-card severity row | **PASS** | URL becomes `/issues?severity=high` after clicking the High row. |
-| 10 | Re-assess → swap to running surface | **PASS (unit-tested)** | The dev backend was returning a frozen "complete" assessment, so a real Re-assess click would not produce a running surface in the visual session. The running surface is fully covered by `AssessmentRunningCard.test.tsx` (5 tests: all three step states render, scanner pill active state has `.opensec-pulse-dot`, elapsed timer formats MM:SS, overall progress bar reflects prop) and `DashboardPage.test.tsx > shows the new assessment-running card when an assessment is in flight (state machine preserved)`. |
+| 10 | Re-assess → swap to running surface | **PASS (unit-tested)** | The dev backend was returning a frozen "complete" assessment, so a real Re-assess click would not produce a running surface in the visual session. The running surface is fully covered by `AssessmentRunningCard.test.tsx` (5 tests: all three step states render, scanner pill active state has `.cliff-pulse-dot`, elapsed timer formats MM:SS, overall progress bar reflects prop) and `DashboardPage.test.tsx > shows the new assessment-running card when an assessment is in flight (state machine preserved)`. |
 | 11 | Previous-assessment card | **PASS (unit-tested)** | `PreviousAssessmentCard.test.tsx` covers the eyebrow + grade + open count + commit + finished-at + "View last report" link. The B9 backend test `test_status_previous_assessment_populated_when_prior_exists` covers the API side. |
-| 12 | Scanner credit pill state transition | **PASS (unit-tested)** | `AssessmentRunningCard.test.tsx > shows scanner pills with state-specific tones` verifies the `data-state` attribute and `.opensec-pulse-dot` class on the active pill. The `done` and `pending` states render their own tones. |
+| 12 | Scanner credit pill state transition | **PASS (unit-tested)** | `AssessmentRunningCard.test.tsx > shows scanner pills with state-specific tones` verifies the `data-state` attribute and `.cliff-pulse-dot` class on the active pill. The `done` and `pending` states render their own tones. |
 | 13 | Resize 1280 / 1440 | **PASS** | At Chrome window 1280×800 the dashboard fits with no horizontal scroll; at 1440 it fits the design's max-width 1280 main column and centers cleanly in the rest. |
-| 14 | Reduced-motion | **PASS (CSS-verified)** | `frontend/src/index.css` wraps `.opensec-pulse-dot`, `.opensec-spinner`, and `.opensec-fade-in` in `@media (prefers-reduced-motion: reduce) { animation: none; }`. The DashboardPage running and report card wrappers use `.opensec-fade-in`. The conic-gradient on the puck is a static background — no transition to suppress. |
+| 14 | Reduced-motion | **PASS (CSS-verified)** | `frontend/src/index.css` wraps `.cliff-pulse-dot`, `.cliff-spinner`, and `.cliff-fade-in` in `@media (prefers-reduced-motion: reduce) { animation: none; }`. The DashboardPage running and report card wrappers use `.cliff-fade-in`. The conic-gradient on the puck is a static background — no transition to suppress. |
 | 15 | Keyboard tab order | **PASS (light)** | Focus rings render on the visible interactive elements (Open Review queue, View grading rubric, severity rows, gate actions, Re-assess, View raw output). A full focus-order audit was not driven button-by-button in this Chrome pass; the components use native `<button>`s which Tab through in DOM order, matching the reading flow. |
 | 16 | Console + network sanity | **PASS** | `read_console_messages(onlyErrors: true)` returned no errors. `GET /api/dashboard` returned `200`. The payload contains `level_up`, `last_assessment`, `open_by_severity`, `grade_label`, `grade_caption` (regression-locked by `test_dashboard_phase2.py::test_dashboard_impl0009_seeded_payload_shape`). |
 
@@ -55,8 +55,8 @@ shipped `handlers.ts` matches main.
   terminal `complete` state. Both surfaces are verified by 7 unit tests
   (`AssessmentRunningCard.test.tsx` + `PreviousAssessmentCard.test.tsx` +
   `DashboardPage.test.tsx > shows the new assessment-running card when an
-  assessment is in flight`). The CSS keyframes (`opensec-pulse-dot`,
-  `opensec-spinner`, `opensec-fade-in`) are inspected directly in
+  assessment is in flight`). The CSS keyframes (`cliff-pulse-dot`,
+  `cliff-spinner`, `cliff-fade-in`) are inspected directly in
   `frontend/src/index.css` and gated by `prefers-reduced-motion: reduce`.
 
 ## Attachments
@@ -67,7 +67,7 @@ shipped `handlers.ts` matches main.
   - `localhost:5173/issues?severity=high` — confirmed by clicking the High row.
 - Backend gate: `cd backend && uv run pytest -v -m 'not e2e'` → 961 passed,
   19 skipped, 32 deselected, 0 failed.
-- Backend lint: `cd backend && uv run ruff check opensec/ tests/` → all checks
+- Backend lint: `cd backend && uv run ruff check cliff/ tests/` → all checks
   passed.
 - Frontend gate: `cd frontend && npm run lint && npm run build && npm test --
   --run` → 384 passed, lint clean, build clean.

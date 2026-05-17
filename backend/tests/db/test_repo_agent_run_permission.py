@@ -11,15 +11,15 @@ the finding into the Review section's "Needs you" bucket.
 
 from __future__ import annotations
 
-from opensec.db.repo_agent_run import (
+from cliff.db.repo_agent_run import (
     create_agent_run,
     get_agent_run,
     reconcile_orphaned_agent_runs,
     update_agent_run,
 )
-from opensec.db.repo_finding import create_finding
-from opensec.db.repo_workspace import create_workspace
-from opensec.models import (
+from cliff.db.repo_finding import create_finding
+from cliff.db.repo_workspace import create_workspace
+from cliff.models import (
     AgentRunCreate,
     AgentRunUpdate,
     FindingCreate,

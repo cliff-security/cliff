@@ -12,8 +12,8 @@ import re
 
 import pytest
 
-from opensec.agents.template_engine import AgentTemplateEngine
-from opensec.workspace.workspace_dir_manager import WorkspaceKind
+from cliff.agents.template_engine import AgentTemplateEngine
+from cliff.workspace.workspace_dir_manager import WorkspaceKind
 
 
 @pytest.fixture
@@ -40,7 +40,7 @@ class TestSecurityMdGenerator:
         assert "https://github.com/acme/widget" in content
 
         # Branch name convention for zero-to-secure posture PRs.
-        assert "opensec/posture/security-md" in content
+        assert "cliff/posture/security-md" in content
 
         # Draft-PR-only per ADR-0024.
         assert "gh pr create --draft" in content
@@ -98,7 +98,7 @@ class TestDependabotConfigGenerator:
         content = rendered.content
 
         assert "https://github.com/acme/widget" in content
-        assert "opensec/posture/dependabot" in content
+        assert "cliff/posture/dependabot" in content
         assert "gh pr create --draft" in content
         assert ".github/dependabot.yml" in content
 
@@ -135,7 +135,7 @@ class TestDependabotConfigGenerator:
         self, engine: AgentTemplateEngine, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A ``WorkspaceKind`` value without a registered template is rejected."""
-        from opensec.agents import template_engine as te
+        from cliff.agents import template_engine as te
 
         monkeypatch.setattr(te, "REPO_ACTION_TEMPLATES", {})
         with pytest.raises(ValueError, match="not a repo-action"):

@@ -38,7 +38,7 @@ describe('GithubAppMigrationBanner', () => {
             expires_in: 900,
             interval: 5,
             install_url:
-              'https://github.com/apps/opensec/installations/new?state=banner',
+              'https://github.com/apps/cliff/installations/new?state=banner',
           })
         },
       ),

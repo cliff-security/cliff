@@ -8,9 +8,9 @@
     "a6ac3956684a565570fa24fa106a4028f579bde0"
   ],
   "files_changed": [
-    "backend/opensec/db/repo_finding.py",
-    "backend/opensec/api/routes/workspaces.py",
-    "backend/opensec/agents/executor.py",
+    "backend/cliff/db/repo_finding.py",
+    "backend/cliff/api/routes/workspaces.py",
+    "backend/cliff/agents/executor.py",
     "backend/tests/integration/test_close_reconciles_pr_url.py",
     "backend/tests/integration/test_advance_finding_pr_url.py"
   ],

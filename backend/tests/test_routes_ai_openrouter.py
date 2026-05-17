@@ -9,9 +9,9 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from opensec.ai import autodetect, catalog, openrouter_oauth
-from opensec.db.connection import close_db, init_db
-from opensec.integrations.vault import CredentialVault
+from cliff.ai import autodetect, catalog, openrouter_oauth
+from cliff.db.connection import close_db, init_db
+from cliff.integrations.vault import CredentialVault
 
 
 @pytest.fixture(autouse=True)
@@ -21,7 +21,7 @@ def _stub_opencode_auth_sync(monkeypatch):
     hit a real 127.0.0.1:4096 inside the OAuth route tests."""
     from unittest.mock import AsyncMock
 
-    from opensec.engine.client import opencode_client
+    from cliff.engine.client import opencode_client
 
     monkeypatch.setattr(opencode_client, "set_auth", AsyncMock(return_value=True))
     monkeypatch.setattr(
@@ -48,7 +48,7 @@ async def ai_client(monkeypatch, tmp_path):
     """HTTP client + real vault + clean OAuth store."""
     from httpx import ASGITransport, AsyncClient
 
-    from opensec.main import app
+    from cliff.main import app
 
     @asynccontextmanager
     async def _noop(_app):
@@ -57,7 +57,7 @@ async def ai_client(monkeypatch, tmp_path):
     app.router.lifespan_context = _noop
     await init_db(":memory:")
 
-    from opensec.db.connection import _db as _dbref  # type: ignore[attr-defined]
+    from cliff.db.connection import _db as _dbref  # type: ignore[attr-defined]
     assert _dbref is not None
     app.state.vault = CredentialVault(_dbref, key=os.urandom(32))
     app.state.audit_logger = _StubAudit()
@@ -67,7 +67,7 @@ async def ai_client(monkeypatch, tmp_path):
         monkeypatch.delenv(var, raising=False)
     for provider in catalog.all_providers():
         monkeypatch.delenv(
-            f"OPENSEC_AI_MODEL_OVERRIDE_{provider.upper()}", raising=False
+            f"CLIFF_AI_MODEL_OVERRIDE_{provider.upper()}", raising=False
         )
     catalog._reset_for_tests()
     openrouter_oauth._reset_store_for_tests()

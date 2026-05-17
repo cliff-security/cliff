@@ -47,7 +47,7 @@ export default function ConfigureAI() {
         Connect an AI provider
       </h1>
       <p className="text-on-surface-variant mb-8">
-        OpenSec uses an AI provider to explain findings and draft fixes.
+        Cliff uses an AI provider to explain findings and draft fixes.
         Pick the path that fits — most users connect with OpenRouter in
         two clicks.
       </p>

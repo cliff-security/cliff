@@ -24,7 +24,7 @@ All nine bugs land within App Builder territory. Agent Orchestrator (V1) is not 
 
 The bugs are mostly independent, but two ordering rules matter:
 
-1. **IMPL-0014 ops step before any QA re-run** — the GitHub App `opensec-local-test` must have its permission matrix updated on GitHub.com (Contents:write + Pull requests:write + Actions:read + Administration:read) per ADR-0037. This is a manual GitHub admin action; it can happen before, during, or after the code PR, but it must be done before Wave 2's QA re-run.
+1. **IMPL-0014 ops step before any QA re-run** — the GitHub App `cliff-local-test` must have its permission matrix updated on GitHub.com (Contents:write + Pull requests:write + Actions:read + Administration:read) per ADR-0037. This is a manual GitHub admin action; it can happen before, during, or after the code PR, but it must be done before Wave 2's QA re-run.
 2. **B28 fix lands before / with B29 fix** — the Approve button already exists in `DefaultFooter` at stage `plan_ready`; B29's "missing button" symptom is downstream of B28's stale polling. Doing them in the same PR keeps the diff coherent.
 
 Recommended PR order:

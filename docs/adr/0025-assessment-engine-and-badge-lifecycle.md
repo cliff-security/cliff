@@ -9,7 +9,7 @@
 
 ## Context
 
-PRD-0002 requires OpenSec to produce its own vulnerability findings (instead of relying on imported scanner output), plain-language descriptions for non-expert users, a repo posture checklist, and a "Secured by OpenSec" badge earned when a small set of criteria are met. The decision points are:
+PRD-0002 requires Cliff to produce its own vulnerability findings (instead of relying on imported scanner output), plain-language descriptions for non-expert users, a repo posture checklist, and a "Secured by Cliff" badge earned when a small set of criteria are met. The decision points are:
 
 1. Build the assessment (lockfile parsing + CVE lookup + posture) as a deterministic backend service **or** as agents?
 2. Model badge state as a dedicated state machine **or** as a derived view?
@@ -25,7 +25,7 @@ Lockfile parsing, OSV.dev lookups, and GitHub API posture checks are mechanical.
 New module layout:
 
 ```
-backend/opensec/assessment/
+backend/cliff/assessment/
     __init__.py
     engine.py            # orchestrates parse -> CVE lookup -> posture -> normalize
     osv_client.py        # OSV.dev HTTP client
@@ -77,7 +77,7 @@ data/workspaces/repo-<action>-<ts>/       # new: ephemeral, cleaned up after PR
 
 The `WorkspaceDirManager` and `WorkspaceProcessPool` already handle the directory-and-port plumbing; only a `WorkspaceKind = finding | repo_action` discriminator is added. No new process manager, no new engine integration.
 
-Three new agent templates go in `backend/opensec/agents/`:
+Three new agent templates go in `backend/cliff/agents/`:
 
 - `security_md_generator.md.j2`
 - `dependabot_config_generator.md.j2`
@@ -97,7 +97,7 @@ The `parsers/__init__.py` registry makes adding a parser a one-line change, so t
 
 - Assessment is fast (< 10s for a repo with ~1000 deps), deterministic, cacheable, and testable with pure unit tests. No LLM spend per assessment.
 - Badge state can never drift from the underlying facts — no "my badge still says earned but I have new critical findings" bug class.
-- The three "OpenSec can create this" actions reuse the single most-tested path in the app. No new agent-runner code, no new process management.
+- The three "Cliff can create this" actions reuse the single most-tested path in the app. No new agent-runner code, no new process management.
 - Phasing parsers lets us ship IMPL-0002 in a predictable window. Each additional parser is a follow-up PR with its own fixture-based test.
 
 **Negative / accepted**

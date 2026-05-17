@@ -1,4 +1,4 @@
-"""Unit tests for ``opensec.models.issue_derivation`` (IMPL-0006 T1).
+"""Unit tests for ``cliff.models.issue_derivation`` (IMPL-0006 T1).
 
 Each row in IMPL-0006's derivation table has a corresponding case here, plus
 the four edge cases the plan calls out. Phase 1 adapts the rules to the
@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from opensec.models import AgentRun, Finding, SidebarState, Workspace
-from opensec.models.issue_derivation import derive
+from cliff.models import AgentRun, Finding, SidebarState, Workspace
+from cliff.models.issue_derivation import derive
 
 # ----------------------------------------------------------------------------
 # Helpers
@@ -171,7 +171,7 @@ def test_case_06_pushing_branch_set_no_pr_url() -> None:
         workspace=make_workspace(),
         sidebar=make_sidebar(
             plan={"steps": []},
-            pull_request={"branch_name": "opensec/fix/cve-2024-1234", "pr_url": None},
+            pull_request={"branch_name": "cliff/fix/cve-2024-1234", "pr_url": None},
         ),
         latest_runs_by_type={
             "remediation_executor": make_run("remediation_executor", "completed"),
@@ -192,7 +192,7 @@ def test_case_07_opening_pr_changes_made() -> None:
             plan={"steps": []},
             pull_request={
                 "status": "changes_made",
-                "branch_name": "opensec/fix/cve-2024-1234",
+                "branch_name": "cliff/fix/cve-2024-1234",
                 "pr_url": None,
             },
         ),
@@ -214,7 +214,7 @@ def test_case_08_pr_ready() -> None:
             pull_request={
                 "status": "pr_created",
                 "pr_url": "https://github.com/o/r/pull/42",
-                "branch_name": "opensec/fix/cve-2024-1234",
+                "branch_name": "cliff/fix/cve-2024-1234",
             },
         ),
         latest_runs_by_type={
@@ -463,7 +463,7 @@ def test_failed_pr_push_surfaces_failed_stage() -> None:
             plan={"steps": [{"title": "Bump dep"}]},
             pull_request={
                 "status": "failed",
-                "branch_name": "opensec/fix/cve-2024-1234",
+                "branch_name": "cliff/fix/cve-2024-1234",
                 "pr_url": None,
                 "error_details": "403 — GH_TOKEN lacks push access",
             },
@@ -608,7 +608,7 @@ def test_pr_url_dominates_pending_permission() -> None:
             pull_request={
                 "status": "pr_created",
                 "pr_url": "https://github.com/o/r/pull/42",
-                "branch_name": "opensec/fix/cve-2024-1234",
+                "branch_name": "cliff/fix/cve-2024-1234",
             },
         ),
         latest_runs_by_type={

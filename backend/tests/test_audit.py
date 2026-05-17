@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from opensec.db import repo_audit
-from opensec.db.connection import close_db, init_db
-from opensec.integrations.audit import (
+from cliff.db import repo_audit
+from cliff.db.connection import close_db, init_db
+from cliff.integrations.audit import (
     AuditEvent,
     AuditLogger,
     hash_parameters,
@@ -214,7 +214,7 @@ async def test_audit_api_endpoint(db: aiosqlite.Connection):
 
     from httpx import ASGITransport, AsyncClient
 
-    from opensec.main import app
+    from cliff.main import app
 
     @asynccontextmanager
     async def _noop_lifespan(a):

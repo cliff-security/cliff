@@ -8,7 +8,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from opensec.integrations.connection_tester import (
+from cliff.integrations.connection_tester import (
     GitHubConnectionTester,
     JiraCloudConnectionTester,
     WizConnectionTester,
@@ -308,10 +308,10 @@ async def test_endpoint_dispatches_real_tester(httpx_mock):
 
     from httpx import ASGITransport, AsyncClient
 
-    from opensec.db.connection import close_db, init_db
-    from opensec.integrations.audit import AuditLogger
-    from opensec.integrations.vault import CredentialVault
-    from opensec.main import app
+    from cliff.db.connection import close_db, init_db
+    from cliff.integrations.audit import AuditLogger
+    from cliff.integrations.vault import CredentialVault
+    from cliff.main import app
 
     @asynccontextmanager
     async def _noop_lifespan(a):
@@ -369,10 +369,10 @@ async def test_endpoint_fallback_for_unknown_provider(httpx_mock):
 
     from httpx import ASGITransport, AsyncClient
 
-    from opensec.db.connection import close_db, init_db
-    from opensec.integrations.audit import AuditLogger
-    from opensec.integrations.vault import CredentialVault
-    from opensec.main import app
+    from cliff.db.connection import close_db, init_db
+    from cliff.integrations.audit import AuditLogger
+    from cliff.integrations.vault import CredentialVault
+    from cliff.main import app
 
     @asynccontextmanager
     async def _noop_lifespan(a):

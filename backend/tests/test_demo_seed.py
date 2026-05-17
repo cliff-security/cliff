@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from opensec.config import Settings
-from opensec.db.connection import close_db, init_db
+from cliff.config import Settings
+from cliff.db.connection import close_db, init_db
 
 
 @pytest.fixture
@@ -37,10 +37,10 @@ def test_config_demo_settable_true():
 @pytest.mark.asyncio
 async def test_demo_seeds_findings_on_empty_db(in_memory_db):
     """When demo=True and no findings exist, seed creates demo findings."""
-    from opensec.api.routes.seed import DEMO_FINDINGS
-    from opensec.db import connection as db_connection
-    from opensec.db.repo_finding import create_finding, list_findings
-    from opensec.models import FindingCreate
+    from cliff.api.routes.seed import DEMO_FINDINGS
+    from cliff.db import connection as db_connection
+    from cliff.db.repo_finding import create_finding, list_findings
+    from cliff.models import FindingCreate
 
     db = db_connection._db
     assert db is not None
@@ -62,10 +62,10 @@ async def test_demo_seeds_findings_on_empty_db(in_memory_db):
 @pytest.mark.asyncio
 async def test_demo_skips_when_findings_exist(in_memory_db):
     """When findings already exist, demo seeding should be skipped."""
-    from opensec.api.routes.seed import DEMO_FINDINGS
-    from opensec.db import connection as db_connection
-    from opensec.db.repo_finding import create_finding, list_findings
-    from opensec.models import FindingCreate
+    from cliff.api.routes.seed import DEMO_FINDINGS
+    from cliff.db import connection as db_connection
+    from cliff.db.repo_finding import create_finding, list_findings
+    from cliff.models import FindingCreate
 
     db = db_connection._db
     assert db is not None

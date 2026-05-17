@@ -21,14 +21,14 @@ No new encryption module, no new key resolution chain.
 
 ## Architectural anchors
 
-- **Token storage:** Reuse `backend/opensec/integrations/vault.py`
+- **Token storage:** Reuse `backend/cliff/integrations/vault.py`
   (ADR-0016). Store the user access token under the existing
   `github_personal_access_token` credential key so the MCP Gateway
   injection (ADR-0018) keeps working unchanged. Refresh token (if
   present) lives under a new key `github_refresh_token` on the same
   integration row.
 - **Registry:** Keep the single `github` registry entry
-  (`backend/opensec/integrations/registry/github.json`) unchanged. The
+  (`backend/cliff/integrations/registry/github.json`) unchanged. The
   MCP server doesn't care whether the bearer is a PAT or a user access
   token — both work in `Authorization: Bearer <token>`.
 - **Persistent metadata:** One new table,
@@ -48,7 +48,7 @@ No new encryption module, no new key resolution chain.
 
 **New files (backend):**
 
-- `backend/opensec/integrations/github_app/` — module dir
+- `backend/cliff/integrations/github_app/` — module dir
   - `__init__.py`
   - `client.py` — `GitHubDeviceFlowClient`: thin wrapper around
     GitHub's three endpoints (`/login/device/code`,
@@ -58,10 +58,10 @@ No new encryption module, no new key resolution chain.
   - `repo.py` — `github_app_installation` CRUD (`create_pending`,
     `attach_installation_id`, `mark_connected`, `mark_failed`,
     `get_inflight`, `get_for_integration`, `delete`).
-- `backend/opensec/api/routes/github_app.py` — four endpoints
+- `backend/cliff/api/routes/github_app.py` — four endpoints
   (`connect`, `setup`, `status`, `disconnect`). Mounted at
-  `/api/integrations/github` from `backend/opensec/main.py`.
-- `backend/opensec/db/migrations/016_github_app_installation.sql` —
+  `/api/integrations/github` from `backend/cliff/main.py`.
+- `backend/cliff/db/migrations/016_github_app_installation.sql` —
   schema migration.
 
 **New files (frontend):**
@@ -78,11 +78,11 @@ No new encryption module, no new key resolution chain.
 
 **Modified files (backend):**
 
-- `backend/opensec/main.py` — register the new router.
-- `backend/opensec/config.py` — add `OPENSEC_GITHUB_APP_CLIENT_ID`,
-  `OPENSEC_GITHUB_APP_SLUG`, `OPENSEC_BASE_URL` settings (the latter
+- `backend/cliff/main.py` — register the new router.
+- `backend/cliff/config.py` — add `CLIFF_GITHUB_APP_CLIENT_ID`,
+  `CLIFF_GITHUB_APP_SLUG`, `CLIFF_BASE_URL` settings (the latter
   may already exist; verify and reuse).
-- `backend/opensec/api/routes/settings.py` — add a single field to the
+- `backend/cliff/api/routes/settings.py` — add a single field to the
   integration list response per row indicating whether GitHub App
   onboarding is available (just a boolean derived from
   `settings.github_app_client_id is not None`). No other changes — PAT
@@ -97,10 +97,10 @@ No new encryption module, no new key resolution chain.
   `GithubAppMigrationBanner` above the existing PAT-connected card.
   No changes to the PAT form itself.
 
-**No changes** to `backend/opensec/integrations/vault.py`,
-`backend/opensec/integrations/gateway.py`,
-`backend/opensec/integrations/registry/github.json`,
-`backend/opensec/assessment/posture/github_client.py`, or any agent
+**No changes** to `backend/cliff/integrations/vault.py`,
+`backend/cliff/integrations/gateway.py`,
+`backend/cliff/integrations/registry/github.json`,
+`backend/cliff/assessment/posture/github_client.py`, or any agent
 template.
 
 ## Backend route contracts
@@ -119,7 +119,7 @@ of starting a new one.
 
 **Behavior:**
 
-1. If `OPENSEC_GITHUB_APP_CLIENT_ID` is not set → 503 with explanatory
+1. If `CLIFF_GITHUB_APP_CLIENT_ID` is not set → 503 with explanatory
    detail.
 2. Look up the (singleton) GitHub-App `integration_config` row. Create
    it disabled if missing.
@@ -224,7 +224,7 @@ The frontend shows the manual revoke URL in a toast.
 
 ## Schema migration
 
-`backend/opensec/db/migrations/016_github_app_installation.sql`:
+`backend/cliff/db/migrations/016_github_app_installation.sql`:
 
 ```sql
 -- Track per-installation state for the GitHub App device flow (ADR-0035).
@@ -306,7 +306,7 @@ Notes:
 The MCP Gateway resolves
 `${credential:github_personal_access_token}` from the credential vault
 when generating each workspace's `opencode.json` (see
-`backend/opensec/integrations/gateway.py`). It looks up credentials by
+`backend/cliff/integrations/gateway.py`). It looks up credentials by
 `(integration_id, key_name)` and substitutes them into the `env` block
 of the GitHub MCP server config.
 
@@ -377,7 +377,7 @@ State transitions are persisted on every iteration so `/status` always
 reflects the latest. The task is **fire-and-forget** — if the process
 restarts, the in-flight device code expires naturally; the user just
 clicks Connect again. No durable task queue. (Acceptable because the
-window is 15 minutes max, and OpenSec is single-user.)
+window is 15 minutes max, and Cliff is single-user.)
 
 To support process restart gracefully, `/connect` checks for an
 existing non-terminal `github_app_installation` row before issuing a
@@ -386,7 +386,7 @@ existing row. No double-issue.
 
 ## Token refresh
 
-If `OPENSEC_GITHUB_APP_USER_TOKENS_EXPIRE` is true (or the device-flow
+If `CLIFF_GITHUB_APP_USER_TOKENS_EXPIRE` is true (or the device-flow
 response includes an `expires_in`), refresh handling activates:
 
 - Add a `refresh_user_access_token(integration_id)` helper that calls
@@ -440,7 +440,7 @@ can remove it anytime from this page."
 
 ## PAT migration (feature flag + archive, no deletion)
 
-The flag is **runtime, env-driven, no DB**: `OPENSEC_GITHUB_APP_CLIENT_ID`
+The flag is **runtime, env-driven, no DB**: `CLIFF_GITHUB_APP_CLIENT_ID`
 unset → only PAT visible (today's behavior). Set → both visible, App
 promoted as primary CTA.
 
@@ -528,11 +528,11 @@ hygiene + ESLint (frontend) green before opening the PR.
 
 ### Manual QA checklist (CI can't simulate)
 
-These steps require a real GitHub account and the registered OpenSec App.
+These steps require a real GitHub account and the registered Cliff App.
 
 1. **Fresh install path.**
-   - [ ] Set `OPENSEC_GITHUB_APP_CLIENT_ID` and
-     `OPENSEC_GITHUB_APP_SLUG` in `.env`. Restart.
+   - [ ] Set `CLIFF_GITHUB_APP_CLIENT_ID` and
+     `CLIFF_GITHUB_APP_SLUG` in `.env`. Restart.
    - [ ] Open Integrations page. GitHub row shows **Connect GitHub**.
    - [ ] Click. Verify a new tab opens to
      `https://github.com/apps/<slug>/installations/new?state=<csrf>`.
@@ -545,7 +545,7 @@ These steps require a real GitHub account and the registered OpenSec App.
    - [ ] Click **Open authorization page**. New tab opens to
      `https://github.com/login/device`.
    - [ ] Paste user code, click Authorize.
-   - [ ] Within ~5s OpenSec modal flips to "Connected as <login>",
+   - [ ] Within ~5s Cliff modal flips to "Connected as <login>",
      dismisses, GitHub row shows green connected state.
    - [ ] Open a workspace. Verify a workspace MCP config
      (`data/workspaces/<id>/opencode.json`) was generated with the
@@ -561,7 +561,7 @@ These steps require a real GitHub account and the registered OpenSec App.
      correctly recovered (modal re-opens at the same countdown).
    - [ ] Two simultaneous `/connect` calls (rapid double-click) don't
      issue two device codes — second returns the first's state.
-   - [ ] Restart the OpenSec process mid-flow. After restart,
+   - [ ] Restart the Cliff process mid-flow. After restart,
      `/status` reports `error` or `expired` (acceptable). Click
      **Try again** — flow restarts cleanly.
 
@@ -584,7 +584,7 @@ These steps require a real GitHub account and the registered OpenSec App.
      (or with stale token cleared, depending on freshness check).
 
 5. **Negative envs.**
-   - [ ] Unset `OPENSEC_GITHUB_APP_CLIENT_ID`. Restart. UI shows the
+   - [ ] Unset `CLIFF_GITHUB_APP_CLIENT_ID`. Restart. UI shows the
      legacy PAT form only — no Connect button, no banner.
    - [ ] `POST /api/integrations/github/connect` returns 503 with a
      clear message.
@@ -606,8 +606,8 @@ slice that can be demoed.
 - `client.py` with three functions:
   `request_device_code`, `poll_token`, `fetch_user`.
 - Backed by `httpx.AsyncClient`. All endpoints overridable for tests
-  via a base URL setting (`OPENSEC_GITHUB_API_BASE_URL`,
-  `OPENSEC_GITHUB_OAUTH_BASE_URL`).
+  via a base URL setting (`CLIFF_GITHUB_API_BASE_URL`,
+  `CLIFF_GITHUB_OAUTH_BASE_URL`).
 - Unit tests covering every documented response shape from GitHub's
   Device Flow docs.
 
@@ -667,7 +667,7 @@ slice that can be demoed.
 
 | Risk | Likelihood | Mitigation |
 |------|-----------|------------|
-| User has OpenSec on a non-default port; `setup_url` redirect lands on the wrong host | Medium | Manual `installation_id` paste fallback in modal. Documented in setup guide. |
+| User has Cliff on a non-default port; `setup_url` redirect lands on the wrong host | Medium | Manual `installation_id` paste fallback in modal. Documented in setup guide. |
 | GitHub introduces forced token expiry on user access tokens | Low (V1) / Higher (later) | Refresh path is implemented from day one even if disabled by default; flipping a setting on the App enables it without code changes here. |
 | Process restart drops in-flight polling task | Low impact | 15-minute window only; user clicks "Try again". Documented. |
 | Concurrent `/connect` calls double-issue device codes | Low | Idempotency check in `/connect` returns existing in-flight row. Test covers this. |
@@ -693,8 +693,8 @@ slice that can be demoed.
 2. Confirm App's user-token-expiry setting: **disabled** for V1
    (recommended) vs. **enabled** (forces refresh path to be
    exercised in production from day one).
-3. Confirm we ship `OPENSEC_GITHUB_APP_CLIENT_ID` and
-   `OPENSEC_GITHUB_APP_SLUG` as **defaulted** (App goes live) or
+3. Confirm we ship `CLIFF_GITHUB_APP_CLIENT_ID` and
+   `CLIFF_GITHUB_APP_SLUG` as **defaulted** (App goes live) or
    **unset** (dark launch, flip via env). Recommendation: defaulted,
    since the App is intended to be the user-facing path going
    forward.

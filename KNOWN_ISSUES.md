@@ -164,13 +164,13 @@ Tracked here so nothing in the deferred list gets lost. Session G is the planned
 
 **Workaround:** None — Session 0 ships with `onboarding_completed` persisted but no guard reads it yet.
 
-**Fix idea:** Gate the `/onboarding/*` routes behind a `GET /api/settings/onboarding-status` fetch and redirect to `/` when `onboarding_completed === true`. Belongs with Session G's feature-flag wiring (`OPENSEC_V1_1_FROM_ZERO_TO_SECURE_ENABLED`).
+**Fix idea:** Gate the `/onboarding/*` routes behind a `GET /api/settings/onboarding-status` fetch and redirect to `/` when `onboarding_completed === true`. Belongs with Session G's feature-flag wiring (`CLIFF_V1_1_FROM_ZERO_TO_SECURE_ENABLED`).
 
 ---
 
 ### AI key entered in ConfigureAI is never persisted
 
-**Impact:** The "Configure your AI model" step captures an API key in React state and drops it on navigation. The reassurance copy ("Keys stay on this machine · OpenSec stores them in its local vault") is aspirational — the vault POST doesn't exist in Session D. `TODO(session-g)` is marked in `ConfigureAI.tsx::handleContinue`.
+**Impact:** The "Configure your AI model" step captures an API key in React state and drops it on navigation. The reassurance copy ("Keys stay on this machine · Cliff stores them in its local vault") is aspirational — the vault POST doesn't exist in Session D. `TODO(session-g)` is marked in `ConfigureAI.tsx::handleContinue`.
 
 **Workaround:** Users can set keys via the existing Settings page after onboarding completes.
 
@@ -220,7 +220,7 @@ Tracked here so nothing in the deferred list gets lost. Session G is the planned
 
 **Fix ideas (agent-layer):**
 1. Executor writes intermediate state every N seconds (branch_name as soon as it's pushed, pr_url as soon as `gh pr create` returns) instead of only at terminal parse. A crash mid-stream then still leaves enough breadcrumbs to reconcile.
-2. On workspace open, post-mortem detect orphan branches by listing `gh pr list --head opensec/fix/<finding-slug>` and patching `Finding.pr_url` if a match exists.
+2. On workspace open, post-mortem detect orphan branches by listing `gh pr list --head cliff/fix/<finding-slug>` and patching `Finding.pr_url` if a match exists.
 3. Executor checkpoint: write `RepoAgentStatus` to disk after each major tool call so a crash after `git push` but before `gh pr create` is recoverable on retry.
 
 **Workaround for affected users:** Click the link or `gh pr list` on the target repo; PATCH the finding directly: `curl -X PATCH /api/findings/<id> -d '{"pr_url":"https://…"}'`. (Not great — that's why we're not making the close handler force this.)

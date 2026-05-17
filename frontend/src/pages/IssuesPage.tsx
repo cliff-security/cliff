@@ -29,8 +29,8 @@ import { IssueRow } from '../components/issues/IssueRow'
 import { IssueSidePanel } from '../components/issues/IssueSidePanel'
 import { IssuesHeader, type SeverityFilter, type TypeFilter } from '../components/issues/IssuesHeader'
 
-const IN_PROGRESS_OPEN_KEY = 'opensec.issues.inProgressOpen'
-const DONE_OPEN_KEY = 'opensec.issues.doneOpen'
+const IN_PROGRESS_OPEN_KEY = 'cliff.issues.inProgressOpen'
+const DONE_OPEN_KEY = 'cliff.issues.doneOpen'
 const OPEN_PARAM = 'open'
 
 export default function IssuesPage() {

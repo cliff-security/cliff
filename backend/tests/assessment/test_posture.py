@@ -7,19 +7,19 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from opensec.assessment.posture import RepoCoords, run_all_posture_checks
-from opensec.assessment.posture.branch import (
+from cliff.assessment.posture import RepoCoords, run_all_posture_checks
+from cliff.assessment.posture.branch import (
     build_branch_protection_result,
     build_no_force_pushes_result,
     build_signed_commits_result,
 )
-from opensec.assessment.posture.files import (
+from cliff.assessment.posture.files import (
     check_dependabot_config,
     check_lockfile_present,
     check_security_md,
 )
-from opensec.assessment.posture.github_client import UnableToVerify
-from opensec.assessment.posture.secrets import scan_for_secrets
+from cliff.assessment.posture.github_client import UnableToVerify
+from cliff.assessment.posture.secrets import scan_for_secrets
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -112,9 +112,9 @@ def test_secrets_scan_pass_when_no_patterns_match(tmp_path: Path) -> None:
     assert scan_for_secrets(tmp_path).status == "pass"
 
 
-def test_secrets_scan_respects_opensec_ignore_file(tmp_path: Path) -> None:
-    (tmp_path / ".opensec").mkdir()
-    (tmp_path / ".opensec" / "secrets-ignore").write_text("samples/fake.txt\n")
+def test_secrets_scan_respects_cliff_ignore_file(tmp_path: Path) -> None:
+    (tmp_path / ".cliff").mkdir()
+    (tmp_path / ".cliff" / "secrets-ignore").write_text("samples/fake.txt\n")
     (tmp_path / "samples").mkdir()
     (tmp_path / "samples" / "fake.txt").write_text(
         f"key = '{_PLANTED_SECRETS['aws_akia']}'\n"
@@ -192,7 +192,7 @@ async def test_run_all_returns_fifteen_checks_covering_every_name(tmp_path: Path
     # New checks call get_repo_info / list_collaborators / list_repo_teams. The
     # AsyncMock responds with MagicMock by default; force a structured
     # 'unable to verify' return so the checks degrade to status='unknown'.
-    from opensec.assessment.posture.github_client import UnableToVerify
+    from cliff.assessment.posture.github_client import UnableToVerify
 
     gh.get_repo_info.return_value = UnableToVerify(reason="http_403")
     gh.list_collaborators.return_value = UnableToVerify(reason="http_403")

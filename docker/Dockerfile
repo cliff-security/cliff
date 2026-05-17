@@ -1,22 +1,22 @@
 # =============================================================================
-# OpenSec — Multi-stage Docker build
+# Cliff — Multi-stage Docker build
 # Stage 1: Build frontend (Node)
 # Stage 2: Production runtime (Python + OpenCode Go binary)
 # =============================================================================
 
 # Build-time args propagated through both stages so the resulting image
 # can advertise its provenance via OCI labels.
-ARG OPENSEC_VERSION=dev
-ARG OPENSEC_REVISION=unknown
-ARG OPENSEC_CREATED=unknown
+ARG CLIFF_VERSION=dev
+ARG CLIFF_REVISION=unknown
+ARG CLIFF_CREATED=unknown
 
 # ---------------------------------------------------------------------------
 # Stage 1: Frontend build
 # ---------------------------------------------------------------------------
 FROM node:20-slim AS frontend-builder
 
-ARG OPENSEC_VERSION
-ENV VITE_APP_VERSION=${OPENSEC_VERSION}
+ARG CLIFF_VERSION
+ENV VITE_APP_VERSION=${CLIFF_VERSION}
 
 WORKDIR /build/frontend
 
@@ -34,21 +34,21 @@ RUN npm run build
 # ---------------------------------------------------------------------------
 FROM python:3.11-slim AS runtime
 
-ARG OPENSEC_VERSION
-ARG OPENSEC_REVISION
-ARG OPENSEC_CREATED
+ARG CLIFF_VERSION
+ARG CLIFF_REVISION
+ARG CLIFF_CREATED
 
 # OCI image labels — populated by the release workflow at build time.
-LABEL org.opencontainers.image.title="OpenSec" \
+LABEL org.opencontainers.image.title="Cliff" \
       org.opencontainers.image.description="Self-hosted cybersecurity remediation copilot" \
-      org.opencontainers.image.source="https://github.com/galanko/OpenSec" \
-      org.opencontainers.image.url="https://github.com/galanko/OpenSec" \
-      org.opencontainers.image.documentation="https://github.com/galanko/OpenSec/blob/main/README.md" \
+      org.opencontainers.image.source="https://github.com/galanko/Cliff" \
+      org.opencontainers.image.url="https://github.com/galanko/Cliff" \
+      org.opencontainers.image.documentation="https://github.com/galanko/Cliff/blob/main/README.md" \
       org.opencontainers.image.vendor="galanko" \
       org.opencontainers.image.licenses="AGPL-3.0-only" \
-      org.opencontainers.image.version="${OPENSEC_VERSION}" \
-      org.opencontainers.image.revision="${OPENSEC_REVISION}" \
-      org.opencontainers.image.created="${OPENSEC_CREATED}"
+      org.opencontainers.image.version="${CLIFF_VERSION}" \
+      org.opencontainers.image.revision="${CLIFF_REVISION}" \
+      org.opencontainers.image.created="${CLIFF_CREATED}"
 
 # System dependencies: supervisor, curl, git for health checks, cloning, and OpenCode download
 RUN apt-get update && \
@@ -73,13 +73,13 @@ RUN pip install --no-cache-dir uv
 
 # Create non-root runtime user. UID 10001 is fixed so bind-mount ownership
 # is predictable across hosts.
-RUN groupadd --system --gid 10001 opensec \
+RUN groupadd --system --gid 10001 cliff \
     && useradd --system --uid 10001 --gid 10001 \
-        --home-dir /home/opensec --create-home \
+        --home-dir /home/cliff --create-home \
         --shell /usr/sbin/nologin \
-        opensec \
+        cliff \
     && mkdir -p /data /app/bin /tmp/supervisor \
-    && chown -R opensec:opensec /data /tmp/supervisor /home/opensec
+    && chown -R cliff:cliff /data /tmp/supervisor /home/cliff
 
 WORKDIR /app
 
@@ -89,12 +89,12 @@ COPY .opencode-version ./
 
 # Copy and run OpenCode install script (non-fatal if download fails)
 COPY scripts/install-opencode.sh ./scripts/
-ENV OPENSEC_BIN_DIR=/app/bin
+ENV CLIFF_BIN_DIR=/app/bin
 RUN bash scripts/install-opencode.sh || echo "WARNING: OpenCode download failed — engine will be unavailable"
 
 # PRD-0003 v0.2 — Trivy + Semgrep binaries for the assessment engine
 # (ADR-0028 subprocess-only execution). Both land in /app/bin alongside
-# OpenCode; OPENSEC_SCANNER_BIN_DIR points the runner at this directory.
+# OpenCode; CLIFF_SCANNER_BIN_DIR points the runner at this directory.
 ARG TRIVY_VERSION=0.70.0
 RUN ARCH="$(dpkg --print-architecture)" \
     && case "$ARCH" in \
@@ -127,26 +127,26 @@ COPY opencode.json ./
 COPY .opencode/ ./.opencode/
 
 # Copy supervisor and entrypoint configs
-COPY docker/supervisord.conf /etc/supervisor/conf.d/opensec.conf
+COPY docker/supervisord.conf /etc/supervisor/conf.d/cliff.conf
 COPY docker/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 # Hand /app and the binaries directory to the runtime user. Done after all
 # COPY/RUN steps so we don't have to re-chown on every layer.
-RUN chown -R opensec:opensec /app
+RUN chown -R cliff:cliff /app
 
 # ---------------------------------------------------------------------------
 # Environment defaults
 # ---------------------------------------------------------------------------
-ENV OPENSEC_APP_HOST=0.0.0.0 \
-    OPENSEC_APP_PORT=8000 \
-    OPENSEC_OPENCODE_HOST=127.0.0.1 \
-    OPENSEC_OPENCODE_PORT=4096 \
-    OPENSEC_OPENCODE_BIN=/app/bin/opencode \
-    OPENSEC_SCANNER_BIN_DIR=/app/bin \
-    OPENSEC_DATA_DIR=/data \
-    OPENSEC_OAUTH_CALLBACK_HOST=0.0.0.0 \
-    HOME=/home/opensec
+ENV CLIFF_APP_HOST=0.0.0.0 \
+    CLIFF_APP_PORT=8000 \
+    CLIFF_OPENCODE_HOST=127.0.0.1 \
+    CLIFF_OPENCODE_PORT=4096 \
+    CLIFF_OPENCODE_BIN=/app/bin/opencode \
+    CLIFF_SCANNER_BIN_DIR=/app/bin \
+    CLIFF_DATA_DIR=/data \
+    CLIFF_OAUTH_CALLBACK_HOST=0.0.0.0 \
+    HOME=/home/cliff
 
 # Persistent data volume
 VOLUME ["/data"]
@@ -161,6 +161,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # Drop privileges. The entrypoint refuses to run as root.
-USER opensec
+USER cliff
 
 ENTRYPOINT ["/app/entrypoint.sh"]

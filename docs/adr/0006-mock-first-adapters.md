@@ -5,7 +5,7 @@
 
 ## Context
 
-OpenSec needs to connect to external systems across four categories:
+Cliff needs to connect to external systems across four categories:
 
 1. **Finding sources** (Tenable, Snyk, Dependabot, Wiz, etc.)
 2. **Ownership/context sources** (CMDB, cloud tags, CODEOWNERS, etc.)

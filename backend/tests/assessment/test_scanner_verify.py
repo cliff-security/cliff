@@ -10,7 +10,7 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from opensec.assessment.scanners.verify import (
+from cliff.assessment.scanners.verify import (
     ChecksumMismatchError,
     VerifyMode,
     parse_versions_file,
@@ -25,7 +25,7 @@ def _sha256(b: bytes) -> str:
 def test_parse_versions_file_handles_comments_and_blanks(tmp_path: Path) -> None:
     path = tmp_path / ".scanner-versions"
     path.write_text(
-        "# OpenSec pinned scanners (Epic 1)\n"
+        "# Cliff pinned scanners (Epic 1)\n"
         "\n"
         "trivy 0.52.0 abcdef1234\n"
         "# semgrep is required\n"

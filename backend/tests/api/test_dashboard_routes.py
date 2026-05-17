@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from opensec.models import (
+from cliff.models import (
     AssessmentCreate,
     CompletionCreate,
     CriteriaSnapshot,
@@ -45,8 +45,8 @@ def criteria():
 
 async def _seed_posture(db, *, assessment_id: str, repo_url: str, mix):
     """Seed posture findings via the unified UPSERT path."""
-    from opensec.assessment.posture import ADVISORY_CHECKS
-    from opensec.db.repo_finding import create_finding
+    from cliff.assessment.posture import ADVISORY_CHECKS
+    from cliff.db.repo_finding import create_finding
 
     for name, scanner_status in mix:
         is_advisory = name in ADVISORY_CHECKS or scanner_status == "advisory"
@@ -62,7 +62,7 @@ async def _seed_posture(db, *, assessment_id: str, repo_url: str, mix):
         await create_finding(
             db,
             FindingCreate(
-                source_type="opensec-posture",
+                source_type="cliff-posture",
                 source_id=f"{repo_url}:{name}",
                 type="posture",
                 grade_impact=grade_impact,
@@ -76,10 +76,10 @@ async def _seed_posture(db, *, assessment_id: str, repo_url: str, mix):
 
 
 async def test_dashboard_seeded(db_client, criteria):
-    from opensec.db.connection import _db
-    from opensec.db.dao.assessment import create_assessment, set_assessment_result
-    from opensec.db.dao.completion import create_completion
-    from opensec.db.repo_finding import create_finding
+    from cliff.db.connection import _db
+    from cliff.db.dao.assessment import create_assessment, set_assessment_result
+    from cliff.db.dao.completion import create_completion
+    from cliff.db.repo_finding import create_finding
 
     assert _db is not None
     a = await create_assessment(_db, AssessmentCreate(repo_url="https://github.com/a/b"))
@@ -144,9 +144,9 @@ async def test_dashboard_surfaces_completion_when_grade_a_and_all_met(
     db_client,
 ):
     """Grade A + every criterion met → completion_id flows through."""
-    from opensec.db.connection import _db
-    from opensec.db.dao.assessment import create_assessment, set_assessment_result
-    from opensec.db.dao.completion import create_completion
+    from cliff.db.connection import _db
+    from cliff.db.dao.assessment import create_assessment, set_assessment_result
+    from cliff.db.dao.completion import create_completion
 
     all_met = CriteriaSnapshot(
         no_critical_vulns=True,

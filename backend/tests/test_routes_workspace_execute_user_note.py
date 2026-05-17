@@ -21,9 +21,9 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from opensec.api.routes.agent_execution import router
-from opensec.db.connection import get_db
-from opensec.models import Workspace
+from cliff.api.routes.agent_execution import router
+from cliff.db.connection import get_db
+from cliff.models import Workspace
 
 
 @pytest.fixture
@@ -82,10 +82,10 @@ async def test_user_note_forwarded_to_executor(app, client) -> None:
     executor.push_permission_event = lambda *a, **k: None
 
     with patch(
-        "opensec.api.routes.agent_execution.get_workspace",
+        "cliff.api.routes.agent_execution.get_workspace",
         return_value=_make_workspace(),
     ), patch(
-        "opensec.api.routes.agent_execution._resolve_repo_env_vars",
+        "cliff.api.routes.agent_execution._resolve_repo_env_vars",
         new=AsyncMock(return_value={}),
     ):
         resp = await client.post(
@@ -109,10 +109,10 @@ async def test_missing_user_note_behaves_like_phase_1(app, client) -> None:
     executor.push_permission_event = lambda *a, **k: None
 
     with patch(
-        "opensec.api.routes.agent_execution.get_workspace",
+        "cliff.api.routes.agent_execution.get_workspace",
         return_value=_make_workspace(),
     ), patch(
-        "opensec.api.routes.agent_execution._resolve_repo_env_vars",
+        "cliff.api.routes.agent_execution._resolve_repo_env_vars",
         new=AsyncMock(return_value={}),
     ):
         resp = await client.post(
@@ -128,7 +128,7 @@ async def test_missing_user_note_behaves_like_phase_1(app, client) -> None:
 
 async def test_user_note_too_long_returns_422(app, client) -> None:
     with patch(
-        "opensec.api.routes.agent_execution.get_workspace",
+        "cliff.api.routes.agent_execution.get_workspace",
         return_value=_make_workspace(),
     ):
         resp = await client.post(
@@ -141,7 +141,7 @@ async def test_user_note_too_long_returns_422(app, client) -> None:
 def test_user_note_appears_in_planner_prompt() -> None:
     """The planner's runtime prompt must include the user's note as an
     authoritative refinement block."""
-    from opensec.agents.executor import build_agent_prompt
+    from cliff.agents.executor import build_agent_prompt
 
     finding = {
         "id": "f-1",

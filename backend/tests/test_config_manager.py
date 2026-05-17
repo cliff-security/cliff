@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from opensec.engine.config_manager import ConfigManager, mask_key
+from cliff.engine.config_manager import ConfigManager, mask_key
 
 
 class TestMaskKey:
@@ -29,7 +29,7 @@ class TestConfigManagerGetModel:
     async def test_get_model_from_opencode(self):
         mgr = ConfigManager()
         with patch(
-            "opensec.engine.config_manager.opencode_client"
+            "cliff.engine.config_manager.opencode_client"
         ) as mock_client:
             mock_client.get_config = AsyncMock(
                 return_value={"model": "openai/gpt-4.1-nano"}
@@ -44,10 +44,10 @@ class TestConfigManagerGetModel:
         mgr = ConfigManager()
         with (
             patch(
-                "opensec.engine.config_manager.opencode_client"
+                "cliff.engine.config_manager.opencode_client"
             ) as mock_client,
             patch(
-                "opensec.engine.config_manager.settings"
+                "cliff.engine.config_manager.settings"
             ) as mock_settings,
         ):
             mock_client.get_config = AsyncMock(side_effect=Exception("down"))
@@ -65,10 +65,10 @@ class TestConfigManagerUpdateModel:
 
         with (
             patch(
-                "opensec.engine.config_manager.opencode_client"
+                "cliff.engine.config_manager.opencode_client"
             ) as mock_client,
             patch(
-                "opensec.engine.config_manager.settings"
+                "cliff.engine.config_manager.settings"
             ) as mock_settings,
         ):
             mock_client.update_config = AsyncMock(return_value={})
@@ -81,7 +81,7 @@ class TestConfigManagerUpdateModel:
                 json.dumps({"model": m, "permission": {}})
             )
 
-            from opensec.db.connection import _db as db
+            from cliff.db.connection import _db as db
 
             result = await mgr.update_model(db, "openai/gpt-4.1-nano")
 
@@ -93,7 +93,7 @@ class TestConfigManagerUpdateModel:
     @pytest.mark.asyncio
     async def test_update_model_invalid_format(self, db_client):
         mgr = ConfigManager()
-        from opensec.db.connection import _db as db
+        from cliff.db.connection import _db as db
 
         with pytest.raises(ValueError, match="provider/model-id"):
             await mgr.update_model(db, "just-a-model-name")
@@ -104,11 +104,11 @@ class TestConfigManagerApiKeys:
     async def test_set_api_key(self, db_client):
         mgr = ConfigManager()
         with patch(
-            "opensec.engine.config_manager.opencode_client"
+            "cliff.engine.config_manager.opencode_client"
         ) as mock_client:
             mock_client.set_auth = AsyncMock(return_value=True)
 
-            from opensec.db.connection import _db as db
+            from cliff.db.connection import _db as db
 
             result = await mgr.set_api_key(db, "openai", "sk-test123456abcdef")
 
@@ -123,12 +123,12 @@ class TestConfigManagerApiKeys:
     async def test_get_api_keys_masked(self, db_client):
         mgr = ConfigManager()
         with patch(
-            "opensec.engine.config_manager.opencode_client"
+            "cliff.engine.config_manager.opencode_client"
         ) as mock_client:
             mock_client.set_auth = AsyncMock(return_value=True)
             mock_client.get_provider_auth = AsyncMock(return_value={})
 
-            from opensec.db.connection import _db as db
+            from cliff.db.connection import _db as db
 
             await mgr.set_api_key(db, "openai", "sk-test123456abcdef")
             keys = await mgr.get_api_keys(db)
@@ -143,12 +143,12 @@ class TestConfigManagerApiKeys:
     async def test_delete_api_key(self, db_client):
         mgr = ConfigManager()
         with patch(
-            "opensec.engine.config_manager.opencode_client"
+            "cliff.engine.config_manager.opencode_client"
         ) as mock_client:
             mock_client.set_auth = AsyncMock(return_value=True)
             mock_client.get_provider_auth = AsyncMock(return_value={})
 
-            from opensec.db.connection import _db as db
+            from cliff.db.connection import _db as db
 
             await mgr.set_api_key(db, "openai", "sk-test123")
             assert await mgr.delete_api_key(db, "openai") is True
@@ -159,12 +159,12 @@ class TestConfigManagerApiKeys:
     async def test_restore_keys_to_engine(self, db_client):
         mgr = ConfigManager()
         with patch(
-            "opensec.engine.config_manager.opencode_client"
+            "cliff.engine.config_manager.opencode_client"
         ) as mock_client:
             mock_client.set_auth = AsyncMock(return_value=True)
             mock_client.get_provider_auth = AsyncMock(return_value={})
 
-            from opensec.db.connection import _db as db
+            from cliff.db.connection import _db as db
 
             await mgr.set_api_key(db, "openai", "sk-restore-test1")
             await mgr.set_api_key(db, "anthropic", "sk-ant-restore2")

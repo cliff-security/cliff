@@ -11,14 +11,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from opensec.api._background import (
+from cliff.api._background import (
     classify_assessment_failure,
     run_and_persist_assessment,
 )
-from opensec.assessment.clone import CloneError, CloneTimeoutError
-from opensec.assessment.scanners.runner import ScannerTimeoutError
-from opensec.db.dao.assessment import create_assessment, get_assessment
-from opensec.models import AssessmentCreate, AssessmentTool, AssessmentToolResult
+from cliff.assessment.clone import CloneError, CloneTimeoutError
+from cliff.assessment.scanners.runner import ScannerTimeoutError
+from cliff.db.dao.assessment import create_assessment, get_assessment
+from cliff.models import AssessmentCreate, AssessmentTool, AssessmentToolResult
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable

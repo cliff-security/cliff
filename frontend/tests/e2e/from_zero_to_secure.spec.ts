@@ -7,8 +7,8 @@
  * against Chromium, Firefox, and WebKit projects (see ``playwright.config.ts``)
  * to cover the cross-browser PNG-export risk called out in IMPL-0002.
  *
- * The backend is booted with ``OPENSEC_TEST_FIXTURE_REPO_DIR`` +
- * ``OPENSEC_TEST_FIXTURE_OSV_DIR`` set, which swaps in a ``clone_strategy``
+ * The backend is booted with ``CLIFF_TEST_FIXTURE_REPO_DIR`` +
+ * ``CLIFF_TEST_FIXTURE_OSV_DIR`` set, which swaps in a ``clone_strategy``
  * that copies the planted repo under ``tests/e2e/fixtures/repo/`` and a
  * ``MockTransport``-backed httpx client that replays canned OSV responses.
  * No real git, no real network — the spec stays offline.
@@ -28,8 +28,8 @@ async function markOneFindingRemediated(request: APIRequestContext): Promise<voi
     id: string
     source_type: string
   }>
-  const engineFinding = findings.find((f) => f.source_type === 'opensec-assessment')
-  expect(engineFinding, 'at least one opensec-assessment finding should exist').toBeTruthy()
+  const engineFinding = findings.find((f) => f.source_type === 'cliff-assessment')
+  expect(engineFinding, 'at least one cliff-assessment finding should exist').toBeTruthy()
 
   const patch = await request.patch(`${BACKEND}/api/findings/${engineFinding!.id}`, {
     data: { status: 'remediated' },
@@ -77,7 +77,7 @@ test('from zero to secure — onboarding through PNG download', async ({
   ).toBeVisible()
   await page
     .getByLabel(/repository url/i)
-    .fill('https://github.com/opensec/e2e-fixture')
+    .fill('https://github.com/cliff/e2e-fixture')
   await page
     .getByLabel(/github personal access token/i)
     .fill('ghp_e2e_test_token_0123456789')

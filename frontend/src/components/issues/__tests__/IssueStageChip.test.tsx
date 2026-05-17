@@ -37,23 +37,23 @@ describe('IssueStageChip', () => {
   it('renders a pulsing dot for in-flight stages', () => {
     render(<IssueStageChip kind="generating" />)
     const root = screen.getByTestId('stage-chip-generating')
-    expect(root.querySelector('.opensec-pulse-dot')).not.toBeNull()
+    expect(root.querySelector('.cliff-pulse-dot')).not.toBeNull()
   })
 
   it('does NOT render a pulsing dot for ready stages', () => {
     render(<IssueStageChip kind="plan_ready" />)
     const root = screen.getByTestId('stage-chip-plan_ready')
-    expect(root.querySelector('.opensec-pulse-dot')).toBeNull()
+    expect(root.querySelector('.cliff-pulse-dot')).toBeNull()
   })
 
   it('renders a static dot fallback when prefers-reduced-motion: reduce', () => {
     // The CSS file scopes the animation to a media query; we verify the dot
-    // element exists and carries the .opensec-pulse-dot class so the media
+    // element exists and carries the .cliff-pulse-dot class so the media
     // query can disable the keyframe without removing the dot itself.
     render(<IssueStageChip kind="planning" />)
     const dot = screen
       .getByTestId('stage-chip-planning')
-      .querySelector('.opensec-pulse-dot')
+      .querySelector('.cliff-pulse-dot')
     expect(dot).not.toBeNull()
   })
 

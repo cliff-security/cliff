@@ -5,7 +5,7 @@
 
 ## Context
 
-OpenSec needs an AI engine to power code analysis, remediation planning, and agent execution. Building an LLM orchestration layer from scratch would be a massive effort that distracts from the security product itself.
+Cliff needs an AI engine to power code analysis, remediation planning, and agent execution. Building an LLM orchestration layer from scratch would be a massive effort that distracts from the security product itself.
 
 [OpenCode](https://github.com/anomalyco/opencode) is an active, MIT-licensed open-source coding agent. It provides:
 
@@ -35,7 +35,7 @@ Use `anomalyco/opencode` as the AI runtime engine, integrated as a **pinned bina
 
 - `.opencode-version` contains the pinned version (e.g., `1.3.2`)
 - In Docker: binary is downloaded during image build
-- Local dev: auto-downloaded to `~/.opensec/bin/opencode` on first run, or manually via `brew install opencode` / `npm i -g opencode-ai`
+- Local dev: auto-downloaded to `~/.cliff/bin/opencode` on first run, or manually via `brew install opencode` / `npm i -g opencode-ai`
 
 ## Consequences
 

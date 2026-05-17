@@ -1,6 +1,6 @@
-# Releasing OpenSec
+# Releasing Cliff
 
-This is the runbook for cutting a release of OpenSec. It documents both
+This is the runbook for cutting a release of Cliff. It documents both
 the per-release steps and the one-time GitHub UI configuration that
 makes the release workflow safe.
 
@@ -48,19 +48,19 @@ makes the release workflow safe.
 
    ```bash
    VERSION=$(cat VERSION)
-   docker buildx imagetools inspect "ghcr.io/galanko/opensec:${VERSION}"
-   DIGEST=$(docker buildx imagetools inspect "ghcr.io/galanko/opensec:${VERSION}" --format '{{json .Manifest}}' | jq -r .digest)
+   docker buildx imagetools inspect "ghcr.io/galanko/cliff:${VERSION}"
+   DIGEST=$(docker buildx imagetools inspect "ghcr.io/galanko/cliff:${VERSION}" --format '{{json .Manifest}}' | jq -r .digest)
 
-   cosign verify "ghcr.io/galanko/opensec@${DIGEST}" \
-     --certificate-identity-regexp 'https://github\.com/galanko/OpenSec/\.github/workflows/release\.yml@.*' \
+   cosign verify "ghcr.io/galanko/cliff@${DIGEST}" \
+     --certificate-identity-regexp 'https://github\.com/galanko/Cliff/\.github/workflows/release\.yml@.*' \
      --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
-   gh attestation verify "oci://ghcr.io/galanko/opensec@${DIGEST}" --owner galanko
+   gh attestation verify "oci://ghcr.io/galanko/cliff@${DIGEST}" --owner galanko
    ```
 
 6. **Spot-check the GitHub Release page** — `<repo>/releases/tag/v<version>`
    should be marked as pre-release (for `-alpha`/`-beta`/`-rc`) and
-   carry the SBOM (`opensec-<version>.cdx.json`) plus
+   carry the SBOM (`cliff-<version>.cdx.json`) plus
    `verification.txt`.
 
 ## One-time repo configuration
@@ -114,8 +114,8 @@ running with the default token.
 After the first successful release, GitHub creates the package as
 private (default for packages from public repos). Make it public:
 
-- `<repo> → Packages → opensec → Package settings`
-- **Manage Actions access:** link to `galanko/OpenSec` with role
+- `<repo> → Packages → cliff → Package settings`
+- **Manage Actions access:** link to `galanko/Cliff` with role
   *Write*.
 - **Danger Zone → Change visibility → Public**.
 

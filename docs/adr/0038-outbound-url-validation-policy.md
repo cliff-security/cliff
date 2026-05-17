@@ -7,7 +7,7 @@
 
 ## Context
 
-OpenSec issues outbound HTTP requests to URLs that originate **outside
+Cliff issues outbound HTTP requests to URLs that originate **outside
 the codebase** in three distinct places, each with a different trust
 profile:
 
@@ -38,7 +38,7 @@ this ADR codifies the policy so future outbound calls don't drift.
 ## Decision
 
 Every outbound HTTP fetch whose URL is **not a compile-time string
-constant inside the OpenSec codebase** MUST route through one of two
+constant inside the Cliff codebase** MUST route through one of two
 helpers, chosen by trust profile:
 
 ### Strict policy — `_ip_is_unsafe`
@@ -87,7 +87,7 @@ already configured to flag the unguarded shape.
   only Ollama qualifies today. Any future addition needs justification
   in the call-site docstring.
 * The single-user / self-hosted threat model means an attacker who
-  controls the OpenSec process can already do anything; these
+  controls the Cliff process can already do anything; these
   validators protect against **adjacent** attacks: LLM prompt
   injection, BYOK form misconfiguration, future multi-user surfaces.
 

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from opensec.integrations.normalizer import MAX_BATCH_SIZE, _extract_json_array, normalize_findings
+from cliff.integrations.normalizer import MAX_BATCH_SIZE, _extract_json_array, normalize_findings
 
 # ---------------------------------------------------------------------------
 # _extract_json_array unit tests
@@ -105,7 +105,7 @@ def mock_opencode():
     The normalizer uses Mode 1 (synchronous RPC) via send_and_get_response,
     so we mock that single call. It returns the LLM text or None.
     """
-    with patch("opensec.integrations.normalizer.opencode_client") as mock:
+    with patch("cliff.integrations.normalizer.opencode_client") as mock:
         mock.create_session = AsyncMock()
         mock.create_session.return_value.id = "test-session-id"
         mock.send_and_get_response = AsyncMock(return_value=None)

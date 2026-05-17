@@ -15,11 +15,11 @@ The Q01R QA campaign (Wave 1.5) found that this combination silently fails on or
 
 The user (galanko) *does* have push access via gh CLI with a PAT — but the App's OAuth user token does not. The reason is a GitHub fundamental: **a user-to-server token carries the intersection of (App declared permissions) × (user repo permissions).** If the App declares only `contents:read`, the user token cannot push regardless of what the user can do.
 
-The dev test App (`opensec-local-test`) was created with insufficient permissions. The same trap is waiting for any OSS deployment whose maintainer doesn't know to set permissions correctly when creating their own App.
+The dev test App (`cliff-local-test`) was created with insufficient permissions. The same trap is waiting for any OSS deployment whose maintainer doesn't know to set permissions correctly when creating their own App.
 
 ## Decision
 
-The OpenSec GitHub App **must** declare these repository permissions:
+The Cliff GitHub App **must** declare these repository permissions:
 
 | Permission | Level | Why |
 |---|---|---|
@@ -43,12 +43,12 @@ We **continue using user OAuth tokens via the device flow** (per ADR-0035). We d
 
 ### Negative
 
-- The opensec-local-test (dev) and any future prod App must be updated on the GitHub UI. Anyone running their own self-hosted Cliff with their own App must mirror this.
+- The cliff-local-test (dev) and any future prod App must be updated on the GitHub UI. Anyone running their own self-hosted Cliff with their own App must mirror this.
 - User OAuth tokens still expire/refresh and depend on the user not revoking the App; that's the same trade-off ADR-0035 made.
 
 ### Operational
 
-1. **Update the dev App `opensec-local-test`** (immediate, manual): owner adds Contents:write + Pull requests:write + Actions:read + Administration:read. Existing installation_id holders see an "approve new permissions" banner on next install — that's fine for dev.
+1. **Update the dev App `cliff-local-test`** (immediate, manual): owner adds Contents:write + Pull requests:write + Actions:read + Administration:read. Existing installation_id holders see an "approve new permissions" banner on next install — that's fine for dev.
 2. **Document required permissions in the OSS install guide** so users creating their own App copy the right matrix.
 3. **Backend preflight** (covered by IMPL-0014): before triggering the executor, verify the token can push to the target repo. If not, fail loudly with a clear error and a link to "Update your App permissions" docs.
 

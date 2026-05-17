@@ -1,6 +1,6 @@
-# OpenSec UX Language Guide
+# Cliff UX Language Guide
 
-> Living document maintained by the UX team. Defines the vocabulary, tone, patterns, and component catalog for the OpenSec product. All new UI work must follow this guide.
+> Living document maintained by the UX team. Defines the vocabulary, tone, patterns, and component catalog for the Cliff product. All new UI work must follow this guide.
 
 **Design system:** The Serene Sentinel (ADR-0011)
 **Creative direction:** Editorial Assurance — calm, authoritative, gallery-like

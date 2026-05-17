@@ -16,10 +16,10 @@ import { exportCardAsPng } from '../../lib/imageExport'
 const props = {
   completionId: 'c-123',
   summaryText:
-    'I secured fast-markdown with OpenSec — 12 vulns fixed, branch protection enabled, SECURITY.md added. opensec.dev',
+    'I secured fast-markdown with Cliff — 12 vulns fixed, branch protection enabled, SECURITY.md added. cliff.dev',
   summaryMarkdown:
-    '![Secured by OpenSec](opensec-summary.png)\n<!-- Completed 2026-04-14 -->',
-  filename: 'fast-markdown_opensec-summary_2026-04-14.png',
+    '![Secured by Cliff](cliff-summary.png)\n<!-- Completed 2026-04-14 -->',
+  filename: 'fast-markdown_cliff-summary_2026-04-14.png',
   cardProps: {
     repoName: 'fast-markdown',
     completedAt: '2026-04-14',
@@ -82,7 +82,7 @@ describe('SummaryActionPanel', () => {
 
     // Download preview shows filename + dimensions metadata.
     expect(
-      screen.getByText(/fast-markdown_opensec-summary_2026-04-14\.png/),
+      screen.getByText(/fast-markdown_cliff-summary_2026-04-14\.png/),
     ).toBeInTheDocument()
     expect(screen.getByText(/1200×630/)).toBeInTheDocument()
 
@@ -101,7 +101,7 @@ describe('SummaryActionPanel', () => {
 
     expect(exportCardAsPng).toHaveBeenCalledTimes(1)
     const [, filename] = (exportCardAsPng as ReturnType<typeof vi.fn>).mock.calls[0]
-    expect(filename).toBe('fast-markdown_opensec-summary_2026-04-14.png')
+    expect(filename).toBe('fast-markdown_cliff-summary_2026-04-14.png')
 
     await vi.waitFor(() => {
       expect(hits.length).toBe(1)

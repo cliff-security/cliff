@@ -27,12 +27,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from opensec.agents.executor import AgentExecutor
-from opensec.db.repo_agent_run import get_agent_run, list_agent_runs
-from opensec.db.repo_finding import create_finding, update_finding
-from opensec.db.repo_workspace import create_workspace
-from opensec.models import FindingCreate, FindingUpdate, WorkspaceCreate
-from opensec.models.issue_derivation import derive
+from cliff.agents.executor import AgentExecutor
+from cliff.db.repo_agent_run import get_agent_run, list_agent_runs
+from cliff.db.repo_finding import create_finding, update_finding
+from cliff.db.repo_workspace import create_workspace
+from cliff.models import FindingCreate, FindingUpdate, WorkspaceCreate
+from cliff.models.issue_derivation import derive
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -52,7 +52,7 @@ def _make_executor_response() -> str:
         '{"summary": "ran the patch",'
         '"result_card_markdown": "ok",'
         '"structured_output": {"status": "changes_made", "pr_url": null,'
-        '"branch_name": "opensec/fix/x", "changes_summary": "patched",'
+        '"branch_name": "cliff/fix/x", "changes_summary": "patched",'
         '"test_results": "pass", "error_details": null},'
         '"confidence": 0.9, "evidence_sources": [],'
         '"suggested_next_action": "open_pr"}\n'
@@ -147,17 +147,17 @@ async def test_approve_persists_marker_then_clears_and_resumes_agent(
         asyncio.create_task(approve_after_seeing_marker(event_dict))
 
     with (
-        patch("opensec.agents.executor.map_and_upsert", new=AsyncMock()),
+        patch("cliff.agents.executor.map_and_upsert", new=AsyncMock()),
         patch(
-            "opensec.agents.executor._advance_finding_status",
+            "cliff.agents.executor._advance_finding_status",
             new=AsyncMock(return_value=None),
         ),
         patch(
-            "opensec.agents.executor._load_workspace_data",
+            "cliff.agents.executor._load_workspace_data",
             return_value=({}, {}),
         ),
         patch(
-            "opensec.agents.executor.AgentTemplateEngine"
+            "cliff.agents.executor.AgentTemplateEngine"
         ) as engine_cls,
     ):
         engine_cls.return_value.render_agent.return_value = MagicMock(
@@ -214,17 +214,17 @@ async def test_deny_persists_then_clears_and_denies_to_engine(db) -> None:
         asyncio.create_task(deny_quickly(event_dict))
 
     with (
-        patch("opensec.agents.executor.map_and_upsert", new=AsyncMock()),
+        patch("cliff.agents.executor.map_and_upsert", new=AsyncMock()),
         patch(
-            "opensec.agents.executor._advance_finding_status",
+            "cliff.agents.executor._advance_finding_status",
             new=AsyncMock(return_value=None),
         ),
         patch(
-            "opensec.agents.executor._load_workspace_data",
+            "cliff.agents.executor._load_workspace_data",
             return_value=({}, {}),
         ),
         patch(
-            "opensec.agents.executor.AgentTemplateEngine"
+            "cliff.agents.executor.AgentTemplateEngine"
         ) as engine_cls,
     ):
         engine_cls.return_value.render_agent.return_value = MagicMock(
@@ -254,14 +254,14 @@ async def test_derive_routes_to_review_awaiting_permission_when_marker_set(
     """Mid-wait derive() must surface the finding in review/awaiting_permission.
     We simulate by directly setting the marker on a running run, then calling
     derive() with the same models the API layer would assemble."""
-    from opensec.db.repo_agent_run import (
+    from cliff.db.repo_agent_run import (
         create_agent_run,
         list_latest_runs_by_workspace_ids,
         update_agent_run,
     )
-    from opensec.db.repo_finding import get_finding
-    from opensec.db.repo_workspace import list_workspaces_by_finding_ids
-    from opensec.models import AgentRunCreate, AgentRunUpdate
+    from cliff.db.repo_finding import get_finding
+    from cliff.db.repo_workspace import list_workspaces_by_finding_ids
+    from cliff.models import AgentRunCreate, AgentRunUpdate
 
     finding_id, workspace_id, _ = await _seed_workspace(db)
     run = await create_agent_run(

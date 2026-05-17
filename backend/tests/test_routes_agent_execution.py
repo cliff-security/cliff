@@ -9,13 +9,13 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from opensec.agents.errors import AgentBusyError
-from opensec.agents.executor import AgentExecutionResult
-from opensec.agents.output_parser import ParseResult
-from opensec.api.routes.agent_execution import router
-from opensec.db.connection import get_db
-from opensec.integrations.github_app.client import RepoPushAccess
-from opensec.models import Workspace
+from cliff.agents.errors import AgentBusyError
+from cliff.agents.executor import AgentExecutionResult
+from cliff.agents.output_parser import ParseResult
+from cliff.api.routes.agent_execution import router
+from cliff.db.connection import get_db
+from cliff.integrations.github_app.client import RepoPushAccess
+from cliff.models import Workspace
 
 # ---------------------------------------------------------------------------
 # App fixture with mock DB dependency
@@ -89,7 +89,7 @@ class TestExecuteEndpoint:
         executor.execute = AsyncMock(return_value=_make_execution_result())
 
         with patch(
-            "opensec.api.routes.agent_execution.get_workspace",
+            "cliff.api.routes.agent_execution.get_workspace",
             return_value=_make_workspace(),
         ):
             resp = await client.post(
@@ -104,7 +104,7 @@ class TestExecuteEndpoint:
     @pytest.mark.asyncio
     async def test_execute_workspace_not_found(self, client):
         with patch(
-            "opensec.api.routes.agent_execution.get_workspace",
+            "cliff.api.routes.agent_execution.get_workspace",
             return_value=None,
         ):
             resp = await client.post(
@@ -115,7 +115,7 @@ class TestExecuteEndpoint:
     @pytest.mark.asyncio
     async def test_execute_invalid_agent_type(self, client):
         with patch(
-            "opensec.api.routes.agent_execution.get_workspace",
+            "cliff.api.routes.agent_execution.get_workspace",
             return_value=_make_workspace(),
         ):
             resp = await client.post(
@@ -130,7 +130,7 @@ class TestExecuteEndpoint:
         executor.check_not_busy = AsyncMock(side_effect=AgentBusyError("busy"))
 
         with patch(
-            "opensec.api.routes.agent_execution.get_workspace",
+            "cliff.api.routes.agent_execution.get_workspace",
             return_value=_make_workspace(),
         ):
             resp = await client.post(
@@ -158,7 +158,7 @@ class TestSuggestNextEndpoint:
         }
 
         with patch(
-            "opensec.api.routes.agent_execution.get_workspace",
+            "cliff.api.routes.agent_execution.get_workspace",
             return_value=_make_workspace(),
         ):
             resp = await client.get(
@@ -185,7 +185,7 @@ class TestSuggestNextEndpoint:
         }
 
         with patch(
-            "opensec.api.routes.agent_execution.get_workspace",
+            "cliff.api.routes.agent_execution.get_workspace",
             return_value=_make_workspace(),
         ):
             resp = await client.get(
@@ -206,7 +206,7 @@ class TestSuggestNextEndpoint:
 class TestCancelEndpoint:
     @pytest.mark.asyncio
     async def test_cancel_running_agent(self, client):
-        from opensec.models import AgentRun
+        from cliff.models import AgentRun
 
         mock_run = AgentRun(
             id="run-1",
@@ -217,11 +217,11 @@ class TestCancelEndpoint:
 
         with (
             patch(
-                "opensec.api.routes.agent_execution.get_agent_run",
+                "cliff.api.routes.agent_execution.get_agent_run",
                 return_value=mock_run,
             ),
             patch(
-                "opensec.api.routes.agent_execution.update_agent_run",
+                "cliff.api.routes.agent_execution.update_agent_run",
             ),
         ):
             resp = await client.post(
@@ -233,7 +233,7 @@ class TestCancelEndpoint:
 
     @pytest.mark.asyncio
     async def test_cancel_completed_returns_400(self, client):
-        from opensec.models import AgentRun
+        from cliff.models import AgentRun
 
         mock_run = AgentRun(
             id="run-1",
@@ -243,7 +243,7 @@ class TestCancelEndpoint:
         )
 
         with patch(
-            "opensec.api.routes.agent_execution.get_agent_run",
+            "cliff.api.routes.agent_execution.get_agent_run",
             return_value=mock_run,
         ):
             resp = await client.post(
@@ -291,16 +291,16 @@ class TestExecutorPushPreflight:
         )
 
         with patch(
-            "opensec.api.routes.agent_execution.get_workspace",
+            "cliff.api.routes.agent_execution.get_workspace",
             return_value=workspace,
         ), patch(
-            "opensec.api.routes.agent_execution._resolve_repo_env_vars",
+            "cliff.api.routes.agent_execution._resolve_repo_env_vars",
             new=AsyncMock(return_value={
                 "GH_TOKEN": "ghu_abc",
-                "OPENSEC_REPO_URL": "https://github.com/cliff-security/NodeGoat",
+                "CLIFF_REPO_URL": "https://github.com/cliff-security/NodeGoat",
             }),
         ), patch(
-            "opensec.api.routes.agent_execution.check_repo_push_access",
+            "cliff.api.routes.agent_execution.check_repo_push_access",
             new=preflight,
         ):
             resp = await client.post(
@@ -331,16 +331,16 @@ class TestExecutorPushPreflight:
         )
 
         with patch(
-            "opensec.api.routes.agent_execution.get_workspace",
+            "cliff.api.routes.agent_execution.get_workspace",
             return_value=workspace,
         ), patch(
-            "opensec.api.routes.agent_execution._resolve_repo_env_vars",
+            "cliff.api.routes.agent_execution._resolve_repo_env_vars",
             new=AsyncMock(return_value={
                 "GH_TOKEN": "ghu_abc",
-                "OPENSEC_REPO_URL": "https://github.com/cliff-security/NodeGoat",
+                "CLIFF_REPO_URL": "https://github.com/cliff-security/NodeGoat",
             }),
         ), patch(
-            "opensec.api.routes.agent_execution.check_repo_push_access",
+            "cliff.api.routes.agent_execution.check_repo_push_access",
             new=preflight,
         ):
             resp = await client.post(
@@ -365,13 +365,13 @@ class TestExecutorPushPreflight:
         )
 
         with patch(
-            "opensec.api.routes.agent_execution.get_workspace",
+            "cliff.api.routes.agent_execution.get_workspace",
             return_value=_make_workspace(),
         ), patch(
-            "opensec.api.routes.agent_execution._resolve_repo_env_vars",
+            "cliff.api.routes.agent_execution._resolve_repo_env_vars",
             new=AsyncMock(return_value={}),
         ), patch(
-            "opensec.api.routes.agent_execution.check_repo_push_access",
+            "cliff.api.routes.agent_execution.check_repo_push_access",
             new=preflight,
         ):
             resp = await client.post(
@@ -400,17 +400,17 @@ class TestExecutorPushPreflight:
         )
 
         with patch(
-            "opensec.api.routes.agent_execution.get_workspace",
+            "cliff.api.routes.agent_execution.get_workspace",
             return_value=_make_workspace(
                 repo_url="https://github.com/cliff-security/NodeGoat"
             ),
         ), patch(
-            "opensec.api.routes.agent_execution._resolve_repo_env_vars",
+            "cliff.api.routes.agent_execution._resolve_repo_env_vars",
             new=AsyncMock(return_value={
-                "OPENSEC_REPO_URL": "https://github.com/cliff-security/NodeGoat",
+                "CLIFF_REPO_URL": "https://github.com/cliff-security/NodeGoat",
             }),
         ), patch(
-            "opensec.api.routes.agent_execution.check_repo_push_access",
+            "cliff.api.routes.agent_execution.check_repo_push_access",
             new=preflight,
         ):
             resp = await client.post(
@@ -431,21 +431,21 @@ class TestExecutorPushPreflight:
 
 class TestParseOwnerRepoFromUrl:
     def test_canonical_https_url(self):
-        from opensec.api.routes.agent_execution import _parse_owner_repo_from_url
+        from cliff.api.routes.agent_execution import _parse_owner_repo_from_url
 
         assert _parse_owner_repo_from_url(
             "https://github.com/owner/repo"
         ) == ("owner", "repo")
 
     def test_strips_trailing_dot_git(self):
-        from opensec.api.routes.agent_execution import _parse_owner_repo_from_url
+        from cliff.api.routes.agent_execution import _parse_owner_repo_from_url
 
         assert _parse_owner_repo_from_url(
             "https://github.com/owner/repo.git"
         ) == ("owner", "repo")
 
     def test_extra_path_segments_ignored(self):
-        from opensec.api.routes.agent_execution import _parse_owner_repo_from_url
+        from cliff.api.routes.agent_execution import _parse_owner_repo_from_url
 
         assert _parse_owner_repo_from_url(
             "https://github.com/owner/repo/pulls/1"
@@ -454,7 +454,7 @@ class TestParseOwnerRepoFromUrl:
     def test_rejects_github_com_in_path(self):
         """Bypass attempt: attacker domain with 'github.com' in the path
         must not be parsed as a GitHub URL."""
-        from opensec.api.routes.agent_execution import _parse_owner_repo_from_url
+        from cliff.api.routes.agent_execution import _parse_owner_repo_from_url
 
         assert (
             _parse_owner_repo_from_url(
@@ -466,7 +466,7 @@ class TestParseOwnerRepoFromUrl:
     def test_rejects_github_com_as_subdomain_prefix(self):
         """Bypass attempt: 'github.com.attacker.com' would pass a naive
         ``endswith('github.com')`` check but is a different hostname."""
-        from opensec.api.routes.agent_execution import _parse_owner_repo_from_url
+        from cliff.api.routes.agent_execution import _parse_owner_repo_from_url
 
         assert (
             _parse_owner_repo_from_url(
@@ -479,7 +479,7 @@ class TestParseOwnerRepoFromUrl:
         """``raw.githubusercontent.com`` and similar must not be accepted —
         the preflight calls the v3 API which only lives at api.github.com /
         github.com proper."""
-        from opensec.api.routes.agent_execution import _parse_owner_repo_from_url
+        from cliff.api.routes.agent_execution import _parse_owner_repo_from_url
 
         assert (
             _parse_owner_repo_from_url(
@@ -489,7 +489,7 @@ class TestParseOwnerRepoFromUrl:
         )
 
     def test_rejects_non_github_host(self):
-        from opensec.api.routes.agent_execution import _parse_owner_repo_from_url
+        from cliff.api.routes.agent_execution import _parse_owner_repo_from_url
 
         assert (
             _parse_owner_repo_from_url("https://gitlab.com/owner/repo")
@@ -499,7 +499,7 @@ class TestParseOwnerRepoFromUrl:
     def test_rejects_non_http_scheme(self):
         """``javascript:`` / ``file://`` / SSH URLs should be rejected so
         the preflight never tries to GET them."""
-        from opensec.api.routes.agent_execution import _parse_owner_repo_from_url
+        from cliff.api.routes.agent_execution import _parse_owner_repo_from_url
 
         assert (
             _parse_owner_repo_from_url("git@github.com:owner/repo.git")
@@ -511,13 +511,13 @@ class TestParseOwnerRepoFromUrl:
         )
 
     def test_rejects_missing_repo_segment(self):
-        from opensec.api.routes.agent_execution import _parse_owner_repo_from_url
+        from cliff.api.routes.agent_execution import _parse_owner_repo_from_url
 
         assert _parse_owner_repo_from_url("https://github.com/owner") is None
         assert _parse_owner_repo_from_url("https://github.com/") is None
 
     def test_rejects_empty_and_non_string(self):
-        from opensec.api.routes.agent_execution import _parse_owner_repo_from_url
+        from cliff.api.routes.agent_execution import _parse_owner_repo_from_url
 
         assert _parse_owner_repo_from_url("") is None
         # Guard against accidental None being passed from a caller that
@@ -526,7 +526,7 @@ class TestParseOwnerRepoFromUrl:
 
     def test_hostname_case_insensitive(self):
         """RFC 3986: host is case-insensitive. Don't reject GITHUB.COM."""
-        from opensec.api.routes.agent_execution import _parse_owner_repo_from_url
+        from cliff.api.routes.agent_execution import _parse_owner_repo_from_url
 
         assert _parse_owner_repo_from_url(
             "https://GitHub.com/owner/repo"

@@ -1,7 +1,7 @@
 """EF-B16 regression: POST /api/workspaces { repo_url } must win over the
 GitHub integration's snapshot, but omitting it must fall back (backwards-compat).
 
-Bug: the handler at ``backend/opensec/api/routes/workspaces.py`` called
+Bug: the handler at ``backend/cliff/api/routes/workspaces.py`` called
 ``_resolve_github_repo_url(db)`` unconditionally — ``body.repo_url`` was
 declared on ``WorkspaceCreate`` and accepted by FastAPI, but silently dropped
 before reaching ``context_builder.create_workspace``.
@@ -11,13 +11,13 @@ from __future__ import annotations
 
 import pytest
 
-from opensec.agents.template_engine import AgentTemplateEngine
-from opensec.db.connection import get_db
-from opensec.db.repo_integration import create_integration
-from opensec.db.repo_workspace import get_workspace
-from opensec.models import IntegrationConfigCreate
-from opensec.workspace.context_builder import WorkspaceContextBuilder
-from opensec.workspace.workspace_dir_manager import WorkspaceDirManager
+from cliff.agents.template_engine import AgentTemplateEngine
+from cliff.db.connection import get_db
+from cliff.db.repo_integration import create_integration
+from cliff.db.repo_workspace import get_workspace
+from cliff.models import IntegrationConfigCreate
+from cliff.workspace.context_builder import WorkspaceContextBuilder
+from cliff.workspace.workspace_dir_manager import WorkspaceDirManager
 
 pytestmark = pytest.mark.integration
 
@@ -28,7 +28,7 @@ async def real_builder(db_client, tmp_path):
     ``tmp_path`` so ``create_workspace`` actually persists ``repo_url`` and
     writes agent templates we can grep.
     """
-    from opensec.main import app
+    from cliff.main import app
 
     dir_manager = WorkspaceDirManager(base_dir=tmp_path)
     template_engine = AgentTemplateEngine()

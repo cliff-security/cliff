@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from opensec.integrations.normalizer import normalize_findings
+from cliff.integrations.normalizer import normalize_findings
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "plain_description_evals.json"
 

@@ -30,11 +30,11 @@ This is the only sequential block. Do it first, with a single session, while not
 
 **Deliverables (all land in one PR to `main`):**
 
-1. **DB migration SQL** committed as `backend/opensec/db/migrations/0014_from_zero_to_secure.sql`. Contents per IMPL-0002 Milestone A: `plain_description` column on `findings`, plus `assessments`, `posture_checks`, `completions` tables. Migration can be unapplied on dev; the file defines the shape every other session builds against.
-2. **Pydantic models** for the four affected entities: `backend/opensec/models/{finding,assessment,posture_check,completion}.py`. Fields only — no DAO logic yet. These are the types every backend session imports.
-3. **API route OpenAPI stubs** for every new endpoint. FastAPI `@router.post(...)` decorators with the right request/response shapes but bodies that just `raise NotImplementedError()`. Committed as stubs in `backend/opensec/api/routes/{onboarding,assessment,dashboard,posture,completion}.py`. The OpenAPI schema snapshot is committed to `tests/api/test_openapi_snapshot.py` — frozen from the first run.
+1. **DB migration SQL** committed as `backend/cliff/db/migrations/0014_from_zero_to_secure.sql`. Contents per IMPL-0002 Milestone A: `plain_description` column on `findings`, plus `assessments`, `posture_checks`, `completions` tables. Migration can be unapplied on dev; the file defines the shape every other session builds against.
+2. **Pydantic models** for the four affected entities: `backend/cliff/models/{finding,assessment,posture_check,completion}.py`. Fields only — no DAO logic yet. These are the types every backend session imports.
+3. **API route OpenAPI stubs** for every new endpoint. FastAPI `@router.post(...)` decorators with the right request/response shapes but bodies that just `raise NotImplementedError()`. Committed as stubs in `backend/cliff/api/routes/{onboarding,assessment,dashboard,posture,completion}.py`. The OpenAPI schema snapshot is committed to `tests/api/test_openapi_snapshot.py` — frozen from the first run.
 4. **Frontend types** auto-generated from the OpenAPI stub via `openapi-typescript` into `frontend/src/api/types.ts`. Committed. The frontend sessions import types from here.
-5. **V1↔V2 interface stub** in `backend/opensec/workspace/dir_manager.py`: the `WorkspaceKind` enum with `repo_action_security_md` and `repo_action_dependabot`, plus the `create_repo_workspace(kind, repo_url, params)` signature (body raises `NotImplementedError`).
+5. **V1↔V2 interface stub** in `backend/cliff/workspace/dir_manager.py`: the `WorkspaceKind` enum with `repo_action_security_md` and `repo_action_dependabot`, plus the `create_repo_workspace(kind, repo_url, params)` signature (body raises `NotImplementedError`).
 6. **Storybook entries for the five new component names** (`CompletionProgressCard`, `CompletionStatusCard`, `ScorecardInfoLine`, `ShareableSummaryCard`, `SummaryActionPanel`) — empty placeholder components that render their prop list. Lets the frontend sessions integrate as soon as any of these become real.
 
 **Branch:** `feat/from-zero-to-secure-contracts`. One PR. Merge this before fanning out.
@@ -50,7 +50,7 @@ After Session 0 merges, start all six sessions at the same time. Each session ow
 ### Session A · Assessment engine (backend, deterministic)
 
 **Scope:** IMPL-0002 Milestone B (B1–B6) — lockfile parsers, OSV.dev client, GHSA fallback, posture checks, assessment orchestrator.
-**Owns files:** `backend/opensec/assessment/**`, fixtures under `backend/tests/fixtures/lockfiles/**`, `backend/tests/assessment/**`.
+**Owns files:** `backend/cliff/assessment/**`, fixtures under `backend/tests/fixtures/lockfiles/**`, `backend/tests/assessment/**`.
 **Does NOT touch:** API routes, frontend, agent templates.
 **Depends on (from Session 0):** the `Finding` / `Assessment` / `PostureCheck` Pydantic models.
 **Starts by writing:** `test_npm_parser_extracts_every_dep_with_version` against a checked-in `package-lock.json` fixture, watching it fail, then writing the parser.
@@ -60,7 +60,7 @@ After Session 0 merges, start all six sessions at the same time. Each session ow
 ### Session B · API routes + DAOs (backend, thin layer)
 
 **Scope:** IMPL-0002 Milestone A (A2 — DAOs) and Milestone D (D1, D2, D3, D4, D5) — DAO functions for the three new tables + real implementations of the five new API routes.
-**Owns files:** `backend/opensec/db/dao/{assessment,posture_check,completion}.py`, `backend/opensec/api/routes/{onboarding,assessment,dashboard,posture,completion}.py`, `backend/opensec/ingest/worker.py` (for C2 — threading `plain_description` through ingest).
+**Owns files:** `backend/cliff/db/dao/{assessment,posture_check,completion}.py`, `backend/cliff/api/routes/{onboarding,assessment,dashboard,posture,completion}.py`, `backend/cliff/ingest/worker.py` (for C2 — threading `plain_description` through ingest).
 **Does NOT touch:** assessment engine internals, frontend, agent templates.
 **Depends on (from Session 0):** migration + OpenAPI stubs.
 **Uses mocks for:** the assessment engine (Session A) — mock `run_assessment(repo_url)` to return a canned `AssessmentResult` and test the route in isolation. Real integration happens in Session G.
@@ -71,7 +71,7 @@ After Session 0 merges, start all six sessions at the same time. Each session ow
 ### Session C · V1 agents + normalizer (backend, agent templates)
 
 **Scope:** IMPL-0002 Milestone C (C1 — normalizer prompt extension) and Milestone E (E1, E2, E4) — two generator agents and the `WorkspaceKind` wiring.
-**Owns files:** `.opencode/agents/finding-normalizer.md`, `backend/opensec/agents/templates/{security_md_generator,dependabot_config_generator}.md.j2`, `backend/opensec/workspace/dir_manager.py` (add enum), `backend/opensec/engine/pool.py` (cleanup trigger).
+**Owns files:** `.opencode/agents/finding-normalizer.md`, `backend/cliff/agents/templates/{security_md_generator,dependabot_config_generator}.md.j2`, `backend/cliff/workspace/dir_manager.py` (add enum), `backend/cliff/engine/pool.py` (cleanup trigger).
 **Does NOT touch:** assessment engine, API routes, frontend.
 **Depends on (from Session 0):** `WorkspaceKind` enum stub.
 **Starts by writing:** evaluation fixture of 10 known CVEs with expected plain-language shapes → watch normalizer fail → edit prompt.
@@ -184,7 +184,7 @@ If two or more sessions blow through their estimate, the right call is to split 
 
 If anything ships broken:
 
-- The feature is behind a flag `OPENSEC_V1_1_FROM_ZERO_TO_SECURE_ENABLED` defaulting to `false`. Flip off.
+- The feature is behind a flag `CLIFF_V1_1_FROM_ZERO_TO_SECURE_ENABLED` defaulting to `false`. Flip off.
 - Database migration `0014` is additive only — no existing column is dropped or renamed. Safe to leave applied even if the feature is off.
 - V1 agents (security_md, dependabot) are new templates — their absence doesn't affect existing finding workspaces.
 - Frontend routes guard the onboarding wizard behind `onboarding_completed === false`; if the flag is off, the wizard is never shown.

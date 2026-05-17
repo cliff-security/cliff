@@ -70,7 +70,7 @@ applies.
 
 - `frontend/src/components/ai-provider/OpenRouterConnectFlow.tsx`,
   `DirectBYOKForm.tsx`, `AutoDetectBanner.tsx` — bodies still use
-  "OpenSec" in some strings (should be "Cliff"); audit and convert.
+  "Cliff" in some strings (should be "Cliff"); audit and convert.
   Several use "Loading…" / "Saving…" placeholders that could narrate.
 
 ## Settings page copy
@@ -83,7 +83,7 @@ applies.
 ## CompletionCelebration / SummaryActionPanel
 
 - `frontend/src/components/completion/SummaryActionPanel.tsx` —
-  Shareable summary card embeds "Secured by OpenSec" copy. Update to
+  Shareable summary card embeds "Secured by Cliff" copy. Update to
   "Secured with cliff" or similar once brand rename lands fully.
 
 ## Method going forward

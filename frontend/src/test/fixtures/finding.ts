@@ -4,7 +4,7 @@
  * each test file doesn't re-derive `derived.section` from `stage` differently.
  *
  * Mirrors the section-from-stage mapping in
- * `backend/opensec/models/issue_derivation.py` so fixtures match what the
+ * `backend/cliff/models/issue_derivation.py` so fixtures match what the
  * server would actually return.
  */
 import type { Finding, IssueSection, IssueStage } from '../../api/client'

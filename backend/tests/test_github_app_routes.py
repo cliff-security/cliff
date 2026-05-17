@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from opensec.integrations.github_app.client import (
+from cliff.integrations.github_app.client import (
     DeviceCodeResponse,
     PollTokenResult,
     UserInfo,
@@ -56,10 +56,10 @@ def fake_github_client() -> FakeClient:
 @pytest.fixture
 async def app_state(db_client):  # noqa: ARG001 — depends on db_client to ensure init order
     """Wire up vault + audit logger on app.state for the github_app routes."""
-    from opensec.db import connection as db_connection
-    from opensec.integrations.audit import AuditLogger
-    from opensec.integrations.vault import CredentialVault
-    from opensec.main import app
+    from cliff.db import connection as db_connection
+    from cliff.integrations.audit import AuditLogger
+    from cliff.integrations.vault import CredentialVault
+    from cliff.main import app
 
     db = db_connection._db
     assert db is not None
@@ -81,13 +81,13 @@ async def app_state(db_client):  # noqa: ARG001 — depends on db_client to ensu
 @pytest.fixture
 def patched_app_settings(app_state):  # noqa: ARG001
     """Force the github_app feature flag ON via env override and ensure
-    OPENSEC_BASE_URL points at the default hard-coded localhost. Depends
+    CLIFF_BASE_URL points at the default hard-coded localhost. Depends
     on app_state so vault + audit logger are also wired up."""
-    from opensec.config import settings
+    from cliff.config import settings
 
     with (
         patch.object(settings, "github_app_client_id", "Iv23liTestClient"),
-        patch.object(settings, "github_app_slug", "opensec"),
+        patch.object(settings, "github_app_slug", "cliff"),
         patch.object(settings, "base_url", "http://localhost:8000"),
     ):
         yield
@@ -96,7 +96,7 @@ def patched_app_settings(app_state):  # noqa: ARG001
 @pytest.fixture
 def patched_disabled_app_settings(app_state):  # noqa: ARG001
     """Simulate the App being unconfigured (env var unset)."""
-    from opensec.config import settings
+    from cliff.config import settings
 
     with (
         patch.object(settings, "github_app_client_id", ""),
@@ -110,7 +110,7 @@ def patched_client_factory(fake_github_client: FakeClient):
     """Replace the orchestrator's client factory so it never hits the real
     network. Patches the helper that the routes module uses to construct
     its orchestrator."""
-    from opensec.api.routes import github_app as routes_module
+    from cliff.api.routes import github_app as routes_module
 
     with patch.object(
         routes_module,
@@ -148,7 +148,7 @@ async def test_connect_returns_user_code_and_install_url(
     assert body["verification_uri"] == "https://github.com/login/device"
     assert body["interval"] == 5
     assert body["install_url"].startswith(
-        "https://github.com/apps/opensec/installations/new?state="
+        "https://github.com/apps/cliff/installations/new?state="
     )
 
 
@@ -264,11 +264,11 @@ async def test_setup_redirect_honors_explicit_frontend_base_url(
 ):
     from unittest.mock import patch as _patch
 
-    from opensec.config import settings
+    from cliff.config import settings
 
     connect_resp = await db_client.post("/api/integrations/github/connect")
     csrf_state = connect_resp.json()["install_url"].rsplit("state=", 1)[1]
-    with _patch.object(settings, "frontend_base_url", "https://opensec.example/app"):
+    with _patch.object(settings, "frontend_base_url", "https://cliff.example/app"):
         resp = await db_client.get(
             "/api/integrations/github/setup",
             params={
@@ -279,7 +279,7 @@ async def test_setup_redirect_honors_explicit_frontend_base_url(
             follow_redirects=False,
         )
     assert resp.headers["location"].startswith(
-        "https://opensec.example/app/settings?"
+        "https://cliff.example/app/settings?"
     )
 
 
@@ -356,7 +356,7 @@ async def test_status_reports_connected_after_successful_poll(
     )
 
     # Drive a single polling step via the public test seam.
-    from opensec.api.routes import github_app as routes_module
+    from cliff.api.routes import github_app as routes_module
 
     await routes_module._tick_poll_for_test()
 
@@ -409,8 +409,8 @@ async def test_connect_409_when_already_connected(
     fake_github_client,  # noqa: ARG001
 ):
     """F1: re-issuing /connect on a connected row must NOT silently nuke it."""
-    from opensec.db import connection as db_connection
-    from opensec.integrations.github_app import repo as gh_repo
+    from cliff.db import connection as db_connection
+    from cliff.integrations.github_app import repo as gh_repo
 
     # Drive a full successful flow: connect → attach → poll → connected.
     connect_resp = await db_client.post("/api/integrations/github/connect")

@@ -9,11 +9,11 @@
 
 ## Problem statement
 
-A remediation copilot is only useful if it connects to the tools security teams already use — scanners (Wiz, Snyk, Tenable), ticketing (Jira, ServiceNow), and context sources (CMDB, code repos). Without integrations, users must manually copy-paste data between systems. OpenSec's integration framework lets agents access external tools during remediation via MCP (Model Context Protocol) servers — community or thin wrappers — without custom code for each vendor.
+A remediation copilot is only useful if it connects to the tools security teams already use — scanners (Wiz, Snyk, Tenable), ticketing (Jira, ServiceNow), and context sources (CMDB, code repos). Without integrations, users must manually copy-paste data between systems. Cliff's integration framework lets agents access external tools during remediation via MCP (Model Context Protocol) servers — community or thin wrappers — without custom code for each vendor.
 
 ## User persona
 
-**Security team lead / admin** — sets up the OpenSec instance, configures which scanners and ticketing systems to connect, and manages API credentials. Not necessarily the same person who uses workspaces daily.
+**Security team lead / admin** — sets up the Cliff instance, configures which scanners and ticketing systems to connect, and manages API credentials. Not necessarily the same person who uses workspaces daily.
 
 ## User stories
 

@@ -13,7 +13,7 @@ PRD-0003 (rev. 1) was approved against an early sketch of the assessment dashboa
 A design pass produced six new surfaces (the report-card hero, assessment progress with scanner stages, an assessment-complete interstitial, onboarding step 3, completion progress card, and the share card — staged at `frontend/mockups/claude-design/`). Reading the design carefully revealed that the original payload shape collapses or omits four things the new surfaces depend on:
 
 1. **Per-tool result counts.** The report-card hero `Scanned by` row reads "Trivy 0.52 · 7 findings · Semgrep 1.70 · 3 findings · 15 posture checks · 12 pass". `scanner_versions` is just versions — no counts. Counts could be derived client-side from `vulnerabilities.by_source`, but they belong with tool identity, not in a parallel structure that has to be stitched together at render time.
-2. **A "done" posture-check state.** When an OpenSec agent's PR has merged a fix, the row shows a `Draft PR ↗` link to GitHub. `passed: bool` collapses "was always fine" with "we fixed this for you" — the brand moment of OpenSec earning the user's trust gets erased at the schema level.
+2. **A "done" posture-check state.** When an Cliff agent's PR has merged a fix, the row shows a `Draft PR ↗` link to GitHub. `passed: bool` collapses "was always fine" with "we fixed this for you" — the brand moment of Cliff earning the user's trust gets erased at the schema level.
 3. **Labels for the criteria.** The completion-progress card's subtitle reads "*2 criteria remaining: pin CI actions to SHA, add code owners.*" The criteria need labels next to their booleans. A static frontend label map works but bifurcates copy ownership; if product changes a criterion name, two PRs ship instead of one.
 4. **A reload-safe gate for the interstitial.** Surface 3 must show after the first assessment after onboarding, then never again unless the posture-check count changes. A URL query param doesn't survive a refresh; localStorage doesn't survive a fresh container; an in-memory React flag doesn't survive a navigation away. The single-user community edition has a database — it should hold this state.
 
@@ -73,7 +73,7 @@ Each posture check on the wire carries `state: "pass" | "fail" | "done" | "advis
 |-------|------|-------------------------------|
 | `pass` | Check ran, passed, no agent involvement | Filled `check_circle` in `text-tertiary` |
 | `fail` | Check ran, failed; may be `fixable_by` an agent | Filled `cancel` in `text-error`, card-style row in `bg-primary-container/30` |
-| `done` | Check failed previously; an OpenSec agent's PR fixed it. `pr_url` is non-null | Filled `check_circle` + right-aligned `Draft PR ↗` link |
+| `done` | Check failed previously; an Cliff agent's PR fixed it. `pr_url` is non-null | Filled `check_circle` + right-aligned `Draft PR ↗` link |
 | `advisory` | Informational, doesn't count toward the grade | Outline `info`, right-aligned `advisory` chip |
 
 `done` is a **read-time projection**, not a property of the in-pipeline `PostureCheckResult` DTO. The pipeline only ever produces `pass | fail | advisory`. The `/dashboard` route projects to `done` when it sees a posture finding (`type='posture'` in the unified `finding` table) with `status` in (`remediated`, `closed`) AND `raw_payload.pull_request.url` set. The `pr_url` field on the wire passes through `raw_payload.pull_request.url` directly. No new persisted column.
@@ -92,7 +92,7 @@ The on-disk `CriteriaSnapshot` (10 booleans, JSON-encoded on the assessment row)
 ]
 ```
 
-The label map lives in `backend/opensec/api/routes/dashboard.py` (or a sibling module). Backend owns the copy; product can change a criterion label in one PR; the frontend renders whatever the backend returns. The fixed order is the order in which criteria appear on Surface 5's chip grid.
+The label map lives in `backend/cliff/api/routes/dashboard.py` (or a sibling module). Backend owns the copy; product can change a criterion label in one PR; the frontend renders whatever the backend returns. The fixed order is the order in which criteria appear on Surface 5's chip grid.
 
 ### 4. `summary_seen_at` server flag + `mark-summary-seen` endpoint replaces the URL trick
 
@@ -127,7 +127,7 @@ This is a tiny pattern but it does establish a precedent. If a sibling one-shot 
 **Easier:**
 
 - The Trivy-version-and-count rendering on the report-card hero is one component reading one field, not three components stitching `scanner_versions`, `tool_states`, and `vulnerabilities.by_source` together.
-- "Pass" and "agent fixed this" are visually and semantically distinct on the dashboard. The brand moment of OpenSec earning trust isn't collapsed at the schema level.
+- "Pass" and "agent fixed this" are visually and semantically distinct on the dashboard. The brand moment of Cliff earning trust isn't collapsed at the schema level.
 - Criteria copy lives in one place. Product changes a label in one PR.
 - The interstitial gate survives reloads, container restarts, and tab navigations. Single-user community edition uses the database it already has.
 - Same `PostureCheckItem` component works for in-flight remediation rows (PRD-0004 Story 3) and read-time done rows (this ADR). The four-state vocabulary is consistent across both surfaces.

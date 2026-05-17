@@ -5,7 +5,7 @@
 
 ## Context
 
-OpenSec needs a web frontend with five pages (Queue, Workspace, History, Integrations, Settings). The Workspace page is the product center — a chat-led interface with a persistent sidebar, agent run cards, and markdown result rendering.
+Cliff needs a web frontend with five pages (Queue, Workspace, History, Integrations, Settings). The Workspace page is the product center — a chat-led interface with a persistent sidebar, agent run cards, and markdown result rendering.
 
 Requirements:
 

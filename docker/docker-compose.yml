@@ -1,20 +1,20 @@
 services:
-  opensec:
+  cliff:
     # Production: pull the signed, multi-arch image from GHCR.
     # Verify the digest before deploying — see docs/verify-release.md.
-    # Override the tag via OPENSEC_VERSION (e.g. OPENSEC_VERSION=0.1.0-alpha).
-    image: ghcr.io/galanko/opensec:${OPENSEC_VERSION:-latest}
+    # Override the tag via CLIFF_VERSION (e.g. CLIFF_VERSION=0.1.0-alpha).
+    image: ghcr.io/galanko/cliff:${CLIFF_VERSION:-latest}
     # Local dev: comment out `image:` above and uncomment this block to
     # build from source.
     # build:
     #   context: ..
     #   dockerfile: docker/Dockerfile
     #   args:
-    #     OPENSEC_VERSION: dev
-    #     OPENSEC_REVISION: dev
-    #     OPENSEC_CREATED: "1970-01-01T00:00:00Z"
+    #     CLIFF_VERSION: dev
+    #     CLIFF_REVISION: dev
+    #     CLIFF_CREATED: "1970-01-01T00:00:00Z"
     ports:
-      - "${OPENSEC_APP_PORT:-8000}:8000"
+      - "${CLIFF_APP_PORT:-8000}:8000"
       # Uncomment to enable the OpenRouter OAuth onboarding (Tier 2). The
       # browser hits localhost:3000 after OpenRouter redirects; the
       # one-shot listener inside the container answers there. BYOK users
@@ -22,19 +22,19 @@ services:
       # squatting the host's port 3000 while the container runs.
       # - "3000:3000"
     volumes:
-      - opensec-data:/data
+      - cliff-data:/data
     environment:
       # App
-      - OPENSEC_APP_PORT=8000
+      - CLIFF_APP_PORT=8000
       # AI model — set your provider key
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       # Credential vault (base64-encoded 32-byte key)
-      - OPENSEC_CREDENTIAL_KEY=${OPENSEC_CREDENTIAL_KEY:-}
+      - CLIFF_CREDENTIAL_KEY=${CLIFF_CREDENTIAL_KEY:-}
       # Data
-      - OPENSEC_DATA_DIR=/data
+      - CLIFF_DATA_DIR=/data
       # Demo mode — seed sample findings on first run
-      # - OPENSEC_DEMO=true
+      # - CLIFF_DEMO=true
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -44,4 +44,4 @@ services:
       retries: 3
 
 volumes:
-  opensec-data:
+  cliff-data:

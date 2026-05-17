@@ -11,7 +11,7 @@
 
 ## Revision note (2026-04-15)
 
-PRD-0002 was scoped down on 2026-04-15. The public "Secured by OpenSec" README PR and the live OpenSSF Scorecard integration were both deferred to v1.2. v1.1 now ships an in-app completion ceremony plus a **user-controlled, locally-rendered shareable summary card** (PNG generated client-side, three user-initiated actions: download, copy text, copy markdown). UX-0002 Revision 4 followed with design-critique fixes.
+PRD-0002 was scoped down on 2026-04-15. The public "Secured by Cliff" README PR and the live OpenSSF Scorecard integration were both deferred to v1.2. v1.1 now ships an in-app completion ceremony plus a **user-controlled, locally-rendered shareable summary card** (PNG generated client-side, three user-initiated actions: download, copy text, copy markdown). UX-0002 Revision 4 followed with design-critique fixes.
 
 Changes from IMPL-0002 Revision 1:
 
@@ -28,7 +28,7 @@ Net scope change: **−1 agent, −1 API route, −2 components; +4 components, 
 
 Build the onboarding → assessment → plain-language findings → posture guidance → completion ceremony flow described in PRD-0002 (revised). The chosen shape:
 
-- **Assessment engine** is deterministic Python in a new `backend/opensec/assessment/` module. No LLM calls during the mechanical parts; the existing `finding-normalizer` agent is extended to emit plain-language descriptions on the way through. **Unchanged from Revision 1.**
+- **Assessment engine** is deterministic Python in a new `backend/cliff/assessment/` module. No LLM calls during the mechanical parts; the existing `finding-normalizer` agent is extended to emit plain-language descriptions on the way through. **Unchanged from Revision 1.**
 - **Completion state is derived** from findings + latest posture results at read-time. We persist two event-level tables (`assessments`, `posture_checks`) and one audit/ceremony table (`completions`) — no `is_complete` flag anywhere. **Renamed `badges` → `completions`.**
 - **Two PR actions** (SECURITY.md, dependabot.yml) reuse the existing ephemeral-workspace + single-shot-template-agent pattern (ADR-0024). One new "repo workspace" kind distinguishes them from finding workspaces. **Was three actions, now two.**
 - **Shareable summary card is rendered client-side.** The `ShareableSummaryCard` React component renders a 1200×630 deterministic DOM layout (indigo→slate gradient, repo name, stats, grade). The Download action converts that DOM to PNG via `html-to-image` in the browser and triggers a save dialog. No server involvement, no hosted URL, no account. **New in Revision 2.**
@@ -40,10 +40,10 @@ Build the onboarding → assessment → plain-language findings → posture guid
 
 | Area | Files |
 |---|---|
-| Assessment engine | `backend/opensec/assessment/**` (new module) |
-| DB schema | `backend/opensec/db/migrations/0014_from_zero_to_secure.sql` — add `plain_description` column, three new tables (`assessments`, `posture_checks`, `completions`) |
-| API routes | `backend/opensec/api/routes/{onboarding,assessment,dashboard,posture,completion}.py` — **no `badge.py`** |
-| Model updates | `backend/opensec/models/finding.py` (add `plain_description`) |
+| Assessment engine | `backend/cliff/assessment/**` (new module) |
+| DB schema | `backend/cliff/db/migrations/0014_from_zero_to_secure.sql` — add `plain_description` column, three new tables (`assessments`, `posture_checks`, `completions`) |
+| API routes | `backend/cliff/api/routes/{onboarding,assessment,dashboard,posture,completion}.py` — **no `badge.py`** |
+| Model updates | `backend/cliff/models/finding.py` (add `plain_description`) |
 | Frontend — onboarding | `frontend/src/pages/onboarding/{Welcome,ConnectRepo,ConfigureAI,StartAssessment}.tsx`, `frontend/src/components/onboarding/**` |
 | Frontend — dashboard | `frontend/src/pages/DashboardPage.tsx`, `frontend/src/components/dashboard/{GradeRing,CompletionProgressCard,CriteriaMeter,CompletionStatusCard,ScorecardInfoLine,AssessmentProgressList,PostureCheckItem,AssessmentDiffList}.tsx` |
 | Frontend — finding updates | `frontend/src/components/FindingRow.tsx`, `frontend/src/pages/FindingDetailPage.tsx`, `frontend/src/components/TechnicalDetailsPanel.tsx` |
@@ -54,11 +54,11 @@ Build the onboarding → assessment → plain-language findings → posture guid
 
 | Area | Files |
 |---|---|
-| Normalizer prompt extension | `.opencode/agents/finding-normalizer.md` (extend output contract with `plain_description`), `backend/opensec/agents/templates/finding_normalizer.md.j2` if template-driven |
-| SECURITY.md generator agent | `backend/opensec/agents/templates/security_md_generator.md.j2` (new) |
-| Dependabot config generator agent | `backend/opensec/agents/templates/dependabot_config_generator.md.j2` (new) |
+| Normalizer prompt extension | `.opencode/agents/finding-normalizer.md` (extend output contract with `plain_description`), `backend/cliff/agents/templates/finding_normalizer.md.j2` if template-driven |
+| SECURITY.md generator agent | `backend/cliff/agents/templates/security_md_generator.md.j2` (new) |
+| Dependabot config generator agent | `backend/cliff/agents/templates/dependabot_config_generator.md.j2` (new) |
 | ~~Badge installer agent~~ | **Removed.** Deferred to v1.2 when the public README badge returns |
-| Workspace kind flag | `backend/opensec/workspace/dir_manager.py` — add `WorkspaceKind` enum, one discriminator field on the workspace record |
+| Workspace kind flag | `backend/cliff/workspace/dir_manager.py` — add `WorkspaceKind` enum, one discriminator field on the workspace record |
 
 ### V1 ↔ V2 interface contract
 
@@ -71,12 +71,12 @@ The two repo-scoped actions (SECURITY.md, dependabot.yml) are triggered by V2 AP
 ### Milestone A · Data layer (blocks everything else)
 
 **V2 · A1** — DB migration: add `plain_description TEXT NULL` to `findings`. Add `assessments`, `posture_checks`, `completions` tables.
-  - Files: `backend/opensec/db/migrations/0014_from_zero_to_secure.sql`, `backend/opensec/models/{finding,assessment,posture_check,completion}.py`
+  - Files: `backend/cliff/db/migrations/0014_from_zero_to_secure.sql`, `backend/cliff/models/{finding,assessment,posture_check,completion}.py`
   - `completions` table shape: `id`, `assessment_id FK`, `repo_url`, `completed_at`, `criteria_snapshot JSONB` (the five criteria values at the moment of completion), `share_actions_used TEXT[]` (filled as user clicks Download / Copy text / Copy markdown — drives the v1.1 share-action-rate metric)
   - Tests first: `tests/test_migrations.py::test_0014_schema_matches_expected`
 
 **V2 · A2** — Pydantic models + read DAOs for the three new tables.
-  - Files: `backend/opensec/db/dao/{assessment,posture_check,completion}.py`
+  - Files: `backend/cliff/db/dao/{assessment,posture_check,completion}.py`
   - Tests first: `tests/db/test_assessment_dao.py` etc. — basic insert/select/upsert, `CompletionDao.record_share_action(completion_id, action)` idempotent append.
 
 ### Milestone B · Assessment engine (deterministic backend)
@@ -104,13 +104,13 @@ Unchanged from Revision 1.
 **V2 · D2** — `POST /api/assessment/run`, `GET /api/assessment/status/{id}` (SSE), `GET /api/assessment/latest` (report card payload including derived grade and **completion criteria status** — previously called "badge criteria"). **Relabeled only.**
 
 **V2 · D3** — `POST /api/posture/fix/{check_name}` — spawns a repo-workspace with the appropriate generator agent. Valid `{check_name}` values: `security_md`, `dependabot_config`. **No `badge_install`.** Returns `{workspace_id}` so the UI can poll sidebar state.
-  - Files: `backend/opensec/api/routes/posture.py`
+  - Files: `backend/cliff/api/routes/posture.py`
   - Tests: routes assert correct agent template is selected and workspace params are wired. **Previous D3 `POST /api/badge/add-to-readme` route removed from scope.**
 
 **V2 · D4** — `GET /api/dashboard` aggregates latest assessment + findings counts + completion criteria status into one UI-shaped payload. **No freshness band field in the response** — the dashboard aside drops that concept in this revision.
 
 **V2 · D5 (new)** — `POST /api/completion/{id}/share-action` — records which share action the user took (`download` / `copy_text` / `copy_markdown`). Appends to `completions.share_actions_used`. Fire-and-forget from the frontend. Drives the PRD's share-action-rate metric.
-  - Files: `backend/opensec/api/routes/completion.py`
+  - Files: `backend/cliff/api/routes/completion.py`
   - Tests: idempotent append, non-existent completion returns 404, invalid action value returns 422.
 
 ### Milestone E · V1 agents (parallel with D after A + B + C)
@@ -150,7 +150,7 @@ Unchanged from Revision 1. F1 through F5 ship as originally planned.
   - On click of any share action in H2 or H4, call `POST /api/completion/{id}/share-action` (fire-and-forget) to record usage.
 
 **V2 · H3 (new)** — `ShareableSummaryCard` component:
-  - Fixed-size React component rendering a `1200×630` div with `linear-gradient(135deg, #4d44e3 0%, #575e78 100%)` background, repo name, completed date, three stats (vulns fixed, posture checks passing, PRs merged), divider, "Generated by OpenSec · opensec.dev" + grade.
+  - Fixed-size React component rendering a `1200×630` div with `linear-gradient(135deg, #4d44e3 0%, #575e78 100%)` background, repo name, completed date, three stats (vulns fixed, posture checks passing, PRs merged), divider, "Generated by Cliff · cliff.dev" + grade.
   - All white text uses `rgba(255,255,255,0.92)` minimum (see UX compliance section for AA rationale).
   - Component receives `{ repoName, completedAt, vulnsFixed, postureChecksPassing, prsMerged, grade }` as props; no data fetching inside.
   - Includes a `ref` forwarding pattern so the export utility (H5) can grab the DOM node.
@@ -159,7 +159,7 @@ Unchanged from Revision 1. F1 through F5 ship as originally planned.
   - **Download tile:** metadata preview row (`image` icon + filename + `1200×630 · ~80 KB`); button triggers PNG export via H5 utility and calls `POST /api/completion/{id}/share-action` with `download`.
   - **Copy text tile:** `<pre>` preview of the tweet-sized plain text; button copies to clipboard and records `copy_text`.
   - **Copy markdown tile:** `<pre>` preview of the markdown snippet; button copies to clipboard and records `copy_markdown`.
-  - Plus a footer info card: "Generated on your machine. No OpenSec-hosted URL, no tracking, no account required. v1.2 will add an optional public badge with verification — not today."
+  - Plus a footer info card: "Generated on your machine. No Cliff-hosted URL, no tracking, no account required. v1.2 will add an optional public badge with verification — not today."
 
 **V2 · H5 (new)** — `imageExport.ts` utility. Uses `html-to-image` (add as frontend dep) to convert a DOM ref into a PNG blob, then triggers a download via a synthetic anchor click.
   - Files: `frontend/src/lib/imageExport.ts`, `frontend/package.json`
@@ -191,7 +191,7 @@ Same principles as Revision 1. Concrete additions for Revision 2:
 - **`CompletionStatusCard` shield-as-button:** RTL test that the shield has `role="button"`, `aria-label="Re-open shareable summary card"`, and opens the summary panel on click and on `Enter` / `Space`.
 - **Share-action recording:** unit test that every click on Download / Copy text / Copy markdown issues a `POST /api/completion/:id/share-action` call exactly once (debounced if double-clicked).
 
-No milestone is considered complete until `cd backend && uv run pytest -v` and `cd backend && uv run ruff check opensec/ tests/` are green, and `cd frontend && npm test` passes.
+No milestone is considered complete until `cd backend && uv run pytest -v` and `cd backend && uv run ruff check cliff/ tests/` are green, and `cd frontend && npm test` passes.
 
 ## Risks
 
@@ -205,13 +205,13 @@ No milestone is considered complete until `cd backend && uv run pytest -v` and `
 | **`html-to-image` cross-browser quirks (Safari font loading, CORS on external images)** | Medium | All fonts used in the summary card are `@font-face`-declared in the app, no external image dependencies, `cacheBust: true` + `skipFonts: false`. Explicit Playwright test across all three browsers (I4) before ship. Fallback if export fails: show inline error toast + "Right-click the card preview and save image" affordance. |
 | **`html-to-image` adds ~80 KB gzipped to frontend bundle** | Low | Code-split: dynamic-import the utility only when the user clicks Download. No first-paint cost. Confirmed in the bundle-analyzer snapshot check that runs in CI. |
 | Three workspaces running concurrently exhausts process pool | Low | Existing pool cap (ADR-0014) + idle cleanup handles this. Repo workspaces time out after first PR created. **Still applies even with two agents.** |
-| Secrets regex false positives flag innocuous code as secrets | Medium | Fixed list of high-specificity patterns (AWS AKIA, GitHub `ghp_`/`ghs_`, Stripe `sk_live_`, Google API `AIza`, generic PEM blocks). Include an allow-list via `.opensec/secrets-ignore`. |
+| Secrets regex false positives flag innocuous code as secrets | Medium | Fixed list of high-specificity patterns (AWS AKIA, GitHub `ghp_`/`ghs_`, Stripe `sk_live_`, Google API `AIza`, generic PEM blocks). Include an allow-list via `.cliff/secrets-ignore`. |
 
 ## Out of scope (per PRD-0002 Revision 2 and ADR-0025)
 
 - SAST / DAST scanning of custom code
 - Auto-remediation of branch protection or repo settings
-- **Public "Secured by OpenSec" README badge + PR flow** — deferred to v1.2
+- **Public "Secured by Cliff" README badge + PR flow** — deferred to v1.2
 - **Live OpenSSF Scorecard API integration** — deferred to v1.2; v1.1 ships a static info-line only
 - Badge verification server
 - GitHub Action for continuous monitoring

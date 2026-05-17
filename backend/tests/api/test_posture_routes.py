@@ -12,13 +12,13 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from opensec.api._engine_dep import (
+from cliff.api._engine_dep import (
     _CHECK_NAME_FOR_KIND,
     get_repo_workspace_spawner,
 )
-from opensec.db.repo_workspace import create_repo_action_workspace
-from opensec.main import app
-from opensec.workspace.workspace_dir_manager import WorkspaceKind
+from cliff.db.repo_workspace import create_repo_action_workspace
+from cliff.main import app
+from cliff.workspace.workspace_dir_manager import WorkspaceKind
 
 
 @dataclass
@@ -54,7 +54,7 @@ class DBWritingSpawner:
         repo_url: str,
         params: dict | None = None,
     ) -> str:
-        from opensec.db.connection import _db
+        from cliff.db.connection import _db
 
         assert _db is not None, "DBWritingSpawner requires an initialised db"
         workspace_id = f"repo-{kind.value}-{secrets.token_hex(4)}"
@@ -90,9 +90,9 @@ def db_writing_spawner():
 
 async def _seed_onboarded_repo(repo_url: str) -> None:
     """Minimum state so a posture fix has somewhere to run — the last assessment's repo."""
-    from opensec.db.connection import _db
-    from opensec.db.dao.assessment import create_assessment
-    from opensec.models import AssessmentCreate
+    from cliff.db.connection import _db
+    from cliff.db.dao.assessment import create_assessment
+    from cliff.models import AssessmentCreate
 
     assert _db is not None
     await create_assessment(_db, AssessmentCreate(repo_url=repo_url))
@@ -204,7 +204,7 @@ async def test_retry_after_terminal(db_client, db_writing_spawner):
     ws1 = r1.json()["workspace_id"]
 
     # Transition to terminal state.
-    from opensec.db.connection import _db
+    from cliff.db.connection import _db
 
     assert _db is not None
     await _db.execute(

@@ -86,18 +86,18 @@ WP2 (Repo clone) ──┬── WP4 (Pipeline) ──┬── WP5 (Remediation
 
 #### T1.1: Startup migration runner
 **File:** `docker/entrypoint.sh`
-**Change:** The entrypoint already calls migrations via `run_migrations()` in FastAPI lifespan. Verify it works on a fresh `data/` volume with no existing DB. Add explicit logging on first-run detection (no `opensec.db` file).
+**Change:** The entrypoint already calls migrations via `run_migrations()` in FastAPI lifespan. Verify it works on a fresh `data/` volume with no existing DB. Add explicit logging on first-run detection (no `cliff.db` file).
 **Test:** `docker compose up` from scratch creates DB, runs all 6 migrations, app starts healthy.
 
 #### T1.2: Seed demo mode
-**File:** `backend/opensec/api/routes/seed.py` (exists), `backend/opensec/config.py`
-**Change:** Add `OPENSEC_DEMO` env var. When `true`, the `/seed` endpoint auto-runs on first startup (no findings in DB). Seed creates 5-10 sample findings with realistic Snyk-like data covering different severities.
+**File:** `backend/cliff/api/routes/seed.py` (exists), `backend/cliff/config.py`
+**Change:** Add `CLIFF_DEMO` env var. When `true`, the `/seed` endpoint auto-runs on first startup (no findings in DB). Seed creates 5-10 sample findings with realistic Snyk-like data covering different severities.
 **Files touched:**
-- `backend/opensec/config.py` — add `demo: bool = False` field
-- `backend/opensec/main.py` — call seed on lifespan if demo=True and findings table empty
-- `backend/opensec/api/routes/seed.py` — verify existing seed logic covers realistic finding data
-- `docker/docker-compose.yml` — add `OPENSEC_DEMO=true` as commented example
-**Test:** Unit test: demo flag triggers seed. Integration: `docker compose up` with `OPENSEC_DEMO=true` shows populated findings page.
+- `backend/cliff/config.py` — add `demo: bool = False` field
+- `backend/cliff/main.py` — call seed on lifespan if demo=True and findings table empty
+- `backend/cliff/api/routes/seed.py` — verify existing seed logic covers realistic finding data
+- `docker/docker-compose.yml` — add `CLIFF_DEMO=true` as commented example
+**Test:** Unit test: demo flag triggers seed. Integration: `docker compose up` with `CLIFF_DEMO=true` shows populated findings page.
 
 #### T1.3: Install `gh` CLI in Docker image
 **File:** `docker/Dockerfile`
@@ -107,7 +107,7 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
   && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
   && apt-get update && apt-get install -y gh && rm -rf /var/lib/apt/lists/*
 ```
-**Test:** `docker compose exec opensec gh --version` succeeds.
+**Test:** `docker compose exec cliff gh --version` succeeds.
 
 ---
 
@@ -123,12 +123,12 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 ### V1 task (backend)
 
 #### T2.1: Inject GH_TOKEN into workspace OpenCode process environment
-**File:** `backend/opensec/engine/pool.py`
-**Change:** When starting a workspace OpenCode process, read the GitHub PAT from the credential vault and inject it as `GH_TOKEN` env var. Also read the repo URL from settings and inject as `OPENSEC_REPO_URL` so the agent prompt can reference it.
+**File:** `backend/cliff/engine/pool.py`
+**Change:** When starting a workspace OpenCode process, read the GitHub PAT from the credential vault and inject it as `GH_TOKEN` env var. Also read the repo URL from settings and inject as `CLIFF_REPO_URL` so the agent prompt can reference it.
 
 **Files touched:**
-- `backend/opensec/engine/pool.py` — accept `env_vars` dict, pass to subprocess
-- `backend/opensec/workspace/context_builder.py` — read GitHub token + repo URL from DB, pass to pool
+- `backend/cliff/engine/pool.py` — accept `env_vars` dict, pass to subprocess
+- `backend/cliff/workspace/context_builder.py` — read GitHub token + repo URL from DB, pass to pool
 
 **Test plan:**
 - Unit: verify env vars passed to subprocess
@@ -159,7 +159,7 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 - Persists URL + token on save
 
 #### T2.6: Repository connection test endpoint
-**File:** `backend/opensec/api/routes/settings.py`
+**File:** `backend/cliff/api/routes/settings.py`
 **Change:** Add `POST /api/settings/repo/test` endpoint that:
 1. Reads repo URL + token from request body
 2. Runs `git ls-remote` to verify access
@@ -167,8 +167,8 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 4. Returns success/failure with details
 
 **Files touched:**
-- `backend/opensec/api/routes/settings.py` — new endpoint
-- `backend/opensec/models.py` — add `RepoSettingsCreate`, `RepoTestResult` models
+- `backend/cliff/api/routes/settings.py` — new endpoint
+- `backend/cliff/models.py` — add `RepoSettingsCreate`, `RepoTestResult` models
 
 **Test plan:**
 - Unit: mock subprocess, verify git ls-remote command
@@ -176,7 +176,7 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 
 #### T2.7: "Solve without repo" guard dialog
 **File:** `frontend/src/pages/FindingsPage.tsx`
-**Change:** When user clicks "Solve" but no repo is configured, show a dialog: "Repository not configured. To remediate findings, OpenSec needs access to your repository." with "Configure repository" button → navigates to Settings.
+**Change:** When user clicks "Solve" but no repo is configured, show a dialog: "Repository not configured. To remediate findings, Cliff needs access to your repository." with "Configure repository" button → navigates to Settings.
 
 **Files touched:**
 - `frontend/src/pages/FindingsPage.tsx` — add guard check before workspace creation
@@ -245,7 +245,7 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 ### V1 tasks
 
 #### T4.1: Update pipeline to 4-agent MVP sequence
-**File:** `backend/opensec/agents/pipeline.py` (or wherever `suggest_next()` lives)
+**File:** `backend/cliff/agents/pipeline.py` (or wherever `suggest_next()` lives)
 **Change:**
 - Remove `owner_resolver` from the default pipeline sequence
 - Add `remediation_executor` after `remediation_planner`
@@ -253,8 +253,8 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 - Keep `validation_checker` available on-demand but not in the suggested pipeline
 
 **Files touched:**
-- `backend/opensec/agents/pipeline.py` or `executor.py` — update pipeline definition
-- `backend/opensec/workspace/workspace_dir.py` — add `AGENT_TYPE_TO_SECTION` entry for `remediation_executor`
+- `backend/cliff/agents/pipeline.py` or `executor.py` — update pipeline definition
+- `backend/cliff/workspace/workspace_dir.py` — add `AGENT_TYPE_TO_SECTION` entry for `remediation_executor`
 
 **Test plan:**
 - Unit: suggest_next returns enricher → exposure → planner → executor sequence
@@ -263,12 +263,12 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 - Unit: validation_checker still executable on-demand
 
 #### T4.2: Update agent template engine for 4-agent pipeline
-**File:** `backend/opensec/agents/template_engine.py`
+**File:** `backend/cliff/agents/template_engine.py`
 **Change:** Update orchestrator template context to exclude `owner_resolver` from the default checklist. Add `remediation_executor` to the pipeline.
 
 **Files touched:**
-- `backend/opensec/agents/templates/orchestrator.md.j2` — update checklist
-- `backend/opensec/agents/template_engine.py` — update template rendering context
+- `backend/cliff/agents/templates/orchestrator.md.j2` — update checklist
+- `backend/cliff/agents/template_engine.py` — update template rendering context
 
 ### V2 tasks
 
@@ -300,7 +300,7 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 **Unblocks:** WP6 (status flow needs PR events)
 
 #### T5.1: Remediation executor agent template
-**File:** `backend/opensec/agents/templates/remediation_executor.md.j2` — new
+**File:** `backend/cliff/agents/templates/remediation_executor.md.j2` — new
 **Change:** Create Jinja2 template for the remediation executor. This is a tool-using agent (not pure analysis). The prompt instructs the agent to:
 
 1. Read the remediation plan from prior context
@@ -327,11 +327,11 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 
 #### T5.2: Register remediation_executor in agent system
 **Files touched:**
-- `backend/opensec/agents/output_parser.py` — add `remediation_executor` schema
-- `backend/opensec/agents/sidebar_mapper.py` — map executor output to sidebar "pull_request" section
-- `backend/opensec/workspace/workspace_dir.py` — add to `AGENT_TYPES`, `AGENT_TYPE_TO_SECTION`, `CONTEXT_SECTIONS`
-- `backend/opensec/models.py` — add `"remediation_executor"` to `AgentType` literal
-- `backend/opensec/agents/executor.py` — add output contract and label for remediation_executor
+- `backend/cliff/agents/output_parser.py` — add `remediation_executor` schema
+- `backend/cliff/agents/sidebar_mapper.py` — map executor output to sidebar "pull_request" section
+- `backend/cliff/workspace/workspace_dir.py` — add to `AGENT_TYPES`, `AGENT_TYPE_TO_SECTION`, `CONTEXT_SECTIONS`
+- `backend/cliff/models.py` — add `"remediation_executor"` to `AgentType` literal
+- `backend/cliff/agents/executor.py` — add output contract and label for remediation_executor
 
 **Change:** The remediation_executor uses **conversational delegation** (ADR-0024), not direct invocation. The executor needs a modified flow:
 - Longer timeout (600s vs 120s)
@@ -403,7 +403,7 @@ Add a flag or separate execution path in `AgentExecutor.execute()` for tool-usin
 - PR link opens GitHub in new tab
 
 #### T5.6: Update workspace opencode.json for tool-using agents
-**File:** `backend/opensec/workspace/workspace_dir_manager.py`
+**File:** `backend/cliff/workspace/workspace_dir_manager.py`
 **Change:** When the remediation executor will be used, the workspace `opencode.json` should have permissions set to `"ask"` for bash and edit (matching the permission-approval-ui flow). For analysis-only agents, keep current `"allow"` setting.
 
 **Implementation:** Update `opencode.json` permission config based on whether the workspace has a cloned repo. If repo exists, set `bash: "ask"`, `edit: "ask"` so the permission approval UI handles tool approvals. If no repo, keep `"allow"` (analysis agents don't use tools).
@@ -424,7 +424,7 @@ Add a flag or separate execution path in `AgentExecutor.execute()` for tool-usin
 ### V1 tasks
 
 #### T6.1: Auto-advance finding status after agent completions
-**File:** `backend/opensec/agents/executor.py` (or `backend/opensec/api/routes/agent_execution.py`)
+**File:** `backend/cliff/agents/executor.py` (or `backend/cliff/api/routes/agent_execution.py`)
 **Change:** After successful agent execution, update the finding's status:
 - After enricher completes: finding status → `triaged`
 - After planner completes: finding status → `in_progress`
@@ -432,8 +432,8 @@ Add a flag or separate execution path in `AgentExecutor.execute()` for tool-usin
 - User manually marks → `closed` (after merging PR)
 
 **Files touched:**
-- `backend/opensec/agents/executor.py` or `agent_execution.py` — add status transition after execution
-- `backend/opensec/db/repo_finding.py` — verify `update_finding()` supports status changes
+- `backend/cliff/agents/executor.py` or `agent_execution.py` — add status transition after execution
+- `backend/cliff/db/repo_finding.py` — verify `update_finding()` supports status changes
 
 **Test plan:**
 - Unit: enricher completion → finding status=triaged
@@ -442,13 +442,13 @@ Add a flag or separate execution path in `AgentExecutor.execute()` for tool-usin
 - Unit: status doesn't regress (remediated → triaged should not happen)
 
 #### T6.2: Store PR metadata in sidebar state
-**File:** `backend/opensec/agents/sidebar_mapper.py`
+**File:** `backend/cliff/agents/sidebar_mapper.py`
 **Change:** When `remediation_executor` output contains PR data, map to sidebar's "pull_request" section:
 ```python
 {
     "pr_url": "https://github.com/.../pull/42",
     "pr_number": 42,
-    "branch_name": "opensec/fix/cve-...",
+    "branch_name": "cliff/fix/cve-...",
     "status": "draft",
     "files_changed": [...],
     "test_results": {...}
@@ -599,7 +599,7 @@ Each WP adds unit tests as described in individual tasks. Key coverage areas:
 
 ### E2E tests
 
-- **Repo clone E2E:** Create workspace with repo URL pointing to a test repo (e.g., a small fixture repo in the OpenSec org). Verify `repo/` directory created with correct branch.
+- **Repo clone E2E:** Create workspace with repo URL pointing to a test repo (e.g., a small fixture repo in the Cliff org). Verify `repo/` directory created with correct branch.
 - **Full pipeline E2E:** Import finding → enrich → expose → plan → remediate → PR created. Requires real LLM + real GitHub repo. Gate: this is the "it works" test.
 - **Error scenarios:** Clone failure (bad URL), test failure during remediation, PR creation failure (invalid token).
 
@@ -636,4 +636,4 @@ PRs 1 and 3 can merge independently (no cross-dependency). PRs 2 and 4 are seque
 
 ---
 
-_This implementation plan follows the OpenSec architecture workflow. After CEO approval, V1 (Agent Orchestrator) and V2 (App Builder) execute in parallel using `/opensec-agent-orchestrator` and `/app-builder` skills._
+_This implementation plan follows the Cliff architecture workflow. After CEO approval, V1 (Agent Orchestrator) and V2 (App Builder) execute in parallel using `/cliff-agent-orchestrator` and `/app-builder` skills._

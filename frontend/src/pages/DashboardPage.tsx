@@ -268,7 +268,7 @@ function RunningDashboard({ data }: { data: DashboardPayload }) {
       }
     >
       {data.assessment && (
-        <div className="opensec-fade-in">
+        <div className="cliff-fade-in">
           <AssessmentRunningCard
             repoUrl={data.assessment.repo_url ?? null}
             startedAt={data.assessment.started_at ?? null}
@@ -344,7 +344,7 @@ function FailedDashboard({ data }: { data: DashboardPayload }) {
         />
       }
     >
-      <div className="opensec-fade-in">
+      <div className="cliff-fade-in">
         <AssessmentFailedCard
           message={message}
           failedStep={failedStep}
@@ -533,10 +533,10 @@ function ReportCard({ data }: { data: DashboardPayload }) {
     >
       {completionBlock}
       <div className="flex flex-col gap-4">
-        <div className="opensec-fade-in">
+        <div className="cliff-fade-in">
           <AutoDetectBanner onConfigureManually={openAIProvider} />
         </div>
-        <div className="opensec-fade-in cd-stagger-1">
+        <div className="cliff-fade-in cd-stagger-1">
           <IssueGradeHero
             letter={grade}
             label={heroLabel}
@@ -545,7 +545,7 @@ function ReportCard({ data }: { data: DashboardPayload }) {
           />
         </div>
 
-        <div className="grid gap-4 md:grid-cols-[380px_1fr] opensec-fade-in cd-stagger-2">
+        <div className="grid gap-4 md:grid-cols-[380px_1fr] cliff-fade-in cd-stagger-2">
           <OpenBySeverityCard
             rows={openBySeverity}
             onSelectSeverity={(kind) => navigate(`/issues?severity=${kind}`)}
@@ -599,7 +599,7 @@ function ReportCard({ data }: { data: DashboardPayload }) {
         </div>
 
         {data.last_assessment ? (
-          <div className="opensec-fade-in cd-stagger-3">
+          <div className="cliff-fade-in cd-stagger-3">
             <LastAssessmentPanel
               data={{
                 repo_url: data.last_assessment.repo_url ?? data.assessment?.repo_url ?? '',
@@ -700,8 +700,8 @@ function renderCompletionBlock(
   const posturePassing = data.posture_pass_count ?? 0
   const filename = buildSummaryFilename(repoName, completedAtIso)
 
-  const summaryText = `I secured ${repoName} with OpenSec — ${vulnsFixed} vulnerabilities reviewed, ${posturePassing} posture checks passing, grade ${grade}. opensec.dev`
-  const summaryMarkdown = `![Secured by OpenSec](opensec-summary.png)\n<!-- ${repoName} · completed ${completedDate} · grade ${grade} -->`
+  const summaryText = `I secured ${repoName} with Cliff — ${vulnsFixed} vulnerabilities reviewed, ${posturePassing} posture checks passing, grade ${grade}. cliff.dev`
+  const summaryMarkdown = `![Secured by Cliff](cliff-summary.png)\n<!-- ${repoName} · completed ${completedDate} · grade ${grade} -->`
 
   const scrollToPanel = () => {
     document
@@ -753,5 +753,5 @@ function formatCompletedDate(iso: string | null): string {
 function buildSummaryFilename(repoName: string, iso: string | null): string {
   const safe = repoName.replace(/[^a-z0-9_-]+/gi, '-').toLowerCase()
   const date = (iso ?? new Date().toISOString()).slice(0, 10)
-  return `${safe}_opensec-summary_${date}.png`
+  return `${safe}_cliff-summary_${date}.png`
 }

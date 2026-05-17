@@ -16,11 +16,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from opensec.ai.service import AIIntegrationService
-from opensec.db.connection import close_db, init_db
-from opensec.engine.pool import WorkspaceProcessPool
-from opensec.integrations.vault import CredentialVault
-from opensec.workspace.workspace_dir_manager import WorkspaceDirManager
+from cliff.ai.service import AIIntegrationService
+from cliff.db.connection import close_db, init_db
+from cliff.engine.pool import WorkspaceProcessPool
+from cliff.integrations.vault import CredentialVault
+from cliff.workspace.workspace_dir_manager import WorkspaceDirManager
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -48,7 +48,7 @@ def vault(db: aiosqlite.Connection) -> CredentialVault:
 def _make_finding():
     from datetime import UTC, datetime
 
-    from opensec.models import Finding
+    from cliff.models import Finding
 
     now = datetime.now(UTC).isoformat()
     return Finding(
@@ -211,7 +211,7 @@ async def test_pool_pushes_ai_auth_to_workspace_process(tmp_path: Path) -> None:
         patch("asyncio.create_subprocess_exec", side_effect=_fake_subprocess()),
         patch.object(pool, "_wait_for_healthy", new=AsyncMock()),
         patch(
-            "opensec.engine.client.OpenCodeClient.set_auth",
+            "cliff.engine.client.OpenCodeClient.set_auth",
             new=fake_set_auth,
         ),
     ):
@@ -243,7 +243,7 @@ async def test_pool_auth_push_failure_does_not_block_spawn(tmp_path: Path) -> No
         patch("asyncio.create_subprocess_exec", side_effect=_fake_subprocess()),
         patch.object(pool, "_wait_for_healthy", new=AsyncMock()),
         patch(
-            "opensec.engine.client.OpenCodeClient.set_auth",
+            "cliff.engine.client.OpenCodeClient.set_auth",
             new=boom_set_auth,
         ),
     ):

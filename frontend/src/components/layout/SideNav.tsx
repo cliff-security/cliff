@@ -97,9 +97,9 @@ function WorkspaceSwitcher() {
     typeof githubInt?.config?.repo_url === 'string' && githubInt.config.repo_url
       ? (githubInt.config.repo_url as string)
       : null
-  // The "current scope" is whatever repo OpenSec is actually working on —
+  // The "current scope" is whatever repo Cliff is actually working on —
   // i.e. the latest assessment's target, the same source the Dashboard
-  // shows. The scan-first CLI flow (`opensec scan <url>`) records the repo
+  // shows. The scan-first CLI flow (`cliff scan <url>`) records the repo
   // on the assessment but never as a GitHub *integration*, so keying the
   // chip off the integration alone left it stuck on "no scope connected"
   // while the Dashboard correctly showed the repo. Assessment wins; the

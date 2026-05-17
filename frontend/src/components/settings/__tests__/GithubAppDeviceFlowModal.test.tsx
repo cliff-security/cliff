@@ -23,7 +23,7 @@ const baseConnect = {
   verification_uri: 'https://github.com/login/device',
   expires_in: 900,
   interval: 5,
-  install_url: 'https://github.com/apps/opensec/installations/new?state=x',
+  install_url: 'https://github.com/apps/cliff/installations/new?state=x',
 }
 
 afterEach(() => {

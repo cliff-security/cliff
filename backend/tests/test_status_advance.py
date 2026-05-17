@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from opensec.agents.executor import _advance_finding_status
-from opensec.models import Finding, Workspace
+from cliff.agents.executor import _advance_finding_status
+from cliff.models import Finding, Workspace
 
 
 def _make_finding(status: str = "new") -> Finding:
@@ -45,9 +45,9 @@ class TestAdvanceFindingStatus:
     async def test_enricher_advances_new_to_triaged(self):
         db = AsyncMock()
         with (
-            patch("opensec.agents.executor.get_workspace", return_value=_make_workspace()),
-            patch("opensec.agents.executor.get_finding", return_value=_make_finding("new")),
-            patch("opensec.agents.executor.update_finding") as mock_upd,
+            patch("cliff.agents.executor.get_workspace", return_value=_make_workspace()),
+            patch("cliff.agents.executor.get_finding", return_value=_make_finding("new")),
+            patch("cliff.agents.executor.update_finding") as mock_upd,
         ):
             result = await _advance_finding_status(
                 db, "ws-1", "finding_enricher", {}
@@ -62,9 +62,9 @@ class TestAdvanceFindingStatus:
     async def test_enricher_does_not_regress_in_progress(self):
         db = AsyncMock()
         with (
-            patch("opensec.agents.executor.get_workspace", return_value=_make_workspace()),
-            patch("opensec.agents.executor.get_finding", return_value=_make_finding("in_progress")),
-            patch("opensec.agents.executor.update_finding") as mock_upd,
+            patch("cliff.agents.executor.get_workspace", return_value=_make_workspace()),
+            patch("cliff.agents.executor.get_finding", return_value=_make_finding("in_progress")),
+            patch("cliff.agents.executor.update_finding") as mock_upd,
         ):
             result = await _advance_finding_status(
                 db, "ws-1", "finding_enricher", {}
@@ -76,9 +76,9 @@ class TestAdvanceFindingStatus:
     async def test_planner_advances_triaged_to_in_progress(self):
         db = AsyncMock()
         with (
-            patch("opensec.agents.executor.get_workspace", return_value=_make_workspace()),
-            patch("opensec.agents.executor.get_finding", return_value=_make_finding("triaged")),
-            patch("opensec.agents.executor.update_finding") as mock_upd,
+            patch("cliff.agents.executor.get_workspace", return_value=_make_workspace()),
+            patch("cliff.agents.executor.get_finding", return_value=_make_finding("triaged")),
+            patch("cliff.agents.executor.update_finding") as mock_upd,
         ):
             result = await _advance_finding_status(
                 db, "ws-1", "remediation_planner", {}
@@ -90,9 +90,9 @@ class TestAdvanceFindingStatus:
     async def test_executor_pr_created_advances_to_remediated(self):
         db = AsyncMock()
         with (
-            patch("opensec.agents.executor.get_workspace", return_value=_make_workspace()),
-            patch("opensec.agents.executor.get_finding", return_value=_make_finding("in_progress")),
-            patch("opensec.agents.executor.update_finding") as mock_upd,
+            patch("cliff.agents.executor.get_workspace", return_value=_make_workspace()),
+            patch("cliff.agents.executor.get_finding", return_value=_make_finding("in_progress")),
+            patch("cliff.agents.executor.update_finding") as mock_upd,
         ):
             result = await _advance_finding_status(
                 db, "ws-1", "remediation_executor", {"status": "pr_created"}
@@ -104,9 +104,9 @@ class TestAdvanceFindingStatus:
     async def test_executor_without_pr_does_not_advance(self):
         db = AsyncMock()
         with (
-            patch("opensec.agents.executor.get_workspace", return_value=_make_workspace()),
-            patch("opensec.agents.executor.get_finding", return_value=_make_finding("in_progress")),
-            patch("opensec.agents.executor.update_finding") as mock_upd,
+            patch("cliff.agents.executor.get_workspace", return_value=_make_workspace()),
+            patch("cliff.agents.executor.get_finding", return_value=_make_finding("in_progress")),
+            patch("cliff.agents.executor.update_finding") as mock_upd,
         ):
             result = await _advance_finding_status(
                 db, "ws-1", "remediation_executor", {"status": "changes_made"}
@@ -118,9 +118,9 @@ class TestAdvanceFindingStatus:
     async def test_validation_fixed_advances_to_validated(self):
         db = AsyncMock()
         with (
-            patch("opensec.agents.executor.get_workspace", return_value=_make_workspace()),
-            patch("opensec.agents.executor.get_finding", return_value=_make_finding("remediated")),
-            patch("opensec.agents.executor.update_finding") as mock_upd,
+            patch("cliff.agents.executor.get_workspace", return_value=_make_workspace()),
+            patch("cliff.agents.executor.get_finding", return_value=_make_finding("remediated")),
+            patch("cliff.agents.executor.update_finding") as mock_upd,
         ):
             result = await _advance_finding_status(
                 db, "ws-1", "validation_checker", {"verdict": "fixed"}
@@ -132,9 +132,9 @@ class TestAdvanceFindingStatus:
     async def test_validation_not_fixed_does_not_advance(self):
         db = AsyncMock()
         with (
-            patch("opensec.agents.executor.get_workspace", return_value=_make_workspace()),
-            patch("opensec.agents.executor.get_finding", return_value=_make_finding("remediated")),
-            patch("opensec.agents.executor.update_finding") as mock_upd,
+            patch("cliff.agents.executor.get_workspace", return_value=_make_workspace()),
+            patch("cliff.agents.executor.get_finding", return_value=_make_finding("remediated")),
+            patch("cliff.agents.executor.update_finding") as mock_upd,
         ):
             result = await _advance_finding_status(
                 db, "ws-1", "validation_checker", {"verdict": "not_fixed"}
@@ -146,9 +146,9 @@ class TestAdvanceFindingStatus:
     async def test_exposure_analyzer_does_not_advance(self):
         db = AsyncMock()
         with (
-            patch("opensec.agents.executor.get_workspace", return_value=_make_workspace()),
-            patch("opensec.agents.executor.get_finding", return_value=_make_finding("triaged")),
-            patch("opensec.agents.executor.update_finding") as mock_upd,
+            patch("cliff.agents.executor.get_workspace", return_value=_make_workspace()),
+            patch("cliff.agents.executor.get_finding", return_value=_make_finding("triaged")),
+            patch("cliff.agents.executor.update_finding") as mock_upd,
         ):
             result = await _advance_finding_status(
                 db, "ws-1", "exposure_analyzer", {}

@@ -50,7 +50,7 @@ export function generateExportMarkdown(
     lines.push('## Chat transcript')
     lines.push('')
     for (const msg of messages) {
-      const label = msg.role === 'user' ? '**User:**' : '**OpenSec:**'
+      const label = msg.role === 'user' ? '**User:**' : '**Cliff:**'
       lines.push(`${label} ${msg.content}`)
       lines.push('')
     }

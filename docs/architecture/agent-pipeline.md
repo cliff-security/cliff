@@ -1,6 +1,6 @@
 # Agent Pipeline
 
-OpenSec uses a primary orchestrator agent plus five specialized sub-agents to handle vulnerability remediation. See [ADR-0008](../adr/0008-sub-agent-architecture.md) for the rationale.
+Cliff uses a primary orchestrator agent plus five specialized sub-agents to handle vulnerability remediation. See [ADR-0008](../adr/0008-sub-agent-architecture.md) for the rationale.
 
 ## Pipeline Overview
 

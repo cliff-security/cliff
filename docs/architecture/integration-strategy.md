@@ -1,7 +1,7 @@
-# OpenSec Integration Strategy & Roadmap
+# Cliff Integration Strategy & Roadmap
 
 > **Status:** Draft v2 — March 31, 2026
-> **Author:** OpenSec Core Team
+> **Author:** Cliff Core Team
 > **Scope:** Community Edition (self-hosted, single-user)
 > **Updated:** Incorporates MCP Gateway landscape analysis, OpenCode MCP mechanics, two-plane architecture, and enterprise governance patterns
 
@@ -9,9 +9,9 @@
 
 ## 1. Why integrations are everything
 
-OpenSec's value proposition is simple: one chat interface to remediate vulnerabilities across your entire security stack. Without integrations, it's a chatbot. With integrations, it's the operational center of gravity for cybersecurity work.
+Cliff's value proposition is simple: one chat interface to remediate vulnerabilities across your entire security stack. Without integrations, it's a chatbot. With integrations, it's the operational center of gravity for cybersecurity work.
 
-The insight driving this strategy comes from how developer tools like Claude Code and OpenCode solved the same problem for engineering. Claude Code doesn't replace your IDE, Git, or CI — it connects to all of them through MCP servers and lets you orchestrate everything from a single conversation. OpenSec must do the same for security: connect Wiz, CrowdStrike, Jira, GitHub, Snyk, and everything else into a unified remediation workspace.
+The insight driving this strategy comes from how developer tools like Claude Code and OpenCode solved the same problem for engineering. Claude Code doesn't replace your IDE, Git, or CI — it connects to all of them through MCP servers and lets you orchestrate everything from a single conversation. Cliff must do the same for security: connect Wiz, CrowdStrike, Jira, GitHub, Snyk, and everything else into a unified remediation workspace.
 
 The bar is high. Security teams handle credentials for systems that protect entire organizations. If we lose their trust once, we lose it forever. So integrations must be not just powerful, but provably secure and fully auditable.
 
@@ -19,16 +19,16 @@ The bar is high. Security teams handle credentials for systems that protect enti
 
 ## 2. Integration use cases
 
-Every integration in OpenSec serves one or more of these four purposes:
+Every integration in Cliff serves one or more of these four purposes:
 
 **Ingest** — Pull findings into the queue.
-Connect to Wiz, Snyk, Tenable, Dependabot, SonarQube, or any scanner. Findings flow in through polling or webhooks, get normalized into OpenSec's domain model, and land in the Queue ready for triage. This is the FindingSource adapter interface.
+Connect to Wiz, Snyk, Tenable, Dependabot, SonarQube, or any scanner. Findings flow in through polling or webhooks, get normalized into Cliff's domain model, and land in the Queue ready for triage. This is the FindingSource adapter interface.
 
 **Investigate** — Query external platforms during remediation.
 When an agent enriches a finding, it might pull CVE details from NVD, check CrowdStrike for endpoint context, query GitHub for the affected code, or look up the asset owner in your CMDB. The workspace's AI agents call these integrations as tools during their reasoning. This maps to OwnershipContext and the new InvestigationContext adapter type.
 
 **Act** — Create tickets, update statuses, close findings.
-After the remediation planner builds a fix plan, OpenSec creates a Jira ticket, assigns it, and tracks progress. When validation confirms the fix, OpenSec closes the finding in the source system. This is the Ticketing and Validation adapter pair, extended with write-back capabilities.
+After the remediation planner builds a fix plan, Cliff creates a Jira ticket, assigns it, and tracks progress. When validation confirms the fix, Cliff closes the finding in the source system. This is the Ticketing and Validation adapter pair, extended with write-back capabilities.
 
 **Enrich context** — Pull code, configs, and environment data.
 For an AppSec finding, pull the affected repository from GitHub and let the agent read the vulnerable code. For a cloud misconfiguration, pull the Terraform state or cloud config. This gives agents the raw material they need for accurate remediation plans.
@@ -39,20 +39,20 @@ For an AppSec finding, pull the affected repository from GitHub and let the agen
 
 ### 3.1 MCP-native by default
 
-The Model Context Protocol is the integration standard. Every external system connection in OpenSec is either an MCP server or wrapped in one. This is not a bolt-on — it's the foundation.
+The Model Context Protocol is the integration standard. Every external system connection in Cliff is either an MCP server or wrapped in one. This is not a bolt-on — it's the foundation.
 
 Why MCP:
 
 - **AI-native.** MCP servers expose tools, resources, and prompts that AI agents consume directly. No translation layer between "what the integration provides" and "what the agent needs."
-- **Ecosystem leverage.** Hundreds of MCP servers already exist for GitHub, Jira, Slack, databases, cloud providers. OpenSec users get these for free.
-- **Community extensibility.** Anyone who can write an MCP server can extend OpenSec. The protocol is standardized and well-documented.
+- **Ecosystem leverage.** Hundreds of MCP servers already exist for GitHub, Jira, Slack, databases, cloud providers. Cliff users get these for free.
+- **Community extensibility.** Anyone who can write an MCP server can extend Cliff. The protocol is standardized and well-documented.
 - **Workspace isolation.** Each workspace process can connect to its own set of MCP servers with its own credentials, matching our per-workspace isolation architecture (ADR-0014).
 
 The architecture:
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  OpenSec Backend (FastAPI)                                │
+│  Cliff Backend (FastAPI)                                │
 │                                                          │
 │  ┌─────────────────────────────────────────────────────┐ │
 │  │  Integration Manager                                 │ │
@@ -94,7 +94,7 @@ The architecture:
 
 A key insight from enterprise security tool patterns: not everything should go through the LLM. Deterministic pipeline operations (scheduled finding sync, webhook ingestion, status write-back) and agentic investigation (interactive enrichment, reasoning about remediation) have fundamentally different reliability and auditability requirements.
 
-OpenSec uses two integration planes that share a single contract:
+Cliff uses two integration planes that share a single contract:
 
 **Operational plane** — Deterministic connectors for ingestion, sync, normalization, state mapping, and upstream writes. These run on schedules or react to webhooks. No LLM involvement. Think: "every 15 minutes, poll Wiz for new findings and normalize them into the queue."
 
@@ -113,21 +113,21 @@ The MCP side exposes those verbs as tools. The operational side exposes them as 
 Borrowed directly from the GitHub MCP Server's design: integrations should be capability-minimized by default.
 
 - **Read-only first.** Every integration starts with read permissions only. Write capabilities (update finding status, create tickets) require explicit opt-in.
-- **Toolset scoping.** Not all tools from an MCP server need to be exposed. OpenSec allows enabling specific tool subsets per integration.
+- **Toolset scoping.** Not all tools from an MCP server need to be exposed. Cliff allows enabling specific tool subsets per integration.
 - **Action tiers.** Three tiers of connector actions:
   - **Tier 0 — Read-only.** Fetch findings, read asset context, list tickets. No approval needed.
   - **Tier 1 — Contextual enrichment.** Pull code, correlate identities. No approval needed but fully logged.
   - **Tier 2 — Mutation/write.** Create tickets, update statuses, close findings. Requires explicit human confirmation for sensitive writes and full parameter visibility.
 
-This is not just a security model — it's a trust-building model. Users see exactly what OpenSec can do before granting more power.
+This is not just a security model — it's a trust-building model. Users see exactly what Cliff can do before granting more power.
 
 ### 3.4 Three tiers of integrations
 
-**Tier 1 — Community MCP servers (managed).** Leverage existing, battle-tested MCP servers from the ecosystem. GitHub's official MCP server (27K+ stars, 51 tools), Atlassian's official Jira/Confluence MCP server (25 tools with workflow transitions), and similar production-grade servers. OpenSec manages their lifecycle — the user enables them through the Integrations page, provides credentials, and OpenSec spawns/manages the process. We don't rebuild what already exists.
+**Tier 1 — Community MCP servers (managed).** Leverage existing, battle-tested MCP servers from the ecosystem. GitHub's official MCP server (27K+ stars, 51 tools), Atlassian's official Jira/Confluence MCP server (25 tools with workflow transitions), and similar production-grade servers. Cliff manages their lifecycle — the user enables them through the Integrations page, provides credentials, and Cliff spawns/manages the process. We don't rebuild what already exists.
 
-**Tier 2 — Thin OpenSec wrappers.** For vendors that don't have open-source self-hostable MCP servers (e.g., Wiz's MCP is cloud-only/proprietary), we build lightweight MCP wrappers around their REST APIs. These are minimal — just enough to translate the vendor API into MCP tools. Written in Python, inline with the codebase, tested in CI.
+**Tier 2 — Thin Cliff wrappers.** For vendors that don't have open-source self-hostable MCP servers (e.g., Wiz's MCP is cloud-only/proprietary), we build lightweight MCP wrappers around their REST APIs. These are minimal — just enough to translate the vendor API into MCP tools. Written in Python, inline with the codebase, tested in CI.
 
-**Tier 3 — User MCP servers.** Anything the user wants to connect. They provide the MCP server command or URL, and OpenSec connects to it. No curation, no registry entry needed. Full power, user's responsibility. Like adding custom MCP servers in Claude Code's settings.
+**Tier 3 — User MCP servers.** Anything the user wants to connect. They provide the MCP server command or URL, and Cliff connects to it. No curation, no registry entry needed. Full power, user's responsibility. Like adding custom MCP servers in Claude Code's settings.
 
 ### 3.5 Security is the product
 
@@ -135,16 +135,16 @@ Every integration interaction is treated as a security event:
 
 - **Encrypted credential storage.** API keys and tokens encrypted at rest using a key derived from a user-provided passphrase or system keyring. Never plaintext in SQLite.
 - **Scoped permissions.** Each integration declares what it can do (read findings, write tickets, etc.). Agents can only use the permissions granted.
-- **Full audit trail.** Every API call to an external system is logged with timestamp, workspace context, agent identity, action taken, and outcome. Users can review exactly what OpenSec did and when.
+- **Full audit trail.** Every API call to an external system is logged with timestamp, workspace context, agent identity, action taken, and outcome. Users can review exactly what Cliff did and when.
 - **No credential leakage to agents.** Agents call MCP tools by name. The MCP gateway injects credentials at the transport layer. The LLM never sees API keys in its context.
 - **Principle of least privilege.** Workspace processes only get MCP connections relevant to their finding. A Wiz finding workspace doesn't get access to the Snyk MCP server unless explicitly needed.
 
 ### 3.6 Enterprise governance controls
 
-Borrowed from Claude Code's managed-mcp.json pattern and Codex's trusted project model, OpenSec implements three-tier configuration scoping:
+Borrowed from Claude Code's managed-mcp.json pattern and Codex's trusted project model, Cliff implements three-tier configuration scoping:
 
 - **System-managed integrations.** Configured at install time or by the administrator. Cannot be modified by workspace-level config. These are the "blessed" integrations.
-- **Workspace-managed integrations.** Configured per-workspace based on the finding context. OpenSec determines which integrations a workspace needs.
+- **Workspace-managed integrations.** Configured per-workspace based on the finding context. Cliff determines which integrations a workspace needs.
 - **User-managed integrations.** Custom MCP servers added by the user. Subject to allowlist/denylist policy enforcement.
 
 Policy enforcement follows Claude Code's model:
@@ -164,7 +164,7 @@ The MCP Gateway is the core integration runtime. Before building from scratch, w
 
 ### 4.1 Existing open-source MCP Gateway projects
 
-| Project | Focus | License | Fit for OpenSec |
+| Project | Focus | License | Fit for Cliff |
 |---------|-------|---------|-----------------|
 | **Gate22** (aipotheosis-labs) | Function-level permissions, per-call audit logging, tool poisoning detection | Apache 2.0 | Best audit/permission model. Study for patterns. |
 | **Lasso MCP Gateway** (lasso-security) | Credential sanitization, PII protection, token masking, reputation scoring | — | Best credential protection patterns. |
@@ -176,11 +176,11 @@ The MCP Gateway is the core integration runtime. Before building from scratch, w
 
 ### 4.2 Decision: build our own, informed by the best
 
-None of the existing gateways are a drop-in fit for OpenSec because:
+None of the existing gateways are a drop-in fit for Cliff because:
 
 1. **OpenCode integration.** Our gateway must generate per-workspace `opencode.json` configs and manage MCP server lifecycles tied to OpenCode workspace processes. No existing gateway understands this.
 2. **Two-plane architecture.** We need both operational (deterministic) and agentic (MCP) execution. Existing gateways only handle the agentic plane.
-3. **Inline simplicity.** We're choosing inline packaging (see decisions below) — the gateway lives inside the OpenSec codebase, not as an external dependency.
+3. **Inline simplicity.** We're choosing inline packaging (see decisions below) — the gateway lives inside the Cliff codebase, not as an external dependency.
 4. **Security-specific audit requirements.** Our audit event model includes finding-level traceability, agent attribution, and policy decision logging that goes beyond what generic gateways provide.
 
 However, we will heavily borrow patterns from:
@@ -193,7 +193,7 @@ However, we will heavily borrow patterns from:
 
 ## 5. OpenCode MCP integration: how it actually works
 
-This section is critical because OpenSec's workspace runtime (ADR-0014) runs per-workspace OpenCode processes. Understanding exactly how OpenCode handles MCP servers determines our gateway architecture.
+This section is critical because Cliff's workspace runtime (ADR-0014) runs per-workspace OpenCode processes. Understanding exactly how OpenCode handles MCP servers determines our gateway architecture.
 
 ### 5.1 OpenCode MCP configuration
 
@@ -222,7 +222,7 @@ OpenCode configures MCP servers via `opencode.json` under the `mcp` key:
     },
     "wiz": {
       "type": "local",
-      "command": ["python", "-m", "opensec.integrations.wrappers.wiz"],
+      "command": ["python", "-m", "cliff.integrations.wrappers.wiz"],
       "environment": {
         "WIZ_CLIENT_ID": "resolved-at-startup",
         "WIZ_CLIENT_SECRET": "resolved-at-startup"
@@ -244,7 +244,7 @@ Key facts:
 
 ### 5.2 Per-workspace MCP configuration (the key insight)
 
-OpenCode supports project-level config via `opencode.json` in the working directory. Since OpenSec already creates per-workspace directories (`data/workspaces/<id>/`) with their own `opencode.json`, we can configure different MCP servers per workspace:
+OpenCode supports project-level config via `opencode.json` in the working directory. Since Cliff already creates per-workspace directories (`data/workspaces/<id>/`) with their own `opencode.json`, we can configure different MCP servers per workspace:
 
 ```
 data/workspaces/
@@ -262,7 +262,7 @@ Each workspace gets exactly the MCP servers relevant to its finding. A Wiz findi
 
 ### 5.3 Credential injection flow
 
-OpenSec's MCP Gateway resolves credentials before writing the workspace's `opencode.json`:
+Cliff's MCP Gateway resolves credentials before writing the workspace's `opencode.json`:
 
 ```
 1. Workspace created for Finding F-123 (source: Wiz)
@@ -289,7 +289,7 @@ OpenSec's MCP Gateway resolves credentials before writing the workspace's `openc
 **Important:** Credentials appear in the workspace `opencode.json` as resolved values (not placeholders) because OpenCode doesn't support vault integration. This means:
 - Workspace `opencode.json` files are **never committed to git** (already in `.gitignore`)
 - Workspace directories are **ephemeral** — cleaned up when workspace is closed
-- File permissions are **restricted** to the OpenSec process user
+- File permissions are **restricted** to the Cliff process user
 - The `opencode.json` is regenerated on every workspace process start (never stale)
 
 ### 5.4 OpenCode MCP limitations we must design around
@@ -343,7 +343,7 @@ User provides credentials via Integrations page
 
 Key derivation priority:
 1. **System keyring** (GNOME Keyring, macOS Keychain, Windows Credential Manager) — best for desktop installs
-2. **`OPENSEC_CREDENTIAL_KEY` environment variable** — best for Docker/server deployments
+2. **`CLIFF_CREDENTIAL_KEY` environment variable** — best for Docker/server deployments
 3. **User passphrase** — fallback, prompted on first integration setup
 
 ### 6.2 Credential injection
@@ -380,9 +380,9 @@ Wiz API response returned to agent (no credentials in payload)
 
 Every integration interaction produces an audit event:
 
-### 7.1 Why "audit-grade" matters for OpenSec
+### 7.1 Why "audit-grade" matters for Cliff
 
-Audit is not just "logs exist." Per NIST SP 800-92, log management covers the full lifecycle: generating, transmitting, storing, analyzing, and disposing of log data. For OpenSec, audit must support investigations, compliance reviews, least-privilege verification, and customer trust.
+Audit is not just "logs exist." Per NIST SP 800-92, log management covers the full lifecycle: generating, transmitting, storing, analyzing, and disposing of log data. For Cliff, audit must support investigations, compliance reviews, least-privilege verification, and customer trust.
 
 With MCP and agentic workflows, the model decides which tools to invoke and with what parameters — creating a new attack surface. OWASP's MCP Top 10 includes "Lack of Audit and Telemetry" as a core risk, calling for detailed logs of tool invocations, context changes, and user-agent interactions with immutable audit trails.
 
@@ -456,7 +456,7 @@ Key design choices in this schema:
 
 ## 8. MCP gateway architecture
 
-The MCP Gateway is the core innovation — a per-workspace proxy that manages MCP server connections, injects credentials, enforces permissions, and logs everything. It lives inline in the OpenSec codebase (not a separate package), informed by patterns from Gate22, Lasso, and MCPProxy.go.
+The MCP Gateway is the core innovation — a per-workspace proxy that manages MCP server connections, injects credentials, enforces permissions, and logs everything. It lives inline in the Cliff codebase (not a separate package), informed by patterns from Gate22, Lasso, and MCPProxy.go.
 
 ### 8.1 How it works
 
@@ -521,7 +521,7 @@ MCP servers are configured in a format compatible with Claude Code and OpenCode:
     "wiz": {
       "type": "stdio",
       "command": "python",
-      "args": ["-m", "opensec.integrations.wrappers.wiz"],
+      "args": ["-m", "cliff.integrations.wrappers.wiz"],
       "env": {
         "WIZ_CLIENT_ID": "${credential:wiz.client_id}",
         "WIZ_CLIENT_SECRET": "${credential:wiz.client_secret}",
@@ -538,7 +538,7 @@ MCP servers are configured in a format compatible with Claude Code and OpenCode:
 }
 ```
 
-Notice: GitHub and Jira use their official MCP servers directly — no OpenSec custom code. Only Wiz uses our thin wrapper because Wiz's official MCP is cloud-only and not self-hostable.
+Notice: GitHub and Jira use their official MCP servers directly — no Cliff custom code. Only Wiz uses our thin wrapper because Wiz's official MCP is cloud-only and not self-hostable.
 
 The `${credential:...}` and `${config:...}` placeholders are resolved by the MCP Gateway at startup using the Credential Vault. The MCP server process receives real values; the config file never contains plaintext secrets.
 
@@ -546,7 +546,7 @@ The `${credential:...}` and `${config:...}` placeholders are resolved by the MCP
 
 ## 9. Integration registry
 
-The registry is how OpenSec knows what integrations are available and how to configure them.
+The registry is how Cliff knows what integrations are available and how to configure them.
 
 ### 9.1 Registry entry schema
 
@@ -560,7 +560,7 @@ The registry is how OpenSec knows what integrations are available and how to con
   "tier": "builtin",
   "mcp_config": {
     "type": "stdio",
-    "command": "opensec-mcp-wiz",
+    "command": "cliff-mcp-wiz",
     "args": []
   },
   "credentials_schema": {
@@ -581,7 +581,7 @@ The registry is how OpenSec knows what integrations are available and how to con
       "tools": ["wiz_check_finding_status", "wiz_request_rescan"]
     }
   },
-  "docs_url": "https://docs.opensec.dev/integrations/wiz",
+  "docs_url": "https://docs.cliff.dev/integrations/wiz",
   "setup_guide": "1. Create a service account in Wiz...",
   "permissions_required": ["read:findings", "read:assets", "write:findings.status"]
 }
@@ -589,28 +589,28 @@ The registry is how OpenSec knows what integrations are available and how to con
 
 ### 9.2 Registry sources and MCP discovery
 
-1. **Builtin registry** — Ships with OpenSec in `backend/opensec/integrations/registry/`. Contains entries for all Tier 1 adapters.
-2. **Community registry** — A GitHub repository (`opensec/integration-registry`) with community-contributed entries. Users can opt-in to fetch from this.
-3. **MCP discovery standard** — OpenSec will participate in the emerging MCP server discovery protocol. As the standard matures, OpenSec can discover compatible MCP servers automatically, similar to how OpenCode supports `.well-known/opencode` endpoint for organization-default servers.
+1. **Builtin registry** — Ships with Cliff in `backend/cliff/integrations/registry/`. Contains entries for all Tier 1 adapters.
+2. **Community registry** — A GitHub repository (`cliff/integration-registry`) with community-contributed entries. Users can opt-in to fetch from this.
+3. **MCP discovery standard** — Cliff will participate in the emerging MCP server discovery protocol. As the standard matures, Cliff can discover compatible MCP servers automatically, similar to how OpenCode supports `.well-known/opencode` endpoint for organization-default servers.
 4. **Local overrides** — Users can add custom entries in `data/integrations/` for Tier 3 user MCPs.
 
 ---
 
 ## 10. OAuth for self-hosted deployments
 
-Some integrations (GitHub, Jira Cloud, Azure DevOps) require OAuth. Self-hosted tools can't use standard redirect flows because there's no public callback URL. OpenSec supports two patterns:
+Some integrations (GitHub, Jira Cloud, Azure DevOps) require OAuth. Self-hosted tools can't use standard redirect flows because there's no public callback URL. Cliff supports two patterns:
 
-**Standards alignment:** OAuth best practice has evolved significantly. OpenSec aligns with RFC 9700 (OAuth 2.0 Security BCP), RFC 8252 (OAuth for Native Apps — use system browser, never embedded), and RFC 7636 (PKCE — mandatory for all flows).
+**Standards alignment:** OAuth best practice has evolved significantly. Cliff aligns with RFC 9700 (OAuth 2.0 Security BCP), RFC 8252 (OAuth for Native Apps — use system browser, never embedded), and RFC 7636 (PKCE — mandatory for all flows).
 
 ### 10.1 OAuth authorization code + PKCE (preferred)
 
-When a browser is available on the same machine as OpenSec, use authorization code with PKCE via localhost redirect:
+When a browser is available on the same machine as Cliff, use authorization code with PKCE via localhost redirect:
 
 ```
 User clicks "Connect Wiz" in Integrations page
          │
          ▼
-OpenSec starts temporary HTTP server on 127.0.0.1:{random_port}
+Cliff starts temporary HTTP server on 127.0.0.1:{random_port}
          │
          ▼
 Browser opens Wiz auth URL with redirect_uri + PKCE challenge
@@ -619,7 +619,7 @@ Browser opens Wiz auth URL with redirect_uri + PKCE challenge
 User authorizes → browser redirects to localhost with auth code
          │
          ▼
-OpenSec exchanges code + PKCE verifier for tokens → encrypts → stores
+Cliff exchanges code + PKCE verifier for tokens → encrypts → stores
          │
          ▼
 Temporary HTTP server shuts down
@@ -633,7 +633,7 @@ For headless/Docker deployments and providers that support it:
 User clicks "Connect GitHub" in Integrations page
          │
          ▼
-OpenSec requests device code from GitHub
+Cliff requests device code from GitHub
          │
          ▼
 UI shows: "Go to https://github.com/login/device and enter code: ABCD-1234"
@@ -642,7 +642,7 @@ UI shows: "Go to https://github.com/login/device and enter code: ABCD-1234"
 User authorizes in their browser
          │
          ▼
-OpenSec polls GitHub for token (with exponential backoff)
+Cliff polls GitHub for token (with exponential backoff)
          │
          ▼
 Token received → encrypted → stored in Credential Vault
@@ -655,7 +655,7 @@ Note: GitHub's own OAuth documentation notes security drawbacks of device flow (
 For scheduled ingestion and background sync (operational plane), use OAuth client credentials:
 
 ```
-OpenSec uses stored client_id + client_secret
+Cliff uses stored client_id + client_secret
          │
          ▼
 Requests access token from provider (e.g., Wiz tokens last ~24h, CrowdStrike ~30min)
@@ -714,14 +714,14 @@ Based on what security teams actually use day-to-day, here's the prioritized int
 
 ## 12. The integration roadmap
 
-This roadmap extends the existing OpenSec roadmap (Stages 1-4) with integration-specific phases. It starts after Stage 4 (MVP ship) but some foundation work begins during Stage 3.
+This roadmap extends the existing Cliff roadmap (Stages 1-4) with integration-specific phases. It starts after Stage 4 (MVP ship) but some foundation work begins during Stage 3.
 
 ### Phase I-0: Integration foundation (during Stage 3)
 
 > Lay the groundwork while agent orchestration is being completed.
 
 **Credential Vault**
-- [ ] Design credential encryption module (`backend/opensec/integrations/vault.py`)
+- [ ] Design credential encryption module (`backend/cliff/integrations/vault.py`)
 - [ ] Implement AES-256-GCM encryption with per-credential IVs
 - [ ] Support key derivation from: system keyring, env var, user passphrase
 - [ ] Migrate existing `IntegrationConfig.config` field to use encrypted storage
@@ -739,7 +739,7 @@ This roadmap extends the existing OpenSec roadmap (Stages 1-4) with integration-
 
 **Integration registry v1**
 - [ ] Define registry entry JSON schema
-- [ ] Create `backend/opensec/integrations/registry/` with builtin entries
+- [ ] Create `backend/cliff/integrations/registry/` with builtin entries
 - [ ] Update Integrations page to show registry entries with setup guides
 - [ ] Support credential schema rendering (dynamic forms based on `credentials_schema`)
 - [ ] 10+ unit tests
@@ -753,7 +753,7 @@ This roadmap extends the existing OpenSec roadmap (Stages 1-4) with integration-
 > The core integration runtime. This is the hardest and most important phase.
 
 **MCP Gateway core**
-- [ ] Design MCP Gateway component (`backend/opensec/integrations/gateway.py`)
+- [ ] Design MCP Gateway component (`backend/cliff/integrations/gateway.py`)
 - [ ] Implement MCP server process management (start, stop, health check)
 - [ ] Implement credential placeholder resolution (`${credential:...}` → real values)
 - [ ] Implement tool call interception and audit logging
@@ -791,7 +791,7 @@ This roadmap extends the existing OpenSec roadmap (Stages 1-4) with integration-
 - [ ] Registry entry for `github/github-mcp-server` (27K+ stars, MIT, 51 tools)
 - [ ] Install: `npx -y @modelcontextprotocol/server-github` (stdio transport)
 - [ ] Auth: GitHub Personal Access Token (env var `GITHUB_PERSONAL_ACCESS_TOKEN`)
-- [ ] Capabilities used by OpenSec agents: `read_file` (CODEOWNERS, code), `search_code` (vulnerable patterns), `get_code_scanning_alerts`, `get_dependabot_alerts`, `list_commits`, `create_issue` / `create_pull_request` (future automated fixes)
+- [ ] Capabilities used by Cliff agents: `read_file` (CODEOWNERS, code), `search_code` (vulnerable patterns), `get_code_scanning_alerts`, `get_dependabot_alerts`, `list_commits`, `create_issue` / `create_pull_request` (future automated fixes)
 - [ ] Enable `--read-only` mode by default (Tier 0 action); write tools opt-in
 - [ ] Integration test: workspace agent reads a file from a repo via MCP tool
 - [ ] 5+ integration tests
@@ -799,21 +799,21 @@ This roadmap extends the existing OpenSec roadmap (Stages 1-4) with integration-
 **Jira — use official Atlassian MCP server (zero custom code)**
 - [ ] Registry entry for `atlassian/atlassian-mcp-server` (official, 25 tools)
 - [ ] Two modes: Jira Cloud (OAuth 2.1 via Atlassian Rovo) and Jira Server/Data Center (API token via `cosmix/jira-mcp` fallback)
-- [ ] Capabilities used by OpenSec agents: `create_issue`, `update_issue`, `transition_issue` (workflow state changes), `add_comment`, `search_issues` (JQL)
+- [ ] Capabilities used by Cliff agents: `create_issue`, `update_issue`, `transition_issue` (workflow state changes), `add_comment`, `search_issues` (JQL)
 - [ ] Link tickets to workspaces: store external key + URL in SidebarState
 - [ ] Integration test: workspace agent creates a Jira issue from remediation plan
 - [ ] 5+ integration tests
 
 **Wiz — thin wrapper required (Wiz MCP is cloud-only/proprietary)**
-- [ ] Implement `opensec-mcp-wiz` — lightweight Python MCP server wrapping Wiz REST API
-- [ ] Why: Wiz's official MCP server is cloud-only and proprietary, not usable for self-hosted OpenSec
+- [ ] Implement `cliff-mcp-wiz` — lightweight Python MCP server wrapping Wiz REST API
+- [ ] Why: Wiz's official MCP server is cloud-only and proprietary, not usable for self-hosted Cliff
 - [ ] Tools to implement: `wiz_list_findings`, `wiz_get_finding`, `wiz_get_asset_context`, `wiz_update_finding_status`, `wiz_check_finding_status`
 - [ ] Auth: client credentials flow (client_id + client_secret → 24h token, auto-refresh)
 - [ ] Keep it minimal — just translate Wiz REST API into MCP tools, no business logic
 - [ ] Registry entry with credential schema and setup guide
 - [ ] 15+ unit tests, 5+ integration tests (with Wiz sandbox or mocked)
 
-**Exit criteria:** A Wiz finding can flow through OpenSec end-to-end: ingested from Wiz (via wrapper), enriched with GitHub code context (via official MCP), remediation planned, Jira ticket created (via official MCP), and finding status updated in Wiz after validation. All fully audited.
+**Exit criteria:** A Wiz finding can flow through Cliff end-to-end: ingested from Wiz (via wrapper), enriched with GitHub code context (via official MCP), remediation planned, Jira ticket created (via official MCP), and finding status updated in Wiz after validation. All fully audited.
 
 ---
 
@@ -842,7 +842,7 @@ This roadmap extends the existing OpenSec roadmap (Stages 1-4) with integration-
 - [ ] Timeout enforcement
 - [ ] Clear warnings about running untrusted MCP servers
 
-**Exit criteria:** A user can connect any MCP server to OpenSec, their workspace agents can use its tools, and everything is audited with appropriate safety guardrails.
+**Exit criteria:** A user can connect any MCP server to Cliff, their workspace agents can use its tools, and everything is audited with appropriate safety guardrails.
 
 ---
 
@@ -870,7 +870,7 @@ This roadmap extends the existing OpenSec roadmap (Stages 1-4) with integration-
 - [ ] Webhook event log (received, processed, failed)
 - [ ] Pause/resume webhook processing
 
-**Exit criteria:** Findings arrive in OpenSec in near-real-time via webhooks. No polling delay for supported sources.
+**Exit criteria:** Findings arrive in Cliff in near-real-time via webhooks. No polling delay for supported sources.
 
 ---
 
@@ -895,12 +895,12 @@ This roadmap extends the existing OpenSec roadmap (Stages 1-4) with integration-
 - [ ] Automated credential validation on schedule
 
 **Community integration toolkit**
-- [ ] `opensec-mcp-template` repository for building custom MCP servers
+- [ ] `cliff-mcp-template` repository for building custom MCP servers
 - [ ] Integration development guide with examples
 - [ ] Integration testing harness
 - [ ] Submission process for community registry
 
-**Exit criteria:** OpenSec has a mature, observable, and extensible integration platform that the community can build on.
+**Exit criteria:** Cliff has a mature, observable, and extensible integration platform that the community can build on.
 
 ---
 
@@ -966,7 +966,7 @@ CREATE TABLE mcp_server_config (
 ### 13.2 New Python modules
 
 ```
-backend/opensec/integrations/
+backend/cliff/integrations/
     __init__.py
     vault.py              # Credential Vault — encryption, key derivation, storage
     audit.py              # Audit Logger — async event recording
@@ -983,7 +983,7 @@ backend/opensec/integrations/
     registry/
         github.json       # Registry entry — uses official github/github-mcp-server (zero custom code)
         jira.json         # Registry entry — uses official atlassian/atlassian-mcp-server (zero custom code)
-        wiz.json          # Registry entry — uses our thin wrapper (opensec-mcp-wiz)
+        wiz.json          # Registry entry — uses our thin wrapper (cliff-mcp-wiz)
         ...
     webhooks/
         __init__.py
@@ -1070,15 +1070,15 @@ Before each integration phase ships, verify:
 
 ---
 
-## 15. Competitive analysis: what makes OpenSec different
+## 15. Competitive analysis: what makes Cliff different
 
-**vs. DefectDojo** — DefectDojo is a vulnerability management hub with import/export. OpenSec is AI-native: agents investigate, plan, and act. DefectDojo imports scan results; OpenSec reasons about them.
+**vs. DefectDojo** — DefectDojo is a vulnerability management hub with import/export. Cliff is AI-native: agents investigate, plan, and act. DefectDojo imports scan results; Cliff reasons about them.
 
-**vs. SOAR platforms (Splunk SOAR, Palo Alto XSOAR)** — SOAR platforms are playbook-driven automation for security operations. OpenSec is conversational and adaptive. No pre-built playbooks needed — the AI determines the remediation path per finding.
+**vs. SOAR platforms (Splunk SOAR, Palo Alto XSOAR)** — SOAR platforms are playbook-driven automation for security operations. Cliff is conversational and adaptive. No pre-built playbooks needed — the AI determines the remediation path per finding.
 
-**vs. Custom scripts** — Most security teams wire together Python scripts, Slack bots, and Jira automation. OpenSec replaces this fragile glue with a structured, auditable platform.
+**vs. Custom scripts** — Most security teams wire together Python scripts, Slack bots, and Jira automation. Cliff replaces this fragile glue with a structured, auditable platform.
 
-**The OpenSec differentiator:** MCP-native integration means every connected tool becomes a first-class capability for AI agents. Your Wiz context, GitHub code, and Jira tickets are all available in a single reasoning loop. No other remediation tool offers this.
+**The Cliff differentiator:** MCP-native integration means every connected tool becomes a first-class capability for AI agents. Your Wiz context, GitHub code, and Jira tickets are all available in a single reasoning loop. No other remediation tool offers this.
 
 ---
 
@@ -1097,11 +1097,11 @@ Before each integration phase ships, verify:
 
 ## 17. Resolved decisions
 
-1. **MCP server packaging → Inline.** Builtin adapters ship inline with the OpenSec codebase in `backend/opensec/integrations/adapters/`. Simplicity wins — no separate PyPI packages, no version-lock headaches. The adapters are Python modules that implement the adapter interface and optionally expose MCP tools via stdio. If an adapter grows complex enough to warrant extraction, we can do that later.
+1. **MCP server packaging → Inline.** Builtin adapters ship inline with the Cliff codebase in `backend/cliff/integrations/adapters/`. Simplicity wins — no separate PyPI packages, no version-lock headaches. The adapters are Python modules that implement the adapter interface and optionally expose MCP tools via stdio. If an adapter grows complex enough to warrant extraction, we can do that later.
 
 2. **Multi-tenant credential isolation → Deferred.** Community Edition is single-user. We will not design for multi-tenant credential scoping now. When the multi-user/team edition comes, we'll add per-user credential namespacing. The current Credential Vault design is simple and single-tenant.
 
-3. **MCP server discovery → Participate in emerging standard.** OpenSec will adopt the MCP server discovery protocol as it matures. We'll also support OpenCode's `.well-known/opencode` pattern for organization-default server discovery. The builtin + community registry covers us until the standard solidifies.
+3. **MCP server discovery → Participate in emerging standard.** Cliff will adopt the MCP server discovery protocol as it matures. We'll also support OpenCode's `.well-known/opencode` pattern for organization-default server discovery. The builtin + community registry covers us until the standard solidifies.
 
 4. **Webhook security in Docker → Document when we get there.** Webhook endpoints in containerized deployments need network accessibility from source systems. This is a deployment-time concern. We'll create Docker deployment documentation with networking guidance (port exposure, reverse proxy patterns, HMAC verification) when we implement Phase I-4 (Webhook Ingestion).
 
@@ -1111,7 +1111,7 @@ Before each integration phase ships, verify:
 
 1. **Supply chain integrity for community MCP servers** — Should we require signed artifacts for community-contributed integrations? SLSA attestation? Sigstore? Deferred until the community registry grows beyond our ability to manually review.
 
-2. **Confused deputy mitigation** — MCP's authorization model warns about confused deputy attacks when acting as a proxy. If OpenSec brokers OAuth to third-party APIs, we need per-client consent to avoid authorization code theft. Design this before Phase I-2.
+2. **Confused deputy mitigation** — MCP's authorization model warns about confused deputy attacks when acting as a proxy. If Cliff brokers OAuth to third-party APIs, we need per-client consent to avoid authorization code theft. Design this before Phase I-2.
 
 3. **Token lifetime handling** — Different vendors have wildly different token lifetimes (Wiz ~24h, CrowdStrike ~30min). The credential vault needs a TTL-aware caching layer with automatic refresh. Spec this during Phase I-0.
 
@@ -1158,9 +1158,9 @@ This strategy was informed by research into:
 |------|-----------|
 | **MCP** | Model Context Protocol — open standard for connecting AI applications to external tools and data |
 | **MCP Server** | A process that exposes tools, resources, and prompts via the MCP protocol |
-| **MCP Gateway** | OpenSec component that manages MCP connections, injects credentials, and logs interactions |
-| **Credential Vault** | Encrypted credential storage module in OpenSec |
-| **Adapter** | OpenSec interface for connecting to a specific type of external system |
+| **MCP Gateway** | Cliff component that manages MCP connections, injects credentials, and logs interactions |
+| **Credential Vault** | Encrypted credential storage module in Cliff |
+| **Adapter** | Cliff interface for connecting to a specific type of external system |
 | **Integration** | A configured connection to an external system, backed by an adapter or MCP server |
 | **Registry** | Catalog of available integrations with metadata, credential schemas, and setup guides |
 | **Stdio transport** | MCP communication via stdin/stdout with a local process |

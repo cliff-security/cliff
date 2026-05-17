@@ -13,7 +13,7 @@ Administrators need to configure which AI model powers the copilot and manage AP
 
 ## User persona
 
-**Admin / self-hosted operator** — deploying OpenSec on their own infrastructure. Needs to set up their AI provider (OpenAI, Anthropic, etc.) and API key to get started.
+**Admin / self-hosted operator** — deploying Cliff on their own infrastructure. Needs to set up their AI provider (OpenAI, Anthropic, etc.) and API key to get started.
 
 ## User stories
 

@@ -1,4 +1,4 @@
-"""Tests for ``opensec.services.pr_verifier`` — the B16 guardrail.
+"""Tests for ``cliff.services.pr_verifier`` — the B16 guardrail.
 
 Design intent: every failure mode the LLM can produce should collapse into a
 non-raising ``PRVerification(ok=False, reason=...)`` with a reason tag an
@@ -12,7 +12,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from opensec.services.pr_verifier import (
+from cliff.services.pr_verifier import (
     parse_pr_url,
     verify_pr_url,
 )
@@ -44,9 +44,9 @@ class TestParsePrUrl:
             "",
             "not a url",
             # Compare page — the shape the agent hallucinated in dogfooding.
-            "https://github.com/acme/widget/pull/new/opensec-fix",
+            "https://github.com/acme/widget/pull/new/cliff-fix",
             # Tree/commit views dressed up to look like PRs.
-            "https://github.com/acme/widget/tree/opensec-fix",
+            "https://github.com/acme/widget/tree/cliff-fix",
             "https://github.com/acme/widget/pulls",
             # Other hosts should be rejected even if they mirror GitHub's shape.
             "https://gitlab.com/acme/widget/pull/1",

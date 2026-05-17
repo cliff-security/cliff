@@ -14,12 +14,12 @@ silently. When a new auto-fixable check ships, update both this test and the
 
 from __future__ import annotations
 
-from opensec.api.routes._level_up import (
+from cliff.api.routes._level_up import (
     _AUTO_FIXABLE_CHECKS,
     derive_level_up,
 )
-from opensec.models.assessment import CriteriaSnapshot
-from opensec.models.finding import Finding, IssueDerived
+from cliff.models.assessment import CriteriaSnapshot
+from cliff.models.finding import Finding, IssueDerived
 
 
 def test_auto_fixable_checks_only_what_backend_supports() -> None:
@@ -50,7 +50,7 @@ def _posture_finding(name: str) -> Finding:
     now = datetime.now(UTC)
     return Finding(
         id=f"posture-{name}",
-        source_type="opensec-posture",
+        source_type="cliff-posture",
         source_id=name,
         title=name,
         type="posture",

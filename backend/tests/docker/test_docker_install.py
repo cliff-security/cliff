@@ -1,4 +1,4 @@
-"""Boot the OpenSec Docker image and verify it serves /health.
+"""Boot the Cliff Docker image and verify it serves /health.
 
 This is the install-path smoke test. It exists so the release pipeline
 catches "the image builds, but doesn't start" regressions before the
@@ -7,7 +7,7 @@ artifact is handed to humans.
 Scope deliberately small:
   - Boot the container with stub credentials.
   - Wait for /health to return 200.
-  - Assert the JSON shape and `opensec == "ok"`.
+  - Assert the JSON shape and `cliff == "ok"`.
 
 We do NOT assert `opencode == "ok"` because that requires the model
 provider to authenticate against the stub key, which would re-introduce
@@ -31,7 +31,7 @@ from testcontainers.core.waiting_utils import wait_for_logs
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-IMAGE = os.environ.get("OPENSEC_TEST_IMAGE", "opensec:dev")
+IMAGE = os.environ.get("CLIFF_TEST_IMAGE", "cliff:dev")
 HEALTH_TIMEOUT_S = 90  # Dockerfile start_period is 15s; pad for first-boot DB migration.
 
 
@@ -40,12 +40,12 @@ def _gen_credential_key() -> str:
 
 
 @pytest.fixture(scope="module")
-def opensec_container() -> Iterator[DockerContainer]:
+def cliff_container() -> Iterator[DockerContainer]:
     container = (
         DockerContainer(IMAGE)
         .with_env("ANTHROPIC_API_KEY", "sk-ant-stub-for-tests")
-        .with_env("OPENSEC_CREDENTIAL_KEY", _gen_credential_key())
-        .with_env("OPENSEC_DATA_DIR", "/data")
+        .with_env("CLIFF_CREDENTIAL_KEY", _gen_credential_key())
+        .with_env("CLIFF_DATA_DIR", "/data")
         .with_exposed_ports(8000)
     )
     container.start()
@@ -66,8 +66,8 @@ def _health_url(container: DockerContainer) -> str:
     return f"http://{host}:{port}/health"
 
 
-def test_image_boots_and_health_endpoint_responds(opensec_container: DockerContainer) -> None:
-    url = _health_url(opensec_container)
+def test_image_boots_and_health_endpoint_responds(cliff_container: DockerContainer) -> None:
+    url = _health_url(cliff_container)
     deadline = time.monotonic() + HEALTH_TIMEOUT_S
     last_error: Exception | None = None
     response: httpx.Response | None = None
@@ -87,7 +87,7 @@ def test_image_boots_and_health_endpoint_responds(opensec_container: DockerConta
     )
 
     body = response.json()
-    assert body["opensec"] == "ok", f"expected opensec=ok, got {body!r}"
+    assert body["cliff"] == "ok", f"expected cliff=ok, got {body!r}"
     assert body["opencode_version"], f"expected non-empty opencode_version, got {body!r}"
     # opencode itself may report 'unavailable' under stub credentials —
     # that's fine. We only care the app shell came up.

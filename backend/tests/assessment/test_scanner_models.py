@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from opensec.assessment.scanners.models import (
+from cliff.assessment.scanners.models import (
     ScannerInfo,
     ScannerStatus,
     SemgrepFinding,

@@ -1,6 +1,6 @@
-# Contributing to OpenSec
+# Contributing to Cliff
 
-Thank you for your interest in contributing to OpenSec!
+Thank you for your interest in contributing to Cliff!
 
 ## Getting Started
 

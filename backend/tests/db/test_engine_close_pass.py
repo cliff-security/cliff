@@ -11,13 +11,13 @@ Implements the IMPL-0003-p2 §"Stale-close rule" contract:
 
 from __future__ import annotations
 
-from opensec.db.dao.assessment import create_assessment
-from opensec.db.repo_finding import (
+from cliff.db.dao.assessment import create_assessment
+from cliff.db.repo_finding import (
     close_disappeared_findings,
     create_finding,
     get_finding,
 )
-from opensec.models import AssessmentCreate, FindingCreate
+from cliff.models import AssessmentCreate, FindingCreate
 
 REPO = "https://github.com/a/b"
 

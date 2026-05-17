@@ -10,7 +10,7 @@ import os
 
 import pytest
 
-from opensec.integrations.health import IntegrationHealthMonitor
+from cliff.integrations.health import IntegrationHealthMonitor
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -21,7 +21,7 @@ TEST_KEY = os.urandom(32)
 
 @pytest.fixture
 async def db():
-    from opensec.db.connection import close_db, init_db
+    from cliff.db.connection import close_db, init_db
 
     conn = await init_db(":memory:")
     yield conn
@@ -30,14 +30,14 @@ async def db():
 
 @pytest.fixture
 async def vault(db):
-    from opensec.integrations.vault import CredentialVault
+    from cliff.integrations.vault import CredentialVault
 
     return CredentialVault(db, key=TEST_KEY)
 
 
 @pytest.fixture
 async def audit(db):
-    from opensec.integrations.audit import AuditLogger
+    from cliff.integrations.audit import AuditLogger
 
     logger = AuditLogger(db)
     await logger.start()
@@ -52,8 +52,8 @@ def monitor(vault, audit):
 
 async def _create_github_integration(db, vault):
     """Helper: create GitHub integration with valid credentials."""
-    from opensec.db.repo_integration import create_integration
-    from opensec.models import IntegrationConfigCreate
+    from cliff.db.repo_integration import create_integration
+    from cliff.models import IntegrationConfigCreate
 
     integration = await create_integration(
         db,
@@ -96,8 +96,8 @@ class TestHealthCheck:
 
     @pytest.mark.asyncio
     async def test_missing_credentials(self, db, monitor):
-        from opensec.db.repo_integration import create_integration
-        from opensec.models import IntegrationConfigCreate
+        from cliff.db.repo_integration import create_integration
+        from cliff.models import IntegrationConfigCreate
 
         integration = await create_integration(
             db,
@@ -126,8 +126,8 @@ class TestHealthCheck:
     @pytest.mark.asyncio
     async def test_unknown_provider_unchecked(self, db, vault, monitor):
         """Provider without a tester gets connection_status='unchecked'."""
-        from opensec.db.repo_integration import create_integration
-        from opensec.models import IntegrationConfigCreate
+        from cliff.db.repo_integration import create_integration
+        from cliff.models import IntegrationConfigCreate
 
         integration = await create_integration(
             db,
@@ -143,7 +143,7 @@ class TestHealthCheck:
 
     @pytest.mark.asyncio
     async def test_audit_logged(self, db, vault, monitor, httpx_mock):
-        from opensec.db.repo_audit import query_audit_log
+        from cliff.db.repo_audit import query_audit_log
 
         integration = await _create_github_integration(db, vault)
         httpx_mock.add_response(
@@ -166,8 +166,8 @@ class TestCheckAll:
 
     @pytest.mark.asyncio
     async def test_check_all(self, db, vault, monitor, httpx_mock):
-        from opensec.db.repo_integration import create_integration
-        from opensec.models import IntegrationConfigCreate
+        from cliff.db.repo_integration import create_integration
+        from cliff.models import IntegrationConfigCreate
 
         # Two integrations: GitHub + Snyk.
         await _create_github_integration(db, vault)
@@ -206,10 +206,10 @@ async def test_health_endpoint_single(httpx_mock):
 
     from httpx import ASGITransport, AsyncClient
 
-    from opensec.db.connection import close_db, init_db
-    from opensec.integrations.audit import AuditLogger
-    from opensec.integrations.vault import CredentialVault
-    from opensec.main import app
+    from cliff.db.connection import close_db, init_db
+    from cliff.integrations.audit import AuditLogger
+    from cliff.integrations.vault import CredentialVault
+    from cliff.main import app
 
     @asynccontextmanager
     async def _noop_lifespan(a):

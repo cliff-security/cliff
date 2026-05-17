@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from opensec.ai import catalog
+from cliff.ai import catalog
 
 if TYPE_CHECKING:
-    from opensec.ai.models import AIProvider
+    from cliff.ai.models import AIProvider
 
 
 @pytest.fixture(autouse=True)
@@ -18,7 +18,7 @@ def _reset_override_state(monkeypatch):
     # Make sure each test starts with a clean override env + reset the once-flag.
     for provider in catalog.all_providers():
         monkeypatch.delenv(
-            f"OPENSEC_AI_MODEL_OVERRIDE_{provider.upper()}", raising=False
+            f"CLIFF_AI_MODEL_OVERRIDE_{provider.upper()}", raising=False
         )
     catalog._reset_for_tests()
     yield
@@ -99,7 +99,7 @@ def test_resolve_model_returns_default_when_no_override() -> None:
 
 
 def test_resolve_model_uses_override_when_set(monkeypatch) -> None:
-    monkeypatch.setenv("OPENSEC_AI_MODEL_OVERRIDE_ANTHROPIC", "claude-opus-4-1")
+    monkeypatch.setenv("CLIFF_AI_MODEL_OVERRIDE_ANTHROPIC", "claude-opus-4-1")
     assert catalog.resolve_model("anthropic") == "claude-opus-4-1"
     # Untouched providers stay on their defaults.
     assert (
@@ -109,19 +109,19 @@ def test_resolve_model_uses_override_when_set(monkeypatch) -> None:
 
 
 def test_resolve_model_ignores_blank_override(monkeypatch) -> None:
-    monkeypatch.setenv("OPENSEC_AI_MODEL_OVERRIDE_OPENAI", "   ")
+    monkeypatch.setenv("CLIFF_AI_MODEL_OVERRIDE_OPENAI", "   ")
     assert catalog.resolve_model("openai") == "openai/gpt-5"
 
 
 def test_has_override_reflects_env(monkeypatch) -> None:
     assert catalog.has_override("anthropic") is False
-    monkeypatch.setenv("OPENSEC_AI_MODEL_OVERRIDE_ANTHROPIC", "claude-opus-4-1")
+    monkeypatch.setenv("CLIFF_AI_MODEL_OVERRIDE_ANTHROPIC", "claude-opus-4-1")
     assert catalog.has_override("anthropic") is True
 
 
 def test_log_override_warning_emits_once_per_override(monkeypatch, caplog) -> None:
-    monkeypatch.setenv("OPENSEC_AI_MODEL_OVERRIDE_OPENROUTER", "openai/gpt-4o")
-    monkeypatch.setenv("OPENSEC_AI_MODEL_OVERRIDE_OPENAI", "gpt-4-turbo")
+    monkeypatch.setenv("CLIFF_AI_MODEL_OVERRIDE_OPENROUTER", "openai/gpt-4o")
+    monkeypatch.setenv("CLIFF_AI_MODEL_OVERRIDE_OPENAI", "gpt-4-turbo")
 
     with caplog.at_level(logging.WARNING):
         catalog.log_override_warnings_once()
@@ -132,7 +132,7 @@ def test_log_override_warning_emits_once_per_override(monkeypatch, caplog) -> No
 
 
 def test_log_override_warning_does_not_repeat(monkeypatch, caplog) -> None:
-    monkeypatch.setenv("OPENSEC_AI_MODEL_OVERRIDE_ANTHROPIC", "claude-opus-4-1")
+    monkeypatch.setenv("CLIFF_AI_MODEL_OVERRIDE_ANTHROPIC", "claude-opus-4-1")
 
     with caplog.at_level(logging.WARNING):
         catalog.log_override_warnings_once()

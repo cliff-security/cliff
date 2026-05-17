@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from opensec.assessment.posture.github_client import (
+from cliff.assessment.posture.github_client import (
     GithubClient,
     UnableToVerify,
     _parse_next_link,

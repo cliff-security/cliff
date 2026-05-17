@@ -7,14 +7,14 @@ from typing import Any
 
 import pytest
 
-from opensec.assessment.posture import RepoCoords
-from opensec.assessment.posture.collaborator_hygiene import (
+from cliff.assessment.posture import RepoCoords
+from cliff.assessment.posture.collaborator_hygiene import (
     STALE_DAYS,
     check_broad_team_permissions,
     check_default_branch_permissions,
     check_stale_collaborators,
 )
-from opensec.assessment.posture.github_client import UnableToVerify
+from cliff.assessment.posture.github_client import UnableToVerify
 
 
 class _StubClient:

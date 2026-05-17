@@ -49,7 +49,7 @@ export interface AssessmentInProgressViewProps {
 export default function AssessmentInProgressView({
   assessmentId,
   headline = 'Assessment in progress',
-  description = 'OpenSec is cloning your repo, scanning dependencies, sweeping for secrets, and walking the 15 posture checks. Stay here or come back — progress is saved.',
+  description = 'Cliff is cloning your repo, scanning dependencies, sweeping for secrets, and walking the 15 posture checks. Stay here or come back — progress is saved.',
   startedAt,
   actions,
 }: AssessmentInProgressViewProps) {

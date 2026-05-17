@@ -5,7 +5,7 @@
 
 ## Context
 
-OpenSec targets self-hosted community users who want a simple install experience. The MVP should start with one command.
+Cliff targets self-hosted community users who want a simple install experience. The MVP should start with one command.
 
 The app has multiple internal components:
 
@@ -27,7 +27,7 @@ Internal layout:
 
 ## Consequences
 
-- **Easier:** `docker run -p 8000:8000 opensec` is the entire install process.
+- **Easier:** `docker run -p 8000:8000 cliff` is the entire install process.
 - **Easier:** One image to build, push, and version. Simple upgrade path.
 - **Harder:** Larger image (Python + Go + Node build stage). Multi-stage build mitigates this.
 - **Harder:** Single container means no horizontal scaling. Acceptable for single-user MVP.

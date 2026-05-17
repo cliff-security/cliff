@@ -4,9 +4,9 @@
 
 **Take care of security.**
 
-[![Version](https://img.shields.io/github/v/release/galanko/OpenSec?include_prereleases&label=version&color=6FE3B5&labelColor=0B101B)](https://github.com/galanko/OpenSec/releases)
-[![Backend CI](https://img.shields.io/github/actions/workflow/status/galanko/OpenSec/backend.yml?branch=main&label=backend&color=6FE3B5&labelColor=0B101B)](https://github.com/galanko/OpenSec/actions/workflows/backend.yml)
-[![Frontend CI](https://img.shields.io/github/actions/workflow/status/galanko/OpenSec/frontend.yml?branch=main&label=frontend&color=6FE3B5&labelColor=0B101B)](https://github.com/galanko/OpenSec/actions/workflows/frontend.yml)
+[![Version](https://img.shields.io/github/v/release/galanko/Cliff?include_prereleases&label=version&color=6FE3B5&labelColor=0B101B)](https://github.com/galanko/Cliff/releases)
+[![Backend CI](https://img.shields.io/github/actions/workflow/status/galanko/Cliff/backend.yml?branch=main&label=backend&color=6FE3B5&labelColor=0B101B)](https://github.com/galanko/Cliff/actions/workflows/backend.yml)
+[![Frontend CI](https://img.shields.io/github/actions/workflow/status/galanko/Cliff/frontend.yml?branch=main&label=frontend&color=6FE3B5&labelColor=0B101B)](https://github.com/galanko/Cliff/actions/workflows/frontend.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-6FE3B5?labelColor=0B101B)](LICENSE)
 [![Status: alpha](https://img.shields.io/badge/status-alpha-F0BF7E?labelColor=0B101B)](ROADMAP.md)
 
@@ -60,7 +60,7 @@ Each step persists into both the chat timeline and a structured sidebar. Re-open
 
 <!-- install:start -->
 ```bash
-curl -fsSL https://github.com/galanko/OpenSec/releases/latest/download/install-local.sh | sh
+curl -fsSL https://github.com/galanko/Cliff/releases/latest/download/install-local.sh | sh
 cliff start --detach
 ```
 <!-- install:end -->
@@ -72,7 +72,7 @@ The installer fetches `uv`, a managed Python 3.11, the OpenCode binary, and the 
 **Docker** — required on Windows, optional everywhere else. Prereqs: Docker 24+.
 
 ```bash
-curl -fsSL https://github.com/galanko/OpenSec/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/galanko/Cliff/releases/latest/download/install.sh | sh
 ```
 
 Manual install, image verification, and platform notes are in [docs/install.md](docs/install.md).
@@ -82,8 +82,8 @@ Manual install, image verification, and platform notes are in [docs/install.md](
 Already in [Claude Code](https://claude.com/claude-code)? You can skip the web UI. After running the installer above, register the plugin marketplace and install `secure-repo`:
 
 ```text
-/plugin marketplace add galanko/OpenSec
-/plugin install secure-repo@opensec
+/plugin marketplace add galanko/Cliff
+/plugin install secure-repo@cliff
 ```
 
 Then in any git repo, ask:
@@ -113,7 +113,7 @@ The badge in the hero is the one Cliff issues for itself.
 
 ## About
 
-Cliff is a product of OpenSec — a small team that publishes its bug bounty methodology and the tools that apply it. Cliff is the remediation copilot; OpenSec is the lab.
+Cliff is a product of Cliff — a small team that publishes its bug bounty methodology and the tools that apply it. Cliff is the remediation copilot; Cliff is the lab.
 
 Both exist because the founder was the security person for his own projects and got tired of being it.
 

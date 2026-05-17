@@ -1,5 +1,5 @@
 // Shared chrome + atoms for PRD-0003 surfaces.
-// All surfaces sit inside the OpenSec app shell: fixed left rail + main content area.
+// All surfaces sit inside the Cliff app shell: fixed left rail + main content area.
 
 const cx = (...xs) => xs.filter(Boolean).join(' ');
 

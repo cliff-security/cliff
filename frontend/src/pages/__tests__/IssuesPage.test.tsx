@@ -124,7 +124,7 @@ describe('IssuesPage', () => {
     })
     fireEvent.click(toggle)
     await waitFor(() => expect(screen.getByText('Issue p1')).toBeInTheDocument())
-    expect(sessionStorage.getItem('opensec.issues.inProgressOpen')).toBe('1')
+    expect(sessionStorage.getItem('cliff.issues.inProgressOpen')).toBe('1')
   })
 
   it('clicking a Todo row creates a workspace and opens the side panel via ?open', async () => {
@@ -290,7 +290,7 @@ describe('IssuesPage', () => {
       })
       fireEvent.click(header)
       await waitFor(() => expect(screen.getByText('Issue d1')).toBeInTheDocument())
-      expect(sessionStorage.getItem('opensec.issues.doneOpen')).toBe('1')
+      expect(sessionStorage.getItem('cliff.issues.doneOpen')).toBe('1')
     })
 
     it('] toggles open and [ toggles closed via keyboard', async () => {

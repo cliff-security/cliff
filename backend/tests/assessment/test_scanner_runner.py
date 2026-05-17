@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from opensec.assessment.scanners.runner import (
+from cliff.assessment.scanners.runner import (
     SCANNER_ENV_ALLOW,
     ScannerTimeoutError,
     SubprocessScannerRunner,
@@ -46,7 +46,7 @@ async def test_subprocess_runner_env_whitelist(
 ) -> None:
     """ADR-0028 guard: GITHUB_PAT is in the parent env, but never reaches the child."""
     monkeypatch.setenv("GITHUB_PAT", "ghp_should_not_leak")
-    monkeypatch.setenv("OPENSEC_DB_PATH", "/should/not/leak.db")
+    monkeypatch.setenv("CLIFF_DB_PATH", "/should/not/leak.db")
     monkeypatch.setenv("PATH", os.environ.get("PATH", "/usr/bin:/bin"))
 
     out_file = tmp_path / "child_env.json"
@@ -61,24 +61,24 @@ async def test_subprocess_runner_env_whitelist(
 
     child_env = json.loads(out_file.read_text())
     assert "GITHUB_PAT" not in child_env, child_env
-    assert "OPENSEC_DB_PATH" not in child_env
+    assert "CLIFF_DB_PATH" not in child_env
 
     # Whitelisted entries that exist in the parent should still be there.
     assert child_env.get("PATH"), "PATH must propagate so the child can locate libs"
 
-    # The constraint is: nothing OpenSec controls (or that carries credentials)
+    # The constraint is: nothing Cliff controls (or that carries credentials)
     # leaks. macOS / glibc may inject loader vars (__CF_USER_TEXT_ENCODING,
     # LC_CTYPE) into every child process regardless of env=; those aren't ours.
     secret_like = {
-        k for k in child_env if k.startswith(("OPENSEC_", "GITHUB", "ANTHROPIC", "OPENAI"))
+        k for k in child_env if k.startswith(("CLIFF_", "GITHUB", "ANTHROPIC", "OPENAI"))
     }
     assert not secret_like, f"secret-shaped env leaked into scanner: {secret_like}"
-    extra_opensec_controlled = (set(child_env) - set(SCANNER_ENV_ALLOW)) - {
+    extra_cliff_controlled = (set(child_env) - set(SCANNER_ENV_ALLOW)) - {
         "__CF_USER_TEXT_ENCODING",
         "LC_CTYPE",
     }
-    assert not extra_opensec_controlled, (
-        f"unexpected env beyond loader vars leaked: {extra_opensec_controlled}"
+    assert not extra_cliff_controlled, (
+        f"unexpected env beyond loader vars leaked: {extra_cliff_controlled}"
     )
 
 
@@ -196,7 +196,7 @@ async def test_run_semgrep_parses_fixture_output(
 # CLI flags, both scanners report findings from `backend/tests/fixtures/` and
 # similar test-data directories, surfacing hundreds of false positives on
 # any repo that ships intentionally-vulnerable lockfiles for parser tests
-# (including OpenSec itself).
+# (including Cliff itself).
 
 
 @pytest.mark.asyncio
@@ -204,7 +204,7 @@ async def test_run_trivy_passes_skip_dirs_csv(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Trivy must receive ``--skip-dirs <csv>`` so it doesn't walk fixture trees."""
-    from opensec.assessment._fs import SKIP_DIRS
+    from cliff.assessment._fs import SKIP_DIRS
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -237,7 +237,7 @@ async def test_run_trivy_passes_skip_dirs_csv(
     # Trivy uses doublestar globs against paths relative to the scan target,
     # so matching a directory at any depth needs ``**/<name>``. A bare
     # basename misses nested occurrences (the case that motivated this fix:
-    # OpenSec's own ``backend/tests/fixtures``).
+    # Cliff's own ``backend/tests/fixtures``).
     expected = {f"**/{d}" for d in SKIP_DIRS}
     assert passed >= expected, f"--skip-dirs missing globs: {expected - passed}"
     # Spot-check the two that motivated this fix.
@@ -250,7 +250,7 @@ async def test_run_semgrep_passes_exclude_for_each_skip_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Semgrep takes one ``--exclude <dir>`` per directory; every SKIP_DIR must appear."""
-    from opensec.assessment._fs import SKIP_DIRS
+    from cliff.assessment._fs import SKIP_DIRS
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -290,7 +290,7 @@ async def test_run_semgrep_uses_relative_target_and_multi_config(
     """Semgrep runs with ``cwd=target`` and ``.`` as the scan target (so paths
     come back repo-relative — Q01-B05) and with every rule pack in
     ``SEMGREP_CONFIGS`` (recall — Q01-B04)."""
-    from opensec.assessment.scanners.runner import SEMGREP_CONFIGS
+    from cliff.assessment.scanners.runner import SEMGREP_CONFIGS
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()

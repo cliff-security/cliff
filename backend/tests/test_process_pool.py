@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from opensec.engine.pool import PortAllocator, WorkspaceProcess, WorkspaceProcessPool
+from cliff.engine.pool import PortAllocator, WorkspaceProcess, WorkspaceProcessPool
 
 # ---------------------------------------------------------------------------
 # PortAllocator
@@ -143,10 +143,10 @@ async def test_start_allocates_port_and_starts_process(pool: WorkspaceProcessPoo
 
     with (
         patch(
-            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            "cliff.engine.pool.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=mock_proc),
         ) as mock_exec,
-        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+        patch("cliff.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
     ):
         client = await pool.start("ws-1", Path("/tmp/ws-1"))
 
@@ -164,10 +164,10 @@ async def test_get_or_start_returns_existing(pool: WorkspaceProcessPool):
 
     with (
         patch(
-            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            "cliff.engine.pool.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=mock_proc),
         ) as mock_exec,
-        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+        patch("cliff.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
     ):
         client1 = await pool.get_or_start("ws-1", Path("/tmp/ws-1"))
         client2 = await pool.get_or_start("ws-1", Path("/tmp/ws-1"))
@@ -183,10 +183,10 @@ async def test_stop_terminates_and_releases_port(pool: WorkspaceProcessPool):
 
     with (
         patch(
-            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            "cliff.engine.pool.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=mock_proc),
         ),
-        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+        patch("cliff.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
     ):
         await pool.start("ws-1", Path("/tmp/ws-1"))
 
@@ -207,10 +207,10 @@ async def test_stop_all(pool: WorkspaceProcessPool):
 
     with (
         patch(
-            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            "cliff.engine.pool.asyncio.create_subprocess_exec",
             new=AsyncMock(side_effect=procs),
         ),
-        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+        patch("cliff.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
     ):
         await pool.start("ws-1", Path("/tmp/ws-1"))
         await pool.start("ws-2", Path("/tmp/ws-2"))
@@ -233,10 +233,10 @@ async def test_stop_idle(pool: WorkspaceProcessPool):
 
     with (
         patch(
-            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            "cliff.engine.pool.asyncio.create_subprocess_exec",
             new=AsyncMock(side_effect=procs),
         ),
-        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+        patch("cliff.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
     ):
         await pool.start("ws-old", Path("/tmp/ws-old"))
         await pool.start("ws-new", Path("/tmp/ws-new"))
@@ -277,10 +277,10 @@ async def test_start_failure_releases_port(pool: WorkspaceProcessPool):
 
     with (
         patch(
-            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            "cliff.engine.pool.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=mock_proc),
         ),
-        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+        patch("cliff.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
         pytest.raises(RuntimeError, match="exited with code 1"),
     ):
         await pool.start("ws-fail", Path("/tmp/ws-fail"))
@@ -299,15 +299,15 @@ async def test_start_injects_env_vars(pool: WorkspaceProcessPool):
     mock_proc = _make_mock_subprocess()
     mock_httpx = _make_mock_httpx_healthy()
 
-    env_vars = {"GH_TOKEN": "ghp_test123", "OPENSEC_REPO_URL": "https://github.com/org/repo"}
+    env_vars = {"GH_TOKEN": "ghp_test123", "CLIFF_REPO_URL": "https://github.com/org/repo"}
 
     with (
         patch(
-            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            "cliff.engine.pool.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=mock_proc),
         ) as mock_exec,
-        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
-        patch("opensec.engine.pool.os") as mock_os,
+        patch("cliff.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+        patch("cliff.engine.pool.os") as mock_os,
     ):
         mock_os.environ = {"PATH": "/usr/bin", "HOME": "/root"}
         await pool.start("ws-env", Path("/tmp/ws-env"), env_vars=env_vars)
@@ -316,7 +316,7 @@ async def test_start_injects_env_vars(pool: WorkspaceProcessPool):
     passed_env = call_kwargs.kwargs.get("env")
     assert passed_env is not None
     assert passed_env["GH_TOKEN"] == "ghp_test123"
-    assert passed_env["OPENSEC_REPO_URL"] == "https://github.com/org/repo"
+    assert passed_env["CLIFF_REPO_URL"] == "https://github.com/org/repo"
     # System env should also be present
     assert passed_env["PATH"] == "/usr/bin"
 
@@ -332,10 +332,10 @@ async def test_start_without_env_vars_injects_git_ceiling(
 
     with (
         patch(
-            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            "cliff.engine.pool.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=mock_proc),
         ) as mock_exec,
-        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+        patch("cliff.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
     ):
         await pool.start("ws-noenv", Path("/tmp/ws-noenv"))
 
@@ -353,11 +353,11 @@ async def test_get_or_start_threads_env_vars(pool: WorkspaceProcessPool):
 
     with (
         patch(
-            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            "cliff.engine.pool.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=mock_proc),
         ) as mock_exec,
-        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
-        patch("opensec.engine.pool.os") as mock_os,
+        patch("cliff.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+        patch("cliff.engine.pool.os") as mock_os,
     ):
         mock_os.environ = {"PATH": "/usr/bin"}
         await pool.get_or_start("ws-thread", Path("/tmp/ws-thread"), env_vars=env_vars)
@@ -378,10 +378,10 @@ async def test_empty_env_vars_still_injects_git_ceiling(
 
     with (
         patch(
-            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            "cliff.engine.pool.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=mock_proc),
         ) as mock_exec,
-        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+        patch("cliff.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
     ):
         await pool.start("ws-empty-env", Path("/tmp/ws-empty-env"), env_vars={})
 
@@ -404,10 +404,10 @@ async def test_start_injects_npm_cache(
 
     with (
         patch(
-            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            "cliff.engine.pool.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=mock_proc),
         ) as mock_exec,
-        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+        patch("cliff.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
     ):
         await pool.start("ws-npm", ws_dir)
 
@@ -443,10 +443,10 @@ async def test_start_reconciles_opencode_model(tmp_path: Path):
 
     with (
         patch(
-            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            "cliff.engine.pool.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=mock_proc),
         ),
-        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+        patch("cliff.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
     ):
         await pool.start("ws-model", ws_dir)
 
@@ -474,10 +474,10 @@ async def test_start_without_model_resolver_leaves_opencode_json_untouched(
 
     with (
         patch(
-            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            "cliff.engine.pool.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=mock_proc),
         ),
-        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+        patch("cliff.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
     ):
         await pool.start("ws-nomodel", ws_dir)
 
@@ -504,10 +504,10 @@ async def test_start_model_resolver_returning_none_leaves_untouched(
 
     with (
         patch(
-            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            "cliff.engine.pool.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=mock_proc),
         ),
-        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+        patch("cliff.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
     ):
         await pool.start("ws-modelnone", ws_dir)
 
@@ -528,11 +528,11 @@ async def test_start_scrubs_host_ai_provider_env_vars(pool: WorkspaceProcessPool
 
     with (
         patch(
-            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            "cliff.engine.pool.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=mock_proc),
         ) as mock_exec,
-        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
-        patch("opensec.engine.pool.os") as mock_os,
+        patch("cliff.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+        patch("cliff.engine.pool.os") as mock_os,
     ):
         mock_os.environ = {
             "PATH": "/usr/bin",
@@ -565,11 +565,11 @@ async def test_start_keeps_resolver_supplied_base_url(
 
     with (
         patch(
-            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            "cliff.engine.pool.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=mock_proc),
         ) as mock_exec,
-        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
-        patch("opensec.engine.pool.os") as mock_os,
+        patch("cliff.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+        patch("cliff.engine.pool.os") as mock_os,
     ):
         mock_os.environ = {
             "PATH": "/usr/bin",
@@ -599,10 +599,10 @@ async def test_status(pool: WorkspaceProcessPool):
 
     with (
         patch(
-            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            "cliff.engine.pool.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=mock_proc),
         ),
-        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+        patch("cliff.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
     ):
         await pool.start("ws-1", Path("/tmp/ws-1"))
 
@@ -633,10 +633,10 @@ async def test_stop_on_completion_archives_and_releases_port(
 
     with (
         patch(
-            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            "cliff.engine.pool.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=mock_proc),
         ),
-        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+        patch("cliff.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
     ):
         await pool.start(ws_id, ws_dir)
 
@@ -667,7 +667,7 @@ async def test_stop_on_completion_unknown_workspace_is_noop(
 
 def test_archive_and_remove_is_atomic_on_failure(tmp_path: Path):
     """A failure mid-archive must leave no partial .tar.gz at the dest path."""
-    from opensec.engine.pool import _archive_and_remove
+    from cliff.engine.pool import _archive_and_remove
 
     src = tmp_path / "ws-atomic"
     src.mkdir()
@@ -678,7 +678,7 @@ def test_archive_and_remove_is_atomic_on_failure(tmp_path: Path):
         pass
 
     with (
-        patch("opensec.engine.pool.tarfile.open", side_effect=_BoomError("tar exploded")),
+        patch("cliff.engine.pool.tarfile.open", side_effect=_BoomError("tar exploded")),
         pytest.raises(_BoomError),
     ):
         _archive_and_remove(src, dest, "ws-atomic")

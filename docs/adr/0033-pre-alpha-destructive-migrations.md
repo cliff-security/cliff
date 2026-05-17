@@ -15,7 +15,7 @@ IMPL-0003-p2 needs to land the unified-findings rebuild from ADR-0027 — one `f
 3. Migrates failing/advisory `posture_check` rows into `finding` as `type='posture'`.
 4. Drops the `posture_check` table only after the migration succeeds.
 
-That plan is correct for a product with users. It is over-engineered for OpenSec right now:
+That plan is correct for a product with users. It is over-engineered for Cliff right now:
 
 - **Single-user community edition.** The deployment shape is one Docker container, one SQLite file, one operator. No fleet to migrate.
 - **No external alpha users yet.** PRD-0004 (v0.1 alpha) merged on `main` (commit `d83fc7c`, 2026-04-24); the first external installs have not happened. The repo's only data is Gal's local dogfooding state.
@@ -29,7 +29,7 @@ We considered three ways to shape the migration:
 | B · Destructive migration: drop, recreate, repopulate from scanners | DROP `finding`; DROP `posture_check`; CREATE the new unified `finding` table; the next assessment run repopulates everything | **Chosen** for phase 2 |
 | C · Wipe the whole DB on first boot of the new build | A "fresh start" flag in config that reinitializes everything | Rejected. Heavier than needed — the assessment, completion, workspace, and audit-log tables all carry useful state we don't need to throw away. Surgically dropping `finding` + `posture_check` is enough |
 
-Option B trades migration safety for shipping speed and code surface. The trade is sound *only* because there is no one whose data we are about to destroy. The license to be destructive expires at v0.1 alpha tag — once the first external user installs OpenSec, every schema change is non-destructive again.
+Option B trades migration safety for shipping speed and code surface. The trade is sound *only* because there is no one whose data we are about to destroy. The license to be destructive expires at v0.1 alpha tag — once the first external user installs Cliff, every schema change is non-destructive again.
 
 ## Decision
 
@@ -73,7 +73,7 @@ For IMPL-0003-p2 specifically: drop `finding`, drop `posture_check`, recreate `f
 
 **Harder:**
 
-- Anyone running OpenSec from a pre-IMPL-0003-p2 build (i.e., Gal locally) will lose their findings + posture_check rows on the next run. They will need to trigger a re-assessment to repopulate. Documented in the migration file and the release notes.
+- Anyone running Cliff from a pre-IMPL-0003-p2 build (i.e., Gal locally) will lose their findings + posture_check rows on the next run. They will need to trigger a re-assessment to repopulate. Documented in the migration file and the release notes.
 - A future maintainer reading the migration file needs to understand that "DROP TABLE finding" was a deliberate one-time concession, not a pattern. The leading comment makes that explicit.
 
 **Known gaps:**

@@ -11,12 +11,12 @@ from typing import TYPE_CHECKING
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from opensec.db.connection import close_db, init_db
-from opensec.db.repo_integration import create_integration
-from opensec.integrations.gateway import MCPConfigResolver
-from opensec.integrations.registry import get_registry_entry, load_registry
-from opensec.integrations.vault import CredentialVault
-from opensec.models import Finding, IntegrationConfigCreate
+from cliff.db.connection import close_db, init_db
+from cliff.db.repo_integration import create_integration
+from cliff.integrations.gateway import MCPConfigResolver
+from cliff.integrations.registry import get_registry_entry, load_registry
+from cliff.integrations.vault import CredentialVault
+from cliff.models import Finding, IntegrationConfigCreate
 
 if TYPE_CHECKING:
     import aiosqlite
@@ -160,12 +160,12 @@ async def test_manifest_written_during_workspace_creation(
     db: aiosqlite.Connection, vault: CredentialVault, tmp_path, sample_finding: Finding
 ):
     """Create a workspace with integrations and verify the manifest exists."""
-    from opensec.agents.template_engine import AgentTemplateEngine
-    from opensec.db.repo_finding import create_finding
-    from opensec.integrations.gateway import MCPConfigResolver
-    from opensec.models import FindingCreate
-    from opensec.workspace.context_builder import WorkspaceContextBuilder
-    from opensec.workspace.workspace_dir_manager import WorkspaceDirManager
+    from cliff.agents.template_engine import AgentTemplateEngine
+    from cliff.db.repo_finding import create_finding
+    from cliff.integrations.gateway import MCPConfigResolver
+    from cliff.models import FindingCreate
+    from cliff.workspace.context_builder import WorkspaceContextBuilder
+    from cliff.workspace.workspace_dir_manager import WorkspaceDirManager
 
     # Setup: create finding + integration + credentials.
     finding = await create_finding(
@@ -208,12 +208,12 @@ async def test_no_manifest_without_integrations(
     db: aiosqlite.Connection, vault: CredentialVault, tmp_path
 ):
     """Workspace without integrations should not have a manifest file."""
-    from opensec.agents.template_engine import AgentTemplateEngine
-    from opensec.db.repo_finding import create_finding
-    from opensec.integrations.gateway import MCPConfigResolver
-    from opensec.models import FindingCreate
-    from opensec.workspace.context_builder import WorkspaceContextBuilder
-    from opensec.workspace.workspace_dir_manager import WorkspaceDirManager
+    from cliff.agents.template_engine import AgentTemplateEngine
+    from cliff.db.repo_finding import create_finding
+    from cliff.integrations.gateway import MCPConfigResolver
+    from cliff.models import FindingCreate
+    from cliff.workspace.context_builder import WorkspaceContextBuilder
+    from cliff.workspace.workspace_dir_manager import WorkspaceDirManager
 
     finding = await create_finding(
         db,
@@ -241,13 +241,13 @@ async def test_workspace_integrations_api(
     """Full API flow: create workspace with integration, query integrations endpoint."""
     from unittest.mock import AsyncMock
 
-    from opensec.agents.template_engine import AgentTemplateEngine
-    from opensec.db.repo_finding import create_finding
-    from opensec.integrations.gateway import MCPConfigResolver
-    from opensec.main import app
-    from opensec.models import FindingCreate
-    from opensec.workspace.context_builder import WorkspaceContextBuilder
-    from opensec.workspace.workspace_dir_manager import WorkspaceDirManager
+    from cliff.agents.template_engine import AgentTemplateEngine
+    from cliff.db.repo_finding import create_finding
+    from cliff.integrations.gateway import MCPConfigResolver
+    from cliff.main import app
+    from cliff.models import FindingCreate
+    from cliff.workspace.context_builder import WorkspaceContextBuilder
+    from cliff.workspace.workspace_dir_manager import WorkspaceDirManager
 
     @asynccontextmanager
     async def _noop_lifespan(a):
@@ -293,12 +293,12 @@ async def test_workspace_integrations_api_empty(db: aiosqlite.Connection, tmp_pa
     """Workspace with no integrations returns empty list."""
     from unittest.mock import AsyncMock
 
-    from opensec.agents.template_engine import AgentTemplateEngine
-    from opensec.db.repo_finding import create_finding
-    from opensec.main import app
-    from opensec.models import FindingCreate
-    from opensec.workspace.context_builder import WorkspaceContextBuilder
-    from opensec.workspace.workspace_dir_manager import WorkspaceDirManager
+    from cliff.agents.template_engine import AgentTemplateEngine
+    from cliff.db.repo_finding import create_finding
+    from cliff.main import app
+    from cliff.models import FindingCreate
+    from cliff.workspace.context_builder import WorkspaceContextBuilder
+    from cliff.workspace.workspace_dir_manager import WorkspaceDirManager
 
     @asynccontextmanager
     async def _noop_lifespan(a):
@@ -331,7 +331,7 @@ async def test_workspace_integrations_api_empty(db: aiosqlite.Connection, tmp_pa
 
 async def test_workspace_integrations_api_404(db: aiosqlite.Connection):
     """Non-existent workspace returns 404."""
-    from opensec.main import app
+    from cliff.main import app
 
     @asynccontextmanager
     async def _noop_lifespan(a):

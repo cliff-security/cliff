@@ -53,16 +53,16 @@ export default defineConfig({
       // deliberately offset from the default 8000 so it never collides with
       // a developer's running backend, Docker Desktop, or any other service
       // that happens to be on :8000 on the agent's machine.
-      command: `rm -rf "${E2E_DATA_DIR}" && mkdir -p "${E2E_DATA_DIR}" && cd "${REPO_ROOT}/backend" && uv run uvicorn opensec.main:app --host 127.0.0.1 --port 18000`,
+      command: `rm -rf "${E2E_DATA_DIR}" && mkdir -p "${E2E_DATA_DIR}" && cd "${REPO_ROOT}/backend" && uv run uvicorn cliff.main:app --host 127.0.0.1 --port 18000`,
       port: 18000,
       reuseExistingServer: false,
       timeout: 120_000,
       stdout: 'pipe',
       stderr: 'pipe',
       env: {
-        OPENSEC_DATA_DIR: E2E_DATA_DIR,
-        OPENSEC_TEST_FIXTURE_REPO_DIR: FIXTURE_REPO_DIR,
-        OPENSEC_TEST_FIXTURE_OSV_DIR: FIXTURE_OSV_DIR,
+        CLIFF_DATA_DIR: E2E_DATA_DIR,
+        CLIFF_TEST_FIXTURE_REPO_DIR: FIXTURE_REPO_DIR,
+        CLIFF_TEST_FIXTURE_OSV_DIR: FIXTURE_OSV_DIR,
         // Inherit PATH so ``uv`` resolves. This mirrors playwright docs.
         PATH: process.env.PATH ?? '',
       },

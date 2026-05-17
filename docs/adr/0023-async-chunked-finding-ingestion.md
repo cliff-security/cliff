@@ -19,7 +19,7 @@ Testing in Docker revealed concrete problems:
 
 5. **Singleton contention.** The singleton OpenCode process handles all app-level tasks. A long-running normalization blocks other uses of that process (health checks still work, but any other agent task would queue behind it).
 
-The existing `normalize_findings()` function in `backend/opensec/integrations/normalizer.py` already has a `MAX_BATCH_SIZE = 50` limit, but this is a hard reject — it does not chunk. The prompt, JSON extraction, and Pydantic validation logic are solid and should be preserved.
+The existing `normalize_findings()` function in `backend/cliff/integrations/normalizer.py` already has a `MAX_BATCH_SIZE = 50` limit, but this is a hard reject — it does not chunk. The prompt, JSON extraction, and Pydantic validation logic are solid and should be preserved.
 
 ## Decision
 
@@ -140,7 +140,7 @@ CREATE TABLE IF NOT EXISTS ingest_job (
 
 Status values: `pending`, `processing`, `completed`, `failed`, `cancelled`.
 
-**Raw data cleanup policy:** `raw_data` is retained for 7 days after job completion, then NULLed out by a cleanup sweep (run as part of the background worker's idle loop). This allows retries of recent failures while preventing unbounded storage growth. The 7-day period is configurable via `OPENSEC_INGEST_RETENTION_DAYS` (default 7).
+**Raw data cleanup policy:** `raw_data` is retained for 7 days after job completion, then NULLed out by a cleanup sweep (run as part of the background worker's idle loop). This allows retries of recent failures while preventing unbounded storage growth. The 7-day period is configurable via `CLIFF_INGEST_RETENTION_DAYS` (default 7).
 
 ### Part 4: Updated models
 

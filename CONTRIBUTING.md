@@ -1,4 +1,4 @@
-# Contributing to OpenSec
+# Contributing to Cliff
 
 Thank you for your interest in contributing. This document covers the essentials for getting changes reviewed and merged.
 
@@ -61,7 +61,7 @@ Every PR must pass all tests before review:
 cd backend && uv run pytest -v -m 'not e2e'
 
 # Lint
-cd backend && uv run ruff check opensec/ tests/
+cd backend && uv run ruff check cliff/ tests/
 
 # Frontend
 cd frontend && npm test

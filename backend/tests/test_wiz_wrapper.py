@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from opensec.integrations.wrappers.wiz.server import (
+from cliff.integrations.wrappers.wiz.server import (
     TOOLS,
     WizAPIError,
     WizMCPServer,
@@ -93,12 +93,12 @@ class TestMCPProtocol:
         result = {
             "protocolVersion": "2024-11-05",
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "opensec-mcp-wiz", "version": "0.1.0"},
+            "serverInfo": {"name": "cliff-mcp-wiz", "version": "0.1.0"},
         }
         server._respond(1, result)
         data = json.loads(buf.getvalue())
         assert data["result"]["protocolVersion"] == "2024-11-05"
-        assert data["result"]["serverInfo"]["name"] == "opensec-mcp-wiz"
+        assert data["result"]["serverInfo"]["name"] == "cliff-mcp-wiz"
 
     def test_error_response_format(self):
         """Error responses follow JSON-RPC format."""
@@ -127,7 +127,7 @@ class TestOAuth:
     """Tests for Wiz OAuth client_credentials flow."""
 
     def test_token_fetch_success(self, server):
-        with patch("opensec.integrations.wrappers.wiz.server.httpx.Client") as mock_cls:
+        with patch("cliff.integrations.wrappers.wiz.server.httpx.Client") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value.__enter__ = MagicMock(return_value=mock_client)
             mock_cls.return_value.__exit__ = MagicMock(return_value=False)
@@ -152,7 +152,7 @@ class TestOAuth:
         server._access_token = "old_token"
         server._token_expires_at = time.monotonic() - 10  # Expired.
 
-        with patch("opensec.integrations.wrappers.wiz.server.httpx.Client") as mock_cls:
+        with patch("cliff.integrations.wrappers.wiz.server.httpx.Client") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value.__enter__ = MagicMock(return_value=mock_client)
             mock_cls.return_value.__exit__ = MagicMock(return_value=False)
@@ -163,7 +163,7 @@ class TestOAuth:
             assert server._access_token != "old_token"
 
     def test_token_failure_raises(self, server):
-        with patch("opensec.integrations.wrappers.wiz.server.httpx.Client") as mock_cls:
+        with patch("cliff.integrations.wrappers.wiz.server.httpx.Client") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value.__enter__ = MagicMock(return_value=mock_client)
             mock_cls.return_value.__exit__ = MagicMock(return_value=False)
@@ -173,7 +173,7 @@ class TestOAuth:
                 server._ensure_token()
 
     def test_token_missing_in_response(self, server):
-        with patch("opensec.integrations.wrappers.wiz.server.httpx.Client") as mock_cls:
+        with patch("cliff.integrations.wrappers.wiz.server.httpx.Client") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value.__enter__ = MagicMock(return_value=mock_client)
             mock_cls.return_value.__exit__ = MagicMock(return_value=False)
@@ -314,7 +314,7 @@ class TestGraphQLErrors:
 
     def test_graphql_error_response(self, server):
         _setup_server_with_token(server)
-        with patch("opensec.integrations.wrappers.wiz.server.httpx.Client") as mock_cls:
+        with patch("cliff.integrations.wrappers.wiz.server.httpx.Client") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value.__enter__ = MagicMock(return_value=mock_client)
             mock_cls.return_value.__exit__ = MagicMock(return_value=False)
@@ -326,7 +326,7 @@ class TestGraphQLErrors:
 
     def test_http_error_response(self, server):
         _setup_server_with_token(server)
-        with patch("opensec.integrations.wrappers.wiz.server.httpx.Client") as mock_cls:
+        with patch("cliff.integrations.wrappers.wiz.server.httpx.Client") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value.__enter__ = MagicMock(return_value=mock_client)
             mock_cls.return_value.__exit__ = MagicMock(return_value=False)
@@ -372,7 +372,7 @@ class TestEntryPoint:
         """Missing env vars cause sys.exit(1)."""
         with patch.dict(os.environ, {}, clear=True):
             with pytest.raises(SystemExit) as exc_info:
-                from opensec.integrations.wrappers.wiz.__main__ import main
+                from cliff.integrations.wrappers.wiz.__main__ import main
                 main()
             assert exc_info.value.code == 1
 
@@ -386,24 +386,24 @@ class TestWizRegistryIntegration:
     """Verify the updated wiz.json registry entry."""
 
     def test_wiz_registry_has_mcp_config(self):
-        from opensec.integrations.registry import get_registry_entry
+        from cliff.integrations.registry import get_registry_entry
 
         entry = get_registry_entry("wiz")
         assert entry is not None
         assert entry.mcp_config is not None
         assert entry.mcp_config["command"][0] == "python"
         assert "-m" in entry.mcp_config["command"]
-        assert "opensec.integrations.wrappers.wiz" in entry.mcp_config["command"]
+        assert "cliff.integrations.wrappers.wiz" in entry.mcp_config["command"]
 
     def test_wiz_status_is_available(self):
-        from opensec.integrations.registry import get_registry_entry
+        from cliff.integrations.registry import get_registry_entry
 
         entry = get_registry_entry("wiz")
         assert entry is not None
         assert entry.status == "available"
 
     def test_wiz_credentials_schema_complete(self):
-        from opensec.integrations.registry import get_registry_entry
+        from cliff.integrations.registry import get_registry_entry
 
         entry = get_registry_entry("wiz")
         assert entry is not None
@@ -413,11 +413,11 @@ class TestWizRegistryIntegration:
     @pytest.mark.asyncio
     async def test_gateway_resolves_wiz_config(self):
         """MCPConfigResolver includes Wiz when integration is enabled with creds."""
-        from opensec.db.connection import close_db, init_db
-        from opensec.db.repo_integration import create_integration
-        from opensec.integrations.gateway import MCPConfigResolver
-        from opensec.integrations.vault import CredentialVault
-        from opensec.models import IntegrationConfigCreate
+        from cliff.db.connection import close_db, init_db
+        from cliff.db.repo_integration import create_integration
+        from cliff.integrations.gateway import MCPConfigResolver
+        from cliff.integrations.vault import CredentialVault
+        from cliff.models import IntegrationConfigCreate
 
         test_key = os.urandom(32)
         db = await init_db(":memory:")
@@ -454,11 +454,11 @@ class TestWizRegistryIntegration:
     @pytest.mark.asyncio
     async def test_wiz_in_workspace_integrations_list(self):
         """Resolved workspace includes Wiz in the integrations metadata."""
-        from opensec.db.connection import close_db, init_db
-        from opensec.db.repo_integration import create_integration
-        from opensec.integrations.gateway import MCPConfigResolver
-        from opensec.integrations.vault import CredentialVault
-        from opensec.models import IntegrationConfigCreate
+        from cliff.db.connection import close_db, init_db
+        from cliff.db.repo_integration import create_integration
+        from cliff.integrations.gateway import MCPConfigResolver
+        from cliff.integrations.vault import CredentialVault
+        from cliff.models import IntegrationConfigCreate
 
         test_key = os.urandom(32)
         db = await init_db(":memory:")

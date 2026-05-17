@@ -4,7 +4,7 @@
 
 ## Overview
 
-OpenSec connects to external systems through four adapter interfaces. Each interface defines a contract (abstract class) that providers implement.
+Cliff connects to external systems through four adapter interfaces. Each interface defines a contract (abstract class) that providers implement.
 
 See [docs/architecture/adapter-interfaces.md](../architecture/adapter-interfaces.md) for the full interface specs.
 

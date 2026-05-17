@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from opensec.models import AssessmentCreate, AssessmentUpdate, CriteriaSnapshot
+from cliff.models import AssessmentCreate, AssessmentUpdate, CriteriaSnapshot
 
 
 @pytest.fixture
@@ -19,7 +19,7 @@ def criteria_full():
 
 
 async def test_create_and_get_assessment(db):
-    from opensec.db.dao.assessment import create_assessment, get_assessment
+    from cliff.db.dao.assessment import create_assessment, get_assessment
 
     created = await create_assessment(db, AssessmentCreate(repo_url="https://github.com/acme/web"))
     assert created.id
@@ -36,13 +36,13 @@ async def test_create_and_get_assessment(db):
 
 
 async def test_get_assessment_missing(db):
-    from opensec.db.dao.assessment import get_assessment
+    from cliff.db.dao.assessment import get_assessment
 
     assert await get_assessment(db, "does-not-exist") is None
 
 
 async def test_update_assessment_status(db):
-    from opensec.db.dao.assessment import create_assessment, get_assessment, update_assessment
+    from cliff.db.dao.assessment import create_assessment, get_assessment, update_assessment
 
     created = await create_assessment(db, AssessmentCreate(repo_url="https://github.com/acme/web"))
     updated = await update_assessment(db, created.id, AssessmentUpdate(status="running"))
@@ -54,7 +54,7 @@ async def test_update_assessment_status(db):
 
 
 async def test_set_assessment_result(db, criteria_full):
-    from opensec.db.dao.assessment import (
+    from cliff.db.dao.assessment import (
         create_assessment,
         get_assessment,
         set_assessment_result,
@@ -75,7 +75,7 @@ async def test_set_assessment_result(db, criteria_full):
 
 
 async def test_update_assessment_missing(db):
-    from opensec.db.dao.assessment import update_assessment
+    from cliff.db.dao.assessment import update_assessment
 
     assert await update_assessment(db, "nope", AssessmentUpdate(status="failed")) is None
 
@@ -83,7 +83,7 @@ async def test_update_assessment_missing(db):
 async def test_get_latest_assessment_picks_most_recent(db):
     import asyncio
 
-    from opensec.db.dao.assessment import create_assessment, get_latest_assessment
+    from cliff.db.dao.assessment import create_assessment, get_latest_assessment
 
     a = await create_assessment(db, AssessmentCreate(repo_url="https://github.com/a/one"))
     await asyncio.sleep(0.01)
@@ -96,13 +96,13 @@ async def test_get_latest_assessment_picks_most_recent(db):
 
 
 async def test_get_latest_assessment_empty(db):
-    from opensec.db.dao.assessment import get_latest_assessment
+    from cliff.db.dao.assessment import get_latest_assessment
 
     assert await get_latest_assessment(db) is None
 
 
 async def test_criteria_snapshot_json_roundtrip(db, criteria_full):
-    from opensec.db.dao.assessment import create_assessment, get_assessment, set_assessment_result
+    from cliff.db.dao.assessment import create_assessment, get_assessment, set_assessment_result
 
     created = await create_assessment(db, AssessmentCreate(repo_url="https://github.com/acme/x"))
     await set_assessment_result(db, created.id, grade="B", criteria_snapshot=criteria_full)
@@ -121,7 +121,7 @@ async def test_criteria_snapshot_json_roundtrip(db, criteria_full):
 
 
 async def test_scope_fields_default_to_none(db):
-    from opensec.db.dao.assessment import create_assessment
+    from cliff.db.dao.assessment import create_assessment
 
     created = await create_assessment(db, AssessmentCreate(repo_url="https://github.com/a/b"))
     assert created.commit_sha is None
@@ -131,7 +131,7 @@ async def test_scope_fields_default_to_none(db):
 
 
 async def test_update_persists_scope_fields(db):
-    from opensec.db.dao.assessment import create_assessment, get_assessment, update_assessment
+    from cliff.db.dao.assessment import create_assessment, get_assessment, update_assessment
 
     created = await create_assessment(db, AssessmentCreate(repo_url="https://github.com/a/b"))
     updated = await update_assessment(
@@ -159,7 +159,7 @@ async def test_update_persists_scope_fields(db):
 
 
 async def test_partial_scope_update_leaves_others_alone(db):
-    from opensec.db.dao.assessment import create_assessment, update_assessment
+    from cliff.db.dao.assessment import create_assessment, update_assessment
 
     created = await create_assessment(db, AssessmentCreate(repo_url="https://github.com/a/b"))
     await update_assessment(
@@ -180,7 +180,7 @@ async def test_partial_scope_update_leaves_others_alone(db):
 
 
 async def test_reconcile_orphaned_assessments_marks_pending_and_running_failed(db):
-    from opensec.db.dao.assessment import (
+    from cliff.db.dao.assessment import (
         create_assessment,
         get_assessment,
         reconcile_orphaned_assessments,
@@ -237,7 +237,7 @@ async def test_reconcile_orphaned_assessments_marks_pending_and_running_failed(d
 
 
 async def test_reconcile_orphaned_assessments_empty_db(db):
-    from opensec.db.dao.assessment import reconcile_orphaned_assessments
+    from cliff.db.dao.assessment import reconcile_orphaned_assessments
 
     assert await reconcile_orphaned_assessments(db) == 0
 
@@ -247,7 +247,7 @@ async def test_reconcile_orphaned_stamps_interrupted_failure_detail(db):
     block so the dashboard renders an explanation instead of a silent
     failed row.
     """
-    from opensec.db.dao.assessment import (
+    from cliff.db.dao.assessment import (
         create_assessment,
         get_assessment,
         reconcile_orphaned_assessments,
@@ -277,7 +277,7 @@ async def test_reconcile_does_not_overwrite_existing_failure_detail(db):
     """A row that failed cleanly pre-restart keeps its original reason —
     reconcile only stamps the COALESCE'd default when the column is NULL.
     """
-    from opensec.db.dao.assessment import (
+    from cliff.db.dao.assessment import (
         create_assessment,
         get_assessment,
         reconcile_orphaned_assessments,
@@ -318,7 +318,7 @@ async def test_reap_stale_assessments_marks_old_running_rows_failed(db):
     """
     import asyncio as _asyncio
 
-    from opensec.db.dao.assessment import (
+    from cliff.db.dao.assessment import (
         create_assessment,
         get_assessment,
         reap_stale_assessments,
@@ -350,7 +350,7 @@ async def test_reap_stale_assessments_marks_old_running_rows_failed(db):
 
 async def test_reap_stale_assessments_skips_recent_rows(db):
     """A row started inside the window must NOT be reaped."""
-    from opensec.db.dao.assessment import (
+    from cliff.db.dao.assessment import (
         create_assessment,
         get_assessment,
         reap_stale_assessments,
@@ -369,7 +369,7 @@ async def test_reap_stale_assessments_skips_recent_rows(db):
 
 async def test_reap_stale_assessments_ignores_terminal_rows(db, criteria_full):
     """Already-complete or already-failed rows are untouched."""
-    from opensec.db.dao.assessment import (
+    from cliff.db.dao.assessment import (
         create_assessment,
         get_assessment,
         reap_stale_assessments,

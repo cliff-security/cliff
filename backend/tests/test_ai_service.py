@@ -7,15 +7,15 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from opensec.ai import catalog
-from opensec.ai.service import AIIntegrationService
-from opensec.db.connection import close_db, init_db
-from opensec.integrations.vault import CredentialVault
+from cliff.ai import catalog
+from cliff.ai.service import AIIntegrationService
+from cliff.db.connection import close_db, init_db
+from cliff.integrations.vault import CredentialVault
 
 if TYPE_CHECKING:
     import aiosqlite
 
-    from opensec.integrations.audit import AuditEvent
+    from cliff.integrations.audit import AuditEvent
 
 
 @pytest.fixture(autouse=True)
@@ -43,7 +43,7 @@ def _isolate_opencode_client(monkeypatch):
     """
     from unittest.mock import AsyncMock
 
-    from opensec.engine.client import opencode_client
+    from cliff.engine.client import opencode_client
 
     monkeypatch.setattr(opencode_client, "set_auth", AsyncMock(return_value=True))
     monkeypatch.setattr(
@@ -256,7 +256,7 @@ async def test_resolve_model_prefers_app_setting_model(
     catalog default when its provider matches the active integration.
     (QA Q01 B07: workspace was provisioned for sonnet while the user had
     selected haiku.)"""
-    from opensec.db.repo_setting import upsert_setting
+    from cliff.db.repo_setting import upsert_setting
 
     await service.save_byok("anthropic", "sk-ant-realkey-12345")
     await upsert_setting(db, "model", {"full_id": "anthropic/claude-haiku-4-5"})
@@ -272,7 +272,7 @@ async def test_resolve_model_ignores_app_setting_from_other_provider(
     """A ``model`` app-setting left over from a different provider must not
     be handed to a workspace whose injected key is for another provider —
     fall back to the active provider's catalog default."""
-    from opensec.db.repo_setting import upsert_setting
+    from cliff.db.repo_setting import upsert_setting
 
     await service.save_byok("anthropic", "sk-ant-realkey-12345")
     # ``save_byok`` (ADR-0037) writes ``app_setting(model)`` atomically.
@@ -300,13 +300,13 @@ async def test_verify_active_credential_ok_stamps_last_validated(
     service: AIIntegrationService, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A live probe that passes returns ok and stamps last_validated_at."""
-    from opensec.ai.models import ValidationResult
+    from cliff.ai.models import ValidationResult
 
     async def _fake_validate(*_args, **_kwargs) -> ValidationResult:
         return ValidationResult(ok=True)
 
     monkeypatch.setattr(
-        "opensec.ai.service.validators.validate", _fake_validate
+        "cliff.ai.service.validators.validate", _fake_validate
     )
     await service.save_byok("anthropic", "sk-ant-realkey-12345")
     assert await service.get_active() is not None
@@ -324,7 +324,7 @@ async def test_verify_active_credential_surfaces_auth_failure(
 ) -> None:
     """A revoked/wrong key resolves fine but the probe rejects it — the
     auth_failed verdict is surfaced and last_validated_at stays unstamped."""
-    from opensec.ai.models import ValidationResult
+    from cliff.ai.models import ValidationResult
 
     async def _fake_validate(*_args, **_kwargs) -> ValidationResult:
         return ValidationResult(
@@ -334,7 +334,7 @@ async def test_verify_active_credential_surfaces_auth_failure(
         )
 
     monkeypatch.setattr(
-        "opensec.ai.service.validators.validate", _fake_validate
+        "cliff.ai.service.validators.validate", _fake_validate
     )
     await service.save_byok("anthropic", "sk-ant-revoked")
 
@@ -351,13 +351,13 @@ async def test_verify_active_credential_network_error_is_not_auth_failed(
     """A transient probe failure is surfaced as ``network`` — callers must
     be able to tell it apart from a definitive auth rejection so readiness
     doesn't flap on a flaky probe."""
-    from opensec.ai.models import ValidationResult
+    from cliff.ai.models import ValidationResult
 
     async def _fake_validate(*_args, **_kwargs) -> ValidationResult:
         return ValidationResult(ok=False, error_code="network")
 
     monkeypatch.setattr(
-        "opensec.ai.service.validators.validate", _fake_validate
+        "cliff.ai.service.validators.validate", _fake_validate
     )
     await service.save_byok("anthropic", "sk-ant-realkey-12345")
 
@@ -441,7 +441,7 @@ async def test_save_byok_pushes_key_to_opencode_auth(
     """OpenCode 1.3.x reads auth.json over env vars — verify we push."""
     from unittest.mock import AsyncMock
 
-    from opensec.engine.client import opencode_client
+    from cliff.engine.client import opencode_client
 
     push = AsyncMock(return_value=True)
     monkeypatch.setattr(opencode_client, "set_auth", push)
@@ -458,7 +458,7 @@ async def test_save_byok_does_not_push_for_custom_provider(
 ) -> None:
     from unittest.mock import AsyncMock
 
-    from opensec.engine.client import opencode_client
+    from cliff.engine.client import opencode_client
 
     push = AsyncMock(return_value=True)
     monkeypatch.setattr(opencode_client, "set_auth", push)
@@ -473,7 +473,7 @@ async def test_disconnect_clears_opencode_auth(
 ) -> None:
     from unittest.mock import AsyncMock
 
-    from opensec.engine.client import opencode_client
+    from cliff.engine.client import opencode_client
 
     push = AsyncMock(return_value=True)
     monkeypatch.setattr(opencode_client, "set_auth", push)
@@ -494,7 +494,7 @@ async def test_save_byok_survives_opencode_unavailable(
     """The new flow must still persist if OpenCode is unreachable."""
     from unittest.mock import AsyncMock
 
-    from opensec.engine.client import opencode_client
+    from cliff.engine.client import opencode_client
 
     push = AsyncMock(side_effect=RuntimeError("opencode down"))
     monkeypatch.setattr(opencode_client, "set_auth", push)
@@ -513,7 +513,7 @@ async def test_save_byok_writes_canonical_model_from_catalog_default(
 ) -> None:
     """A fresh BYOK save sets app_setting(model) to the provider's default
     so workspace spawn + Settings UI see the same value (ADR-0037)."""
-    from opensec.db.repo_setting import get_setting
+    from cliff.db.repo_setting import get_setting
 
     await service.save_byok("anthropic", "sk-ant-key")
     stored = await get_setting(db, "model")
@@ -525,7 +525,7 @@ async def test_save_byok_with_explicit_model_overrides_default(
     service: AIIntegrationService, db: aiosqlite.Connection
 ) -> None:
     """An explicit model argument wins over the catalog default."""
-    from opensec.db.repo_setting import get_setting
+    from cliff.db.repo_setting import get_setting
 
     await service.save_byok(
         "anthropic", "sk-ant-key", model="anthropic/claude-opus-4-1"
@@ -539,7 +539,7 @@ async def test_save_byok_explicit_model_without_prefix_gets_prefixed(
     service: AIIntegrationService, db: aiosqlite.Connection
 ) -> None:
     """Caller-supplied model without ``provider/`` gets the prefix added."""
-    from opensec.db.repo_setting import get_setting
+    from cliff.db.repo_setting import get_setting
 
     await service.save_byok("anthropic", "sk-ant-key", model="claude-opus-4-1")
     stored = await get_setting(db, "model")
@@ -553,7 +553,7 @@ async def test_save_byok_with_mismatched_prefix_ignores_explicit_model(
     """An explicit model whose prefix doesn't match the provider falls back
     to the catalog default (the wrong-namespace value is the bug we're
     catching, not the value we propagate)."""
-    from opensec.db.repo_setting import get_setting
+    from cliff.db.repo_setting import get_setting
 
     await service.save_byok(
         "anthropic", "sk-ant-key", model="openai/gpt-5"
@@ -571,7 +571,7 @@ async def test_save_byok_preserves_prior_user_choice_on_reconnect(
     Anthropic-on-Sonnet user re-saves the integration — they should stay
     on Sonnet, not get reset to the new Haiku default. (Migration
     rule from ADR-0037.)"""
-    from opensec.db.repo_setting import get_setting, upsert_setting
+    from cliff.db.repo_setting import get_setting, upsert_setting
 
     await upsert_setting(
         db, "model", {"full_id": "anthropic/claude-sonnet-4-6"}
@@ -587,7 +587,7 @@ async def test_switching_providers_falls_to_new_provider_default(
 ) -> None:
     """Switching anthropic → openrouter rewrites app_setting(model) to the
     new provider's default — the old stored model's prefix is stale."""
-    from opensec.db.repo_setting import get_setting
+    from cliff.db.repo_setting import get_setting
 
     await service.save_byok("anthropic", "sk-ant-key")
     await service.save_byok("openrouter", "sk-or-key")
@@ -600,7 +600,7 @@ async def test_set_model_rejects_unprefixed_id(
     service: AIIntegrationService,
 ) -> None:
     """``set_model`` insists on an explicit provider prefix."""
-    from opensec.ai.service import ModelPrefixMismatchError
+    from cliff.ai.service import ModelPrefixMismatchError
 
     await service.save_byok("anthropic", "sk-ant-key")
     with pytest.raises(ModelPrefixMismatchError):
@@ -611,7 +611,7 @@ async def test_set_model_rejects_prefix_mismatch(
     service: AIIntegrationService,
 ) -> None:
     """``set_model`` refuses to write an openai/* id when anthropic is active."""
-    from opensec.ai.service import ModelPrefixMismatchError
+    from cliff.ai.service import ModelPrefixMismatchError
 
     await service.save_byok("anthropic", "sk-ant-key")
     with pytest.raises(ModelPrefixMismatchError):
@@ -622,7 +622,7 @@ async def test_set_model_without_active_provider_raises(
     service: AIIntegrationService,
 ) -> None:
     """Picker can't fire before a provider exists — fail loudly."""
-    from opensec.ai.service import NoActiveProviderError
+    from cliff.ai.service import NoActiveProviderError
 
     with pytest.raises(NoActiveProviderError):
         await service.set_model("anthropic/claude-haiku-4-5")
@@ -632,7 +632,7 @@ async def test_set_model_updates_canonical(
     service: AIIntegrationService, db: aiosqlite.Connection
 ) -> None:
     """Happy path: the picker writes the new model."""
-    from opensec.db.repo_setting import get_setting
+    from cliff.db.repo_setting import get_setting
 
     await service.save_byok("anthropic", "sk-ant-key")
     await service.set_model("anthropic/claude-sonnet-4-6")
@@ -703,7 +703,7 @@ async def test_save_byok_for_ollama_skips_opencode_auth_push(
             seen.append((opencode_id, payload))
 
     monkeypatch.setattr(
-        "opensec.engine.client.opencode_client", _StubClient()
+        "cliff.engine.client.opencode_client", _StubClient()
     )
     await service.save_byok("ollama", "local", base_url="http://localhost:11434")
     # No push for ollama.

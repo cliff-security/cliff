@@ -6,9 +6,9 @@
 
 ## Context
 
-OpenSec's current workspace runtime (ADR-0014) creates isolated directories with finding context files, agent definitions, and per-workspace OpenCode processes. Agents analyze findings using context documents but have no access to actual source code. The remediation planner *describes* fix steps but cannot execute them.
+Cliff's current workspace runtime (ADR-0014) creates isolated directories with finding context files, agent definitions, and per-workspace OpenCode processes. Agents analyze findings using context documents but have no access to actual source code. The remediation planner *describes* fix steps but cannot execute them.
 
-PRD-0001 redefines the MVP's definition of done: instead of producing advisory remediation plans, OpenSec must **actually fix the code and create a draft PR on GitHub**. This requires two new capabilities:
+PRD-0001 redefines the MVP's definition of done: instead of producing advisory remediation plans, Cliff must **actually fix the code and create a draft PR on GitHub**. This requires two new capabilities:
 
 1. **Repository access** — the workspace must contain a clone of the target repository so agents can read, modify, and test the codebase.
 2. **Agentic remediation** — a new agent type that writes code changes, runs tests, commits, pushes, and creates a draft PR via the GitHub API.
@@ -56,7 +56,7 @@ data/workspaces/<workspace-id>/
 
 **Key design choices:**
 
-- **Agent handles git workflow:** Clone, branch creation (`opensec/fix/<finding-slug>`), commits, push, PR creation — all via bash and `gh` CLI.
+- **Agent handles git workflow:** Clone, branch creation (`cliff/fix/<finding-slug>`), commits, push, PR creation — all via bash and `gh` CLI.
 - **Repository URL and PAT** stored as a global setting in the credential vault (reusing ADR-0016 infrastructure). One repo for MVP; per-finding override is a future feature.
 - **No custom clone code in Python.** The `WorkspaceDirManager` is unchanged. The agent prompt instructs the LLM to clone into `./repo/` as its first step.
 - **Pull on reopen** — the agent checks if `repo/` exists and pulls latest instead of re-cloning. This is part of the prompt, not backend logic.
@@ -94,7 +94,7 @@ The remediation executor receives:
   "confidence": 0.0-1.0,
   "structured_output": {
     "status": "pr_created | tests_failed | needs_guidance | error",
-    "branch_name": "opensec/fix/cve-...",
+    "branch_name": "cliff/fix/cve-...",
     "files_changed": [{"path": "...", "additions": N, "deletions": N}],
     "test_results": {"passed": N, "failed": N, "summary": "..."},
     "pr_url": "https://github.com/.../pull/N" | null,
@@ -125,10 +125,10 @@ The executor does NOT auto-run. After the planner completes:
 
 ```bash
 git clone https://github.com/owner/repo.git repo/
-cd repo && git checkout -b opensec/fix/cve-2024-48930
+cd repo && git checkout -b cliff/fix/cve-2024-48930
 # ... make changes, run tests ...
 git commit -m "fix: lodash prototype pollution (CVE-2024-48930)"
-git push -u origin opensec/fix/cve-2024-48930
+git push -u origin cliff/fix/cve-2024-48930
 gh pr create --draft --title "fix: ..." --body "..." --base main
 ```
 
@@ -152,7 +152,7 @@ enricher → exposure_analyzer → remediation_planner → remediation_executor
 
 ### What becomes easier
 
-- **End-to-end value** — OpenSec goes from advisory to agentic. A single session can go from "I have a finding" to "I have a PR."
+- **End-to-end value** — Cliff goes from advisory to agentic. A single session can go from "I have a finding" to "I have a PR."
 - **Dogfooding** — the MVP persona (open-source maintainer) can test the full loop on a real repo.
 - **Trust via visibility** — the draft PR on GitHub is the trust artifact. The user reviews real diffs, not plans.
 

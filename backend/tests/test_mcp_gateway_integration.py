@@ -17,12 +17,12 @@ from unittest.mock import AsyncMock
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from opensec.db.connection import close_db, init_db
-from opensec.db.repo_integration import create_integration, update_integration
-from opensec.integrations.audit import AuditLogger
-from opensec.integrations.gateway import MCPConfigResolver
-from opensec.integrations.vault import CredentialVault
-from opensec.models import FindingCreate, IntegrationConfigCreate, IntegrationConfigUpdate
+from cliff.db.connection import close_db, init_db
+from cliff.db.repo_integration import create_integration, update_integration
+from cliff.integrations.audit import AuditLogger
+from cliff.integrations.gateway import MCPConfigResolver
+from cliff.integrations.vault import CredentialVault
+from cliff.models import FindingCreate, IntegrationConfigCreate, IntegrationConfigUpdate
 
 if TYPE_CHECKING:
     import aiosqlite
@@ -49,11 +49,11 @@ async def vault(db: aiosqlite.Connection):
 
 async def test_full_gateway_flow(db: aiosqlite.Connection, vault: CredentialVault, tmp_path):
     """End-to-end: create integration → store creds → create workspace → verify everything."""
-    from opensec.agents.template_engine import AgentTemplateEngine
-    from opensec.db import repo_audit
-    from opensec.db.repo_finding import create_finding
-    from opensec.workspace.context_builder import WorkspaceContextBuilder
-    from opensec.workspace.workspace_dir_manager import WorkspaceDirManager
+    from cliff.agents.template_engine import AgentTemplateEngine
+    from cliff.db import repo_audit
+    from cliff.db.repo_finding import create_finding
+    from cliff.workspace.context_builder import WorkspaceContextBuilder
+    from cliff.workspace.workspace_dir_manager import WorkspaceDirManager
 
     audit = AuditLogger(db)
     await audit.start()
@@ -72,7 +72,7 @@ async def test_full_gateway_flow(db: aiosqlite.Connection, vault: CredentialVaul
     finding = await create_finding(
         db,
         FindingCreate(
-            source_type="opensec-dogfooding",
+            source_type="cliff-dogfooding",
             source_id="OSSEC-E2E",
             title="E2E test finding",
         ),
@@ -127,10 +127,10 @@ async def test_config_fresh_when_unchanged(
     db: aiosqlite.Connection, vault: CredentialVault, tmp_path
 ):
     """Config is fresh when nothing has changed since workspace creation."""
-    from opensec.agents.template_engine import AgentTemplateEngine
-    from opensec.db.repo_finding import create_finding
-    from opensec.workspace.context_builder import WorkspaceContextBuilder
-    from opensec.workspace.workspace_dir_manager import WorkspaceDirManager
+    from cliff.agents.template_engine import AgentTemplateEngine
+    from cliff.db.repo_finding import create_finding
+    from cliff.workspace.context_builder import WorkspaceContextBuilder
+    from cliff.workspace.workspace_dir_manager import WorkspaceDirManager
 
     resolver = MCPConfigResolver(vault)
     integration = await create_integration(
@@ -157,10 +157,10 @@ async def test_config_stale_when_integration_added(
     db: aiosqlite.Connection, vault: CredentialVault, tmp_path
 ):
     """Config becomes stale when a new integration is added after workspace creation."""
-    from opensec.agents.template_engine import AgentTemplateEngine
-    from opensec.db.repo_finding import create_finding
-    from opensec.workspace.context_builder import WorkspaceContextBuilder
-    from opensec.workspace.workspace_dir_manager import WorkspaceDirManager
+    from cliff.agents.template_engine import AgentTemplateEngine
+    from cliff.db.repo_finding import create_finding
+    from cliff.workspace.context_builder import WorkspaceContextBuilder
+    from cliff.workspace.workspace_dir_manager import WorkspaceDirManager
 
     resolver = MCPConfigResolver(vault)
 
@@ -199,10 +199,10 @@ async def test_config_stale_when_integration_disabled(
     db: aiosqlite.Connection, vault: CredentialVault, tmp_path
 ):
     """Config becomes stale when an integration is disabled after workspace creation."""
-    from opensec.agents.template_engine import AgentTemplateEngine
-    from opensec.db.repo_finding import create_finding
-    from opensec.workspace.context_builder import WorkspaceContextBuilder
-    from opensec.workspace.workspace_dir_manager import WorkspaceDirManager
+    from cliff.agents.template_engine import AgentTemplateEngine
+    from cliff.db.repo_finding import create_finding
+    from cliff.workspace.context_builder import WorkspaceContextBuilder
+    from cliff.workspace.workspace_dir_manager import WorkspaceDirManager
 
     resolver = MCPConfigResolver(vault)
     gh = await create_integration(
@@ -233,10 +233,10 @@ async def test_config_stale_when_tier_changed(
     db: aiosqlite.Connection, vault: CredentialVault, tmp_path
 ):
     """Config becomes stale when an integration's action tier is changed."""
-    from opensec.agents.template_engine import AgentTemplateEngine
-    from opensec.db.repo_finding import create_finding
-    from opensec.workspace.context_builder import WorkspaceContextBuilder
-    from opensec.workspace.workspace_dir_manager import WorkspaceDirManager
+    from cliff.agents.template_engine import AgentTemplateEngine
+    from cliff.db.repo_finding import create_finding
+    from cliff.workspace.context_builder import WorkspaceContextBuilder
+    from cliff.workspace.workspace_dir_manager import WorkspaceDirManager
 
     resolver = MCPConfigResolver(vault)
     gh = await create_integration(
@@ -285,11 +285,11 @@ async def test_integrations_api_includes_freshness(
     db: aiosqlite.Connection, vault: CredentialVault, tmp_path
 ):
     """GET /workspaces/{id}/integrations returns config_stale field."""
-    from opensec.agents.template_engine import AgentTemplateEngine
-    from opensec.db.repo_finding import create_finding
-    from opensec.main import app
-    from opensec.workspace.context_builder import WorkspaceContextBuilder
-    from opensec.workspace.workspace_dir_manager import WorkspaceDirManager
+    from cliff.agents.template_engine import AgentTemplateEngine
+    from cliff.db.repo_finding import create_finding
+    from cliff.main import app
+    from cliff.workspace.context_builder import WorkspaceContextBuilder
+    from cliff.workspace.workspace_dir_manager import WorkspaceDirManager
 
     @asynccontextmanager
     async def _noop_lifespan(a):

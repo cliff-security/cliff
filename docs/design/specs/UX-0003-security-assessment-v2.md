@@ -29,7 +29,7 @@ When rev. 1 of this spec and the Claude design hand-off disagree on a visual dec
 **Decisions that shifted in rev. 2** (covered in detail by ADR-0032):
 
 1. **Tool identity payload.** A single `tools[]` array drives the `Scanned by` row and the `ToolPillBar` everywhere it appears. Each entry carries `{id, label, version, icon, state, result?}` — the `result` tail is what powers the "Trivy 0.52 · 7 findings" rendering on the report-card hero.
-2. **Posture-check vocabulary.** Four states (`pass | fail | done | advisory`) replace the rev. 1 binary pass/fail. The `done` state shows a `Draft PR ↗` link to the GitHub PR an OpenSec agent opened — preserving the brand moment that pass/fail collapsed.
+2. **Posture-check vocabulary.** Four states (`pass | fail | done | advisory`) replace the rev. 1 binary pass/fail. The `done` state shows a `Draft PR ↗` link to the GitHub PR an Cliff agent opened — preserving the brand moment that pass/fail collapsed.
 3. **Criteria with labels.** The completion-progress card reads its 10 criteria from a labeled `criteria[]` payload, not a static frontend label map.
 4. **Severity color.** Medium severity uses the `warning` token family (ADR-0029), not `tertiary`. The Claude design hand-off's `SeverityChip` defaulted medium to tertiary; that mapping is overridden by ADR-0029 in our codebase.
 5. **Interstitial gate.** The assessment-complete summary is gated by a server-side `summary_seen_at` flag on the `assessment` row, not by a `?assessment=complete` URL trick.
@@ -46,7 +46,7 @@ PRD-0003 touches five existing screens, adds one new transitional screen, and in
 |---|--------|-------------|--------|
 | 1 | **Report card — posture section** | Expands from flat list to 4 grouped categories (CI supply chain, collaborator hygiene, code integrity, repo configuration). Adds "scanned by" metadata. Advisory vs pass/fail visual distinction. Generator CTAs for SHA pinning + CODEOWNERS | `frontend/mockups/html/prd-0003-report-card-posture.html` |
 | 2 | **Assessment progress** | Steps change from 5 homebrew stages to scanner-specific stages with tool names. Tool pills show which scanners are running. Active step expands with progress bar and detail text | `frontend/mockups/html/prd-0003-assessment-progress.html` (frames 3.1–3.3) |
-| 3 | **Assessment complete summary** | **NEW.** Interstitial shown after assessment finishes, before the report card. Summarizes findings count, posture results across 4 areas, quick wins OpenSec can auto-fix, and grade preview. Bridges the gap so Alex isn't surprised by 15 checks in 4 categories | `frontend/mockups/html/prd-0003-assessment-progress.html` (frame 3.5) |
+| 3 | **Assessment complete summary** | **NEW.** Interstitial shown after assessment finishes, before the report card. Summarizes findings count, posture results across 4 areas, quick wins Cliff can auto-fix, and grade preview. Bridges the gap so Alex isn't surprised by 15 checks in 4 categories | `frontend/mockups/html/prd-0003-assessment-progress.html` (frame 3.5) |
 | 4 | **Onboarding Step 3** | Copy updated to reference Trivy/Semgrep by name. "Powered by" tool pills added. Preview steps expanded to 4 | `frontend/mockups/html/prd-0003-assessment-progress.html` (frame 3.4) |
 | 5 | **Completion progress card** | Criteria count changes from 5 to 10. Grade ring recalibrated | Component update, covered in report card mockup |
 | 6 | **Shareable summary card** | Criteria count in text updated. "Scanned by" line added | Minor text update |
@@ -112,7 +112,7 @@ Instead of jumping directly to the report card, Alex sees an **assessment comple
 3. Shows three summary cards side-by-side:
    - **Vulnerabilities**: total count + severity breakdown + which tools found them
    - **Posture**: X of 15 pass + names the 4 categories (CI supply chain, collaborator hygiene, code integrity, repo configuration) — this is the key moment that primes Alex for the grouped posture card
-   - **Quick wins**: count of items OpenSec can fix automatically, with short labels
+   - **Quick wins**: count of items Cliff can fix automatically, with short labels
 4. Shows a **completion preview**: "8 of 10 criteria met — grade B" with a mini grade ring
 5. Single CTA: "View your report card →"
 
@@ -165,7 +165,7 @@ The posture card currently shows a flat list of failures + a summary count. PRD-
 
 **Advisory checks** show the `info` Material Symbol icon in `text-on-surface-variant` (muted, non-alarming). They are visually distinct from both pass (green check) and fail (red error). The advisory row doesn't expand and has no CTA — it's informational. Tooltip or inline text explains why this isn't blocking.
 
-**Generator CTAs** appear on failing checks that OpenSec can auto-fix:
+**Generator CTAs** appear on failing checks that Cliff can auto-fix:
 
 | Check | CTA label | Action |
 |-------|-----------|--------|
@@ -315,4 +315,4 @@ Two HTML mockup files demonstrate the key visual changes:
 
 ---
 
-_This UX spec follows the OpenSec product workflow. After CEO approval, it moves to `/architect` for implementation planning._
+_This UX spec follows the Cliff product workflow. After CEO approval, it moves to `/architect` for implementation planning._

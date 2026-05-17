@@ -119,7 +119,7 @@ function PickingMethodPanel({
           How would you like to connect?
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-on-surface-variant">
-          OpenSec needs an AI provider to enrich findings and write fixes.
+          Cliff needs an AI provider to enrich findings and write fixes.
           Encrypted at rest, never leaves your machine.
         </p>
       </header>
@@ -238,7 +238,7 @@ function DetectedPanel({
             title={source}
           >
             We spotted one in <span className="font-medium text-on-surface">{friendlySource}</span>.
-            OpenSec can adopt it — encrypted at rest, never logged.
+            Cliff can adopt it — encrypted at rest, never logged.
           </p>
         </div>
       </header>

@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from opensec.services.reference_verifier import ReferenceCheck, clean_references
+from cliff.services.reference_verifier import ReferenceCheck, clean_references
 
 
 def _client(handler) -> httpx.AsyncClient:

@@ -1,4 +1,4 @@
-# OpenSec Backlog
+# Cliff Backlog
 
 > Tactical task list for both development verticals. Each skill reads this at startup to find the next unchecked item. Check off items in commits as they're completed.
 
@@ -27,7 +27,7 @@ v1.1 — Earn the Badge (PRD-0002, UX-0002, IMPL-0002, ADR-0025):
 
 MVP — Agentic remediation (PRD-0001, IMPL-0001):
 
-- [ ] **WP2: Repo access** — inject GH_TOKEN + OPENSEC_REPO_URL into workspace OpenCode process env from credential vault (ADR-0024). Agent handles clone/branch/push via bash
+- [ ] **WP2: Repo access** — inject GH_TOKEN + CLIFF_REPO_URL into workspace OpenCode process env from credential vault (ADR-0024). Agent handles clone/branch/push via bash
 - [ ] **WP4: Pipeline update** — 4-agent MVP sequence (enricher → exposure → planner → executor), remove owner_resolver from defaults, update suggest_next()
 - [x] **WP5: Remediation executor agent** — new `remediation_executor.md.j2` template, tool-using conversational agent, output parser + sidebar mapper for PR data
 - [x] **WP5: PR creation** — agent pushes branch + creates draft PR via `gh pr create`, PR metadata in sidebar
@@ -50,16 +50,16 @@ Per-bug reports: `docs/qa/QA-0001-Q01R-rerun-ui-only.md` + `docs/qa/evidence/Q01
 
 **PR-Q01R-A — IMPL-0013 (posture autofix + default branch)**
 
-- [ ] **Q1**: Shrink `_AUTO_FIXABLE_CHECKS` in `backend/opensec/api/routes/_level_up.py` from 4 to 2 (only `security_md`, `dependabot_config` until handlers exist) — closes B24a
+- [ ] **Q1**: Shrink `_AUTO_FIXABLE_CHECKS` in `backend/cliff/api/routes/_level_up.py` from 4 to 2 (only `security_md`, `dependabot_config` until handlers exist) — closes B24a
 - [ ] **Q2**: Add `onError` toast + inline error rendering on the Auto-fix card in `frontend/src/components/dashboard/GateRow.tsx`; parse 422 body into a useful message — closes B24b
-- [ ] **Q3**: Resolve the repo's default branch via `GET /repos/{owner}/{repo}` once per assessment; pass through `RepoCoords` in `backend/opensec/assessment/posture/`; remove the `branch="main"` default — closes B23
+- [ ] **Q3**: Resolve the repo's default branch via `GET /repos/{owner}/{repo}` once per assessment; pass through `RepoCoords` in `backend/cliff/assessment/posture/`; remove the `branch="main"` default — closes B23
 - [ ] **Q4**: Unit tests in `test_routes_level_up.py`, `test_routes_posture.py`, `test_assessment_posture.py` per IMPL-0013
 
 **PR-Q01R-B — IMPL-0014 + ADR-0037 (push token preflight + App permissions)**
 
-- [ ] **Q5**: Manual ops — update `opensec-local-test` GitHub App permissions to Contents:write + Pull requests:write + Actions:read + Administration:read — closes B30 root cause
-- [ ] **Q6**: Add `check_repo_push_access(token, owner, repo)` in `backend/opensec/integrations/github_app/client.py` using `GET /repos/{owner}/{repo}` `permissions.push` field
-- [ ] **Q7**: Gate executor trigger on preflight in `backend/opensec/api/routes/workspaces.py`; return 412 with structured detail when push not allowed
+- [ ] **Q5**: Manual ops — update `cliff-local-test` GitHub App permissions to Contents:write + Pull requests:write + Actions:read + Administration:read — closes B30 root cause
+- [ ] **Q6**: Add `check_repo_push_access(token, owner, repo)` in `backend/cliff/integrations/github_app/client.py` using `GET /repos/{owner}/{repo}` `permissions.push` field
+- [ ] **Q7**: Gate executor trigger on preflight in `backend/cliff/api/routes/workspaces.py`; return 412 with structured detail when push not allowed
 - [ ] **Q8**: Render `agent_run.structured_output.error_details` as an inline error state in `frontend/src/components/issues/IssueSidePanel.tsx` (with "How to fix App permissions" link)
 - [ ] **Q9**: Document required App permissions in `docs/guides/setup-github-app.md` (new or amended)
 
@@ -83,7 +83,7 @@ Per-bug reports: `docs/qa/QA-0001-Q01R-rerun-ui-only.md` + `docs/qa/evidence/Q01
 
 Closed by `feat/prd-0006-sidenav-redesign` (PR #134 / commit `b413e00`, merged 2026-05-04). 224px named rail with logo block, workspace switcher, Issues count badge, and labeled Settings footer per Claude Design's `IPSideNav`. Frontend-only, no backend, no migration.
 
-- [x] **F1**: `SideNav.tsx` rebuilt to 224px (`w-56`) in-flow rail — logo block (`shield_lock` filled + "OpenSec" wordmark), `WorkspaceSwitcher` card with repo avatar + `owner/repo` name + URL hint + chevron (no-op in alpha), 2 named nav items, labeled Settings footer with hairline divider
+- [x] **F1**: `SideNav.tsx` rebuilt to 224px (`w-56`) in-flow rail — logo block (`shield_lock` filled + "Cliff" wordmark), `WorkspaceSwitcher` card with repo avatar + `owner/repo` name + URL hint + chevron (no-op in alpha), 2 named nav items, labeled Settings footer with hairline divider
 - [x] **F2**: `AppLayout.tsx` moved to flex flow — `<main className="flex-1 min-w-0 overflow-x-hidden">`, no more `ml-20`
 - [x] **F3**: `useOpenIssuesCount()` hook landed at `frontend/src/api/hooks.ts`, reuses the `useFindings()` cache; SideNav consumes it for the Issues badge
 - [x] **F4**: Snapshot tests in `__snapshots__/SideNav.test.tsx.snap` cover active states for Dashboard / Issues / Settings
@@ -152,7 +152,7 @@ Closed by feat/prd-0004-alpha-blockers (one branch / four commits / one PR).
 **Milestone A — Data layer (blocks everything else)**
 
 - [ ] **A1**: Migration `0014_earn_the_badge.sql` — add `findings.plain_description` column, create `assessments`, `posture_checks`, `badges` tables. TDD: `test_0014_schema_matches_expected` first
-- [ ] **A2**: Pydantic models + read DAOs for `assessments`, `posture_checks`, `badges` — `backend/opensec/db/dao/{assessment,posture_check,badge}.py`
+- [ ] **A2**: Pydantic models + read DAOs for `assessments`, `posture_checks`, `badges` — `backend/cliff/db/dao/{assessment,posture_check,badge}.py`
 
 **Milestone B — Assessment engine (deterministic Python, no LLM)**
 
@@ -205,7 +205,7 @@ Closed by feat/prd-0004-alpha-blockers (one branch / four commits / one PR).
 - [ ] **I2**: Contributor guide `docs/guides/assessment-engine.md` — how to add a parser or posture check
 - [ ] **I3**: Remove MSW handlers for the eight real routes; keep everything else mocked
 - [ ] **I4**: Cross-browser (Chromium/Firefox/WebKit) smoke for `imageExport.ts`
-- [ ] **I5**: `OPENSEC_V1_1_FROM_ZERO_TO_SECURE_ENABLED` feature flag in `backend/opensec/config.py` (default `false`); guard the onboarding-wizard redirect
+- [ ] **I5**: `CLIFF_V1_1_FROM_ZERO_TO_SECURE_ENABLED` feature flag in `backend/cliff/config.py` (default `false`); guard the onboarding-wizard redirect
 
 ### Priority 1: Simplification (tech debt from architecture review, 2026-04-06)
 
@@ -304,7 +304,7 @@ Closes gaps between Stitch mockups (`frontend/mockups/html/`) and current implem
 
 ### MVP — Frontend (PRD-0001, IMPL-0001):
 
-- [x] **WP1: Docker first-run** — seed demo mode (OPENSEC_DEMO env var), `gh` CLI in Docker image
+- [x] **WP1: Docker first-run** — seed demo mode (CLIFF_DEMO env var), `gh` CLI in Docker image
 - [ ] **WP2: Repo settings UI** — RepoSettingsSection component (URL + PAT + test connection), "solve without repo" guard dialog
 - [ ] **WP3: Import UX** — ImportDialog component (file upload + paste JSON tabs), ImportButton in toolbar, empty state with import CTA
 - [ ] **WP7: Structured result cards** — EnricherResultCard, ExposureResultCard, PlannerResultCard, RemediationResultCard, ConfidenceBadge
@@ -324,7 +324,7 @@ Closes gaps between Stitch mockups (`frontend/mockups/html/`) and current implem
 ### Priority 8: Packaging (depends on Phase 6b + Phase 7 completion)
 
 - [x] Startup migration runner
-- [x] Seed demo data mode (`OPENSEC_DEMO=true`)
+- [x] Seed demo data mode (`CLIFF_DEMO=true`)
 - [ ] Install + upgrade documentation
 - [ ] First tagged release (v0.1.0-alpha)
 

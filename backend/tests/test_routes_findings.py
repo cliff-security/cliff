@@ -149,11 +149,11 @@ async def test_list_findings_scope_current_includes_posture(db_client):
     posture rows lived only on the dashboard. Users driving /secure-repo
     couldn't see or fix failing posture checks from the Issues page or CLI.
     """
-    from opensec.assessment.posture import ADVISORY_CHECKS
-    from opensec.db.connection import _db
-    from opensec.db.dao.assessment import create_assessment
-    from opensec.db.repo_finding import create_finding
-    from opensec.models import AssessmentCreate, FindingCreate
+    from cliff.assessment.posture import ADVISORY_CHECKS
+    from cliff.db.connection import _db
+    from cliff.db.dao.assessment import create_assessment
+    from cliff.db.repo_finding import create_finding
+    from cliff.models import AssessmentCreate, FindingCreate
 
     assert _db is not None
     repo_url = "https://github.com/a/b"
@@ -177,7 +177,7 @@ async def test_list_findings_scope_current_includes_posture(db_client):
     await create_finding(
         _db,
         FindingCreate(
-            source_type="opensec-posture",
+            source_type="cliff-posture",
             source_id=f"{repo_url}:{name}",
             type="posture",
             grade_impact="advisory" if is_advisory else "counts",

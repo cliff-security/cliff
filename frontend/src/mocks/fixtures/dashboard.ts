@@ -570,7 +570,7 @@ export const sampleFindings: Finding[] = [
 
 const _emptyTools: AssessmentStatusResponse['tools'] = []
 
-// Step taxonomy mirrors backend/opensec/api/routes/assessment.py::_V2_STEPS_ORDER.
+// Step taxonomy mirrors backend/cliff/api/routes/assessment.py::_V2_STEPS_ORDER.
 // Keep these in lockstep with the backend; the route is the source of truth
 // for the live UI but the MSW fixture has to ship the same shape.
 const V2_STEPS: Array<{ key: string; label: string; hint: string | null }> = [

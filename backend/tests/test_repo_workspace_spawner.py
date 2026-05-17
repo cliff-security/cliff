@@ -13,10 +13,10 @@ from typing import TYPE_CHECKING
 import aiosqlite
 import pytest
 
-from opensec.api._engine_dep import _DefaultRepoWorkspaceSpawner
-from opensec.db.connection import close_db, init_db
-from opensec.db.repo_workspace import get_active_workspace_by_source_check_name
-from opensec.workspace.workspace_dir_manager import WorkspaceKind
+from cliff.api._engine_dep import _DefaultRepoWorkspaceSpawner
+from cliff.db.connection import close_db, init_db
+from cliff.db.repo_workspace import get_active_workspace_by_source_check_name
+from cliff.workspace.workspace_dir_manager import WorkspaceKind
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -27,7 +27,7 @@ async def db(tmp_path: Path, monkeypatch):
     conn = await init_db(":memory:")
     # Point the spawner's filesystem scaffolding at a temp dir so the test
     # never touches ~/.../data/workspaces.
-    from opensec.config import settings
+    from cliff.config import settings
 
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     yield conn
@@ -106,7 +106,7 @@ async def test_runner_finalize_releases_partial_index(
     to a terminal value and lets a retry succeed. Matches the code-review
     fix for the Story 3 retry-after-failure flow — no raw SQL.
     """
-    from opensec.db.repo_workspace import set_workspace_state
+    from cliff.db.repo_workspace import set_workspace_state
 
     spawner = _DefaultRepoWorkspaceSpawner(pool=None)
     first = await spawner.spawn_repo_workspace(

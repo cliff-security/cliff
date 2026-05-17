@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to OpenSec are documented here.
+All notable changes to Cliff are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -10,24 +10,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.7-alpha] - 2026-05-06
 
 A stability and lifecycle release. The CLI gains owner-safe daemon
-control and a real `opensec update` command, and the dashboard no
+control and a real `cliff update` command, and the dashboard no
 longer wedges on a stale "Assessment running" state when the previous
 server died mid-scan.
 
 ### Added
 
-- **`opensec update` and owner-safe daemon control (PR #141).** New
-  `opensec update` command performs a safe in-place upgrade against
+- **`cliff update` and owner-safe daemon control (PR #141).** New
+  `cliff update` command performs a safe in-place upgrade against
   GitHub Releases — snapshot via rename, checksummed download,
   re-run install scripts, doctor, and either restart or roll back;
   `data/` and `config/` are never touched. `--check`, `--yes`,
   `--force`, `--version <tag>` are all supported. `stop` /
   `restart` / `uninstall` now do owner-safe process discovery: a
   process is signalled only if its cmdline proves it's ours
-  (uvicorn for `opensec.main:app`, or `argv[0]`/exe equals
-  `$OPENSEC_HOME/bin/opencode`). Orphan OpenCode processes on
-  4096 / 4100–4199 are reclaimed; non-OpenSec listeners are
-  reported as squatters but never killed. `OPENSEC_APP_PORT` is
+  (uvicorn for `cliff.main:app`, or `argv[0]`/exe equals
+  `$CLIFF_HOME/bin/opencode`). Orphan OpenCode processes on
+  4096 / 4100–4199 are reclaimed; non-Cliff listeners are
+  reported as squatters but never killed. `CLIFF_APP_PORT` is
   now honoured across the lifecycle, not just by `start`.
 
 ### Fixed
@@ -47,7 +47,7 @@ server died mid-scan.
   with:
 
   ```bash
-  sqlite3 ~/.opensec/data/opensec.db \
+  sqlite3 ~/.cliff/data/cliff.db \
     "UPDATE assessment SET status='failed', completed_at=COALESCE(completed_at, datetime('now')) WHERE status IN ('pending','running');"
   ```
 
@@ -59,8 +59,8 @@ screen is real data the engine produces or the backend derives — the
 fake time-to-close sparkline and abstract "open issues over time"
 trend are gone, replaced by a hero grade, open-findings card, derived
 Level-Up gates, and a transparent Last-Assessment panel. Second,
-OpenSec now ships a native `curl | sh` installer for macOS and glibc
-Linux alongside Docker, and the `opensec` CLI grows daemon-management
+Cliff now ships a native `curl | sh` installer for macOS and glibc
+Linux alongside Docker, and the `cliff` CLI grows daemon-management
 commands so first-run is two commands and a browser tab.
 
 ### Added
@@ -83,7 +83,7 @@ commands so first-run is two commands and a browser tab.
   `curl -fsSL …/install-local.sh | sh` now bootstraps `uv` +
   Python 3.11, downloads the release tarball, installs the backend
   venv plus `opencode` / `trivy` / `semgrep`, generates
-  `OPENSEC_CREDENTIAL_KEY`, and drops a single `opensec` launcher
+  `CLIFF_CREDENTIAL_KEY`, and drops a single `cliff` launcher
   into `~/.local/bin/`. The CLI gains `start` / `stop` / `restart` /
   `logs` / `doctor` / `config` / `uninstall`; `doctor` checks every
   dep + ports + DB + macOS quarantine without starting the daemon
@@ -165,7 +165,7 @@ search ranks providers above models.
 - **README slimmed to what / quickstart / Claude Code (PR #126).**
   Removes the long architecture tour from the front page; the deep
   docs still live under `docs/`.
-- **"Secured by OpenSec" README badge brand-colored (PR #128).**
+- **"Secured by Cliff" README badge brand-colored (PR #128).**
   Hoisted onto its own centered line and recolored to the indigo
   primary.
 
@@ -177,7 +177,7 @@ search ranks providers above models.
 
 ## [0.1.4-alpha] - 2026-04-30
 
-Dogfooding `/secure-repo` against the OpenSec repo itself surfaced a
+Dogfooding `/secure-repo` against the Cliff repo itself surfaced a
 cluster of bugs across the CLI, scanner, posture checks, dashboard,
 and skill — all fixed in this release. The full session log lives in
 `docs/dogfooding/secure-repo-session-bugs.md`. Net effect: the CLI ↔
@@ -187,7 +187,7 @@ the underlying state instead of approximating it.
 
 ### Fixed — CLI & API
 
-- **`opensec fix` ↔ backend plan-schema mismatch.** CLI looked for
+- **`cliff fix` ↔ backend plan-schema mismatch.** CLI looked for
   `plan.steps` / `plan.summary`; backend writes `plan.plan_steps` and
   puts DoD at top-level `definition_of_done.items`. Predicate never
   fired, every fix ran to its 900 s timeout, and `TimeoutError` fell
@@ -197,14 +197,14 @@ the underlying state instead of approximating it.
   "Sidebar state not found".
 - **`_with_client` catches `TimeoutError`** and emits a JSON `code:
   timeout` error per the documented exit-code contract.
-- **`opensec approve` reads `pull_request.branch_name`** (was looking
+- **`cliff approve` reads `pull_request.branch_name`** (was looking
   for the never-written `branch`).
 - **CLI bumped to 0.1.1** for the schema fixes; `min_cli` stays at 0.1.0
   (changes are additive).
 
 ### Added — CLI
 
-- **`opensec model get / set / list`** — view, change, and list LLM
+- **`cliff model get / set / list`** — view, change, and list LLM
   models from the terminal. `model list` projects the provider catalog
   locally so the agent driving the CLI never sees the 3 MB blob.
 
@@ -277,23 +277,23 @@ No app behavior or API changes for existing UI users.
 
 ### Added
 
-- **Agent CLI (`opensec`)** — six commands (`status`, `scan`, `issues`,
+- **Agent CLI (`cliff`)** — six commands (`status`, `scan`, `issues`,
   `fix`, `approve`, `close`) plus `selftest`. JSON-by-default output;
   exit codes encode workflow state (`0` ok · `2` awaiting human · `3`
   daemon down · `4` version mismatch · `5` clean repo). Published as a
-  Python sdist release asset (`opensec-cli.tar.gz`); `scripts/install.sh`
-  pip-installs it into `~/.opensec/cli-venv` and symlinks the entry
-  point to `~/.local/bin/opensec`.
+  Python sdist release asset (`cliff-cli.tar.gz`); `scripts/install.sh`
+  pip-installs it into `~/.cliff/cli-venv` and symlinks the entry
+  point to `~/.local/bin/cliff`.
 - **`/secure-repo` Claude Code plugin** — published via Anthropic's
   documented plugin marketplace mechanism (`.claude-plugin/marketplace.json`
   + `plugins/secure-repo/`). Users install explicitly with
-  `/plugin marketplace add galanko/OpenSec` and
-  `/plugin install secure-repo@opensec`. The plugin's skill drives the
+  `/plugin marketplace add galanko/Cliff` and
+  `/plugin install secure-repo@cliff`. The plugin's skill drives the
   full loop: scan, plan, user-approves, executor, validator, PR, merge
   via `gh`, close. Hard rules: never auto-approve a plan, never
   auto-merge a PR.
 - **`GET /api/version`** — version-handshake endpoint returning
-  `{opensec, opencode, schema_version, min_cli}`. The CLI calls it once
+  `{cliff, opencode, schema_version, min_cli}`. The CLI calls it once
   per command and refuses to operate when its baked-in version is
   older than `min_cli`.
 - **CLI CI** (`.github/workflows/cli.yml`) — lint, tests, sdist build
@@ -307,7 +307,7 @@ No app behavior or API changes for existing UI users.
 
 ### Changed
 
-- `scripts/install.sh` now installs only the `opensec` CLI to
+- `scripts/install.sh` now installs only the `cliff` CLI to
   `~/.local/bin`; it never touches `~/.claude/`. The end-of-install
   banner prints the two `/plugin` commands the user runs themselves.
 - `docs/adr/README.md` — index filled in for ADRs 0025–0034 (had been
@@ -321,7 +321,7 @@ No app behavior or API changes.
 ### Added
 
 - **One-line installer** (`scripts/install.sh`) — `curl -fsSL ...install.sh | sh`
-  bootstraps `~/opensec/`, generates `OPENSEC_CREDENTIAL_KEY`, prompts
+  bootstraps `~/cliff/`, generates `CLIFF_CREDENTIAL_KEY`, prompts
   for an LLM API key, and runs `docker compose up -d` against the
   release image. Re-run any time to upgrade.
 - **Docker boot smoke test** (`backend/tests/docker/test_docker_install.py`)
@@ -337,8 +337,8 @@ No app behavior or API changes.
 ### Changed
 
 - `docker/docker-compose.yml` now resolves the image tag via
-  `${OPENSEC_VERSION:-latest}` instead of hardcoding `0.1.0-alpha`.
-  Existing users: set `OPENSEC_VERSION=0.1.0-alpha` in `.env` to pin.
+  `${CLIFF_VERSION:-latest}` instead of hardcoding `0.1.0-alpha`.
+  Existing users: set `CLIFF_VERSION=0.1.0-alpha` in `.env` to pin.
 - `docs/guides/docker-build.md` rewritten — was a "Phase 9 placeholder"
   stub, now documents the local-build path for contributors and points
   end users at [docs/install.md](docs/install.md).
@@ -348,9 +348,9 @@ No app behavior or API changes.
 
 ## [0.1.0-alpha] - 2026-04-28
 
-First public alpha release of OpenSec — a self-hosted, single-container,
+First public alpha release of Cliff — a self-hosted, single-container,
 chat-led cybersecurity remediation copilot. The image is published to
-`ghcr.io/galanko/opensec` and is signed via Sigstore keyless OIDC with
+`ghcr.io/galanko/cliff` and is signed via Sigstore keyless OIDC with
 SLSA build provenance and a CycloneDX SBOM attestation.
 
 ### Added
@@ -378,12 +378,12 @@ SLSA build provenance and a CycloneDX SBOM attestation.
 
 ### Security
 
-- **Image runs as non-root user** `opensec` (UID 10001) by default.
+- **Image runs as non-root user** `cliff` (UID 10001) by default.
 - **Image signing** — every published image is signed via Sigstore
   keyless OIDC. Verify with `cosign verify` (see
   [docs/verify-release.md](docs/verify-release.md)).
 - **SLSA build provenance** — attached as an attestation. Verify with
-  `gh attestation verify oci://ghcr.io/galanko/opensec:0.1.0-alpha
+  `gh attestation verify oci://ghcr.io/galanko/cliff:0.1.0-alpha
   --owner galanko`.
 - **CycloneDX SBOM** — attached both as a Sigstore attestation and as
   a release asset for download.
@@ -402,12 +402,12 @@ SLSA build provenance and a CycloneDX SBOM attestation.
   are wired today. Real adapters (Snyk, GitHub Advanced Security,
   Tenable, Wiz, ServiceNow) are post-MVP — see [ROADMAP.md](ROADMAP.md).
 - Single-user only. No multi-tenant authentication.
-- Existing `opensec_data` volumes from pre-alpha dev builds are
+- Existing `cliff_data` volumes from pre-alpha dev builds are
   root-owned and will not be writable by the new non-root container.
   One-line migration:
-  `docker run --rm --user 0 -v opensec_data:/data alpine chown -R 10001:10001 /data`.
+  `docker run --rm --user 0 -v cliff_data:/data alpine chown -R 10001:10001 /data`.
 
-[Unreleased]: https://github.com/galanko/OpenSec/compare/v0.1.2-alpha...HEAD
-[0.1.2-alpha]: https://github.com/galanko/OpenSec/releases/tag/v0.1.2-alpha
-[0.1.1-alpha]: https://github.com/galanko/OpenSec/releases/tag/v0.1.1-alpha
-[0.1.0-alpha]: https://github.com/galanko/OpenSec/releases/tag/v0.1.0-alpha
+[Unreleased]: https://github.com/galanko/Cliff/compare/v0.1.2-alpha...HEAD
+[0.1.2-alpha]: https://github.com/galanko/Cliff/releases/tag/v0.1.2-alpha
+[0.1.1-alpha]: https://github.com/galanko/Cliff/releases/tag/v0.1.1-alpha
+[0.1.0-alpha]: https://github.com/galanko/Cliff/releases/tag/v0.1.0-alpha

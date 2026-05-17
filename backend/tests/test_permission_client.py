@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 import pytest
 
-from opensec.engine.client import OpenCodeClient
+from cliff.engine.client import OpenCodeClient
 
 
 def _make_mock_http_client():

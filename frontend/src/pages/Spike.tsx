@@ -114,14 +114,14 @@ export default function Spike() {
 
   return (
     <div style={{ maxWidth: 800, margin: '0 auto', padding: 20, fontFamily: 'system-ui' }}>
-      <h1>OpenSec — Phase 1 Spike</h1>
+      <h1>Cliff — Phase 1 Spike</h1>
 
       {/* Health status */}
       <div style={{ marginBottom: 16, fontSize: 14, color: '#666' }}>
         Status:{' '}
         {health ? (
           <span>
-            OpenSec: <b>{health.opensec}</b> | OpenCode: <b>{health.opencode}</b> (v
+            Cliff: <b>{health.cliff}</b> | OpenCode: <b>{health.opencode}</b> (v
             {health.opencode_version})
             {health.model && (
               <> | Model: <b>{health.model}</b></>

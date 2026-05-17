@@ -1,4 +1,4 @@
-/** API client for the OpenSec FastAPI backend. */
+/** API client for the Cliff FastAPI backend. */
 
 const BASE = '';  // Uses Vite proxy in dev
 
@@ -24,7 +24,7 @@ export interface MessageInfo {
 }
 
 export interface HealthStatus {
-  opensec: string;
+  cliff: string;
   opencode: string;
   opencode_version: string;
   model: string;

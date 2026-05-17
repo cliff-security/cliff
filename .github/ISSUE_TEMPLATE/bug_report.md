@@ -29,7 +29,7 @@ What actually happened.
 - OS:
 - Docker version:
 - Browser:
-- OpenSec version:
+- Cliff version:
 
 ## Screenshots / Logs
 

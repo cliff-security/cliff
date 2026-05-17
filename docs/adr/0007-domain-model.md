@@ -5,7 +5,7 @@
 
 ## Context
 
-OpenSec manages a vulnerability remediation lifecycle. We need a data model that captures findings, the work done on them, agent interactions, and outcomes.
+Cliff manages a vulnerability remediation lifecycle. We need a data model that captures findings, the work done on them, agent interactions, and outcomes.
 
 The core user flow is: **finding appears in queue -> user opens workspace -> agents enrich/plan/validate -> ticket created -> finding closed**.
 

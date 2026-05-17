@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from opensec.agents.errors import AgentBusyError
-from opensec.agents.executor import (
+from cliff.agents.errors import AgentBusyError
+from cliff.agents.executor import (
     TOOL_TIERS,
     AgentExecutor,
     _classify_tool_request,
@@ -18,7 +18,7 @@ from opensec.agents.executor import (
     _PendingApproval,
     build_agent_prompt,
 )
-from opensec.models import AgentRun
+from cliff.models import AgentRun
 
 # ---------------------------------------------------------------------------
 # Sample data
@@ -142,13 +142,13 @@ class TestAgentExecutor:
 
         with (
             patch(
-                "opensec.agents.executor.create_agent_run",
+                "cliff.agents.executor.create_agent_run",
                 return_value=_make_mock_agent_run(),
             ),
-            patch("opensec.agents.executor.update_agent_run"),
-            patch("opensec.agents.executor.list_agent_runs", return_value=[]),
-            patch("opensec.agents.executor.map_and_upsert") as mock_sidebar,
-            patch("opensec.agents.executor._advance_finding_status", return_value=None),
+            patch("cliff.agents.executor.update_agent_run"),
+            patch("cliff.agents.executor.list_agent_runs", return_value=[]),
+            patch("cliff.agents.executor.map_and_upsert") as mock_sidebar,
+            patch("cliff.agents.executor._advance_finding_status", return_value=None),
         ):
             result = await executor.execute(
                 "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
@@ -183,13 +183,13 @@ class TestAgentExecutor:
 
         with (
             patch(
-                "opensec.agents.executor.create_agent_run",
+                "cliff.agents.executor.create_agent_run",
                 return_value=_make_mock_agent_run(),
             ),
-            patch("opensec.agents.executor.update_agent_run") as mock_update,
-            patch("opensec.agents.executor.list_agent_runs", return_value=[]),
-            patch("opensec.agents.executor.map_and_upsert") as mock_sidebar,
-            patch("opensec.agents.executor._advance_finding_status", return_value=None),
+            patch("cliff.agents.executor.update_agent_run") as mock_update,
+            patch("cliff.agents.executor.list_agent_runs", return_value=[]),
+            patch("cliff.agents.executor.map_and_upsert") as mock_sidebar,
+            patch("cliff.agents.executor._advance_finding_status", return_value=None),
         ):
             result = await executor.execute(
                 "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
@@ -216,7 +216,7 @@ class TestAgentExecutor:
 
         with (
             patch(
-                "opensec.agents.executor.list_agent_runs",
+                "cliff.agents.executor.list_agent_runs",
                 return_value=[existing_run],
             ),pytest.raises(AgentBusyError, match="already running")
         ):
@@ -234,11 +234,11 @@ class TestAgentExecutor:
 
         with (
             patch(
-                "opensec.agents.executor.create_agent_run",
+                "cliff.agents.executor.create_agent_run",
                 return_value=_make_mock_agent_run(),
             ),
-            patch("opensec.agents.executor.update_agent_run") as mock_update,
-            patch("opensec.agents.executor.list_agent_runs", return_value=[]),
+            patch("cliff.agents.executor.update_agent_run") as mock_update,
+            patch("cliff.agents.executor.list_agent_runs", return_value=[]),
         ):
             result = await executor.execute(
                 "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
@@ -272,11 +272,11 @@ class TestAgentExecutor:
 
         with (
             patch(
-                "opensec.agents.executor.create_agent_run",
+                "cliff.agents.executor.create_agent_run",
                 return_value=_make_mock_agent_run(),
             ),
-            patch("opensec.agents.executor.update_agent_run"),
-            patch("opensec.agents.executor.list_agent_runs", return_value=[]),
+            patch("cliff.agents.executor.update_agent_run"),
+            patch("cliff.agents.executor.list_agent_runs", return_value=[]),
         ):
             result = await executor.execute(
                 "ws-1", "finding_enricher", mock_db,
@@ -309,11 +309,11 @@ class TestAgentExecutor:
 
         with (
             patch(
-                "opensec.agents.executor.create_agent_run",
+                "cliff.agents.executor.create_agent_run",
                 return_value=_make_mock_agent_run(),
             ),
-            patch("opensec.agents.executor.update_agent_run"),
-            patch("opensec.agents.executor.list_agent_runs", return_value=[]),
+            patch("cliff.agents.executor.update_agent_run"),
+            patch("cliff.agents.executor.list_agent_runs", return_value=[]),
         ):
             result = await executor.execute(
                 "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
@@ -335,13 +335,13 @@ class TestAgentExecutor:
 
         with (
             patch(
-                "opensec.agents.executor.create_agent_run",
+                "cliff.agents.executor.create_agent_run",
                 return_value=_make_mock_agent_run(),
             ),
-            patch("opensec.agents.executor.update_agent_run"),
-            patch("opensec.agents.executor.list_agent_runs", return_value=[]),
-            patch("opensec.agents.executor.map_and_upsert"),
-            patch("opensec.agents.executor._advance_finding_status", return_value=None),
+            patch("cliff.agents.executor.update_agent_run"),
+            patch("cliff.agents.executor.list_agent_runs", return_value=[]),
+            patch("cliff.agents.executor.map_and_upsert"),
+            patch("cliff.agents.executor._advance_finding_status", return_value=None),
         ):
             await executor.execute(
                 "ws-1", "finding_enricher", mock_db,
@@ -363,16 +363,16 @@ class TestAgentExecutor:
 
         with (
             patch(
-                "opensec.agents.executor.create_agent_run",
+                "cliff.agents.executor.create_agent_run",
                 return_value=_make_mock_agent_run(),
             ),
-            patch("opensec.agents.executor.update_agent_run"),
+            patch("cliff.agents.executor.update_agent_run"),
             patch(
-                "opensec.agents.executor.list_agent_runs",
+                "cliff.agents.executor.list_agent_runs",
                 return_value=[completed_run],
             ),
-            patch("opensec.agents.executor.map_and_upsert"),
-            patch("opensec.agents.executor._advance_finding_status", return_value=None),
+            patch("cliff.agents.executor.map_and_upsert"),
+            patch("cliff.agents.executor._advance_finding_status", return_value=None),
         ):
             result = await executor.execute(
                 "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
@@ -392,11 +392,11 @@ class TestAgentExecutor:
 
         with (
             patch(
-                "opensec.agents.executor.create_agent_run",
+                "cliff.agents.executor.create_agent_run",
                 return_value=_make_mock_agent_run(),
             ),
-            patch("opensec.agents.executor.update_agent_run"),
-            patch("opensec.agents.executor.list_agent_runs", return_value=[]),
+            patch("cliff.agents.executor.update_agent_run"),
+            patch("cliff.agents.executor.list_agent_runs", return_value=[]),
         ):
             result = await executor.execute(
                 "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
@@ -427,13 +427,13 @@ class TestAgentExecutor:
 
         with (
             patch(
-                "opensec.agents.executor.create_agent_run",
+                "cliff.agents.executor.create_agent_run",
                 return_value=_make_mock_agent_run(agent_type="owner_resolver"),
             ),
-            patch("opensec.agents.executor.update_agent_run"),
-            patch("opensec.agents.executor.list_agent_runs", return_value=[]),
-            patch("opensec.agents.executor.map_and_upsert"),
-            patch("opensec.agents.executor._advance_finding_status", return_value=None),
+            patch("cliff.agents.executor.update_agent_run"),
+            patch("cliff.agents.executor.list_agent_runs", return_value=[]),
+            patch("cliff.agents.executor.map_and_upsert"),
+            patch("cliff.agents.executor._advance_finding_status", return_value=None),
         ):
             result = await executor.execute(
                 "ws-1", "owner_resolver", mock_db, workspace_dir=workspace_dir
@@ -469,13 +469,13 @@ class TestAgentExecutor:
 
         with (
             patch(
-                "opensec.agents.executor.create_agent_run",
+                "cliff.agents.executor.create_agent_run",
                 return_value=_make_mock_agent_run(),
             ),
-            patch("opensec.agents.executor.update_agent_run"),
-            patch("opensec.agents.executor.list_agent_runs", return_value=[]),
-            patch("opensec.agents.executor.map_and_upsert"),
-            patch("opensec.agents.executor._advance_finding_status", return_value=None),
+            patch("cliff.agents.executor.update_agent_run"),
+            patch("cliff.agents.executor.list_agent_runs", return_value=[]),
+            patch("cliff.agents.executor.map_and_upsert"),
+            patch("cliff.agents.executor._advance_finding_status", return_value=None),
         ):
             result = await executor.execute(
                 "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
@@ -503,13 +503,13 @@ class TestAgentExecutor:
 
         with (
             patch(
-                "opensec.agents.executor.create_agent_run",
+                "cliff.agents.executor.create_agent_run",
                 return_value=_make_mock_agent_run(),
             ),
-            patch("opensec.agents.executor.update_agent_run"),
-            patch("opensec.agents.executor.list_agent_runs", return_value=[]),
-            patch("opensec.agents.executor.map_and_upsert") as mock_sidebar,
-            patch("opensec.agents.executor._advance_finding_status", return_value=None),
+            patch("cliff.agents.executor.update_agent_run"),
+            patch("cliff.agents.executor.list_agent_runs", return_value=[]),
+            patch("cliff.agents.executor.map_and_upsert") as mock_sidebar,
+            patch("cliff.agents.executor._advance_finding_status", return_value=None),
         ):
             result = await executor.execute(
                 "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
@@ -612,7 +612,7 @@ class TestLoadWorkspaceData:
     def test_missing_finding_raises(self, tmp_path):
         """Missing finding.json raises AgentProcessError."""
         (tmp_path / "context").mkdir()
-        from opensec.agents.errors import AgentProcessError
+        from cliff.agents.errors import AgentProcessError
         with pytest.raises(AgentProcessError, match="finding.json missing"):
             _load_workspace_data(str(tmp_path), "finding_enricher")
 
@@ -774,7 +774,7 @@ class TestPendingPermissionPersistence:
     async def test_pending_persists_then_clears_on_approve(
         self, mock_pool, mock_context_builder, mock_db, workspace_dir
     ):
-        from opensec.models import AgentRunUpdate
+        from cliff.models import AgentRunUpdate
 
         client = AsyncMock()
         client.create_session.return_value = MagicMock(id="ses-1")
@@ -807,16 +807,16 @@ class TestPendingPermissionPersistence:
 
         with (
             patch(
-                "opensec.agents.executor.create_agent_run",
+                "cliff.agents.executor.create_agent_run",
                 return_value=_make_mock_agent_run(),
             ),
-            patch("opensec.agents.executor.update_agent_run", update_spy),
+            patch("cliff.agents.executor.update_agent_run", update_spy),
             patch(
-                "opensec.agents.executor.list_agent_runs",
+                "cliff.agents.executor.list_agent_runs",
                 return_value=[],
             ),
-            patch("opensec.agents.executor.map_and_upsert"),
-            patch("opensec.agents.executor._advance_finding_status", return_value=None),
+            patch("cliff.agents.executor.map_and_upsert"),
+            patch("cliff.agents.executor._advance_finding_status", return_value=None),
         ):
             result = await executor.execute(
                 "ws-1", "remediation_executor", mock_db,
@@ -889,16 +889,16 @@ class TestPendingPermissionPersistence:
 
         with (
             patch(
-                "opensec.agents.executor.create_agent_run",
+                "cliff.agents.executor.create_agent_run",
                 return_value=_make_mock_agent_run(),
             ),
-            patch("opensec.agents.executor.update_agent_run"),
+            patch("cliff.agents.executor.update_agent_run"),
             patch(
-                "opensec.agents.executor.list_agent_runs",
+                "cliff.agents.executor.list_agent_runs",
                 return_value=[],
             ),
-            patch("opensec.agents.executor.map_and_upsert"),
-            patch("opensec.agents.executor._advance_finding_status", return_value=None),
+            patch("cliff.agents.executor.map_and_upsert"),
+            patch("cliff.agents.executor._advance_finding_status", return_value=None),
         ):
             result = await executor.execute(
                 "ws-1", "finding_enricher", mock_db,
@@ -959,16 +959,16 @@ class TestPendingPermissionPersistence:
 
         with (
             patch(
-                "opensec.agents.executor.create_agent_run",
+                "cliff.agents.executor.create_agent_run",
                 return_value=_make_mock_agent_run(),
             ),
-            patch("opensec.agents.executor.update_agent_run"),
+            patch("cliff.agents.executor.update_agent_run"),
             patch(
-                "opensec.agents.executor.list_agent_runs",
+                "cliff.agents.executor.list_agent_runs",
                 return_value=[],
             ),
-            patch("opensec.agents.executor.map_and_upsert"),
-            patch("opensec.agents.executor._advance_finding_status", return_value=None),
+            patch("cliff.agents.executor.map_and_upsert"),
+            patch("cliff.agents.executor._advance_finding_status", return_value=None),
         ):
             result = await executor.execute(
                 "ws-1", "finding_enricher", mock_db,
@@ -996,7 +996,7 @@ def _make_executor_agent_response(*, pr_url: str | None, status: str = "pr_creat
         "structured_output": {
             "status": status,
             "pr_url": pr_url,
-            "branch_name": "opensec/fix/cve-test",
+            "branch_name": "cliff/fix/cve-test",
             "changes_summary": "bumped widget to 1.2.3",
             "test_results": "pass",
             "error_details": None,
@@ -1020,7 +1020,7 @@ class TestRemediationExecutorPRVerification:
             _make_executor_agent_response(pr_url=real_url)
         )
 
-        from opensec.services.pr_verifier import PRVerification
+        from cliff.services.pr_verifier import PRVerification
 
         async def fake_verify(url, **_):
             assert url == real_url
@@ -1031,20 +1031,20 @@ class TestRemediationExecutorPRVerification:
         executor = AgentExecutor(mock_pool, mock_context_builder)
         with (
             patch(
-                "opensec.agents.executor.create_agent_run",
+                "cliff.agents.executor.create_agent_run",
                 return_value=_make_mock_agent_run(
                     agent_type="remediation_executor"
                 ),
             ),
-            patch("opensec.agents.executor.update_agent_run") as mock_update,
-            patch("opensec.agents.executor.list_agent_runs", return_value=[]),
-            patch("opensec.agents.executor.map_and_upsert") as mock_sidebar,
+            patch("cliff.agents.executor.update_agent_run") as mock_update,
+            patch("cliff.agents.executor.list_agent_runs", return_value=[]),
+            patch("cliff.agents.executor.map_and_upsert") as mock_sidebar,
             patch(
-                "opensec.agents.executor._advance_finding_status",
+                "cliff.agents.executor._advance_finding_status",
                 return_value="remediated",
             ) as mock_advance,
             patch(
-                "opensec.agents.executor.verify_pr_url",
+                "cliff.agents.executor.verify_pr_url",
                 side_effect=fake_verify,
             ),
         ):
@@ -1074,7 +1074,7 @@ class TestRemediationExecutorPRVerification:
             _make_executor_agent_response(pr_url=fake_url)
         )
 
-        from opensec.services.pr_verifier import PRVerification
+        from cliff.services.pr_verifier import PRVerification
 
         async def fake_verify(url, **_):
             return PRVerification(
@@ -1085,20 +1085,20 @@ class TestRemediationExecutorPRVerification:
         executor = AgentExecutor(mock_pool, mock_context_builder)
         with (
             patch(
-                "opensec.agents.executor.create_agent_run",
+                "cliff.agents.executor.create_agent_run",
                 return_value=_make_mock_agent_run(
                     agent_type="remediation_executor"
                 ),
             ),
-            patch("opensec.agents.executor.update_agent_run") as mock_update,
-            patch("opensec.agents.executor.list_agent_runs", return_value=[]),
-            patch("opensec.agents.executor.map_and_upsert") as mock_sidebar,
+            patch("cliff.agents.executor.update_agent_run") as mock_update,
+            patch("cliff.agents.executor.list_agent_runs", return_value=[]),
+            patch("cliff.agents.executor.map_and_upsert") as mock_sidebar,
             patch(
-                "opensec.agents.executor._advance_finding_status",
+                "cliff.agents.executor._advance_finding_status",
                 return_value=None,
             ) as mock_advance,
             patch(
-                "opensec.agents.executor.verify_pr_url",
+                "cliff.agents.executor.verify_pr_url",
                 side_effect=fake_verify,
             ),
         ):
@@ -1126,7 +1126,7 @@ class TestRemediationExecutorPRVerification:
         self, mock_pool, mock_context_builder, mock_db, workspace_dir
     ):
         """A ``/pull/new/<branch>`` URL is rejected by the URL parser alone."""
-        fake_url = "https://github.com/acme/widget/pull/new/opensec-fix"
+        fake_url = "https://github.com/acme/widget/pull/new/cliff-fix"
         mock_pool.get_or_start.return_value = _make_mock_client(
             _make_executor_agent_response(pr_url=fake_url)
         )
@@ -1134,16 +1134,16 @@ class TestRemediationExecutorPRVerification:
         executor = AgentExecutor(mock_pool, mock_context_builder)
         with (
             patch(
-                "opensec.agents.executor.create_agent_run",
+                "cliff.agents.executor.create_agent_run",
                 return_value=_make_mock_agent_run(
                     agent_type="remediation_executor"
                 ),
             ),
-            patch("opensec.agents.executor.update_agent_run"),
-            patch("opensec.agents.executor.list_agent_runs", return_value=[]),
-            patch("opensec.agents.executor.map_and_upsert") as mock_sidebar,
+            patch("cliff.agents.executor.update_agent_run"),
+            patch("cliff.agents.executor.list_agent_runs", return_value=[]),
+            patch("cliff.agents.executor.map_and_upsert") as mock_sidebar,
             patch(
-                "opensec.agents.executor._advance_finding_status",
+                "cliff.agents.executor._advance_finding_status",
                 return_value=None,
             ),
             patch(
@@ -1179,7 +1179,7 @@ class TestHumanizeProcessError:
         the outbound request carries no credential. It must surface the
         actionable "re-connect the provider" text, not the generic fallback.
         """
-        from opensec.agents.executor import _humanize_process_error
+        from cliff.agents.executor import _humanize_process_error
 
         msg = _humanize_process_error(
             "OpenCode error: Missing Authentication header"
@@ -1188,7 +1188,7 @@ class TestHumanizeProcessError:
         assert "Settings → AI provider" in msg
 
     def test_unknown_error_falls_back_to_raw(self):
-        from opensec.agents.executor import _humanize_process_error
+        from cliff.agents.executor import _humanize_process_error
 
         msg = _humanize_process_error("OpenCode error: disk full")
         assert "disk full" in msg

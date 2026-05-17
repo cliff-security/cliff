@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from opensec.assessment.posture.ci_supply_chain import (
+from cliff.assessment.posture.ci_supply_chain import (
     check_actions_pinned_to_sha,
     check_trusted_action_sources,
     check_workflow_trigger_scope,

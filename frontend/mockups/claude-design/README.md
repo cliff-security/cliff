@@ -2,7 +2,7 @@
 
 ## Overview
 
-Design pass for **PRD-0003 (Security assessment v2)**, OpenSec's v0.2 release. This package covers six product surfaces that ship the move from homebrew scanning → industry-standard scanners (Trivy 0.52, Semgrep 1.70), expand posture from 7 → 15 checks across four categories, and recalibrate the letter grade from 5 → 10 criteria.
+Design pass for **PRD-0003 (Security assessment v2)**, Cliff's v0.2 release. This package covers six product surfaces that ship the move from homebrew scanning → industry-standard scanners (Trivy 0.52, Semgrep 1.70), expand posture from 7 → 15 checks across four categories, and recalibrate the letter grade from 5 → 10 criteria.
 
 The mental model for Alex (the OSS maintainer) does not change — connect a repo, get a report card, fix things, reach completion. The report card just gets deeper and more credible.
 
@@ -10,7 +10,7 @@ The mental model for Alex (the OSS maintainer) does not change — connect a rep
 
 The files in this bundle are **design references created in HTML** — prototypes that show the intended look, layout, and behavior. They are **not production code to copy directly**.
 
-The implementation task is to **recreate these designs in OpenSec's existing frontend codebase** (React + Tailwind, per `frontend/src/`) using its established patterns, tokens, and component library — including the four-state posture-row pattern that PRD-0004 owns. If you find a conflict between this handoff and a PRD-0004 component decision, **PRD-0004 wins** for shared chrome.
+The implementation task is to **recreate these designs in Cliff's existing frontend codebase** (React + Tailwind, per `frontend/src/`) using its established patterns, tokens, and component library — including the four-state posture-row pattern that PRD-0004 owns. If you find a conflict between this handoff and a PRD-0004 component decision, **PRD-0004 wins** for shared chrome.
 
 ## Fidelity
 
@@ -131,7 +131,7 @@ Google Material Symbols Outlined only.
 **Purpose.** Where Alex spends most of their time. Replaces the flat list of 7 posture checks with 4 grouped categories totaling 15 checks.
 
 **Layout** (variation A, recommended):
-- Page padding `px-8 py-7`. Page title eyebrow ("Repository") + H1 (`galanko / opensec-demo`) at top.
+- Page padding `px-8 py-7`. Page title eyebrow ("Repository") + H1 (`galanko / cliff-demo`) at top.
 - Stacked sections, gap `20px`:
   1. **Hero card** (`bg-surface-container-lowest`, `rounded-3xl`, `p-7`):
      - Three-column flex: GradeRing (120px) · narrative (eyebrow + `Nearly there.` headline + supporting line) · last-assessed metadata + `Re-assess` ghost pill button.
@@ -231,9 +231,9 @@ Google Material Symbols Outlined only.
 **Spec:**
 - Canvas: 1200×630, indigo gradient (`#2a13c5 → #4034d7 → #4d44e3`), 135deg.
 - Decorative concentric circles, top-right, 15% opacity, white stroke.
-- Header row: 44px rounded-2xl mark + `OpenSec` wordmark · right-aligned `SECURED` eyebrow at 70% opacity.
+- Header row: 44px rounded-2xl mark + `Cliff` wordmark · right-aligned `SECURED` eyebrow at 70% opacity.
 - Hero: 192px white-bordered grade ring with `A` glyph (Manrope 800, 112px) + sub-eyebrow `GRADE`. To the right: repo eyebrow + `10 criteria met.` H1 (Manrope 800, 68px) + supporting `Vulnerabilities resolved. Posture hardened. CI pinned.`
-- Footer: scanned-by line `Scanned by: Trivy 0.52 · Semgrep 1.70 · 15 posture checks` (white at 60%, Inter 500, 14px) + the URL `opensec.dev / galanko / opensec-demo` · right-aligned date.
+- Footer: scanned-by line `Scanned by: Trivy 0.52 · Semgrep 1.70 · 15 posture checks` (white at 60%, Inter 500, 14px) + the URL `cliff.dev / galanko / cliff-demo` · right-aligned date.
 
 **Delta from PRD-0002:** Replace `5 criteria met` → `10 criteria met`. Add the `Scanned by:` line above the wordmark. Otherwise visually identical.
 

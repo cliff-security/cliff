@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from opensec.models import Finding
-from opensec.workspace import (
+from cliff.models import Finding
+from cliff.workspace import (
     AgentRunLog,
     ContextDocument,
     WorkspaceDirManager,

@@ -11,11 +11,11 @@ Asserts:
 
 from __future__ import annotations
 
-from opensec.db.repo_agent_run import (
+from cliff.db.repo_agent_run import (
     create_agent_run,
     list_latest_runs_by_workspace_ids,
 )
-from opensec.db.repo_finding import (
+from cliff.db.repo_finding import (
     create_finding,
     get_finding,
     list_findings,
@@ -23,15 +23,15 @@ from opensec.db.repo_finding import (
     mark_started_on_workspace_create,
     update_finding,
 )
-from opensec.db.repo_sidebar import (
+from cliff.db.repo_sidebar import (
     list_sidebars_by_workspace_ids,
     upsert_sidebar,
 )
-from opensec.db.repo_workspace import (
+from cliff.db.repo_workspace import (
     create_workspace,
     list_workspaces_by_finding_ids,
 )
-from opensec.models import (
+from cliff.models import (
     AgentRunCreate,
     FindingCreate,
     FindingUpdate,

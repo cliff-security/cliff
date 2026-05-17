@@ -8,22 +8,22 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from opensec.assessment.posture.github_client import GithubClient, UnableToVerify
-from opensec.db import repo_integration
-from opensec.db.connection import close_db, init_db
-from opensec.integrations.audit import AuditLogger
-from opensec.integrations.github_app import repo as gh_repo
-from opensec.integrations.github_app.client import (
+from cliff.assessment.posture.github_client import GithubClient, UnableToVerify
+from cliff.db import repo_integration
+from cliff.db.connection import close_db, init_db
+from cliff.integrations.audit import AuditLogger
+from cliff.integrations.github_app import repo as gh_repo
+from cliff.integrations.github_app.client import (
     DeviceCodeResponse,
     PollTokenResult,
     UserInfo,
 )
-from opensec.integrations.github_app.flow import (
+from cliff.integrations.github_app.flow import (
     refresh_user_access_token,
 )
-from opensec.integrations.github_app.models import GithubAppInstallationCreate
-from opensec.integrations.vault import CredentialVault
-from opensec.models import IntegrationConfigCreate
+from cliff.integrations.github_app.models import GithubAppInstallationCreate
+from cliff.integrations.vault import CredentialVault
+from cliff.models import IntegrationConfigCreate
 
 if TYPE_CHECKING:
     import aiosqlite
@@ -99,7 +99,7 @@ async def connected_install(db, vault, integration_id):
         db,
         GithubAppInstallationCreate(
             integration_id=integration_id,
-            app_slug="opensec",
+            app_slug="cliff",
             client_id="cid",
             csrf_state="csrf-x",
             user_code="A",
@@ -182,7 +182,7 @@ async def test_refresh_returns_none_when_no_refresh_token_stored(
         db,
         GithubAppInstallationCreate(
             integration_id=integration_id,
-            app_slug="opensec",
+            app_slug="cliff",
             client_id="cid",
             csrf_state="csrf",
             user_code="A",

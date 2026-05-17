@@ -1,6 +1,6 @@
 """Tests for Pydantic models."""
 
-from opensec.engine.models import (
+from cliff.engine.models import (
     HealthStatus,
     MessageInfo,
     SessionDetail,
@@ -27,7 +27,7 @@ def test_session_detail_with_messages():
 
 def test_health_status_defaults():
     h = HealthStatus()
-    assert h.opensec == "ok"
+    assert h.cliff == "ok"
     assert h.opencode == "unknown"
     assert h.opencode_version == ""
 

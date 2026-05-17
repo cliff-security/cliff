@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from opensec.assessment.clone import (
+from cliff.assessment.clone import (
     CloneError,
     CloneTimeoutError,
     inject_token,

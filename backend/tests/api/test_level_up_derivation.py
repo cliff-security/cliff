@@ -10,9 +10,9 @@ from datetime import UTC, datetime
 
 import pytest
 
-from opensec.api.routes._level_up import derive_level_up
-from opensec.models.assessment import CriteriaSnapshot
-from opensec.models.finding import Finding, IssueDerived
+from cliff.api.routes._level_up import derive_level_up
+from cliff.models.assessment import CriteriaSnapshot
+from cliff.models.finding import Finding, IssueDerived
 
 
 def _finding(
@@ -48,7 +48,7 @@ def _posture_finding(
     now = datetime.now(UTC)
     return Finding(
         id=f"posture-{name}",
-        source_type="opensec-posture",
+        source_type="cliff-posture",
         source_id=name,
         title=name,
         type="posture",

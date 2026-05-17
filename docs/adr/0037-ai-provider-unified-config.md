@@ -8,21 +8,21 @@
 ## Context
 
 The AI provider feature grew layer by layer — autodetect, OpenRouter OAuth,
-BYOK, the readiness probe, and finally `OPENSEC_AI_MODEL_OVERRIDE_*` env vars.
+BYOK, the readiness probe, and finally `CLIFF_AI_MODEL_OVERRIDE_*` env vars.
 Each addition added a new place that answers "which model is in use," and
 operators were hitting drift between them:
 
-* `app_setting(key="model")` — the user's stored choice (CLI `opensec model set`,
+* `app_setting(key="model")` — the user's stored choice (CLI `cliff model set`,
   legacy ProviderSettings UI).
 * `catalog.resolve_model(provider)` — catalog default, can be overridden by an
-  `OPENSEC_AI_MODEL_OVERRIDE_<PROVIDER>` env var. Surfaced through
+  `CLIFF_AI_MODEL_OVERRIDE_<PROVIDER>` env var. Surfaced through
   `AIStatus.model` to the new Settings card.
 * `opencode_client.get_config()` — what the singleton OpenCode actually has
   loaded right now. Surfaced through `/health.model`.
 * Per-workspace `opencode.json` — reconciled at spawn (Q01 B06b fix) so
   workspaces use the active provider's model. Could disagree with the
   singleton's `opencode.json` if the user changed providers without
-  restarting OpenSec.
+  restarting Cliff.
 
 The reported symptom on a running `:8001` instance:
 
@@ -35,7 +35,7 @@ groups, with a third value (the per-workspace `opencode.json`) driving
 the actual agent run. No way for a user to tell which one was real.
 
 OpenCode supports many providers natively (Anthropic, OpenAI, Google,
-OpenRouter, Ollama, OpenAI-compatible custom). OpenSec exposed only four,
+OpenRouter, Ollama, OpenAI-compatible custom). Cliff exposed only four,
 and gave no model picker — every change had to go through the CLI or an
 env var. The same UI surface that fixes the drift problem is the right
 place to add a picker.
@@ -54,7 +54,7 @@ place to add a picker.
 
 Every other location (per-workspace `opencode.json`, the singleton
 `opencode.json`, the in-process env cache) is **derived** and reconciled
-from these two rows. The env-var override `OPENSEC_AI_MODEL_OVERRIDE_*`
+from these two rows. The env-var override `CLIFF_AI_MODEL_OVERRIDE_*`
 is preserved as a **dev/CI escape hatch**, no longer surfaced in the
 picker. It does not override the canonical row at workspace-spawn time —
 only the catalog-default fallback. (Operators who want a global override
@@ -84,7 +84,7 @@ AIStatus(
     source=...,
     metadata=...,
     model=...,            # canonical from app_setting
-    override_model=...,   # set only if OPENSEC_AI_MODEL_OVERRIDE_* is active
+    override_model=...,   # set only if CLIFF_AI_MODEL_OVERRIDE_* is active
     live_probe=LiveProbe(
         ok=...,
         opencode_model=..., # what OpenCode actually has loaded
@@ -94,7 +94,7 @@ AIStatus(
 
 If `live_probe.opencode_model != model`, the UI shows a drift banner with
 a one-click `Reconcile` action that writes the canonical model again and
-restarts the singleton. The CLI's `opensec status` surfaces the same drift
+restarts the singleton. The CLI's `cliff status` surfaces the same drift
 in its JSON output (`drifted: true`, `canonical_model`, `opencode_model`).
 
 ### Provider support
@@ -160,7 +160,7 @@ entries, validators, BYOK form tiles, and env injection.
 │   • Row 2: Model: <id> [Change]                                    │
 │   • Drift banner when live_probe.opencode_model != model           │
 │                                                                    │
-│  CLI `opensec status`:                                             │
+│  CLI `cliff status`:                                             │
 │   {                                                                │
 │     model, canonical_model, opencode_model,                        │
 │     drifted: true|false                                            │
@@ -216,7 +216,7 @@ updates are immediate.
 
 **Negative / accepted**
 
-* `OPENSEC_AI_MODEL_OVERRIDE_*` keeps a niche role for CI/dev pinning.
+* `CLIFF_AI_MODEL_OVERRIDE_*` keeps a niche role for CI/dev pinning.
   This is intentional but slightly weakens the "one source" rule — we
   accept it because the env-var path is invisible to non-operators.
 * The drift banner depends on the singleton being reachable. If it's
@@ -284,7 +284,7 @@ cannot disagree by more than one event loop tick.
 * `DriftBanner` React component + `Reconcile` button
   (`AIProviderStatus.tsx`).
 * The CLI's `drifted` / `canonical_model` / `opencode_model` /
-  `model_drift` blocker fields from `opensec status` JSON output.
+  `model_drift` blocker fields from `cliff status` JSON output.
 * `AIProviderStatus.drift.test.tsx`.
 
 **Updated read shape (canonical):**
@@ -304,7 +304,7 @@ singleton OpenCode — all inline before the originating request
 returns. There is no window in which canonical state and the
 singleton's loaded model can drift.
 
-**Env-override escape hatch:** `OPENSEC_AI_MODEL_OVERRIDE_*` still
+**Env-override escape hatch:** `CLIFF_AI_MODEL_OVERRIDE_*` still
 exists as a dev/CI knob (read by `catalog.resolve_model`) but is no
 longer surfaced on the wire. Operators who want a global override use
 the picker.

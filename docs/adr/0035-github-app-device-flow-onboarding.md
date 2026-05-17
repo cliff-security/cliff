@@ -5,9 +5,9 @@
 
 ## Context
 
-Today, OpenSec's only path to "connect a GitHub repo" is a fine-grained
+Today, Cliff's only path to "connect a GitHub repo" is a fine-grained
 Personal Access Token (PAT) entered in Settings (see
-`backend/opensec/integrations/registry/github.json` and
+`backend/cliff/integrations/registry/github.json` and
 `frontend/src/components/settings/IntegrationSettings.tsx`). The user has
 to:
 
@@ -18,7 +18,7 @@ to:
    requests — and read+write vs. read-only depending on action tier).
 5. Pick the right repos.
 6. Copy the token.
-7. Paste it into OpenSec.
+7. Paste it into Cliff.
 
 This is a poor first impression for a "secure your repo in one click"
 product. It also pushes scope/permission choice onto users who shouldn't
@@ -26,7 +26,7 @@ have to think about it — most never grant write access, which silently
 disables remediation PRs.
 
 We want the same onboarding shape as `gh auth login`, the Vercel CLI, and
-the npm CLI: **"click to install OpenSec on your repo"**, then a short
+the npm CLI: **"click to install Cliff on your repo"**, then a short
 device-flow confirmation. Two clicks total.
 
 We also want this to keep working in the long-running self-hosted
@@ -35,7 +35,7 @@ generated on a self-hosted instance.
 
 ## Decision
 
-Adopt a **single shared GitHub App owned by us** (the OpenSec project),
+Adopt a **single shared GitHub App owned by us** (the Cliff project),
 combined with **GitHub's Device Flow** for per-instance user
 authorization. The App's `client_id` and `slug` are public values shipped
 with the binary (and overridable via env). The App's `client_secret` and
@@ -54,25 +54,25 @@ only with us, for SaaS use later.
    `https://github.com/apps/{slug}/installations/new?state={csrf}`. User
    picks repos and clicks Install.
 4. GitHub redirects to the App's configured `setup_url`, which points
-   back at the OpenSec instance:
+   back at the Cliff instance:
    `http://localhost:8000/api/integrations/github/setup?installation_id=<id>&setup_action=install&state=<csrf>`.
-5. OpenSec validates the CSRF state, stores `installation_id`, redirects
+5. Cliff validates the CSRF state, stores `installation_id`, redirects
    the browser to the Integrations page with a `?github_setup=complete`
    flag.
-6. The frontend now shows a modal: **"Authorize OpenSec on this
+6. The frontend now shows a modal: **"Authorize Cliff on this
    device"**. The 8-character `user_code` (`MNPQ-RSTU`) is displayed
    large and copyable. A button auto-opens
    `https://github.com/login/device` in a new tab. A spinner shows live
    polling status and a 15-minute countdown.
 7. The user pastes the code on `github.com/login/device` and clicks
    Authorize.
-8. Meanwhile, the OpenSec backend has been polling
+8. Meanwhile, the Cliff backend has been polling
    `POST https://github.com/login/oauth/access_token` server-side
    (frontend polls our `/status` endpoint, which reads the result the
-   poller wrote). On `access_token` returned, OpenSec stores the user
+   poller wrote). On `access_token` returned, Cliff stores the user
    access token (and refresh token, if expiry is enabled) encrypted in
    the existing credential vault, and marks the integration `connected`.
-9. From this point on, OpenSec uses the user access token in
+9. From this point on, Cliff uses the user access token in
    `Authorization: Bearer <token>` for all repo API calls. The token
    plugs into the existing MCP Gateway credential injection (ADR-0018)
    without changes to the agent code path.
@@ -81,7 +81,7 @@ Reference: <https://docs.github.com/en/apps/creating-github-apps/writing-code-wi
 
 ### App configuration (managed by us, off-repo)
 
-- Name: **OpenSec**
+- Name: **Cliff**
 - Permissions: `contents:read`, `metadata:read`,
   `security_events:read`, `pull_requests:read` (V1 read-only).
   Higher-tier write permissions for remediation PRs are added in a
@@ -95,7 +95,7 @@ Reference: <https://docs.github.com/en/apps/creating-github-apps/writing-code-wi
   (works for the default self-hosted shape; non-default ports/hosts
   fall back to a manual `installation_id` input — see Trade-offs).
 - The App's `client_id` and `slug` are exposed via environment:
-  `OPENSEC_GITHUB_APP_CLIENT_ID`, `OPENSEC_GITHUB_APP_SLUG`. Both are
+  `CLIFF_GITHUB_APP_CLIENT_ID`, `CLIFF_GITHUB_APP_SLUG`. Both are
   public; safe to ship a default in source.
 
 ## Alternatives considered
@@ -110,7 +110,7 @@ left intact (see Migration), but new connections move to the App.
 ### B. GitHub App Manifest flow (per-user App)
 
 Each self-hosted instance creates its **own** GitHub App via the
-manifest flow. UX is "create an app named OpenSec-yourorg", then install
+manifest flow. UX is "create an app named Cliff-yourorg", then install
 it.
 
 **Rejected** for two reasons:
@@ -163,7 +163,7 @@ as installation tokens for V1's read-only needs.
   tokens (already encrypted at rest).
 - **Better trust signal.** All installs come from one verified
   publisher's App, not thousands of one-off Apps named
-  `opensec-acme-corp-1`.
+  `cliff-acme-corp-1`.
 - **Cleaner SaaS migration later.** When we add hosted, the same App
   identity works for everyone; we just enable JWT/installation-token
   paths server-side without touching self-hosted.
@@ -175,8 +175,8 @@ as installation tokens for V1's read-only needs.
   Mitigated by aggressive UI affordances (copy button, auto-open
   authorize tab, big visible countdown).
 - **`setup_url` quirk on non-default deployments.** Self-hosted users
-  who run OpenSec on a non-default host or port (e.g. behind a reverse
-  proxy on `:443/opensec/`) won't be redirected back cleanly because
+  who run Cliff on a non-default host or port (e.g. behind a reverse
+  proxy on `:443/cliff/`) won't be redirected back cleanly because
   `setup_url` is configured *on the App* and points at
   `localhost:8000`. **V1 mitigation:** if no `setup` callback fires
   within ~30 seconds after the user clicks Install, the modal shows
@@ -210,7 +210,7 @@ deprecated, and not gated by the new feature flag.
   deleted. The PAT credential is left in the vault until the user
   explicitly revokes — they may want it back if the App fails for them.
 - Behind a runtime feature flag for V1: the new flow is gated on
-  `OPENSEC_GITHUB_APP_CLIENT_ID` being set. Unset → only PAT is
+  `CLIFF_GITHUB_APP_CLIENT_ID` being set. Unset → only PAT is
   available (today's behavior). Set → both available, App promoted.
   This means the App can ship dark and be flipped on by env without a
   code change.

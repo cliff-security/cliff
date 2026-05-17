@@ -6,12 +6,12 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from opensec.assessment.posture import RepoCoords
-from opensec.assessment.posture.code_integrity import (
+from cliff.assessment.posture import RepoCoords
+from cliff.assessment.posture.code_integrity import (
     check_code_owners_exists,
     check_secret_scanning_enabled,
 )
-from opensec.assessment.posture.github_client import UnableToVerify
+from cliff.assessment.posture.github_client import UnableToVerify
 
 if TYPE_CHECKING:
     from pathlib import Path

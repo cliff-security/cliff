@@ -14,13 +14,13 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from opensec.services.pr_verifier import PRVerification
-from opensec.workspace import repo_workspace_runner
-from opensec.workspace.repo_workspace_runner import (
+from cliff.services.pr_verifier import PRVerification
+from cliff.workspace import repo_workspace_runner
+from cliff.workspace.repo_workspace_runner import (
     RepoAgentRunner,
     read_status,
 )
-from opensec.workspace.workspace_dir_manager import WorkspaceKind
+from cliff.workspace.workspace_dir_manager import WorkspaceKind
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -78,7 +78,7 @@ def _agent_response(pr_url: str | None) -> str:
         "structured_output": {
             "status": "pr_created",
             "pr_url": pr_url,
-            "branch_name": "opensec/add-security-md",
+            "branch_name": "cliff/add-security-md",
             "file_path": "SECURITY.md",
         },
     }
@@ -169,7 +169,7 @@ async def test_run_flags_compare_page_without_hitting_network(
     """A malformed URL never reaches GitHub — the parser rejects it first."""
     workspace_root = _scaffold_workspace(tmp_path)
     # Compare-page URL the agent has emitted in real dogfooding runs.
-    fake_url = "https://github.com/acme/repo/pull/new/opensec-fix"
+    fake_url = "https://github.com/acme/repo/pull/new/cliff-fix"
     pool = _FakePool(_FakeClient(_agent_response(fake_url)))
 
     calls = {"n": 0}

@@ -5,14 +5,14 @@ from __future__ import annotations
 import aiosqlite
 import pytest
 
-from opensec.db import repo_integration
-from opensec.db.connection import close_db, init_db
-from opensec.integrations.github_app import repo as gh_repo
-from opensec.integrations.github_app.models import (
+from cliff.db import repo_integration
+from cliff.db.connection import close_db, init_db
+from cliff.integrations.github_app import repo as gh_repo
+from cliff.integrations.github_app.models import (
     GithubAppInstallationCreate,
     GithubAppPollingStatus,
 )
-from opensec.models import IntegrationConfigCreate
+from cliff.models import IntegrationConfigCreate
 
 
 @pytest.fixture
@@ -49,7 +49,7 @@ async def test_create_pending_inserts_row_and_returns_record(db: aiosqlite.Conne
         db,
         GithubAppInstallationCreate(
             integration_id=integration_id,
-            app_slug="opensec",
+            app_slug="cliff",
             client_id="Iv23liGitHubAppClientId",
             csrf_state="abc-123",
             user_code="MNPQ-RSTU",
@@ -61,7 +61,7 @@ async def test_create_pending_inserts_row_and_returns_record(db: aiosqlite.Conne
 
     assert record.id
     assert record.integration_id == integration_id
-    assert record.app_slug == "opensec"
+    assert record.app_slug == "cliff"
     assert record.csrf_state == "abc-123"
     assert record.polling_status == "installation_pending"
     assert record.installation_id is None
@@ -77,7 +77,7 @@ async def test_create_pending_rejects_duplicate_csrf(db: aiosqlite.Connection):
         db,
         GithubAppInstallationCreate(
             integration_id=integration_a,
-            app_slug="opensec",
+            app_slug="cliff",
             client_id="cid",
             csrf_state="dup",
             user_code="AAAA-BBBB",
@@ -92,7 +92,7 @@ async def test_create_pending_rejects_duplicate_csrf(db: aiosqlite.Connection):
             db,
             GithubAppInstallationCreate(
                 integration_id=integration_b,
-                app_slug="opensec",
+                app_slug="cliff",
                 client_id="cid",
                 csrf_state="dup",
                 user_code="CCCC-DDDD",
@@ -112,7 +112,7 @@ async def test_create_pending_rejects_duplicate_integration_id(
         db,
         GithubAppInstallationCreate(
             integration_id=integration_id,
-            app_slug="opensec",
+            app_slug="cliff",
             client_id="cid",
             csrf_state="state-1",
             user_code="A",
@@ -127,7 +127,7 @@ async def test_create_pending_rejects_duplicate_integration_id(
             db,
             GithubAppInstallationCreate(
                 integration_id=integration_id,
-                app_slug="opensec",
+                app_slug="cliff",
                 client_id="cid",
                 csrf_state="state-2",
                 user_code="B",
@@ -156,7 +156,7 @@ async def test_get_for_integration_returns_record(db: aiosqlite.Connection):
         db,
         GithubAppInstallationCreate(
             integration_id=integration_id,
-            app_slug="opensec",
+            app_slug="cliff",
             client_id="cid",
             csrf_state="s",
             user_code="A",
@@ -177,7 +177,7 @@ async def test_get_by_csrf_returns_record(db: aiosqlite.Connection):
         db,
         GithubAppInstallationCreate(
             integration_id=integration_id,
-            app_slug="opensec",
+            app_slug="cliff",
             client_id="cid",
             csrf_state="csrf-token-x",
             user_code="A",
@@ -202,7 +202,7 @@ async def test_get_inflight_returns_only_non_terminal(db: aiosqlite.Connection):
         db,
         GithubAppInstallationCreate(
             integration_id=integration_id,
-            app_slug="opensec",
+            app_slug="cliff",
             client_id="cid",
             csrf_state="state",
             user_code="A",
@@ -233,7 +233,7 @@ async def test_attach_installation_id_updates_row(db: aiosqlite.Connection):
         db,
         GithubAppInstallationCreate(
             integration_id=integration_id,
-            app_slug="opensec",
+            app_slug="cliff",
             client_id="cid",
             csrf_state="state",
             user_code="A",
@@ -273,7 +273,7 @@ async def test_mark_connected_sets_status_and_login(db: aiosqlite.Connection):
         db,
         GithubAppInstallationCreate(
             integration_id=integration_id,
-            app_slug="opensec",
+            app_slug="cliff",
             client_id="cid",
             csrf_state="state",
             user_code="A",
@@ -304,7 +304,7 @@ async def test_mark_failed_sets_terminal_status_and_error(
         db,
         GithubAppInstallationCreate(
             integration_id=integration_id,
-            app_slug="opensec",
+            app_slug="cliff",
             client_id="cid",
             csrf_state="state",
             user_code="A",
@@ -331,7 +331,7 @@ async def test_get_inflight_excludes_all_terminal_states(
         db,
         GithubAppInstallationCreate(
             integration_id=integration_id,
-            app_slug="opensec",
+            app_slug="cliff",
             client_id="cid",
             csrf_state="state",
             user_code="A",
@@ -358,7 +358,7 @@ async def test_update_polling_status_writes_status_and_error(
         db,
         GithubAppInstallationCreate(
             integration_id=integration_id,
-            app_slug="opensec",
+            app_slug="cliff",
             client_id="cid",
             csrf_state="state",
             user_code="A",
@@ -383,7 +383,7 @@ async def test_update_interval_increments_seconds(db: aiosqlite.Connection):
         db,
         GithubAppInstallationCreate(
             integration_id=integration_id,
-            app_slug="opensec",
+            app_slug="cliff",
             client_id="cid",
             csrf_state="state",
             user_code="A",
@@ -409,7 +409,7 @@ async def test_delete_removes_row(db: aiosqlite.Connection):
         db,
         GithubAppInstallationCreate(
             integration_id=integration_id,
-            app_slug="opensec",
+            app_slug="cliff",
             client_id="cid",
             csrf_state="state",
             user_code="A",
@@ -433,7 +433,7 @@ async def test_cascade_on_integration_delete(db: aiosqlite.Connection):
         db,
         GithubAppInstallationCreate(
             integration_id=integration_id,
-            app_slug="opensec",
+            app_slug="cliff",
             client_id="cid",
             csrf_state="state",
             user_code="A",

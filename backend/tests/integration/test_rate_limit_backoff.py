@@ -27,9 +27,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from opensec.agents import executor as executor_module
-from opensec.agents.executor import AgentExecutor
-from opensec.models import AgentRun
+from cliff.agents import executor as executor_module
+from cliff.agents.executor import AgentExecutor
+from cliff.models import AgentRun
 
 pytestmark = pytest.mark.integration
 
@@ -141,13 +141,13 @@ async def test_rate_limit_retry_then_success(monkeypatch, workspace_dir):
     start = time.monotonic()
     with (
         patch(
-            "opensec.agents.executor.create_agent_run",
+            "cliff.agents.executor.create_agent_run",
             return_value=_make_mock_agent_run(),
         ),
-        patch("opensec.agents.executor.update_agent_run") as mock_update,
-        patch("opensec.agents.executor.list_agent_runs", return_value=[]),
-        patch("opensec.agents.executor.map_and_upsert"),
-        patch("opensec.agents.executor._advance_finding_status", return_value=None),
+        patch("cliff.agents.executor.update_agent_run") as mock_update,
+        patch("cliff.agents.executor.list_agent_runs", return_value=[]),
+        patch("cliff.agents.executor.map_and_upsert"),
+        patch("cliff.agents.executor._advance_finding_status", return_value=None),
     ):
         result = await executor.execute(
             "ws-rl", "finding_enricher", db, workspace_dir=workspace_dir,
@@ -200,13 +200,13 @@ async def test_rate_limit_exhausted_terminates_with_status_and_last_error(
     start = time.monotonic()
     with (
         patch(
-            "opensec.agents.executor.create_agent_run",
+            "cliff.agents.executor.create_agent_run",
             return_value=_make_mock_agent_run(),
         ),
-        patch("opensec.agents.executor.update_agent_run") as mock_update,
-        patch("opensec.agents.executor.list_agent_runs", return_value=[]),
-        patch("opensec.agents.executor.map_and_upsert"),
-        patch("opensec.agents.executor._advance_finding_status", return_value=None),
+        patch("cliff.agents.executor.update_agent_run") as mock_update,
+        patch("cliff.agents.executor.list_agent_runs", return_value=[]),
+        patch("cliff.agents.executor.map_and_upsert"),
+        patch("cliff.agents.executor._advance_finding_status", return_value=None),
     ):
         result = await executor.execute(
             "ws-rl", "finding_enricher", db, workspace_dir=workspace_dir,
@@ -266,11 +266,11 @@ async def test_non_rate_limit_error_still_fails_immediately(monkeypatch, workspa
 
     with (
         patch(
-            "opensec.agents.executor.create_agent_run",
+            "cliff.agents.executor.create_agent_run",
             return_value=_make_mock_agent_run(),
         ),
-        patch("opensec.agents.executor.update_agent_run") as mock_update,
-        patch("opensec.agents.executor.list_agent_runs", return_value=[]),
+        patch("cliff.agents.executor.update_agent_run") as mock_update,
+        patch("cliff.agents.executor.list_agent_runs", return_value=[]),
     ):
         result = await executor.execute(
             "ws-rl", "finding_enricher", db, workspace_dir=workspace_dir,
@@ -291,7 +291,7 @@ async def test_non_rate_limit_error_still_fails_immediately(monkeypatch, workspa
 # OpenCode binary or the Effect AI SDK that OpenCode embeds — NOT a string
 # someone made up to test against. These are the wire shapes that show up
 # inside ``properties.error.data.message`` in OpenCode's ``session.error``
-# SSE event (unwrapped by ``opensec.engine.client.OpenCodeClient.stream_events``
+# SSE event (unwrapped by ``cliff.engine.client.OpenCodeClient.stream_events``
 # at engine/client.py:284-287) when an upstream provider 429s.
 #
 # Sources:
@@ -363,13 +363,13 @@ async def test_real_world_rate_limit_messages_classify_and_retry(
 
     with (
         patch(
-            "opensec.agents.executor.create_agent_run",
+            "cliff.agents.executor.create_agent_run",
             return_value=_make_mock_agent_run(),
         ),
-        patch("opensec.agents.executor.update_agent_run") as mock_update,
-        patch("opensec.agents.executor.list_agent_runs", return_value=[]),
-        patch("opensec.agents.executor.map_and_upsert"),
-        patch("opensec.agents.executor._advance_finding_status", return_value=None),
+        patch("cliff.agents.executor.update_agent_run") as mock_update,
+        patch("cliff.agents.executor.list_agent_runs", return_value=[]),
+        patch("cliff.agents.executor.map_and_upsert"),
+        patch("cliff.agents.executor._advance_finding_status", return_value=None),
     ):
         result = await executor.execute(
             "ws-rl", "finding_enricher", db, workspace_dir=workspace_dir,
@@ -444,11 +444,11 @@ async def test_lookalike_messages_do_not_trigger_rate_limit_retry(
 
     with (
         patch(
-            "opensec.agents.executor.create_agent_run",
+            "cliff.agents.executor.create_agent_run",
             return_value=_make_mock_agent_run(),
         ),
-        patch("opensec.agents.executor.update_agent_run") as mock_update,
-        patch("opensec.agents.executor.list_agent_runs", return_value=[]),
+        patch("cliff.agents.executor.update_agent_run") as mock_update,
+        patch("cliff.agents.executor.list_agent_runs", return_value=[]),
     ):
         result = await executor.execute(
             "ws-rl", "finding_enricher", db, workspace_dir=workspace_dir,
@@ -514,13 +514,13 @@ async def test_f1_minimist_style_scenario_recovers_under_throttling(
 
         with (
             patch(
-                "opensec.agents.executor.create_agent_run",
+                "cliff.agents.executor.create_agent_run",
                 return_value=_make_mock_agent_run(),
             ),
-            patch("opensec.agents.executor.update_agent_run"),
-            patch("opensec.agents.executor.list_agent_runs", return_value=[]),
-            patch("opensec.agents.executor.map_and_upsert"),
-            patch("opensec.agents.executor._advance_finding_status", return_value=None),
+            patch("cliff.agents.executor.update_agent_run"),
+            patch("cliff.agents.executor.list_agent_runs", return_value=[]),
+            patch("cliff.agents.executor.map_and_upsert"),
+            patch("cliff.agents.executor._advance_finding_status", return_value=None),
         ):
             result = await executor.execute(
                 "ws-f1", agent_type, db, workspace_dir=workspace_dir,

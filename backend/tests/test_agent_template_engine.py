@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from opensec.agents import AGENT_NAMES, AgentTemplateEngine
-from opensec.models import Finding
+from cliff.agents import AGENT_NAMES, AgentTemplateEngine
+from cliff.models import Finding
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -449,7 +449,7 @@ def test_executor_includes_repo_instructions(
     """Executor template includes git/gh workflow instructions."""
     agent = engine.render_agent("remediation_executor", finding=sample_finding_dict)
     assert "git clone" in agent.content
-    assert "git checkout -b opensec/fix/" in agent.content
+    assert "git checkout -b cliff/fix/" in agent.content
     assert "gh pr create --draft" in agent.content
     assert "git push" in agent.content
 
@@ -476,12 +476,12 @@ def posture_finding_dict() -> dict:
     now = datetime.now(UTC)
     f = Finding(
         id="finding-posture-001",
-        source_type="opensec-posture",
-        source_id="https://github.com/galanko/OpenSec:trusted_action_sources",
+        source_type="cliff-posture",
+        source_id="https://github.com/galanko/Cliff:trusted_action_sources",
         title="trusted_action_sources",
         type="posture",
         status="new",
-        asset_label="https://github.com/galanko/OpenSec",
+        asset_label="https://github.com/galanko/Cliff",
         raw_payload={
             "check_name": "trusted_action_sources",
             "scanner_status": "fail",

@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from opensec.engine.pool import PortAllocator, WorkspaceProcessPool
+from cliff.engine.pool import PortAllocator, WorkspaceProcessPool
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -67,11 +67,11 @@ async def test_npm_cache_is_per_workspace_no_crosstalk(
 
     with (
         patch(
-            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            "cliff.engine.pool.asyncio.create_subprocess_exec",
             new=AsyncMock(side_effect=_capture_subprocess),
         ),
         patch(
-            "opensec.engine.pool.httpx.AsyncClient",
+            "cliff.engine.pool.httpx.AsyncClient",
             return_value=_mock_httpx_healthy(),
         ),
     ):

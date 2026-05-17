@@ -22,10 +22,10 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from opensec.agents import AgentTemplateEngine
-from opensec.engine.pool import PortAllocator, WorkspaceProcessPool
-from opensec.models import Finding
-from opensec.workspace import WorkspaceDirManager
+from cliff.agents import AgentTemplateEngine
+from cliff.engine.pool import PortAllocator, WorkspaceProcessPool
+from cliff.models import Finding
+from cliff.workspace import WorkspaceDirManager
 
 # ---------------------------------------------------------------------------
 # Fixtures

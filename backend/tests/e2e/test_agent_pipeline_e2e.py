@@ -22,16 +22,16 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from opensec.agents import AgentTemplateEngine
-from opensec.agents.executor import AgentExecutor
-from opensec.agents.pipeline import suggest_next
-from opensec.db.connection import close_db, init_db
-from opensec.db.repo_finding import create_finding
-from opensec.db.repo_workspace import create_workspace
-from opensec.engine.pool import PortAllocator, WorkspaceProcessPool
-from opensec.models import Finding, FindingCreate, WorkspaceCreate
-from opensec.workspace import WorkspaceDirManager
-from opensec.workspace.context_builder import WorkspaceContextBuilder
+from cliff.agents import AgentTemplateEngine
+from cliff.agents.executor import AgentExecutor
+from cliff.agents.pipeline import suggest_next
+from cliff.db.connection import close_db, init_db
+from cliff.db.repo_finding import create_finding
+from cliff.db.repo_workspace import create_workspace
+from cliff.engine.pool import PortAllocator, WorkspaceProcessPool
+from cliff.models import Finding, FindingCreate, WorkspaceCreate
+from cliff.workspace import WorkspaceDirManager
+from cliff.workspace.context_builder import WorkspaceContextBuilder
 
 # ---------------------------------------------------------------------------
 # Helpers

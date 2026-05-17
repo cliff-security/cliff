@@ -7,15 +7,15 @@ taxonomy from ADR-0027.
 
 from __future__ import annotations
 
-from opensec.assessment.posture import CHECK_DISPLAY_NAME, PostureCheckResult
-from opensec.assessment.scanners.models import (
+from cliff.assessment.posture import CHECK_DISPLAY_NAME, PostureCheckResult
+from cliff.assessment.scanners.models import (
     SemgrepFinding,
     SemgrepResult,
     TrivyResult,
     TrivySecret,
     TrivyVulnerability,
 )
-from opensec.assessment.to_findings import (
+from cliff.assessment.to_findings import (
     from_posture,
     from_semgrep,
     from_trivy_secrets,

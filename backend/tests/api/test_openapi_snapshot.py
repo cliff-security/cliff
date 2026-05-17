@@ -20,7 +20,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from opensec.main import app
+from cliff.main import app
 
 SNAPSHOT_PATH = Path(__file__).parent / "openapi_snapshot.json"
 

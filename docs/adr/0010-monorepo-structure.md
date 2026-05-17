@@ -5,14 +5,14 @@
 
 ## Context
 
-OpenSec has multiple components: a Python backend, a TypeScript frontend, a Go dependency (OpenCode), Docker packaging, and documentation. We need to decide between a monorepo and multi-repo approach.
+Cliff has multiple components: a Python backend, a TypeScript frontend, a Go dependency (OpenCode), Docker packaging, and documentation. We need to decide between a monorepo and multi-repo approach.
 
 ## Decision
 
 Use a **single monorepo** with clearly separated top-level directories:
 
 ```
-OpenSec/
+Cliff/
   backend/       — FastAPI application (Python)
   frontend/      — React SPA (TypeScript)
   engine/        — OpenCode submodule (Go)

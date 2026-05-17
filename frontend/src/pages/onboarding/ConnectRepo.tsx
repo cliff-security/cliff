@@ -73,7 +73,7 @@ export default function ConnectRepo() {
   // up on this instance; the status query tells us whether *this user*
   // has already authorized the App. If both are true we skip straight
   // to the repo picker using the vault token; if only the first is
-  // true we render an "Install OpenSec on a repo" primary CTA with a
+  // true we render an "Install Cliff on a repo" primary CTA with a
   // small "Use a personal access token instead" fallback link.
   const { data: registry } = useRegistry()
   const githubAppAvailable =

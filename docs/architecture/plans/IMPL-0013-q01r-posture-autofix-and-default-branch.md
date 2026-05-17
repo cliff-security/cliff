@@ -21,18 +21,18 @@ Per the architect's "delete before adding" principle, **B24's simplest correct f
 
 | Bug | File:line | Issue | Required change |
 |---|---|---|---|
-| B24a | `backend/opensec/api/routes/posture.py:33` | `PostureFixCheckName = Literal["security_md", "dependabot_config"]` | No change (the enum is correctly narrow — fix is upstream in level-up) |
-| B24b | `backend/opensec/api/routes/_level_up.py:87–92` | `_AUTO_FIXABLE_CHECKS = (security_md, dependabot_config, code_owners_exists, actions_pinned_to_sha)` — last two have no handler | **Shrink** to `(security_md, dependabot_config)` until handlers + agent templates land |
+| B24a | `backend/cliff/api/routes/posture.py:33` | `PostureFixCheckName = Literal["security_md", "dependabot_config"]` | No change (the enum is correctly narrow — fix is upstream in level-up) |
+| B24b | `backend/cliff/api/routes/_level_up.py:87–92` | `_AUTO_FIXABLE_CHECKS = (security_md, dependabot_config, code_owners_exists, actions_pinned_to_sha)` — last two have no handler | **Shrink** to `(security_md, dependabot_config)` until handlers + agent templates land |
 | B24c | `frontend/src/components/dashboard/GateRow.tsx` (Auto-fix button) | onClick uses TanStack mutation that doesn't surface server errors | Add toast on `onError` (Sonner is already installed); show inline error text on the card when the most recent attempt 4xx'd |
-| B23 | `backend/opensec/assessment/posture/__init__.py:221` | `RepoCoords.branch: str = "main"` default | Remove default; require caller to pass `default_branch`. Caller resolves it via `GET /repos/{owner}/{repo}` → `default_branch` field, then passes to `run_all_posture_checks()` |
+| B23 | `backend/cliff/assessment/posture/__init__.py:221` | `RepoCoords.branch: str = "main"` default | Remove default; require caller to pass `default_branch`. Caller resolves it via `GET /repos/{owner}/{repo}` → `default_branch` field, then passes to `run_all_posture_checks()` |
 
 ## Files touched
 
 Backend (V2 — `api/routes/`, `assessment/`):
-- `backend/opensec/api/routes/_level_up.py` — `_AUTO_FIXABLE_CHECKS` → 2 entries
-- `backend/opensec/assessment/posture/__init__.py` — `RepoCoords.branch` no default; `run_all_posture_checks` accepts `default_branch` arg
-- `backend/opensec/assessment/posture/github_client.py` — confirm all callers pass `branch` (no remaining literal "main")
-- `backend/opensec/assessment/runner.py` (or wherever the posture run is kicked off) — fetch repo metadata, pass default branch
+- `backend/cliff/api/routes/_level_up.py` — `_AUTO_FIXABLE_CHECKS` → 2 entries
+- `backend/cliff/assessment/posture/__init__.py` — `RepoCoords.branch` no default; `run_all_posture_checks` accepts `default_branch` arg
+- `backend/cliff/assessment/posture/github_client.py` — confirm all callers pass `branch` (no remaining literal "main")
+- `backend/cliff/assessment/runner.py` (or wherever the posture run is kicked off) — fetch repo metadata, pass default branch
 
 Frontend (V2 — `components/`):
 - `frontend/src/components/dashboard/GateRow.tsx` — Auto-fix button: `onError` → toast + inline error

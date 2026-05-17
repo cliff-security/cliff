@@ -1,7 +1,7 @@
 # Assessment Engine
 
 The assessment engine is the deterministic Python module that turns a cloned
-repo into a grade. It lives under [backend/opensec/assessment/](../../backend/opensec/assessment/)
+repo into a grade. It lives under [backend/cliff/assessment/](../../backend/cliff/assessment/)
 and has no LLM, no DB writes, and no inbound dependencies on the API layer —
 it's a pure pipeline:
 
@@ -11,7 +11,7 @@ RepoCloner ──► parsers/ ──► osv_client/ghsa_client ──► posture
                                                       AssessmentResult emitted here
 ```
 
-The API layer (`backend/opensec/api/_background.py`) drives the engine via the
+The API layer (`backend/cliff/api/_background.py`) drives the engine via the
 `AssessmentEngineProtocol` DI seam and persists every output it emits. The
 engine never touches the DB directly — that invariant is covered by
 `backend/tests/api/test_integration_engine.py`.
@@ -20,11 +20,11 @@ engine never touches the DB directly — that invariant is covered by
 
 | Concern | Files |
 |---|---|
-| Public orchestrator | [backend/opensec/assessment/engine.py](../../backend/opensec/assessment/engine.py) |
-| Production entry point (shallow clone + real clients) | [backend/opensec/assessment/production_engine.py](../../backend/opensec/assessment/production_engine.py) |
-| Lockfile parsers | [backend/opensec/assessment/parsers/](../../backend/opensec/assessment/parsers/) (npm, pip, go — one module each) |
+| Public orchestrator | [backend/cliff/assessment/engine.py](../../backend/cliff/assessment/engine.py) |
+| Production entry point (shallow clone + real clients) | [backend/cliff/assessment/production_engine.py](../../backend/cliff/assessment/production_engine.py) |
+| Lockfile parsers | [backend/cliff/assessment/parsers/](../../backend/cliff/assessment/parsers/) (npm, pip, go — one module each) |
 | OSV + GHSA clients | `osv_client.py`, `ghsa_client.py` |
-| Posture checks | [backend/opensec/assessment/posture/](../../backend/opensec/assessment/posture/) (files, branch, secrets, github_client) |
+| Posture checks | [backend/cliff/assessment/posture/](../../backend/cliff/assessment/posture/) (files, branch, secrets, github_client) |
 | Unit tests | [backend/tests/assessment/](../../backend/tests/assessment/) |
 | Integration test (real engine vs mocked clients + planted fixture) | [backend/tests/api/test_integration_engine.py](../../backend/tests/api/test_integration_engine.py) |
 | Lockfile fixtures | [backend/tests/fixtures/lockfiles/](../../backend/tests/fixtures/lockfiles/) |
@@ -43,7 +43,7 @@ in `parsers/__init__.py`. To add e.g. a Ruby `Gemfile.lock` parser:
        deps = parse_gemfile_lock(Path("tests/fixtures/lockfiles/ruby/Gemfile.lock"))
        assert any(d.name == "nokogiri" and d.version == "1.13.0" for d in deps)
    ```
-3. **Implement** `backend/opensec/assessment/parsers/ruby.py` returning
+3. **Implement** `backend/cliff/assessment/parsers/ruby.py` returning
    `list[ParsedDependency]`. Match the existing parsers' shape — constructor
    takes a `Path`, caller handles exceptions (one malformed lockfile must
    not kill the run, per the `_collect_dependencies` contract in `engine.py`).
@@ -65,13 +65,13 @@ schema change).
 Posture checks implement a simple shape: `(repo_path, gh_client, coords) ->
 PostureCheckResult`. They're composed in `posture/__init__.py::run_all_posture_checks`.
 
-1. **Extend the literal** in [backend/opensec/models/posture_check.py](../../backend/opensec/models/posture_check.py):
+1. **Extend the literal** in [backend/cliff/models/posture_check.py](../../backend/cliff/models/posture_check.py):
    add your check name to `PostureCheckName`.
 2. **Write the failing test** at `backend/tests/assessment/posture/test_your_check.py`.
    Use `tmp_path` to plant whatever the check looks for (a file, a commit
    log shape, etc.). For GitHub-backed checks, mock `gh_client` with
    `unittest.mock.AsyncMock`.
-3. **Implement** under `backend/opensec/assessment/posture/`. Return a
+3. **Implement** under `backend/cliff/assessment/posture/`. Return a
    `PostureCheckResult(check_name=..., status="pass|fail|advisory|unknown", detail=...)`.
 4. **Register** in `run_all_posture_checks` so it runs on every assessment.
    Order matters only for output stability — tests should not depend on it.
@@ -91,9 +91,9 @@ directly — no git clone, no DB:
 ```python
 import asyncio, httpx
 from pathlib import Path
-from opensec.assessment.engine import run_assessment_on_path
-from opensec.assessment.osv_client import OsvClient
-from opensec.assessment.posture.github_client import GithubClient
+from cliff.assessment.engine import run_assessment_on_path
+from cliff.assessment.osv_client import OsvClient
+from cliff.assessment.posture.github_client import GithubClient
 
 async def main() -> None:
     async with httpx.AsyncClient(timeout=30) as http:
@@ -134,16 +134,16 @@ Playwright boots the backend on port 18000 and the Vite dev server on 15173
 (deliberately offset from the developer defaults so the E2E never collides
 with a running `scripts/dev.sh`). The backend is configured via env vars:
 
-- `OPENSEC_TEST_FIXTURE_REPO_DIR` — path to the planted repo fixture
+- `CLIFF_TEST_FIXTURE_REPO_DIR` — path to the planted repo fixture
   ([frontend/tests/e2e/fixtures/repo/](../../frontend/tests/e2e/fixtures/repo/))
-- `OPENSEC_TEST_FIXTURE_OSV_DIR` — path to OSV response JSON files keyed
+- `CLIFF_TEST_FIXTURE_OSV_DIR` — path to OSV response JSON files keyed
   by `<ecosystem>_<package>_<version>.json`
   ([frontend/tests/e2e/fixtures/osv/](../../frontend/tests/e2e/fixtures/osv/))
 
 When both are set, `get_assessment_engine()` swaps in a fixture-backed
 `ProductionAssessmentEngine` that copies from the fixture dir instead of
 invoking `git clone` and replays OSV/GitHub responses from the JSON files.
-See [backend/opensec/assessment/_test_seam.py](../../backend/opensec/assessment/_test_seam.py).
+See [backend/cliff/assessment/_test_seam.py](../../backend/cliff/assessment/_test_seam.py).
 
 ## Error semantics
 
@@ -154,5 +154,5 @@ See [backend/opensec/assessment/_test_seam.py](../../backend/opensec/assessment/
 * An engine-level exception (git clone timeout, KeyboardInterrupt, etc.)
   bubbles out of `run_and_persist_assessment` and flips the assessment row
   to `status="failed"`. The background task's exception handler in
-  [_background.py](../../backend/opensec/api/_background.py) catches
+  [_background.py](../../backend/cliff/api/_background.py) catches
   everything — the API response has already returned by that point.

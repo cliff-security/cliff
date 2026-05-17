@@ -6,10 +6,10 @@ Last updated 2026-05-11.
 
 ## Environment
 
-- Backend on port 8000 (`uv run uvicorn opensec.main:app --reload --port 8000`)
+- Backend on port 8000 (`uv run uvicorn cliff.main:app --reload --port 8000`)
 - Frontend on port 5173 (`npm run dev`)
-- DB: `backend/opensec.db`
-- Real OpenSec GitHub App: `opensec-local-test` (client_id `Iv23lio5AYwdYwkcI90e`)
+- DB: `backend/cliff.db`
+- Real Cliff GitHub App: `cliff-local-test` (client_id `Iv23lio5AYwdYwkcI90e`)
 - Test account: `@galanko`
 
 Tests with **[CHROME]** are exercised end-to-end via the Claude Chrome
@@ -95,10 +95,10 @@ OpenAPI spec under `frontend/src/api/types.ts`.
 |---|--------|
 | D1 | ✅ Button rendered (not anchor); confirmed via `tagName === 'BUTTON'`. |
 | D2 | ✅ Click opened `[data-testid="repo-picker-dialog"]` in place. URL stayed `/settings`. |
-| D3 | ✅ Listed `galanko/research` (private) + `galanko/OpenSec` (public) from vault. |
-| D4 | ✅ Clicking `galanko/OpenSec` → dialog closed, integration card showed `https://github.com/galanko/OpenSec`, sidebar updated. |
+| D3 | ✅ Listed `galanko/research` (private) + `galanko/Cliff` (public) from vault. |
+| D4 | ✅ Clicking `galanko/Cliff` → dialog closed, integration card showed `https://github.com/galanko/Cliff`, sidebar updated. |
 | D5 | ✅ Both Escape and Cancel close cleanly (no API side-effects). |
-| D6 | ✅ Manual URL `https://github.com/galanko/OpenSec` typed + Verify → dialog closed, integration updated. |
+| D6 | ✅ Manual URL `https://github.com/galanko/Cliff` typed + Verify → dialog closed, integration updated. |
 | D7 | ✅ User remained on `/settings` for the entire flow; AI provider step never re-opened. |
 
 ### REST (R1–R5)
@@ -109,7 +109,7 @@ OpenAPI spec under `frontend/src/api/types.ts`.
 | R2 | ✅ `/status` reflected the in-flight code. |
 | R3 | ✅ `/poll-now` returned the same status (no GitHub completion to detect during the 1s window). |
 | R4 | ✅ Returned 2 repos from vault; no `github_token` field needed. |
-| R5 | ✅ Verified `galanko/OpenSec`, returned assessment id + permissions. |
+| R5 | ✅ Verified `galanko/Cliff`, returned assessment id + permissions. |
 | R6 | Skipped live (destructive); covered by `test_github_app_routes.py::test_disconnect_*`. |
 
 ### Findings flagged for code-review

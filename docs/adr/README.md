@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-This directory contains Architecture Decision Records (ADRs) for OpenSec.
+This directory contains Architecture Decision Records (ADRs) for Cliff.
 
 ADRs document significant architectural decisions made during the project. Once accepted, they are immutable records of why a decision was made at a point in time. If a decision is reversed, a new ADR supersedes the old one.
 
@@ -41,7 +41,7 @@ ADRs document significant architectural decisions made during the project. Once 
 | [0031](0031-provider-probe-endpoint.md) | Provider probe endpoint (`POST /api/settings/providers/test`) | Proposed |
 | [0032](0032-assessment-v2-dashboard-payload.md) | Dashboard payload shape for security assessment v2 (`tools[]`, four-state posture, labeled criteria, `summary_seen_at`) | Proposed |
 | [0033](0033-pre-alpha-destructive-migrations.md) | Pre-alpha destructive migrations — license that expires at v0.1 alpha tag | Accepted |
-| [0034](0034-agent-cli-and-skill.md) | Agent CLI (`opensec`) and Claude Code skill (`/secure-repo`) | Proposed |
+| [0034](0034-agent-cli-and-skill.md) | Agent CLI (`cliff`) and Claude Code skill (`/secure-repo`) | Proposed |
 | [0035](0035-github-app-device-flow-onboarding.md) | GitHub App + Device Flow onboarding (replace PAT) | Proposed |
 
 ## Template

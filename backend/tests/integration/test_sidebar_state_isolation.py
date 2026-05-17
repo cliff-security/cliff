@@ -17,12 +17,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from opensec.db.repo_agent_run import create_agent_run, list_agent_runs
-from opensec.db.repo_finding import create_finding
-from opensec.db.repo_message import create_message, list_messages
-from opensec.db.repo_sidebar import get_sidebar, upsert_sidebar
-from opensec.db.repo_workspace import create_workspace
-from opensec.models import (
+from cliff.db.repo_agent_run import create_agent_run, list_agent_runs
+from cliff.db.repo_finding import create_finding
+from cliff.db.repo_message import create_message, list_messages
+from cliff.db.repo_sidebar import get_sidebar, upsert_sidebar
+from cliff.db.repo_workspace import create_workspace
+from cliff.models import (
     AgentRunCreate,
     FindingCreate,
     MessageCreate,

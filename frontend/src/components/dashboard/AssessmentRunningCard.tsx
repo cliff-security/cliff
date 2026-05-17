@@ -77,7 +77,7 @@ export default function AssessmentRunningCard({
           }}
         >
           <span
-            className="opensec-spinner"
+            className="cliff-spinner"
             style={{ width: 22, height: 22 }}
           />
         </div>
@@ -282,7 +282,7 @@ function ScannerPill({ tool }: { tool: ScannerToolLike }) {
         }}
       >
         <span
-          className="opensec-pulse-dot rounded-full"
+          className="cliff-pulse-dot rounded-full"
           style={{
             width: 6,
             height: 6,
@@ -374,7 +374,7 @@ function StepRow({ step }: { step: StepLike }) {
       >
         <div className="flex items-center gap-3">
           <span
-            className="opensec-spinner"
+            className="cliff-spinner"
             style={{ width: 14, height: 14 }}
             aria-hidden
           />

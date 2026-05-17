@@ -5,7 +5,7 @@
 
 ## Context
 
-OpenSec needs persistent storage for findings, workspaces, messages, agent runs, sidebar state, ticket links, settings, and integration configs.
+Cliff needs persistent storage for findings, workspaces, messages, agent runs, sidebar state, ticket links, settings, and integration configs.
 
 Options considered:
 
@@ -17,7 +17,7 @@ Options considered:
 
 Use **SQLite** as the primary database.
 
-- Single file stored in a mounted volume (`data/opensec.db`)
+- Single file stored in a mounted volume (`data/cliff.db`)
 - WAL mode enabled for read concurrency
 - Migrations managed via numbered SQL scripts
 - Accessed via Python's `aiosqlite` for async compatibility with FastAPI

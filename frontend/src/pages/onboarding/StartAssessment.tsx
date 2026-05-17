@@ -56,7 +56,7 @@ export default function StartAssessment() {
       <AssessmentInProgressView
         assessmentId={assessmentId}
         headline="First assessment in progress"
-        description="OpenSec is cloning your repo, scanning dependencies with Trivy, sweeping for secrets, running Semgrep, and walking the 15 posture checks. Nothing is written to your repo without your explicit approval — every change lands as a draft pull request you review."
+        description="Cliff is cloning your repo, scanning dependencies with Trivy, sweeping for secrets, running Semgrep, and walking the 15 posture checks. Nothing is written to your repo without your explicit approval — every change lands as a draft pull request you review."
         actions={
           <WizardNav
             onBack={() => navigate('/onboarding/ai')}

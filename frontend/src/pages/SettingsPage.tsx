@@ -6,7 +6,7 @@
  * tab rail in `--cd-bg-1` + the active section on the right. Section
  * H2s use Manrope 22px / fg-1 / -0.02em per `ui-kit/settings.jsx`.
  *
- * Tab set is the actual OpenSec settings surface — AI provider,
+ * Tab set is the actual Cliff settings surface — AI provider,
  * Integrations, About — not the ui-kit's hypothetical Scope/Agents/etc.
  */
 import { useLocation, useNavigate } from 'react-router'

@@ -5,7 +5,7 @@
 
 ## Context
 
-OpenSec must ship an MVP that is easy to adopt without enterprise sales cycles. The primary audience is individual security practitioners or small teams who want to try AI-assisted remediation.
+Cliff must ship an MVP that is easy to adopt without enterprise sales cycles. The primary audience is individual security practitioners or small teams who want to try AI-assisted remediation.
 
 Multi-user features (auth, RBAC, org management, shared workspaces) add significant complexity and delay the first usable release.
 

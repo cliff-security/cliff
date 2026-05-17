@@ -14,7 +14,7 @@ Sample and demo data used across tests, local development, and the hosted demo.
 
 ## `demo-seed-findings.json` — demo seed
 
-The demo seed is the dataset behind the public `demo.opensec.dev` environment (and the local demo when `OPENSEC_DEMO=true` lands in Phase 9b). It's designed to make OpenSec tell a complete story to a first-time visitor in under 3 minutes.
+The demo seed is the dataset behind the public `demo.cliff.dev` environment (and the local demo when `CLIFF_DEMO=true` lands in Phase 9b). It's designed to make Cliff tell a complete story to a first-time visitor in under 3 minutes.
 
 ### What's in it
 
@@ -44,10 +44,10 @@ A demo dataset should show someone:
 
 ### How to load it
 
-Until `OPENSEC_DEMO=true` ships in Phase 9b, the simplest path is the Queue page's JSON import:
+Until `CLIFF_DEMO=true` ships in Phase 9b, the simplest path is the Queue page's JSON import:
 
 ```bash
-# Start OpenSec locally
+# Start Cliff locally
 docker compose -f docker/docker-compose.yml up
 
 # In another terminal, POST the seed to the findings import endpoint
@@ -56,7 +56,7 @@ curl -X POST http://localhost:8000/api/findings/import \
   -d @fixtures/demo-seed-findings.json
 ```
 
-Alternatively, copy the file into `data/demo/` on a fresh instance — the startup seeder (Phase 9b) will pick it up when `OPENSEC_DEMO=true` is set.
+Alternatively, copy the file into `data/demo/` on a fresh instance — the startup seeder (Phase 9b) will pick it up when `CLIFF_DEMO=true` is set.
 
 ### Editing guidelines
 

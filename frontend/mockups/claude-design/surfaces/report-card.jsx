@@ -80,7 +80,7 @@ function ReportCardHero() {
           <p className="text-[11px] font-bold uppercase tracking-wider text-primary">Security grade</p>
           <h2 className="mt-1.5 font-headline text-[28px] font-extrabold text-on-surface leading-[1.1] tracking-tight">Nearly there.</h2>
           <p className="mt-2 text-[15px] text-on-surface-variant max-w-md leading-relaxed">
-            Two checks left to reach Grade A. Both are fixable by an OpenSec agent.
+            Two checks left to reach Grade A. Both are fixable by an Cliff agent.
           </p>
         </div>
         <div className="flex flex-col items-end gap-1.5 text-right">
@@ -307,7 +307,7 @@ function ReportCardPage({ variation = 'A' }) {
         <div className="flex items-baseline justify-between mb-6">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">Repository</p>
-            <h1 className="font-headline text-[32px] font-extrabold text-on-surface tracking-tight leading-tight">galanko / opensec-demo</h1>
+            <h1 className="font-headline text-[32px] font-extrabold text-on-surface tracking-tight leading-tight">galanko / cliff-demo</h1>
           </div>
         </div>
 

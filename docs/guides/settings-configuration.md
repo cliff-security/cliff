@@ -1,6 +1,6 @@
 # Settings configuration
 
-OpenSec's Settings page lets you configure AI providers, models, API keys, and integrations from the browser. All changes take effect immediately — no restart required.
+Cliff's Settings page lets you configure AI providers, models, API keys, and integrations from the browser. All changes take effect immediately — no restart required.
 
 ## Accessing settings
 
@@ -29,7 +29,7 @@ Model buttons show capability flags:
 
 ### Environment variables (recommended for production)
 
-Set provider API keys as environment variables before starting OpenSec:
+Set provider API keys as environment variables before starting Cliff:
 
 ```bash
 export OPENAI_API_KEY=sk-...
@@ -48,7 +48,7 @@ For Docker or remote deployments where env vars are inconvenient:
 4. The key takes effect immediately — no restart needed
 
 Keys set via the UI are:
-- Stored in the OpenSec database (masked — only last 4 characters visible)
+- Stored in the Cliff database (masked — only last 4 characters visible)
 - Sent to the OpenCode engine at runtime
 - Automatically re-injected if the engine restarts
 
@@ -91,8 +91,8 @@ When running in Docker, pass API keys as environment variables:
 ```bash
 docker run -p 8000:8000 \
   -e OPENAI_API_KEY=sk-... \
-  -v opensec-data:/data \
-  opensec
+  -v cliff-data:/data \
+  cliff
 ```
 
 Or configure them via the Settings UI after the container starts.
