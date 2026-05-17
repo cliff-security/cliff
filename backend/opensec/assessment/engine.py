@@ -633,11 +633,25 @@ async def _resolve_default_branch(
         return "main"
     info = await getter(owner, repo)
     if isinstance(info, UnableToVerify):
+        # Operator-visible breadcrumb: when the fallback fires on a
+        # master-default repo, every branch-scoped probe will degrade to
+        # ``unknown`` — without this log line that's silent on the wire.
+        logger.info(
+            "default-branch lookup unavailable for %s/%s (%s); falling back to 'main'",
+            owner,
+            repo,
+            info.reason,
+        )
         return "main"
     if isinstance(info, dict):
         candidate = info.get("default_branch")
         if isinstance(candidate, str) and candidate:
             return candidate
+    logger.info(
+        "default-branch missing/invalid in repo info for %s/%s; falling back to 'main'",
+        owner,
+        repo,
+    )
     return "main"
 
 
