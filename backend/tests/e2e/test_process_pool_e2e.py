@@ -240,6 +240,47 @@ async def test_ten_workspaces_sequential(
     assert pool._ports.available == pool._ports.total
 
 
+async def test_four_concurrent_workspaces_have_isolated_npm_caches(
+    pool: WorkspaceProcessPool,
+    dir_manager: WorkspaceDirManager,
+    template_engine: AgentTemplateEngine,
+):
+    """EF-B15 regression: 4 concurrent pool spawns each materialize a
+    distinct ``.npm-cache`` directory under their own workspace dir.
+
+    Before the fix, all 4 workspaces shared ``~/.npm`` and concurrent
+    ``npm install`` invocations contended on the same lockfile, driving
+    load average to 17-20 and triggering the OpenCode retry storm. The
+    pool now sets ``NPM_CONFIG_CACHE`` to ``<workspace>/.npm-cache``
+    per spawn, eliminating the contention.
+    """
+    findings = [_make_finding(f"f-npm-{i}", f"npm cache #{i}") for i in range(4)]
+    ws_dirs = [
+        _create_workspace_dir(dir_manager, template_engine, f"ws-npm-{i}", f)
+        for i, f in enumerate(findings)
+    ]
+
+    clients = await asyncio.gather(
+        *(pool.start(f"ws-npm-{i}", ws_dirs[i]) for i in range(4))
+    )
+    assert len(clients) == 4
+
+    # Each workspace must have its own cache dir on disk.
+    cache_dirs = [d / ".npm-cache" for d in ws_dirs]
+    for d in cache_dirs:
+        assert d.is_dir(), f"missing per-workspace npm cache: {d}"
+
+    # The 4 cache paths must be distinct (no cross-talk).
+    assert len({str(p) for p in cache_dirs}) == 4
+
+    # And no cache dir lives inside another workspace's tree.
+    for i, d in enumerate(ws_dirs):
+        for j, c in enumerate(cache_dirs):
+            if i == j:
+                continue
+            assert d not in c.parents, f"workspace {j}'s cache leaked into ws {i}"
+
+
 async def test_concurrent_get_or_start_same_workspace(
     pool: WorkspaceProcessPool,
     dir_manager: WorkspaceDirManager,

@@ -68,17 +68,19 @@ def test_ai_status_unconfigured() -> None:
     assert status.provider is None
 
 
-def test_ai_status_connected_includes_provider_and_override() -> None:
+def test_ai_status_connected_includes_provider_and_model() -> None:
+    """Post-M9: canonical model is the single AIStatus model field;
+    ``override_model`` and ``live_probe`` are removed."""
     status = AIStatus(
         state="connected",
         provider="openrouter",
         source="openrouter-oauth",
         connected_at="2026-05-11T10:00:00+00:00",
         metadata={"user_email": "a@b.co"},
-        override_model="claude-opus-4-1",
+        model="openrouter/anthropic/claude-haiku-4-5",
     )
     assert status.state == "connected"
-    assert status.override_model == "claude-opus-4-1"
+    assert status.model == "openrouter/anthropic/claude-haiku-4-5"
 
 
 def test_detected_key_repr_never_includes_raw_key() -> None:

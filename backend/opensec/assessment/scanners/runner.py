@@ -109,6 +109,27 @@ def _semgrep_exclude_args() -> list[str]:
     return args
 
 
+# Semgrep registry rule packs. ``p/security-audit`` alone is tuned for a low
+# false-positive rate and badly under-reports JS/Express patterns — on
+# NodeGoat it surfaced 1 of ~10 advertised OWASP classes (Q01-B04).
+# ``p/owasp-top-ten`` widens recall for exactly the classes the security
+# journey checks, without the broad noise of ``p/default``.
+SEMGREP_CONFIGS: tuple[str, ...] = (
+    "p/security-audit",
+    "p/owasp-top-ten",
+)
+# Short, UI-facing label for the active rule packs.
+SEMGREP_RULESETS_LABEL: str = " + ".join(SEMGREP_CONFIGS)
+
+
+def _semgrep_config_args() -> list[str]:
+    """One ``--config`` flag per registry pack in :data:`SEMGREP_CONFIGS`."""
+    args: list[str] = []
+    for cfg in SEMGREP_CONFIGS:
+        args.extend(("--config", cfg))
+    return args
+
+
 class SubprocessScannerRunner:
     """Default :class:`ScannerRunner` — invokes pinned binaries via subprocess."""
 
@@ -217,17 +238,21 @@ class SubprocessScannerRunner:
 
     async def run_semgrep(self, target_dir: Path, *, timeout: float) -> SemgrepResult:
         version = await self._binary_version("semgrep", regex=_SEMGREP_VERSION_RE)
+        # Run with ``cwd=target_dir`` and ``.`` as the scan target so Semgrep
+        # emits repo-relative paths. Passing an absolute target dir makes it
+        # emit absolute clone paths, which then leak into finding asset
+        # labels (Q01-B05).
         proc = await self._run_subprocess(
             [
                 str(self._binary("semgrep")),
-                "--config",
-                "p/security-audit",
+                *_semgrep_config_args(),
                 "--json",
                 "--quiet",
                 *_semgrep_exclude_args(),
-                str(target_dir),
+                ".",
             ],
             timeout=timeout,
+            cwd=target_dir,
         )
         if proc.returncode not in (0, 1) and not proc.stdout.strip():
             # Semgrep exit codes: 0 = no findings, 1 = findings present. Anything

@@ -26,12 +26,24 @@ def _reset_override_state(monkeypatch):
 
 
 def test_every_provider_has_entry() -> None:
-    providers: list[AIProvider] = ["openrouter", "anthropic", "openai", "custom"]
+    providers: list[AIProvider] = [
+        "openrouter",
+        "anthropic",
+        "openai",
+        "google",
+        "ollama",
+        "custom",
+    ]
     for p in providers:
         info = catalog.get(p)
-        assert info.env_var_name
-        # custom has no default model; everything else does.
-        if p == "custom":
+        # Ollama has no API key; everything else does.
+        if p == "ollama":
+            assert info.env_var_name is None
+            assert info.base_url_env_var == "OLLAMA_BASE_URL"
+        else:
+            assert info.env_var_name
+        # custom + ollama have no default model; everything else does.
+        if p in ("custom", "ollama"):
             assert info.default_model is None
         else:
             assert info.default_model
@@ -41,6 +53,34 @@ def test_env_var_names_match_opencode_expectations() -> None:
     assert catalog.env_var_name("openrouter") == "OPENROUTER_API_KEY"
     assert catalog.env_var_name("anthropic") == "ANTHROPIC_API_KEY"
     assert catalog.env_var_name("openai") == "OPENAI_API_KEY"
+    assert catalog.env_var_name("google") == "GEMINI_API_KEY"
+    assert catalog.env_var_name("ollama") is None
+
+
+def test_provider_env_var_names_covers_keys_and_base_urls() -> None:
+    """Both the ``*_API_KEY`` and ``*_BASE_URL`` of every provider are
+    listed — callers scrub these from the host env before spawning
+    OpenCode so a polluted host (e.g. Claude Desktop's ANTHROPIC_BASE_URL)
+    can't leak in. (QA Q01 B07.)"""
+    names = catalog.provider_env_var_names()
+    assert "ANTHROPIC_API_KEY" in names
+    assert "ANTHROPIC_BASE_URL" in names
+    assert "OPENAI_API_KEY" in names
+    assert "OPENAI_BASE_URL" in names
+    assert "OPENROUTER_API_KEY" in names
+    assert "OPENROUTER_BASE_URL" in names
+    # Google + Ollama additions (ADR-0037).
+    assert "GEMINI_API_KEY" in names
+    assert "GEMINI_BASE_URL" in names
+    assert "OLLAMA_BASE_URL" in names
+
+
+def test_ollama_carries_default_base_url() -> None:
+    """Ollama's ``base_url_env_var`` + ``default_base_url`` is the only place
+    an Ollama config exists by default — the env injector relies on this
+    to point OpenCode at localhost without a user config touch."""
+    assert catalog.base_url_env_var("ollama") == "OLLAMA_BASE_URL"
+    assert catalog.default_base_url("ollama") == "http://localhost:11434"
 
 
 def test_resolve_model_returns_default_when_no_override() -> None:
@@ -49,10 +89,12 @@ def test_resolve_model_returns_default_when_no_override() -> None:
     # via its OpenRouter provider rather than its Anthropic one.
     assert (
         catalog.resolve_model("openrouter")
-        == "openrouter/tencent/hy3-preview"
+        == "openrouter/anthropic/claude-haiku-4.5"
     )
-    assert catalog.resolve_model("anthropic") == "anthropic/claude-sonnet-4-6"
+    assert catalog.resolve_model("anthropic") == "anthropic/claude-haiku-4-5"
     assert catalog.resolve_model("openai") == "openai/gpt-5"
+    assert catalog.resolve_model("google") == "google/gemini-2.5-flash"
+    assert catalog.resolve_model("ollama") is None
     assert catalog.resolve_model("custom") is None
 
 
@@ -62,7 +104,7 @@ def test_resolve_model_uses_override_when_set(monkeypatch) -> None:
     # Untouched providers stay on their defaults.
     assert (
         catalog.resolve_model("openrouter")
-        == "openrouter/tencent/hy3-preview"
+        == "openrouter/anthropic/claude-haiku-4.5"
     )
 
 

@@ -20,7 +20,8 @@ AGENT_TYPE_TO_SECTION: dict[str, str] = {
 }
 
 # All known context sections (order matters — this is the agent pipeline order).
-# owner_resolver and validation_checker are on-demand only (not in default pipeline).
+# validation_checker is on-demand only — it verifies a fix that does not exist
+# until the executor runs, so it is not part of the forward pipeline walk.
 CONTEXT_SECTIONS: list[str] = [
     "enrichment",
     "ownership",

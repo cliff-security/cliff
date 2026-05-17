@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import shutil
@@ -26,13 +27,63 @@ logger = logging.getLogger(__name__)
 
 # AI provider env var → OpenCode provider id, derived from the AI catalog so
 # the provider list has exactly one home. ``custom`` is excluded: it shares
-# ``OPENAI_API_KEY`` and ships no OpenCode provider config of its own. See
-# ``_push_ai_auth`` for why the pool pushes these at all.
+# ``OPENAI_API_KEY`` and ships no OpenCode provider config of its own.
+# ``ollama`` is excluded: it has no API key (its ``env_var_name`` is ``None``).
+# See ``_push_ai_auth`` for why the pool pushes these at all.
 _AI_ENV_VAR_TO_PROVIDER_ID: dict[str, str] = {
     ai_catalog.env_var_name(p): p
     for p in ai_catalog.all_providers()
-    if p != "custom"
+    if p != "custom" and ai_catalog.env_var_name(p) is not None
 }
+
+
+def _reconcile_opencode_model(
+    workspace_dir: Path, model: str, workspace_id: str
+) -> None:
+    """Ensure the workspace's ``opencode.json`` ``model`` field is ``model``.
+
+    The model is written into ``opencode.json`` only at workspace-creation
+    time (``WorkspaceContextBuilder``). If the user connected — or switched
+    — their AI provider *after* the workspace directory was created, the
+    file is stale: it carries no ``model`` (or the previous provider's).
+    OpenCode then falls back to a built-in default that routes through a
+    *different* provider than the one whose key the pool injected, and
+    every agent call 401s with "Missing Authentication header" even though
+    the right ``*_API_KEY`` is in the subprocess env. (QA Q01 B06b.)
+
+    Rewriting it here — at spawn time, the same place the pool injects the
+    provider key — keeps the model and the key in lockstep. No-op when the
+    file is missing or already correct; failures are warning-logged and
+    leave the file untouched (the existing model, if any, still applies).
+    """
+    config_path = workspace_dir / "opencode.json"
+    try:
+        config = (
+            json.loads(config_path.read_text())
+            if config_path.exists()
+            else {}
+        )
+    except (OSError, json.JSONDecodeError):
+        logger.warning(
+            "Could not read %s for model reconciliation", config_path,
+            exc_info=True,
+        )
+        return
+    if not isinstance(config, dict) or config.get("model") == model:
+        return
+    config["model"] = model
+    try:
+        config_path.write_text(json.dumps(config, indent=2) + "\n")
+    except OSError:
+        logger.warning(
+            "Could not write reconciled model to %s", config_path,
+            exc_info=True,
+        )
+        return
+    logger.info(
+        "Reconciled opencode.json model for workspace %s -> %s",
+        workspace_id, model,
+    )
 
 
 def _archive_and_remove(src: Path, dest: Path, arcname: str) -> None:
@@ -102,7 +153,6 @@ class WorkspaceProcess:
     process: asyncio.subprocess.Process | None = None
     client: OpenCodeClient | None = None
     last_activity: float = field(default_factory=time.monotonic)
-    _healthy: bool = False
 
     def touch(self) -> None:
         """Update last_activity timestamp."""
@@ -135,6 +185,7 @@ class WorkspaceProcessPool:
         host: str | None = None,
         *,
         env_resolver: Callable[[], Awaitable[dict[str, str]]] | None = None,
+        model_resolver: Callable[[], Awaitable[str | None]] | None = None,
     ) -> None:
         """Create a process pool.
 
@@ -144,6 +195,13 @@ class WorkspaceProcessPool:
         supplied ``env_vars``. Used to inject the active AI provider key
         (e.g. ``OPENROUTER_API_KEY``) without every call site needing to
         know about the AI integration service.
+
+        ``model_resolver`` — an optional async callable invoked before every
+        ``start()``. When it returns a model id the pool reconciles the
+        workspace's ``opencode.json`` ``model`` field to it before spawn,
+        so OpenCode routes calls through the provider whose key
+        ``env_resolver`` just injected. Returns ``None`` when no AI
+        provider is configured (the file is then left untouched).
         """
         self._processes: dict[str, WorkspaceProcess] = {}
         self._ports = port_allocator or PortAllocator(
@@ -153,6 +211,7 @@ class WorkspaceProcessPool:
         self._host = host or settings.opencode_host
         self._locks: dict[str, asyncio.Lock] = {}
         self._env_resolver = env_resolver
+        self._model_resolver = model_resolver
 
     def _get_lock(self, workspace_id: str) -> asyncio.Lock:
         if workspace_id not in self._locks:
@@ -231,8 +290,55 @@ class WorkspaceProcessPool:
         # instead of silently operating on the parent repo.
         merged_env_vars["GIT_CEILING_DIRECTORIES"] = str(workspace_dir)
 
-        # Merge extra env vars with system environment.
-        env = {**os.environ, **merged_env_vars}
+        # Per-workspace npm cache (EF-B15). Multiple workspaces sharing
+        # ~/.npm contend on the same lockfile + cache dir under concurrent
+        # `npm install`, which was a root cause of the pool>=4 retry storm
+        # (load average 17-20, OpenCode timeouts, retry amplification).
+        # Giving each workspace its own cache eliminates the contention.
+        npm_cache = workspace_dir / ".npm-cache"
+        npm_cache.mkdir(parents=True, exist_ok=True)
+        # Refuse to follow a symlink — workspace_dir is OpenSec-owned, but
+        # if anything ever pre-creates ``.npm-cache`` as a symlink out of
+        # the workspace, npm install would silently write elsewhere.
+        # We resolve both sides so /tmp -> /private/tmp on macOS doesn't
+        # false-positive.
+        if (
+            npm_cache.is_symlink()
+            or not npm_cache.resolve().is_relative_to(workspace_dir.resolve())
+        ):
+            raise RuntimeError(
+                f"refusing to use non-real npm cache dir at {npm_cache}"
+            )
+        merged_env_vars["NPM_CONFIG_CACHE"] = str(npm_cache)
+
+        # Reconcile the workspace's opencode.json model with the active AI
+        # provider before spawn — see ``_reconcile_opencode_model``. Kept
+        # next to the env injection above so the model and the provider key
+        # always agree. Never crashes a spawn over it.
+        if self._model_resolver is not None:
+            try:
+                model = await self._model_resolver()
+            except Exception:  # noqa: BLE001 — never crash spawns over model resolution
+                logger.warning(
+                    "AI model resolver failed for workspace %s; spawning "
+                    "with the existing opencode.json model",
+                    workspace_id,
+                    exc_info=True,
+                )
+                model = None
+            if model:
+                _reconcile_opencode_model(workspace_dir, model, workspace_id)
+
+        # Merge extra env vars with system environment. Host-inherited
+        # AI-provider env vars (``*_API_KEY`` / ``*_BASE_URL``) are scrubbed
+        # first — OpenSec owns the AI-provider environment entirely via the
+        # resolver, and a polluted host (e.g. Claude Desktop exports
+        # ``ANTHROPIC_BASE_URL`` without ``/v1``, which 404s the agent, plus
+        # an empty ``ANTHROPIC_API_KEY``) must not leak through. The
+        # resolver's values are layered back on top. (QA Q01 B07.)
+        _scrub = ai_catalog.provider_env_var_names()
+        env = {k: v for k, v in os.environ.items() if k not in _scrub}
+        env.update(merged_env_vars)
         if merged_env_vars:
             logger.info(
                 "Injecting env vars for workspace %s: %s",
@@ -264,7 +370,6 @@ class WorkspaceProcessPool:
             await self._wait_for_healthy(wp, timeout=30.0)
 
             wp.client = OpenCodeClient(base_url=wp.base_url)
-            wp._healthy = True
 
             # Push AI auth *before* publishing to ``self._processes``: the
             # ``get_or_start`` fast path reads that dict outside the per-
@@ -484,6 +589,18 @@ class WorkspaceProcessPool:
         for env_var, provider_id in _AI_ENV_VAR_TO_PROVIDER_ID.items():
             key = env_vars.get(env_var)
             if not key:
+                # Present-but-empty means the resolver handed us a hollow
+                # credential. OpenCode's PUT /auth happily 200s on an empty
+                # key, so pushing it would just mask the failure — skip it
+                # and log loudly instead.
+                if env_var in env_vars:
+                    logger.error(
+                        "AI provider %s env var present but empty for "
+                        "workspace %s — skipping /auth push; agent calls "
+                        "will not authenticate",
+                        provider_id,
+                        wp.workspace_id,
+                    )
                 continue
             try:
                 await wp.client.set_auth(

@@ -146,10 +146,25 @@ def status(client: Client) -> None:
         # Re-raise so the wrapper handles it as a structured error.
         raise
 
+    # ADR-0037: report the canonical active model. The prior CLI surfaced
+    # a "drift" signal between canonical state and a live OpenCode probe;
+    # the architect health-check (M9) removed the probe as redundant —
+    # the on_key_change hook restarts the singleton synchronously on
+    # every write, so there is no drift to surface. ``/health.model``
+    # remains the singleton's view of its own config and is used as the
+    # fallback when the AI status endpoint isn't yet available (no vault).
+    canonical_model: str | None = None
+    try:
+        ai_status = client.get("/api/integrations/ai/status")
+        canonical_model = ai_status.get("model")
+    except HTTPError:
+        pass
+    model = canonical_model or health.get("model") or ""
+
     blockers: list[str] = []
     if health.get("opencode") != "ok":
         blockers.append("opencode_engine_unavailable")
-    if not health.get("model"):
+    if not model:
         blockers.append("no_llm_model_configured")
     # A model string alone is not enough — the agent runtime also needs a
     # provider credential that actually reaches the workspace subprocess.
@@ -157,6 +172,8 @@ def status(client: Client) -> None:
     # connected-but-broken BYOK key), so guard against that false-positive.
     if not health.get("ai_provider_ready", False):
         blockers.append("no_ai_provider_credential")
+
+    next_action: str | None = "scan <repo_url>" if not blockers else None
 
     emit(
         {
@@ -166,9 +183,9 @@ def status(client: Client) -> None:
             "schema_version": version["schema_version"],
             "min_cli": version["min_cli"],
             "cli_version": __version__,
-            "model": health.get("model", ""),
+            "model": model,
             "blockers": blockers,
-            "next": "scan <repo_url>" if not blockers else None,
+            "next": next_action,
         }
     )
 

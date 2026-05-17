@@ -32,6 +32,25 @@ def _last_json(text: str) -> dict:
     return json.loads(lines[-1])
 
 
+def _stub_ai_integration_status(
+    httpx_mock,
+    *,
+    model: str | None = None,
+) -> None:
+    """Stub ``GET /api/integrations/ai/status`` for ``opensec status``.
+
+    ADR-0037 / architect M9: the live-probe + drift signal were removed.
+    The CLI now only reads the canonical ``model`` field; the singleton
+    OpenCode is restarted synchronously by ``on_key_change`` on every
+    canonical-state write, so there is no separate "what's actually
+    loaded" value to surface.
+    """
+    httpx_mock.add_response(
+        url="http://test-server/api/integrations/ai/status",
+        json={"model": model},
+    )
+
+
 # ---------------------------------------------------------------------------
 # status
 # ---------------------------------------------------------------------------
@@ -57,6 +76,7 @@ def test_status_ready(cli, httpx_mock):
             "min_cli": "0.1.0",
         },
     )
+    _stub_ai_integration_status(httpx_mock, model="openai/gpt-4.1")
     res = cli.invoke(main, ["status"])
     assert res.exit_code == 0, res.stderr
     payload = _last_json(res.stdout)
@@ -92,6 +112,9 @@ def test_status_blocked_when_ai_provider_not_ready(cli, httpx_mock):
             "min_cli": "0.1.0",
         },
     )
+    _stub_ai_integration_status(
+        httpx_mock, model="anthropic/claude-sonnet-4-6"
+    )
     res = cli.invoke(main, ["status"])
     assert res.exit_code == 0, res.stderr
     payload = _last_json(res.stdout)
@@ -114,12 +137,105 @@ def test_status_blockers_when_engine_down(cli, httpx_mock):
             "min_cli": "0.1.0",
         },
     )
+    # Engine is down → AI integration also has nothing to report. model=None
+    # keeps the ``no_llm_model_configured`` blocker the test asserts.
+    _stub_ai_integration_status(httpx_mock, model=None)
     res = cli.invoke(main, ["status"])
     assert res.exit_code == 0
     payload = _last_json(res.stdout)
     assert payload["ready"] is False
     assert "opencode_engine_unavailable" in payload["blockers"]
     assert "no_llm_model_configured" in payload["blockers"]
+
+
+def test_status_prefers_canonical_model_and_omits_drift_fields(
+    cli, httpx_mock
+):
+    """Post-M9 contract (architect health-check H5):
+
+    * The CLI's ``model`` field is sourced from the canonical
+      ``/api/integrations/ai/status`` response, not from ``/health``.
+    * The legacy ``drifted`` / ``canonical_model`` / ``opencode_model``
+      fields and the ``model_drift`` blocker are GONE — the
+      ``on_key_change`` hook makes drift unrepresentable, so the CLI
+      doesn't pretend to detect it.
+    """
+    httpx_mock.add_response(
+        url="http://test-server/health",
+        json={
+            "opensec": "ok",
+            "opencode": "ok",
+            "opencode_version": "1.3.2",
+            # /health still carries the singleton's view; canonical wins.
+            "model": "anthropic/claude-haiku-4-5",
+            "ai_provider_ready": True,
+        },
+    )
+    httpx_mock.add_response(
+        url="http://test-server/api/version",
+        json={
+            "opensec": "0.1.1-alpha",
+            "opencode": "1.3.2",
+            "schema_version": "1",
+            "min_cli": "0.1.0",
+        },
+    )
+    _stub_ai_integration_status(
+        httpx_mock, model="anthropic/claude-sonnet-4-6"
+    )
+
+    res = cli.invoke(main, ["status"])
+    assert res.exit_code == 0, res.stderr
+    payload = _last_json(res.stdout)
+
+    # Canonical (sonnet) wins over /health.model (haiku).
+    assert payload["model"] == "anthropic/claude-sonnet-4-6"
+    # Drift signals are gone.
+    assert "drifted" not in payload
+    assert "canonical_model" not in payload
+    assert "opencode_model" not in payload
+    assert "model_drift" not in payload["blockers"]
+    # No spurious blockers on the happy path.
+    assert payload["blockers"] == []
+    assert payload["ready"] is True
+
+
+def test_status_falls_back_to_health_model_when_status_endpoint_unavailable(
+    cli, httpx_mock
+):
+    """If ``/api/integrations/ai/status`` 4xx/5xx (no vault yet, very
+    fresh install), the CLI must still report a model — taken from
+    ``/health.model`` — and not falsely report ``no_llm_model_configured``.
+    """
+    httpx_mock.add_response(
+        url="http://test-server/health",
+        json={
+            "opensec": "ok",
+            "opencode": "ok",
+            "opencode_version": "1.3.2",
+            "model": "anthropic/claude-haiku-4-5",
+            "ai_provider_ready": True,
+        },
+    )
+    httpx_mock.add_response(
+        url="http://test-server/api/version",
+        json={
+            "opensec": "0.1.1-alpha",
+            "opencode": "1.3.2",
+            "schema_version": "1",
+            "min_cli": "0.1.0",
+        },
+    )
+    httpx_mock.add_response(
+        url="http://test-server/api/integrations/ai/status",
+        status_code=500,
+    )
+
+    res = cli.invoke(main, ["status"])
+    assert res.exit_code == 0, res.stderr
+    payload = _last_json(res.stdout)
+    assert payload["model"] == "anthropic/claude-haiku-4-5"
+    assert "no_llm_model_configured" not in payload["blockers"]
 
 
 def test_status_daemon_down(cli, httpx_mock):

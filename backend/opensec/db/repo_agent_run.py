@@ -29,6 +29,7 @@ def _row_to_agent_run(row: aiosqlite.Row) -> AgentRun:
             json.loads(row["structured_output"]) if row["structured_output"] else None
         ),
         next_action_hint=row["next_action_hint"],
+        last_error=row["last_error"],
         started_at=row["started_at"],
         completed_at=row["completed_at"],
     )
@@ -119,7 +120,7 @@ async def update_agent_run(
     if "status" in fields:
         if fields["status"] == "running":
             fields["started_at"] = now
-        elif fields["status"] in ("completed", "failed", "cancelled"):
+        elif fields["status"] in ("completed", "failed", "cancelled", "rate_limited"):
             fields["completed_at"] = now
 
     # Serialize JSON fields.

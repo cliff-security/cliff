@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { NavLink } from 'react-router'
 import { useIntegrations, useOpenIssuesCount } from '@/api/hooks'
+import { useDashboard } from '@/api/dashboard'
 
 /**
  * Primary navigation rail — Cliff Cyberdeck dress.
@@ -89,11 +91,47 @@ function repoDisplayName(repoUrl: string): string {
 
 function WorkspaceSwitcher() {
   const { data: integrations } = useIntegrations()
+  const { data: dashboard } = useDashboard()
   const githubInt = integrations?.find((i) => i.provider_name === 'GitHub')
-  const repoUrl =
+  const integrationRepo =
     typeof githubInt?.config?.repo_url === 'string' && githubInt.config.repo_url
       ? (githubInt.config.repo_url as string)
       : null
+  // The "current scope" is whatever repo OpenSec is actually working on —
+  // i.e. the latest assessment's target, the same source the Dashboard
+  // shows. The scan-first CLI flow (`opensec scan <url>`) records the repo
+  // on the assessment but never as a GitHub *integration*, so keying the
+  // chip off the integration alone left it stuck on "no scope connected"
+  // while the Dashboard correctly showed the repo. Assessment wins; the
+  // integration config is the fallback for the pre-first-scan UI path.
+  const repoUrl = dashboard?.assessment?.repo_url ?? integrationRepo
+  const repoName = repoUrl ? repoDisplayName(repoUrl) : null
+  // Brief "Copied" state after a successful clipboard write. The expand
+  // arrow is gone (multi-scope isn't supported) so the chip's affordance
+  // is now Copy — click flashes a check glyph for 1.5s.
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    if (!repoName) return
+    try {
+      await navigator.clipboard.writeText(repoName)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // Clipboard may be unavailable (insecure context, jsdom, locked-
+      // down browser); leave the chip silent rather than throw at the
+      // user — they can still read the repo name straight off the chip.
+    }
+  }
+
+  const chipClass = `w-full flex items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-cd-card-hov ${focusRing}`
+  const chipStyle = {
+    background: 'var(--cd-card)',
+    border: '1px solid var(--cd-rule)',
+    fontFamily: 'var(--cd-mono)',
+    fontSize: 11.5,
+    borderRadius: 2,
+  } as const
 
   return (
     <div className="px-[14px] pt-[14px] pb-[10px]">
@@ -103,20 +141,18 @@ function WorkspaceSwitcher() {
       >
         Current scope
       </div>
-      {repoUrl ? (
+      {repoName ? (
         <button
           type="button"
-          aria-label={`Workspace: ${repoDisplayName(repoUrl)}`}
-          title={repoDisplayName(repoUrl)}
-          className={`w-full flex items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-cd-card-hov ${focusRing}`}
-          style={{
-            background: 'var(--cd-card)',
-            border: '1px solid var(--cd-rule)',
-            color: 'var(--cd-cyan)',
-            fontFamily: 'var(--cd-mono)',
-            fontSize: 11.5,
-            borderRadius: 2,
-          }}
+          onClick={handleCopy}
+          aria-label={
+            copied
+              ? `Copied ${repoName} to clipboard`
+              : `Copy repo name to clipboard: ${repoName}`
+          }
+          title={copied ? 'Copied' : `Click to copy ${repoName}`}
+          className={chipClass}
+          style={{ ...chipStyle, color: 'var(--cd-cyan)' }}
         >
           <span
             data-testid="sidenav-repo-initials"
@@ -124,41 +160,29 @@ function WorkspaceSwitcher() {
           >
             ::
           </span>
-          <span className="truncate">
-            {repoDisplayName(repoUrl)}
-          </span>
+          <span className="truncate">{repoName}</span>
           <span
             className="material-symbols-outlined ml-auto"
             aria-hidden
-            style={{ fontSize: 14, color: 'var(--cd-fg-4)' }}
+            data-testid="sidenav-copy-icon"
+            style={{
+              fontSize: 14,
+              color: copied ? 'var(--cd-green)' : 'var(--cd-fg-4)',
+              transition: 'color 120ms ease-out',
+            }}
           >
-            expand_more
+            {copied ? 'check' : 'content_copy'}
           </span>
         </button>
       ) : (
-        <button
-          type="button"
+        <div
           aria-label="Workspace"
-          className={`w-full flex items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-cd-card-hov ${focusRing}`}
-          style={{
-            background: 'var(--cd-card)',
-            border: '1px solid var(--cd-rule)',
-            color: 'var(--cd-fg-4)',
-            fontFamily: 'var(--cd-mono)',
-            fontSize: 11.5,
-            borderRadius: 2,
-          }}
+          className={chipClass}
+          style={{ ...chipStyle, color: 'var(--cd-fg-4)' }}
         >
           <span style={{ color: 'var(--cd-fg-4)' }}>::</span>
           <span className="truncate">no scope connected</span>
-          <span
-            className="material-symbols-outlined ml-auto"
-            aria-hidden
-            style={{ fontSize: 14, color: 'var(--cd-fg-4)' }}
-          >
-            expand_more
-          </span>
-        </button>
+        </div>
       )}
     </div>
   )

@@ -23,6 +23,10 @@ export function providerLabel(provider: AIProvider | string | null): string {
       return 'OpenRouter'
     case 'openai':
       return 'OpenAI'
+    case 'google':
+      return 'Google AI Studio'
+    case 'ollama':
+      return 'Local (Ollama)'
     case 'custom':
       return 'a custom provider'
     default:
@@ -44,6 +48,10 @@ export function providerIcon(provider: AIProvider | string | null): string {
       return 'psychology'
     case 'openai':
       return 'auto_awesome'
+    case 'google':
+      return 'diamond'
+    case 'ollama':
+      return 'memory'
     case 'custom':
       return 'tune'
     default:

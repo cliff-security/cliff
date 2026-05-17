@@ -20,22 +20,35 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
-from opensec.ai import autodetect, openrouter_oauth, validators
+from opensec.ai import autodetect, catalog, openrouter_oauth, validators
 from opensec.ai.models import (
+    AIProvider,
     AIStatus,
     AutodetectResponse,
     BYOKRequest,
     OpenRouterStartResponse,
     OpenRouterStatusResponse,
+    ProviderModelOption,
+    ProviderModelsResponse,
+    SetModelRequest,
 )
 from opensec.ai.openrouter_oauth import (
     OAuthExchangeError,
     OAuthSession,
     Port3000UnavailableError,
 )
-from opensec.ai.service import AIIntegrationService
+from opensec.ai.service import (
+    AIIntegrationService,
+    ModelPrefixMismatchError,
+    NoActiveProviderError,
+)
+from opensec.ai.validators import (
+    CustomEndpointRejectedError,
+    safe_ollama_tags_url,
+)
 from opensec.db.connection import get_db
 
 if TYPE_CHECKING:
@@ -227,7 +240,12 @@ async def byok(
         )
 
     service = _get_service(request, db)
-    await service.save_byok(body.provider, raw_key, base_url=body.base_url)
+    await service.save_byok(
+        body.provider,
+        raw_key,
+        base_url=body.base_url,
+        model=body.model,
+    )
     return await service.get_status()
 
 
@@ -242,6 +260,145 @@ async def status(
 ) -> AIStatus:
     service = _get_service(request, db)
     return await service.get_status()
+
+
+# ---------------------------------------------------------------------------
+# Model picker (ADR-0037)
+# ---------------------------------------------------------------------------
+
+
+@router.put("/model", response_model=AIStatus)
+async def set_active_model(
+    body: SetModelRequest,
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> AIStatus:
+    """Change the canonical active model.
+
+    Validates that the model id's provider prefix matches the active
+    integration. Workspace spawns pick up the new model immediately
+    via the model resolver; the singleton restarts so chat sessions
+    re-init against the new model on next request.
+    """
+    service = _get_service(request, db)
+    try:
+        await service.set_model(body.model)
+    except NoActiveProviderError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ModelPrefixMismatchError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await service.get_status()
+
+
+# Picker options for cloud providers live in ``ai/catalog.py`` next to
+# ``ProviderInfo`` (M10). Ollama is fetched live from ``/api/tags``;
+# Custom is user-supplied.
+
+
+def _picker_models(provider: AIProvider) -> list[ProviderModelOption]:
+    return [
+        ProviderModelOption(id=o.id, label=o.label, description=o.description)
+        for o in catalog.picker_options(provider)
+    ]
+
+
+@router.get("/models", response_model=ProviderModelsResponse)
+async def list_provider_models(
+    provider: AIProvider,
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> ProviderModelsResponse:
+    """Return the model picker options for *provider*.
+
+    For Ollama this hits ``{base_url}/api/tags`` so the picker reflects
+    what the user has actually pulled. The base URL comes from the
+    active integration's stored metadata if it matches *provider*,
+    else the catalog default (``http://localhost:11434``).
+    """
+    default_model = catalog.resolve_model(provider)
+    if provider == "ollama":
+        base_url = catalog.default_base_url("ollama") or "http://localhost:11434"
+        service = _get_service(request, db)
+        record = await service.get_active()
+        if record is not None and record.provider == "ollama":
+            stored = (record.metadata or {}).get("base_url")
+            if isinstance(stored, str) and stored:
+                base_url = stored
+        live = await _ollama_tags(base_url)
+        return ProviderModelsResponse(
+            provider=provider,
+            default_model=default_model,
+            models=live,
+            source="live",
+        )
+    return ProviderModelsResponse(
+        provider=provider,
+        default_model=default_model,
+        models=_picker_models(provider),
+        source="catalog",
+    )
+
+
+async def _ollama_tags(base_url: str) -> list[ProviderModelOption]:
+    """Probe Ollama's /api/tags and convert to picker options.
+
+    Uses a per-call ``AsyncClient`` (M8): the previous module-global
+    client was never closed at app shutdown and surfaced as
+    ``unclosed transport`` warnings in CI; the cost of one client per
+    picker open is negligible.
+
+    URL is validated through ``safe_ollama_tags_url`` (M2) so a stored
+    ``base_url`` that points at an obviously-malicious target (cloud
+    metadata, link-local) returns an empty list rather than triggering
+    an outbound SSRF.
+    """
+    try:
+        url = await safe_ollama_tags_url(base_url)
+    except CustomEndpointRejectedError:
+        return []
+    # See validate_ollama for the matching suppression rationale: this is
+    # the live-picker counterpart of the same deliberate-loose-policy
+    # outbound call (ADR-0038, M2). safe_ollama_tags_url has already
+    # rejected obviously-malicious targets and rebuilt the URL from
+    # validated parts; loopback + RFC1918 stay allowed by design.
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            resp = await client.get(url)  # codeql[py/full-ssrf]
+    except httpx.HTTPError:
+        return []
+    if resp.status_code >= 300:
+        return []
+    try:
+        data = resp.json()
+    except ValueError:
+        return []
+    tags = data.get("models") if isinstance(data, dict) else None
+    if not isinstance(tags, list):
+        return []
+    options: list[ProviderModelOption] = []
+    for entry in tags:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name") or entry.get("model")
+        if not isinstance(name, str) or not name:
+            continue
+        options.append(
+            ProviderModelOption(
+                id=f"ollama/{name}",
+                label=name,
+                description=_format_ollama_size(entry.get("size")),
+            )
+        )
+    return options
+
+
+def _format_ollama_size(size_bytes: object) -> str | None:
+    if not isinstance(size_bytes, (int, float)):
+        return None
+    gb = size_bytes / 1_000_000_000
+    if gb < 0.1:
+        return None
+    return f"{gb:.1f} GB"
 
 
 # ---------------------------------------------------------------------------

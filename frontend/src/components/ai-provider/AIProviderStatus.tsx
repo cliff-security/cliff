@@ -18,6 +18,7 @@ import {
   type AIStatusResponse,
 } from '@/api/aiProvider'
 import { useProviderTest } from '@/api/providers'
+import { ModelPicker } from './ModelPicker'
 import {
   describeAutodetectSource,
   providerIcon,
@@ -162,14 +163,22 @@ function ConnectedCard({
   onSwitch: () => void
 }) {
   const [showDisconnect, setShowDisconnect] = useState(false)
+  const [showPicker, setShowPicker] = useState(false)
   const provider = status.provider!
   const providerName = providerLabel(provider)
   const modelName = formatModel(status.model)
   const source = sourceCopy(status)
 
-  // Mono detail line — model · source · connected timestamp.
+  // M9 (architect health-check): the drift banner + live-probe were
+  // removed. The on_key_change hook restarts the singleton OpenCode
+  // synchronously on every canonical-state write, so there is no drift
+  // signal worth showing — and rendering one made the read look like
+  // there were two sources of truth when ADR-0037 specifies one.
+
+  // Mono detail line — source · connected timestamp. The model now has
+  // its own row so it gets the breathing room it needs for the picker
+  // button to live next to it without crowding.
   const detailParts: string[] = []
-  if (modelName) detailParts.push(modelName)
   detailParts.push(source)
   if (status.connected_at) {
     detailParts.push(`connected ${formatConnectedAt(status.connected_at)}`)
@@ -282,20 +291,50 @@ function ConnectedCard({
         </button>
       </div>
 
-      {status.override_model && (
-        <div
+      {/* Model row — canonical active model + picker + drift indicator. */}
+      <div
+        style={{
+          marginTop: 12,
+          paddingLeft: 50,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          flexWrap: 'wrap',
+        }}
+        data-testid="ai-provider-model-row"
+      >
+        <span
           className="font-mono"
           style={{
-            marginTop: 10,
-            paddingLeft: 50,
             fontSize: 10.5,
-            letterSpacing: '0.10em',
-            color: 'var(--cd-fg-4)',
+            letterSpacing: '0.18em',
             textTransform: 'uppercase',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
+            color: 'var(--cd-fg-4)',
           }}
+        >
+          Model
+        </span>
+        <span
+          className="font-mono"
+          style={{
+            fontSize: 12,
+            color: 'var(--cd-fg-1)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            maxWidth: '40ch',
+          }}
+          data-testid="ai-provider-active-model"
+          title={status.model ?? undefined}
+        >
+          {modelName ?? 'not set'}
+        </span>
+        <button
+          type="button"
+          id="ai-provider-change-model"
+          data-testid="ai-provider-change-model"
+          onClick={() => setShowPicker(true)}
+          className="cd-btn cd-btn--ghost cd-btn--sm"
         >
           <span
             className="material-symbols-outlined"
@@ -304,8 +343,17 @@ function ConnectedCard({
           >
             tune
           </span>
-          Custom model override — default recommended
-        </div>
+          Change
+        </button>
+      </div>
+
+      {showPicker && (
+        <ModelPicker
+          provider={provider as Parameters<typeof ModelPicker>[0]['provider']}
+          currentModel={status.model}
+          triggerId="ai-provider-change-model"
+          onClose={() => setShowPicker(false)}
+        />
       )}
 
       {showDisconnect && (
