@@ -282,25 +282,26 @@ export function useSuggestedNext(workspaceId: string | undefined) {
 // Agent runs (Phase 5)
 // ---------------------------------------------------------------------------
 
+/** Active-run poll cadence — fast enough that the "Thinking…" widget feels
+ *  live without hammering the backend. */
+const AGENT_RUNS_ACTIVE_POLL_MS = 2_000
+/** Idle poll cadence — slow background tick so the panel still observes a
+ *  freshly-completed planner flipping ``derived.stage → plan_ready`` (which
+ *  reveals the "Approve & generate fix" button). The previous ``false``
+ *  between runs stalled the UI on stale state — B28/B29. */
+const AGENT_RUNS_IDLE_POLL_MS = 5_000
+
 export function useAgentRuns(workspaceId: string | undefined) {
   return useQuery({
     queryKey: ['agent-runs', workspaceId],
     queryFn: () => api.listAgentRuns(workspaceId!),
     enabled: !!workspaceId,
-    // Always keep a background poll going while a workspace panel is
-    // open: when an agent IS running we tick fast (2 s) so the
-    // "Thinking…" widget updates promptly; when nothing is running we
-    // still tick at 5 s so the panel observes the freshly-completed
-    // planner flipping derived.stage → ``plan_ready`` (which is what
-    // makes the footer's "Approve & generate fix" button appear). The
-    // previous behaviour (``false`` between runs) stalled the UI on the
-    // stale "Thinking…" widget and blocked plan approval — B28/B29.
     refetchInterval: (query) => {
       const runs = query.state.data
       const hasActive = runs?.some(
         (r) => r.status === 'running' || r.status === 'queued',
       )
-      return hasActive ? 2_000 : 5_000
+      return hasActive ? AGENT_RUNS_ACTIVE_POLL_MS : AGENT_RUNS_IDLE_POLL_MS
     },
   })
 }
