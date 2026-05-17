@@ -542,8 +542,20 @@ async def _advance_finding_status(
     if target_ord <= current_ord:
         return None
 
-    # 4. Update
-    await update_finding(db, finding.id, FindingUpdate(status=target))
+    # 4. Update — also persist pr_url when the executor successfully opened a
+    # PR (EF-B14). The pr_url has already been verified live on GitHub by
+    # the verification step earlier in run(), so we know it's real. Skip the
+    # write when the Finding already has a pr_url so an explicit user-supplied
+    # value (PATCH /findings/{id}) is never clobbered.
+    update_fields: dict[str, Any] = {"status": target}
+    if (
+        agent_type == "remediation_executor"
+        and structured_output.get("status") == "pr_created"
+        and structured_output.get("pr_url")
+        and not finding.pr_url
+    ):
+        update_fields["pr_url"] = structured_output["pr_url"]
+    await update_finding(db, finding.id, FindingUpdate(**update_fields))
     logger.info(
         "Finding %s status advanced: %s -> %s (agent: %s)",
         finding.id, finding.status, target, agent_type,

@@ -196,8 +196,14 @@ class AgentTemplateEngine:
         plan: dict[str, Any] | None = None,
         remediation: dict[str, Any] | None = None,
         validation: dict[str, Any] | None = None,
+        **extra: Any,
     ) -> list[RenderedAgent]:
-        """Render all agent templates. Returns list in pipeline order."""
+        """Render all agent templates. Returns list in pipeline order.
+
+        ``**extra`` (e.g. ``repo_url``) is splatted into each template's
+        context — useful for caller-supplied variables that the per-section
+        params don't cover.
+        """
         kwargs = {
             "finding": finding,
             "enrichment": enrichment,
@@ -207,6 +213,7 @@ class AgentTemplateEngine:
             "plan": plan,
             "remediation": remediation,
             "validation": validation,
+            **extra,
         }
         return [self.render_agent(name, **kwargs) for name in AGENT_NAMES]
 
@@ -222,10 +229,12 @@ class AgentTemplateEngine:
         plan: dict[str, Any] | None = None,
         remediation: dict[str, Any] | None = None,
         validation: dict[str, Any] | None = None,
+        **extra: Any,
     ) -> list[Path]:
         """Render all agents and write them to agents_dir.
 
-        Returns list of written file paths.
+        Returns list of written file paths. ``**extra`` is forwarded to
+        ``render_all`` (e.g. ``repo_url`` for ``{{ repo_url }}`` in templates).
         """
         from pathlib import Path as _Path
 
@@ -238,6 +247,7 @@ class AgentTemplateEngine:
             plan=plan,
             remediation=remediation,
             validation=validation,
+            **extra,
         )
 
         paths: list[_Path] = []
