@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from opensec.agents.sidebar_mapper import map_and_upsert, map_to_sidebar_update
-from opensec.models import SidebarState, SidebarStateUpdate
+from cliff.agents.sidebar_mapper import map_and_upsert, map_to_sidebar_update
+from cliff.models import SidebarState, SidebarStateUpdate
 
 # ---------------------------------------------------------------------------
 # map_to_sidebar_update (pure function tests)
@@ -92,7 +92,7 @@ class TestMapToSidebarUpdate:
         out = {
             "status": "pr_created",
             "pr_url": "https://github.com/acme/repo/pull/42",
-            "branch_name": "opensec/fix/cve-2026-1234",
+            "branch_name": "cliff/fix/cve-2026-1234",
             "changes_summary": "Updated log4j-core to 2.17.1 in pom.xml",
             "test_results": "pass",
             "error_details": None,
@@ -101,7 +101,7 @@ class TestMapToSidebarUpdate:
         assert update.pull_request is not None
         assert update.pull_request["status"] == "pr_created"
         assert update.pull_request["pr_url"] == "https://github.com/acme/repo/pull/42"
-        assert update.pull_request["branch_name"] == "opensec/fix/cve-2026-1234"
+        assert update.pull_request["branch_name"] == "cliff/fix/cve-2026-1234"
         assert update.pull_request["changes_summary"] == "Updated log4j-core to 2.17.1 in pom.xml"
         assert update.pull_request["test_results"] == "pass"
         # Other sections should be None
@@ -114,7 +114,7 @@ class TestMapToSidebarUpdate:
         out = {
             "status": "failed",
             "error_details": "Tests failed: 3 of 50",
-            "branch_name": "opensec/fix/cve-2026-1234",
+            "branch_name": "cliff/fix/cve-2026-1234",
         }
         update = map_to_sidebar_update("remediation_executor", out)
         assert update.pull_request is not None
@@ -160,11 +160,11 @@ class TestMapAndUpsert:
 
         with (
             patch(
-                "opensec.db.repo_sidebar.get_sidebar",
+                "cliff.db.repo_sidebar.get_sidebar",
                 return_value=existing,
             ),
             patch(
-                "opensec.db.repo_sidebar.upsert_sidebar",
+                "cliff.db.repo_sidebar.upsert_sidebar",
             ) as mock_upsert,
         ):
             await map_and_upsert(mock_db, "ws-1", "exposure_analyzer", exposure_out)
@@ -194,11 +194,11 @@ class TestMapAndUpsert:
 
         with (
             patch(
-                "opensec.db.repo_sidebar.get_sidebar",
+                "cliff.db.repo_sidebar.get_sidebar",
                 return_value=None,
             ),
             patch(
-                "opensec.db.repo_sidebar.upsert_sidebar",
+                "cliff.db.repo_sidebar.upsert_sidebar",
             ) as mock_upsert,
         ):
             await map_and_upsert(mock_db, "ws-1", "finding_enricher", enricher_out)
@@ -230,7 +230,7 @@ class TestMapAndUpsert:
         executor_out = {
             "status": "pr_created",
             "pr_url": "https://github.com/acme/repo/pull/42",
-            "branch_name": "opensec/fix/cve-2026-1234",
+            "branch_name": "cliff/fix/cve-2026-1234",
             "changes_summary": "Updated pom.xml",
             "test_results": "pass",
             "error_details": None,
@@ -238,11 +238,11 @@ class TestMapAndUpsert:
 
         with (
             patch(
-                "opensec.db.repo_sidebar.get_sidebar",
+                "cliff.db.repo_sidebar.get_sidebar",
                 return_value=existing,
             ),
             patch(
-                "opensec.db.repo_sidebar.upsert_sidebar",
+                "cliff.db.repo_sidebar.upsert_sidebar",
             ) as mock_upsert,
         ):
             await map_and_upsert(mock_db, "ws-1", "remediation_executor", executor_out)

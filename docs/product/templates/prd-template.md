@@ -70,4 +70,4 @@ How do we know this feature is working? What signals indicate success?
 
 ---
 
-_This PRD follows the OpenSec product workflow. After CEO approval, it moves to the UX team for mockup creation._
+_This PRD follows the Cliff product workflow. After CEO approval, it moves to the UX team for mockup creation._

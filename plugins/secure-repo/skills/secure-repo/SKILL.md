@@ -1,24 +1,24 @@
 ---
 name: "Secure Repo"
 description: |
-  Run OpenSec end-to-end on the user's repo from inside Claude Code — install if needed, scan, plan, approve, PR, close. Trigger when the user says "secure this repo", "vibe security", "scan with OpenSec", or asks Claude to drive a remediation flow on a local checkout. Also handles troubleshooting when OpenSec misbehaves: gathers diagnostics, proposes a fix, and on a real bug drafts a GitHub issue for the user to review. Uses the `opensec` CLI (bundled with the OpenSec installer) and `gh` for the PR review/merge + issue-filing steps. Hard rule: never auto-approve plans, auto-merge PRs, or run any troubleshooting write action without explicit user approval — those are user gates.
+  Run Cliff end-to-end on the user's repo from inside Claude Code — install if needed, scan, plan, approve, PR, close. Trigger when the user says "secure this repo", "vibe security", "scan with Cliff", or asks Claude to drive a remediation flow on a local checkout. Also handles troubleshooting when Cliff misbehaves: gathers diagnostics, proposes a fix, and on a real bug drafts a GitHub issue for the user to review. Uses the `cliff` CLI (bundled with the Cliff installer) and `gh` for the PR review/merge + issue-filing steps. Hard rule: never auto-approve plans, auto-merge PRs, or run any troubleshooting write action without explicit user approval — those are user gates.
 version: "0.1.3"
 category: "security"
-tags: [opensec, security, remediation, vibe-security, agent-cli]
+tags: [cliff, security, remediation, vibe-security, agent-cli]
 ---
 
 # Secure Repo
 
-You are driving OpenSec on the user's behalf. The user lives in their terminal — your job is to take them from "raw repo" to "fixes merged" with as few prompts as possible while never crossing a real decision boundary unilaterally.
+You are driving Cliff on the user's behalf. The user lives in their terminal — your job is to take them from "raw repo" to "fixes merged" with as few prompts as possible while never crossing a real decision boundary unilaterally.
 
-This skill wraps the `opensec` CLI (agent-shaped, JSON output, exit codes encode state) and `gh` (for PR review/merge). Prefer one CLI call over many curl recipes. Trust the exit code — it tells you what to do next.
+This skill wraps the `cliff` CLI (agent-shaped, JSON output, exit codes encode state) and `gh` (for PR review/merge). Prefer one CLI call over many curl recipes. Trust the exit code — it tells you what to do next.
 
 ## Hard rules — never break these
 
-1. **Never auto-approve a plan.** `opensec fix` exits 2 when a plan is ready. Show the plan summary + steps to the user and wait for an explicit "approve" / "yes" / "go" before calling `opensec approve`.
-2. **Never auto-merge a PR.** After `opensec approve` returns a `pr_url`, use `gh pr view --json title,body,files,additions,deletions` and `gh pr diff` to summarize the change to the user. Wait for an explicit "merge" before calling `gh pr merge --squash`.
-3. **Stop on validation failure.** If `opensec approve` exits 2 with `validation.verdict != "ok"`, do not call `close`. Surface the failure reason and stop.
-4. **Never invent IDs.** Only pass IDs the CLI returned. If you don't have one, run `opensec issues` to get one.
+1. **Never auto-approve a plan.** `cliff fix` exits 2 when a plan is ready. Show the plan summary + steps to the user and wait for an explicit "approve" / "yes" / "go" before calling `cliff approve`.
+2. **Never auto-merge a PR.** After `cliff approve` returns a `pr_url`, use `gh pr view --json title,body,files,additions,deletions` and `gh pr diff` to summarize the change to the user. Wait for an explicit "merge" before calling `gh pr merge --squash`.
+3. **Stop on validation failure.** If `cliff approve` exits 2 with `validation.verdict != "ok"`, do not call `close`. Surface the failure reason and stop.
+4. **Never invent IDs.** Only pass IDs the CLI returned. If you don't have one, run `cliff issues` to get one.
 5. **Don't silence version mismatch.** If any command exits 4, stop and tell the user to re-run the install one-liner. Do not try to work around it.
 6. **Never run a troubleshooting write action without approval.** `stop`, `start`, `restart`, `update`, `config set`, `xattr`, or re-running the installer all require an explicit "yes" before you run them. Read-only diagnostics (`doctor`, `logs`, `--check`, `ps`) are fine to run unprompted.
 7. **Never auto-submit a GitHub issue.** Use `gh issue create --web` so it opens the user's browser with the body pre-filled — the user reviews, edits, and clicks Submit. Never call `gh issue create` without `--web` when filing a troubleshooting bug.
@@ -38,10 +38,10 @@ Every command emits one JSON object on stdout (or stderr for errors) and exits w
 
 ## Workflow
 
-### 1. Preflight — is OpenSec running and configured?
+### 1. Preflight — is Cliff running and configured?
 
 ```
-opensec status
+cliff status
 ```
 
 - Exit 0 + `ready: true` → continue to **provider keys** (next).
@@ -51,9 +51,9 @@ opensec status
 
 ### 1a. Provider keys — AI model and GitHub PAT
 
-OpenSec needs **two** credentials to drive the full loop:
+Cliff needs **two** credentials to drive the full loop:
 
-- **AI provider key** (e.g. `OPENAI_API_KEY`) — read by the daemon at boot from env, or stored via `PUT /api/settings/api-keys/{provider}`. The model itself is set via `opensec model set <provider>/<id>` (defaults to `openai/gpt-5-nano`).
+- **AI provider key** (e.g. `OPENAI_API_KEY`) — read by the daemon at boot from env, or stored via `PUT /api/settings/api-keys/{provider}`. The model itself is set via `cliff model set <provider>/<id>` (defaults to `openai/gpt-5-nano`).
 - **GitHub PAT** — stored as an **Integration** (the daemon does NOT read `GITHUB_TOKEN` env). Without it, every GitHub-API posture check (`branch_protection_enabled`, `secret_scanning_enabled`, `no_stale_collaborators`, …) returns `unknown` and the grade caps at C.
 
 Verify both:
@@ -92,18 +92,18 @@ curl -X POST "http://localhost:8000/api/settings/integrations/$INT_ID/credential
 
 Required PAT scopes for the posture probes: `repo` (or fine-grained: Contents read, Metadata read, Administration read, Code scanning alerts read, Pull requests read+write for remediation).
 
-After both are present, re-run `opensec status` — `ready: true` → continue to scan.
+After both are present, re-run `cliff status` — `ready: true` → continue to scan.
 
 ### 2. Install path (only when status fails preflight)
 
 The README is the single source of truth for the install one-liner. Do **not** hardcode a URL.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/galanko/OpenSec/main/README.md \
+curl -fsSL https://raw.githubusercontent.com/galanko/Cliff/main/README.md \
   | awk '/<!-- install:start -->/{f=1;next}/<!-- install:end -->/{f=0}f'
 ```
 
-That extracts the canonical install snippet. Show it verbatim to the user, get an explicit "yes" (it's a `curl | sh`), then run it via `Bash`. After it returns, poll `opensec status` until exit 0. If it never comes up, surface the install logs and stop — don't keep retrying.
+That extracts the canonical install snippet. Show it verbatim to the user, get an explicit "yes" (it's a `curl | sh`), then run it via `Bash`. After it returns, poll `cliff status` until exit 0. If it never comes up, surface the install logs and stop — don't keep retrying.
 
 ### 3. Scan
 
@@ -116,7 +116,7 @@ gh repo view --json url -q .url
 Then:
 
 ```
-opensec scan <repo_url>
+cliff scan <repo_url>
 ```
 
 - Exit 5 → "no findings — repo is clean", stop here.
@@ -125,17 +125,17 @@ opensec scan <repo_url>
 ### 4. Triage
 
 ```
-opensec issues --severity critical,high --limit 10
+cliff issues --severity critical,high --limit 10
 ```
 
 If `total > 5`, ask the user which issues to tackle this session (or "all"). Otherwise proceed through them in order. Don't chase low/medium severity unless the user asks.
 
-Posture findings surface here too (`type: "posture"`, severity often empty). They map to grade-counting criteria — don't skip them just because they have no CVSS. The fix flow is the same: `opensec fix <id>` → review plan → approve → PR → merge → close.
+Posture findings surface here too (`type: "posture"`, severity often empty). They map to grade-counting criteria — don't skip them just because they have no CVSS. The fix flow is the same: `cliff fix <id>` → review plan → approve → PR → merge → close.
 
 ### 5. Fix loop — per issue
 
 ```
-opensec fix <issue_id>
+cliff fix <issue_id>
 ```
 
 Exit 2 means the planner is done and the plan is awaiting approval. The JSON contains `plan.steps`, `plan.interim_mitigation`, and `plan.definition_of_done`. Render that to the user as a short bullet list and ask for approval. **Wait for an explicit yes.**
@@ -143,7 +143,7 @@ Exit 2 means the planner is done and the plan is awaiting approval. The JSON con
 Once approved:
 
 ```
-opensec approve <workspace_id>
+cliff approve <workspace_id>
 ```
 
 The CLI runs the executor + validator and waits for the result. Outcomes:
@@ -167,17 +167,17 @@ gh pr merge <pr_url> --squash
 ### 7. Close
 
 ```
-opensec close <workspace_id>
+cliff close <workspace_id>
 ```
 
 This marks the workspace closed and auto-resolves the linked finding. Exit 0 with `closed: true` → move on to the next issue.
 
 ### 8. Re-assess (always run after fixes land)
 
-After the last `opensec close` — or whenever the user pauses the loop — re-run the scan to capture the new grade and any newly surfaced posture findings:
+After the last `cliff close` — or whenever the user pauses the loop — re-run the scan to capture the new grade and any newly surfaced posture findings:
 
 ```
-opensec scan <repo_url>
+cliff scan <repo_url>
 ```
 
 Then read `/api/assessment/latest` to get the current grade and `criteria_snapshot`:
@@ -201,7 +201,7 @@ Posture criteria that need GitHub repo settings (not code) — call these out ex
 | `no_stale_collaborators` | Audit Settings → Collaborators; remove dormant accounts |
 | `actions_pinned_to_sha` | Pin every `uses:` to a 40-char SHA in `.github/workflows/*` |
 
-Some of those checks return `unknown` (rendered as `null` in the criteria, not `false`) until a GitHub PAT is configured **as an Integration** — the daemon resolves the token from the encrypted vault via the `github` integration row, not from a `GITHUB_TOKEN` environment variable. If a criterion stays `null` despite the user fixing the GitHub setting, tell them to open the Integrations page in the OpenSec UI and connect GitHub with a PAT (scopes: `repo`, `read:org` is enough for the posture probes).
+Some of those checks return `unknown` (rendered as `null` in the criteria, not `false`) until a GitHub PAT is configured **as an Integration** — the daemon resolves the token from the encrypted vault via the `github` integration row, not from a `GITHUB_TOKEN` environment variable. If a criterion stays `null` despite the user fixing the GitHub setting, tell them to open the Integrations page in the Cliff UI and connect GitHub with a PAT (scopes: `repo`, `read:org` is enough for the posture probes).
 
 ### 9. Report
 
@@ -209,18 +209,18 @@ When the loop ends (no more issues, or user stopped), give the user one paragrap
 
 ## Token discipline
 
-- Always pass `--severity` and `--limit` on `opensec issues`. Don't list 100 findings when 10 will do.
+- Always pass `--severity` and `--limit` on `cliff issues`. Don't list 100 findings when 10 will do.
 - Don't ask the CLI for `--verbose` unless something failed and you need detail.
-- Don't re-run `opensec status` between every step — once at the start is enough. Run it again only after an unexpected error.
+- Don't re-run `cliff status` between every step — once at the start is enough. Run it again only after an unexpected error.
 - When showing a plan or PR diff, summarize. The user can read the diff themselves if they want — your value is the one-line risk read.
 
 ## Troubleshooting
 
 Engage when:
 
-- A `opensec` command in the main flow exits **1** (generic error).
+- A `cliff` command in the main flow exits **1** (generic error).
 - A command hangs longer than ~2 minutes with no output.
-- The user says "troubleshoot", "it's broken", "something's wrong", "fix the daemon", "opensec isn't working", or anything similar.
+- The user says "troubleshoot", "it's broken", "something's wrong", "fix the daemon", "cliff isn't working", or anything similar.
 
 Do **not** engage for exit 2 / 3 / 4 / 5 — those have their own paths above.
 
@@ -231,11 +231,11 @@ The flow is fixed: gather → diagnose → propose → verify → escalate. Don'
 Run all of these once and keep the output for diagnosis + a possible issue draft:
 
 ```bash
-opensec doctor --json
-opensec logs --lines 100 || true
-opensec --version
-opensec update --check || true   # exit 0 = up to date, exit 2 = newer available
-ps -ef | grep -E '(opensec|opencode|uvicorn)' | grep -v grep || true
+cliff doctor --json
+cliff logs --lines 100 || true
+cliff --version
+cliff update --check || true   # exit 0 = up to date, exit 2 = newer available
+ps -ef | grep -E '(cliff|opencode|uvicorn)' | grep -v grep || true
 uname -a
 ```
 
@@ -247,16 +247,16 @@ Cross-reference what you found in Phase A against this table. The mapping is **f
 
 | Signal | Diagnosis | Proposed action |
 |---|---|---|
-| `status` exit 3, no PID file at `~/.opensec/run/opensec.pid` | Daemon was never started | `opensec start --detach` |
-| `status` exit 3, PID file exists but the recorded process is gone | Crashed orphan, ports possibly leaked | `opensec stop` (sweeps owned children) then `opensec start --detach` |
-| `doctor` shows `port.<configured-app-port>` failing | Port conflict | Pick a free port, then `opensec config set OPENSEC_APP_PORT=<port>` and `opensec restart` |
-| `doctor` shows `port.4096` or `port.4100..4102` failing AND status is daemon-down | OpenCode child leaked from a previous crash | `opensec stop` (the sweep reclaims orphans) then `opensec start --detach` |
+| `status` exit 3, no PID file at `~/.cliff/run/cliff.pid` | Daemon was never started | `cliff start --detach` |
+| `status` exit 3, PID file exists but the recorded process is gone | Crashed orphan, ports possibly leaked | `cliff stop` (sweeps owned children) then `cliff start --detach` |
+| `doctor` shows `port.<configured-app-port>` failing | Port conflict | Pick a free port, then `cliff config set CLIFF_APP_PORT=<port>` and `cliff restart` |
+| `doctor` shows `port.4096` or `port.4100..4102` failing AND status is daemon-down | OpenCode child leaked from a previous crash | `cliff stop` (the sweep reclaims orphans) then `cliff start --detach` |
 | `doctor` shows `opencode` failing with "not found" | OpenCode binary missing or never installed | Re-run the install one-liner |
-| `doctor` shows `opencode.quarantine` failing on macOS | Gatekeeper quarantined the binary | `xattr -dr com.apple.quarantine ~/.opensec/bin/opencode` (and `trivy` / `semgrep` if they show the same) |
+| `doctor` shows `opencode.quarantine` failing on macOS | Gatekeeper quarantined the binary | `xattr -dr com.apple.quarantine ~/.cliff/bin/opencode` (and `trivy` / `semgrep` if they show the same) |
 | `doctor` shows `venv` failing | Backend venv corrupt or removed | Re-run the install one-liner |
 | `doctor` shows `credential_key` missing | Encryption key not in env file | Re-run the install one-liner (it generates and persists the key) |
 | `doctor` shows `migrations` failing with a SQLite error | DB schema state is bad | **Bug** — escalate (Phase E). Do not propose deleting the DB without explicit user request — it would lose findings + workspaces. |
-| `update --check` exit 2 (newer release available) AND symptoms could plausibly be a known fix | Out-of-date install | Offer `opensec update` |
+| `update --check` exit 2 (newer release available) AND symptoms could plausibly be a known fix | Out-of-date install | Offer `cliff update` |
 | Logs contain a Python traceback (`Traceback (most recent call last):` or `ERROR  ` lines on every request) | Real bug | Escalate (Phase E) |
 | Doctor entirely clean, command still failing | No diagnosis from signals | Escalate (Phase E) |
 
@@ -266,18 +266,18 @@ For any write action you've identified, format the proposal as one block:
 
 > **Diagnosis:** <one line — what doctor/logs showed>.
 > **Proposed fix:** `<the exact command(s)>`.
-> **What it changes:** <one line — e.g. "moves OpenSec to port 8001 and restarts the daemon">.
+> **What it changes:** <one line — e.g. "moves Cliff to port 8001 and restarts the daemon">.
 > **May I proceed?**
 
 Wait for an explicit "yes" / "go" / "do it". Anything ambiguous → ask again.
 
 The list of writes that require approval (recheck before running):
 
-- `opensec start`, `stop`, `restart`, `update`
-- `opensec config set ...`
+- `cliff start`, `stop`, `restart`, `update`
+- `cliff config set ...`
 - `xattr ...` or any other shell command that mutates the system
 - Re-running the installer
-- **Never** `opensec uninstall` — that removes data and config, and is never an automatic remedy. Only run it if the user explicitly asks to uninstall.
+- **Never** `cliff uninstall` — that removes data and config, and is never an automatic remedy. Only run it if the user explicitly asks to uninstall.
 
 If the user declines, ask if they'd like to file an issue (Phase E) instead.
 
@@ -286,8 +286,8 @@ If the user declines, ask if they'd like to file an issue (Phase E) instead.
 After running the approved fix, re-verify before declaring success:
 
 ```bash
-opensec doctor --json
-opensec status   # if the fix involved start/restart
+cliff doctor --json
+cliff status   # if the fix involved start/restart
 ```
 
 - Doctor clean and `status` ready → tell the user "fixed: <one line>" and stop.
@@ -300,12 +300,12 @@ Engage when: the table didn't match, the fix didn't work, doctor flagged somethi
 
 Tell the user:
 
-> "I can't fix this from here — it looks like a real bug in OpenSec. Want me to draft a GitHub issue against `galanko/OpenSec` with the diagnostic context I collected? It'll open in your browser pre-filled, so you can review and edit before submitting."
+> "I can't fix this from here — it looks like a real bug in Cliff. Want me to draft a GitHub issue against `galanko/Cliff` with the diagnostic context I collected? It'll open in your browser pre-filled, so you can review and edit before submitting."
 
 If yes, build a single `gh` command that opens the GitHub compose page in the browser with the body pre-filled. **Always use `--web`.** Never auto-submit.
 
 ```bash
-gh issue create --repo galanko/OpenSec --web \
+gh issue create --repo galanko/Cliff --web \
   --title "[CLI] <one-line summary>" \
   --body "$(cat <<'EOF'
 ## What happened
@@ -316,18 +316,18 @@ gh issue create --repo galanko/OpenSec --web \
 2. <expected vs. actual>
 
 ## Environment
-- OpenSec CLI version: <opensec --version>
-- Latest release: <opensec update --check result>
+- Cliff CLI version: <cliff --version>
+- Latest release: <cliff update --check result>
 - OS: <uname -a>
 
 ## Doctor output
 \`\`\`json
-<opensec doctor --json output>
+<cliff doctor --json output>
 \`\`\`
 
 ## Recent daemon logs (last 100 lines, secrets redacted)
 \`\`\`
-<opensec logs --lines 100, with redaction applied>
+<cliff logs --lines 100, with redaction applied>
 \`\`\`
 
 ## What was already tried
@@ -342,7 +342,7 @@ EOF
 **Redaction — non-negotiable.** Before pasting logs or doctor output into the body, scrub these patterns (replace value with `[REDACTED]`):
 
 - Lines containing `KEY=`, `TOKEN=`, `SECRET=`, `PASSWORD=`, `Authorization:`, `Bearer `, `_TOKEN`, `_KEY`, `api_key`, `apikey`
-- `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, `OPENSEC_CREDENTIAL_KEY` (these are in `~/.opensec/config/opensec.env`)
+- `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, `CLIFF_CREDENTIAL_KEY` (these are in `~/.cliff/config/cliff.env`)
 - Anything that looks like a JWT (`eyJ...`), a GitHub PAT (`ghp_...`, `gho_...`, `github_pat_...`), or a generic 40+ char hex string after `=`
 
 If any line is ambiguous (might or might not be a secret), redact it. Better to over-redact than to leak. Show the user the body **as it will be submitted** before running the `gh` command, and offer to remove anything else they don't want public.
@@ -351,10 +351,10 @@ If any line is ambiguous (might or might not be a secret), redact it. Better to 
 
 - Don't dump the full doctor JSON to the chat — extract the failing checks only.
 - Don't paste 100 log lines to the chat — extract the relevant traceback / error window only. The full logs go in the issue body, not the chat.
-- Don't run all the Phase A commands again between attempts — once at the top is enough. If you re-run anything, only re-run the specific check you fixed (e.g. just `opensec doctor --json` after a restart).
+- Don't run all the Phase A commands again between attempts — once at the top is enough. If you re-run anything, only re-run the specific check you fixed (e.g. just `cliff doctor --json` after a restart).
 
 ## When in doubt
 
-- Unknown finding type? Just call `opensec fix <id>` and let the pipeline handle it. Don't pre-classify.
+- Unknown finding type? Just call `cliff fix <id>` and let the pipeline handle it. Don't pre-classify.
 - The CLI returned a `next` field? Use it. The CLI knows what comes next.
 - The user said "stop" or "let me look"? Stop. Don't keep the loop running.

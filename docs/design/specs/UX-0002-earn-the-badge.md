@@ -10,9 +10,9 @@
 
 ## Revision note (2026-04-15)
 
-PRD-0002 was scoped down on 2026-04-15: the public "Secured by OpenSec" README PR is deferred to v1.2, and live OpenSSF Scorecard API integration is deferred as well. v1.1 ships an in-app completion ceremony and a user-controlled shareable summary card, plus a static info-line pointing to Scorecard as an independent third-party standard.
+PRD-0002 was scoped down on 2026-04-15: the public "Secured by Cliff" README PR is deferred to v1.2, and live OpenSSF Scorecard API integration is deferred as well. v1.1 ships an in-app completion ceremony and a user-controlled shareable summary card, plus a static info-line pointing to Scorecard as an independent third-party standard.
 
-Frames affected: 2.2 (report card relabels "Badge preview" → "Completion progress" and gains a Scorecard info-line), 5.1 (celebration reframed as "Security complete" with download / copy-text / copy-markdown actions instead of an Add-to-README CTA), 5.2 (replaced — now a "Shareable summary card · three actions" panel rendered on the same page after the celebration, no modal, no PR), 6.1 (aside relabels "Active badge" → "Security complete" and drops the freshness band), 6.2 (banner reframed — no "your badge is still valid on your README" promise, since OpenSec never wrote one).
+Frames affected: 2.2 (report card relabels "Badge preview" → "Completion progress" and gains a Scorecard info-line), 5.1 (celebration reframed as "Security complete" with download / copy-text / copy-markdown actions instead of an Add-to-README CTA), 5.2 (replaced — now a "Shareable summary card · three actions" panel rendered on the same page after the celebration, no modal, no PR), 6.1 (aside relabels "Active badge" → "Security complete" and drops the freshness band), 6.2 (banner reframed — no "your badge is still valid on your README" promise, since Cliff never wrote one).
 
 Frames 1.0–1.5, 2.1, 3.1–3.2, and 4.1 are unchanged — the onboarding flow, assessment progress, plain-language findings, and posture guidance all ship as designed.
 
@@ -20,7 +20,7 @@ Frames 1.0–1.5, 2.1, 3.1–3.2, and 4.1 are unchanged — the onboarding flow,
 
 ## Narrative
 
-Alex is a Node.js library maintainer. They've never run a security scanner. They land on OpenSec, walk a three-step onboarding, watch a calm progress view scan their repo, land on a report card that tells them in plain English what's broken, solve the vulnerabilities one workspace at a time, and when the last criterion flips to pass they reach a quiet celebration and a shareable summary card they can download, tweet, or ignore. OpenSec never modifies their README.
+Alex is a Node.js library maintainer. They've never run a security scanner. They land on Cliff, walk a three-step onboarding, watch a calm progress view scan their repo, land on a report card that tells them in plain English what's broken, solve the vulnerabilities one workspace at a time, and when the last criterion flips to pass they reach a quiet celebration and a shareable summary card they can download, tweet, or ignore. Cliff never modifies their README.
 
 Every screen reinforces the Serene Sentinel posture: calm authority, editorial layout, the UI never shouts. The grade is a reward, not a scolding. The completion ceremony is a receipt for the work done, never a gate held over the user's head — and the share artifact is theirs to use on their own terms.
 
@@ -28,7 +28,7 @@ Every screen reinforces the Serene Sentinel posture: calm authority, editorial l
 
 | # | Screen | Story | Purpose |
 |---|--------|-------|---------|
-| 1.0 | Welcome | 1 | Introduces OpenSec with a single "Get started" CTA — no fork in the road |
+| 1.0 | Welcome | 1 | Introduces Cliff with a single "Get started" CTA — no fork in the road |
 | 1.1 | Connect project — default | 1 | Two fields: repo URL + PAT, with scope explanation |
 | 1.1a | "How to create a token" dialog | 1 | Modal over dimmed/blurred wizard, 5-step walkthrough, deep-link to `github.com/settings/tokens` |
 | 1.2 | Connect project — error | 1 | Specific, actionable error for missing `repo` scope |
@@ -39,7 +39,7 @@ Every screen reinforces the Serene Sentinel posture: calm authority, editorial l
 | 2.2 | Report card — grade C | 2 | Hero grade ring + completion-progress meter + two-column vulns/posture summary + Scorecard info line |
 | 3.1 | Findings queue · plain rows | 3 | Headline in plain English, technical metadata relegated to a monospace line |
 | 3.2 | Finding detail · plain + technical | 3 | Full plain-language body + expandable technical details block |
-| 4.1 | Posture tab · expanded guidance | 4 | Passing checks compact, failing checks expand with "OpenSec can create this" action |
+| 4.1 | Posture tab · expanded guidance | 4 | Passing checks compact, failing checks expand with "Cliff can create this" action |
 | 5.1 | Completion · celebration | 5 | 3-second confetti, scaled-up shield SVG, grade A, "Security complete" headline, three share actions |
 | 5.2 | Shareable summary · three actions | 5 | Rendered 1200×630 summary card preview + download image / copy text / copy markdown — no modal, no PR |
 | 6.1 | Dashboard · returning user | 6 | Completion-status aside (no freshness band), headline summary, recent activity list |
@@ -92,7 +92,7 @@ All 15 frames are drawn in the gallery file in order.
 - `AddBadgeDialog` and `FreshnessCard` from the original spec are **removed** — both were tied to the deferred public-badge PR flow.
 - `BadgePreviewCard` is renamed to `CompletionProgressCard`. Same visual treatment (shield SVG + criteria meter); the word "badge" is dropped from the label.
 - `BadgeEarnedCelebration` is renamed to `CompletionCelebration`.
-- The shield SVG itself is preserved — it remains the visual emblem of security completion inside OpenSec and on the downloaded summary card. What's removed is the workflow that would have placed the shield on the user's README via a PR.
+- The shield SVG itself is preserved — it remains the visual emblem of security completion inside Cliff and on the downloaded summary card. What's removed is the workflow that would have placed the shield on the user's README via a PR.
 
 All new screens slot into the existing app chrome. The dashboard becomes a new top-level page; the onboarding wizard is a dedicated full-page route that bypasses the usual nav.
 
@@ -137,12 +137,12 @@ All new screens slot into the existing app chrome. The dashboard becomes a new t
 2. Confetti runs for 3s then fades. Gradient backdrop stays for another 1s then relaxes back to Level 0
 3. The celebration offers **one primary action** ("Download summary image") and **two subordinate text-link actions** ("Copy text summary", "Copy markdown") below it. The full side-by-side action panel lives on 5.2 just below the celebration — 5.1 is the emotional peak, not a full action menu
 4. Below the celebration, the `ShareableSummaryCard` is rendered in-place (5.2) — no dialog, no separate step. Three equal-pattern action tiles (Download / Copy text / Copy markdown) each show a preview block (filename+dimensions for Download, plain-text for Copy text, markdown for Copy markdown) plus an action button
-5. OpenSec does **not** create any PR to the user's repo as part of this flow. The markdown the user copies is for them to paste themselves, if they choose
+5. Cliff does **not** create any PR to the user's repo as part of this flow. The markdown the user copies is for them to paste themselves, if they choose
 6. The user can return to the summary card later by clicking the shield in the dashboard aside — the shield is the affordance (focus-visible ring, hover scale, screen-reader label "Re-open shareable summary card"). No extra text link clutters the aside
 
 ### Story 6 — returning and re-assess
 
-1. On app open after completion was reached, `/dashboard` renders 6.1 with the `CompletionStatusCard` aside. The aside shows the shield, grade, "Last assessed N days ago", and the Re-assess CTA. **No freshness band** — since OpenSec isn't promising anything to a public audience, there's nothing to go "stale"
+1. On app open after completion was reached, `/dashboard` renders 6.1 with the `CompletionStatusCard` aside. The aside shows the shield, grade, "Last assessed N days ago", and the Re-assess CTA. **No freshness band** — since Cliff isn't promising anything to a public audience, there's nothing to go "stale"
 2. "Re-assess now" → 2.1 progress view → either:
     - Nothing changed → returns to 6.1 with updated "Last assessed" date + a subtle "Everything still checks out" toast
     - New findings → 6.2 with the diff list and the completion-status banner (reassurance-first: "You're still at completion — for now")
@@ -171,7 +171,7 @@ All new screens slot into the existing app chrome. The dashboard becomes a new t
 
 - All interactive elements reach `focus-visible: ring-2 ring-primary/40 ring-offset-2 ring-offset-surface` — closes the existing audit gap
 - Color is never the sole signal: pass/fail states always pair their token color with an icon and a text label
-- The decorative shield on the summary card (5.2 preview) has `role="img"` and `aria-label="OpenSec security summary shield"`
+- The decorative shield on the summary card (5.2 preview) has `role="img"` and `aria-label="Cliff security summary shield"`
 - The interactive shield on the 6.1 dashboard aside is a real `<button>` with `aria-label="Re-open shareable summary card"` and its own focus ring. Hover affordance ("Tap for summary" micro-hint) fades in visually but the button label is always present for assistive tech
 - The celebration animation respects `prefers-reduced-motion`: confetti disappears, grade ring fades in instead of scaling, background tint still applies. Shield hover-scale on 6.1 also collapses to a simple background shift under reduced-motion
 - Plain-language descriptions read naturally by screen reader; technical details panel is a native `<details>` element so AT users get standard disclosure semantics
@@ -193,7 +193,7 @@ Confirmed across every frame in the gallery:
 
 ### Sanctioned exceptions
 
-- **Gradient surface on the shareable summary card (5.2).** The 1200×630 export artifact uses a `linear-gradient(135deg, #4d44e3 0%, #575e78 100%)` background. This is the first surface in the product to combine primary + tertiary as a gradient, and it is an **approved exception scoped to generated share artifacts only** (Revision 4, 2026-04-15). Rationale: the summary card lives outside the app — on Twitter, in a README, on a slide — and needs a distinct, recognizable visual identity that reads as "OpenSec" at thumbnail size. This exception does **not** extend to app chrome or any in-app surface. App surfaces continue to use tonal layering (Level 0 / 1 / 2) with no gradients. If a future design proposes a gradient in app chrome, it requires a new sanctioned-exception entry or a design system amendment.
+- **Gradient surface on the shareable summary card (5.2).** The 1200×630 export artifact uses a `linear-gradient(135deg, #4d44e3 0%, #575e78 100%)` background. This is the first surface in the product to combine primary + tertiary as a gradient, and it is an **approved exception scoped to generated share artifacts only** (Revision 4, 2026-04-15). Rationale: the summary card lives outside the app — on Twitter, in a README, on a slide — and needs a distinct, recognizable visual identity that reads as "Cliff" at thumbnail size. This exception does **not** extend to app chrome or any in-app surface. App surfaces continue to use tonal layering (Level 0 / 1 / 2) with no gradients. If a future design proposes a gradient in app chrome, it requires a new sanctioned-exception entry or a design system amendment.
 - **White text on the gradient surface uses `rgba(255,255,255,0.92)` to `rgba(255,255,255,0.98)`** for small eyebrow/footer text, verified to meet WCAG AA (≥4.5:1) against the full gradient range. The previous `opacity-70` / `opacity-80` values from Revision 3 are corrected in Revision 4.
 
 ## Open questions for CEO
@@ -210,7 +210,7 @@ None blocking. Two optional calls if you have strong preferences:
 *All three priority items from the `/design-critique` pass have been resolved. Minor flags addressed as well.*
 
 - **5.1 Celebration · action hierarchy rebalanced.** Three co-equal buttons replaced with one primary ("Download summary image", filled primary, `py-3.5 px-8`, slightly larger than standard to own the moment) + two subordinate text-link actions below ("Copy text summary" and "Copy markdown", separated by a 1px ghost divider). The full side-by-side action panel still lives on 5.2 directly below the celebration. Body copy updated: "The full summary panel with previews is just below" — points the user at 5.2.
-- **5.2 Tile pattern unified.** Download tile now includes a metadata preview row (`image` icon + filename "fast-markdown_opensec-summary_2026-04-14.png" + "1200×630 · ~80 KB") matching the `<pre>` preview blocks on the Copy tiles. All three tiles now follow the same shape: header (icon + title + one-line description) → preview block (file metadata or code snippet) → action button.
+- **5.2 Tile pattern unified.** Download tile now includes a metadata preview row (`image` icon + filename "fast-markdown_cliff-summary_2026-04-14.png" + "1200×630 · ~80 KB") matching the `<pre>` preview blocks on the Copy tiles. All three tiles now follow the same shape: header (icon + title + one-line description) → preview block (file metadata or code snippet) → action button.
 - **5.2 Summary card contrast bumped to AA.** Text on the indigo→slate gradient was previously using Tailwind `opacity-70`/`opacity-80` (approximately 4.1:1, borderline). Replaced with explicit `rgba(255,255,255,0.92)` for eyebrow/footer/labels and `rgba(255,255,255,0.95–0.98)` for the completed date and Grade label. Divider line strengthened from `bg-white/20` to `bg-white/30`. Stats row breathing room increased from `mb-5` to `mb-7` and label margin from `mt-1` to `mt-1.5`.
 - **6.1 Aside streamlined.** The "Re-open summary card" text link is removed. The shield SVG is now the affordance: wrapped in a `<button type="button" aria-label="Re-open shareable summary card">` with a `focus-visible:ring-2 ring-primary/40` state and a `hover:scale-105` transition. A "Tap for summary" micro-label fades in on hover (opacity-0 → 100) so the affordance is discoverable without cluttering the default state. The aside now has exactly one primary CTA (Re-assess now) and one secondary link (View assessment history).
 - **Gallery hero · revision note moved to a collapsed `<details>` block** labeled "Changelog · Revision 4 (2026-04-15)" with a chevron icon that rotates on open. The hero now leads with product description, not document history. Both Rev 3 and Rev 4 notes are preserved inside the block.
@@ -226,11 +226,11 @@ Design system rules still pass end-to-end: no `1px solid` borders, tonal layerin
 - **2.2 Report card** — "Badge preview" card relabeled "Completion progress". Subtitle now mentions the shareable summary rather than a README badge. Added a new static info-line at the bottom of the report card pointing to OpenSSF Scorecard as an independent third-party standard (external link only — no API call, no "no score available" state)
 - **2.2 Report card** — grade hero copy updated from "Fix 2 more items to earn the badge" to "Fix 2 more items to reach security completion"
 - **4.1 Posture** — "Needed for badge" pill relabeled "Needed for completion"
-- **5.1 Celebration** — headline changed from "Badge earned" to "Security complete". Body copy no longer promises README placement. Shield SVG caption changed from "LAST VERIFIED" to "COMPLETED". The two-CTA row (Add to README / Share) is replaced with three share actions: Download image, Copy text summary, Copy markdown. Small reassurance line added: "OpenSec never writes to your README"
-- **5.2 · full replacement** — "Add badge to README" dialog removed. Replaced with a full-width "Shareable summary · three actions" panel that lives on the same page below the celebration. Shows a 1200×630 rendered preview of the summary card (repo name, date, vulns fixed, posture checks, PRs merged, grade) beside three action tiles (download PNG, copy text, copy markdown). A footer line makes the trust posture explicit: "No OpenSec-hosted URL, no tracking, no account required. v1.2 will add an optional public badge with verification — not today."
+- **5.1 Celebration** — headline changed from "Badge earned" to "Security complete". Body copy no longer promises README placement. Shield SVG caption changed from "LAST VERIFIED" to "COMPLETED". The two-CTA row (Add to README / Share) is replaced with three share actions: Download image, Copy text summary, Copy markdown. Small reassurance line added: "Cliff never writes to your README"
+- **5.2 · full replacement** — "Add badge to README" dialog removed. Replaced with a full-width "Shareable summary · three actions" panel that lives on the same page below the celebration. Shows a 1200×630 rendered preview of the summary card (repo name, date, vulns fixed, posture checks, PRs merged, grade) beside three action tiles (download PNG, copy text, copy markdown). A footer line makes the trust posture explicit: "No Cliff-hosted URL, no tracking, no account required. v1.2 will add an optional public badge with verification — not today."
 - **6.1 Dashboard · returning** — "Active badge" label renamed "Security complete". "Last verified" renamed "Last assessed". The "Fresh · valid for 76 more days" freshness band is removed entirely (nothing public to go stale). Added a "Re-open summary card" link below the aside. Body copy no longer references a "fresh badge"
 - **6.1 Activity list** — "Badge earned for the first time" → "Completion reached · summary generated"
-- **6.2 Banner** — reframed from "Your badge is still valid" to "You're still at completion — for now". Body copy removed the promise to "refresh the 'last verified' date on your README" (since OpenSec never wrote to the README). Instead: "Your existing summary card is still valid until you regenerate it"
+- **6.2 Banner** — reframed from "Your badge is still valid" to "You're still at completion — for now". Body copy removed the promise to "refresh the 'last verified' date on your README" (since Cliff never wrote to the README). Instead: "Your existing summary card is still valid until you regenerate it"
 - **Component inventory** — `AddBadgeDialog` and `FreshnessCard` removed. `BadgePreviewCard` renamed to `CompletionProgressCard`. `BadgeEarnedCelebration` renamed to `CompletionCelebration`. Added `ShareableSummaryCard`, `SummaryActionPanel`, `CompletionStatusCard`, `ScorecardInfoLine`
 
 Design system compliance re-verified end-to-end: no `1px solid` borders, tonal layering preserved, sentence case maintained, `on-surface` for text, severity tokens consistent. The shield SVG itself is unchanged — it remains the visual emblem of completion, just no longer bound to a README-writing workflow.
@@ -249,7 +249,7 @@ Design system compliance re-verified end-to-end: no `1px solid` borders, tonal l
 - **4.1 Posture tab** — "Blocks badge" error chip replaced with softer "Needed for badge" chip in `primary-container/60`. Failing-item container shifted from `error-container/15` to `primary-container/25`. Icon is the unfilled `error` in primary color — still signals attention, no longer signals alarm.
 - **5.1 Badge earned** — reworked hierarchy: eyebrow now reads "Grade A · 5 of 5 criteria met", headline is "Badge earned", verification date moved into the body sentence. Shield SVG is the uncontested hero. Container wrapped with `role="status" aria-live="assertive"` so the celebration is announced to screen readers once on mount.
 - **5.2 Add to README dialog** — removed stray `<em>` HTML tag from the markdown preview; the preview block now contains pure markdown the user can copy verbatim.
-- **6.1 Dashboard · returning** — merged the floating `A` grade into the freshness aside. Aside now shows: active badge shield → Secured by OpenSec → `A · 5 of 5` + "Last verified · 14 days ago" side-by-side (separated by a ghost divider) → freshness band → re-assess CTA. Main column focuses on "what's changed" content only.
+- **6.1 Dashboard · returning** — merged the floating `A` grade into the freshness aside. Aside now shows: active badge shield → Secured by Cliff → `A · 5 of 5` + "Last verified · 14 days ago" side-by-side (separated by a ghost divider) → freshness band → re-assess CTA. Main column focuses on "what's changed" content only.
 - **6.2 Re-assess** — banner reframed from red-alert to calm-authority. New banner uses `surface-container-lowest` with a vertical tertiary accent bar, shield icon, and reassurance-first copy: "Your badge is still valid". The error signal now comes from the finding card itself (which is appropriately red-keyed), not from a whole-page alarm.
 
 Gallery file regenerated. Design system rules still pass end-to-end: no `1px solid` borders, tonal layering preserved, sentence case maintained, `on-surface` for text, severity tokens consistent.
@@ -262,4 +262,4 @@ Gallery file regenerated. Design system rules still pass end-to-end: no `1px sol
 
 ## Handoff
 
-Once approved, `/architect` takes this spec plus `PRD-0002-earn-the-badge.md` into an implementation plan (`IMPL-0002-earn-the-badge.md`), then R&D splits between `/app-builder` (onboarding wizard, dashboard page, findings detail, posture interactions, dialogs, shield SVG) and `/opensec-agent-orchestrator` (SECURITY.md + Dependabot single-shot agents, plain-language prompt extension to the LLM normalizer).
+Once approved, `/architect` takes this spec plus `PRD-0002-earn-the-badge.md` into an implementation plan (`IMPL-0002-earn-the-badge.md`), then R&D splits between `/app-builder` (onboarding wizard, dashboard page, findings detail, posture interactions, dialogs, shield SVG) and `/cliff-agent-orchestrator` (SECURITY.md + Dependabot single-shot agents, plain-language prompt extension to the LLM normalizer).

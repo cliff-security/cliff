@@ -2,7 +2,7 @@
 # install-scanners.sh — fetch & verify pinned Trivy + Semgrep (ADR-0028).
 #
 # Reads ``.scanner-versions`` for the pinned ``<name> <version>`` tuples and
-# stages each scanner under ``${OPENSEC_BIN_DIR:-bin}``. Layout:
+# stages each scanner under ``${CLIFF_BIN_DIR:-bin}``. Layout:
 #
 #   bin/trivy     — extracted Trivy binary (chmod +x)
 #   bin/semgrep   — wrapper that exec's a pinned semgrep venv
@@ -31,7 +31,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSIONS_FILE="${REPO_ROOT}/.scanner-versions"
-BIN_DIR="${OPENSEC_BIN_DIR:-${REPO_ROOT}/bin}"
+BIN_DIR="${CLIFF_BIN_DIR:-${REPO_ROOT}/bin}"
 
 if [[ ! -f "${VERSIONS_FILE}" ]]; then
   echo "error: ${VERSIONS_FILE} not found" >&2
@@ -162,7 +162,7 @@ install_semgrep() {
   fi
   cat > "${BIN_DIR}/semgrep" <<EOF
 #!/usr/bin/env sh
-# OpenSec wrapper — exec's the pinned semgrep venv at a known path so the
+# Cliff wrapper — exec's the pinned semgrep venv at a known path so the
 # python launcher can find its sibling tools (pysemgrep, osemgrep).
 exec "${prefix}/bin/semgrep" "\$@"
 EOF

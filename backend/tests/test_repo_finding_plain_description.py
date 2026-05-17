@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from opensec.models import FindingCreate, FindingUpdate
+from cliff.models import FindingCreate, FindingUpdate
 
 
 @pytest.fixture
 async def db():
-    from opensec.db.connection import close_db, init_db
+    from cliff.db.connection import close_db, init_db
 
     conn = await init_db(":memory:")
     try:
@@ -19,7 +19,7 @@ async def db():
 
 
 async def test_create_finding_persists_plain_description(db):
-    from opensec.db.repo_finding import create_finding, get_finding
+    from cliff.db.repo_finding import create_finding, get_finding
 
     created = await create_finding(
         db,
@@ -40,7 +40,7 @@ async def test_create_finding_persists_plain_description(db):
 
 
 async def test_create_finding_without_plain_description_is_null(db):
-    from opensec.db.repo_finding import create_finding
+    from cliff.db.repo_finding import create_finding
 
     created = await create_finding(
         db,
@@ -50,7 +50,7 @@ async def test_create_finding_without_plain_description_is_null(db):
 
 
 async def test_update_finding_sets_plain_description(db):
-    from opensec.db.repo_finding import create_finding, update_finding
+    from cliff.db.repo_finding import create_finding, update_finding
 
     created = await create_finding(
         db,

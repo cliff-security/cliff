@@ -43,7 +43,7 @@ function AssessmentProgressPage() {
       <main className="flex-1 px-8 py-7">
         <div className="mb-6">
           <p className="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">Repository</p>
-          <h1 className="font-headline text-[32px] font-extrabold text-on-surface tracking-tight leading-tight">galanko / opensec-demo</h1>
+          <h1 className="font-headline text-[32px] font-extrabold text-on-surface tracking-tight leading-tight">galanko / cliff-demo</h1>
         </div>
 
         {/* Live assessment card */}

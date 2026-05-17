@@ -5,15 +5,15 @@
 
 ## Context
 
-OpenSec currently runs AI agents only inside workspace contexts. Each workspace gets an isolated OpenCode process (ADR-0014) with finding-specific context, MCP server configs, and agent templates. This model works well for remediation workflows but leaves a gap: there is no way to run AI-driven tasks at the **app level** — outside a workspace.
+Cliff currently runs AI agents only inside workspace contexts. Each workspace gets an isolated OpenCode process (ADR-0014) with finding-specific context, MCP server configs, and agent templates. This model works well for remediation workflows but leaves a gap: there is no way to run AI-driven tasks at the **app level** — outside a workspace.
 
 Three concrete needs have surfaced:
 
-1. **Finding normalization.** Users need to ingest raw findings from diverse scanners (Wiz, Snyk, Trivy, Semgrep, custom tools). Hardcoding per-vendor normalizers doesn't scale for a community product. An LLM can extract structured fields from any vendor's format into OpenSec's `FindingCreate` schema — but there's no workspace to run it in.
+1. **Finding normalization.** Users need to ingest raw findings from diverse scanners (Wiz, Snyk, Trivy, Semgrep, custom tools). Hardcoding per-vendor normalizers doesn't scale for a community product. An LLM can extract structured fields from any vendor's format into Cliff's `FindingCreate` schema — but there's no workspace to run it in.
 
 2. **Finding collection.** Users want to say "connect to Wiz and fetch all critical findings from the last 7 days." This requires calling MCP tools (the Wiz wrapper already exists) and processing the results — but again, there's no workspace context because we're populating the Queue, not remediating a specific finding.
 
-3. **Conversational app shell.** OpenSec is an AI-native product, but currently the only conversational interface is inside workspaces. Users have expressed interest in chatting with the app itself: "configure a Jira integration", "show me all unresolved critical findings", "upload these findings from my Snyk export." This would make the entire product chat-first, with pages as views into the conversation's work.
+3. **Conversational app shell.** Cliff is an AI-native product, but currently the only conversational interface is inside workspaces. Users have expressed interest in chatting with the app itself: "configure a Jira integration", "show me all unresolved critical findings", "upload these findings from my Snyk export." This would make the entire product chat-first, with pages as views into the conversation's work.
 
 The singleton OpenCode process (port 4096) already exists — it starts at FastAPI lifespan for health checks and settings API access. It has no workspace-specific context but can execute general-purpose prompts.
 

@@ -27,7 +27,7 @@ export interface PostureFeedback {
 // Per-check metadata: label, what-it-checks blurb, and ordered fix steps.
 // The two "auto-fix" checks (security_md, dependabot_config) show a
 // primary "Generate and open PR" CTA *in addition* to the manual steps so
-// maintainers can either let OpenSec do it or do it themselves.
+// maintainers can either let Cliff do it or do it themselves.
 const POSTURE_META: Record<
   PostureCheckName,
   {
@@ -48,7 +48,7 @@ const POSTURE_META: Record<
       'Create SECURITY.md at the repo root.',
       'Add a "Reporting a vulnerability" section with a contact email or private issue link.',
       'State your supported versions and expected response time (e.g. 72 hours).',
-      'Commit and push to main — OpenSec re-detects on the next assessment.',
+      'Commit and push to main — Cliff re-detects on the next assessment.',
     ],
     docHref:
       'https://docs.github.com/en/code-security/getting-started/adding-a-security-policy-to-your-repository',
@@ -61,7 +61,7 @@ const POSTURE_META: Record<
       'Dependabot opens weekly PRs for outdated dependencies so you do not ship unpatched CVEs.',
     steps: [
       'Create .github/dependabot.yml at the repo root.',
-      'Declare a package-ecosystem entry for each lockfile OpenSec detected.',
+      'Declare a package-ecosystem entry for each lockfile Cliff detected.',
       'Set a weekly schedule and an optional reviewer team.',
       'Commit and merge — Dependabot runs automatically on GitHub-hosted repos.',
     ],
@@ -78,7 +78,7 @@ const POSTURE_META: Record<
       'Go to Settings → Branches → Add rule for main.',
       'Enable "Require a pull request before merging" with at least 1 reviewer.',
       'Enable "Require status checks to pass" and select your CI checks.',
-      'Save the rule, then re-assess in OpenSec.',
+      'Save the rule, then re-assess in Cliff.',
     ],
     docHref:
       'https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches',
@@ -117,13 +117,13 @@ const POSTURE_META: Record<
     label: 'No secrets detected in tracked files',
     failLabel: 'Possible secrets detected in tracked files',
     description:
-      'OpenSec scans for high-specificity tokens: AWS AKIA keys, GitHub ghp_/ghs_, Stripe sk_live_, Google AIza, and PEM blocks.',
+      'Cliff scans for high-specificity tokens: AWS AKIA keys, GitHub ghp_/ghs_, Stripe sk_live_, Google AIza, and PEM blocks.',
     steps: [
       'Open the "detail" payload for this check to see which files matched.',
       'Remove the secret from the file and rotate the credential immediately — assume it is leaked.',
       'Add the pattern to .gitignore if it was a config file that should never be tracked.',
       'For historical removal, consider "git filter-repo" or the BFG Repo-Cleaner, then force-push (careful).',
-      'Add an entry to .opensec/secrets-ignore only after you are sure the match is a false positive.',
+      'Add an entry to .cliff/secrets-ignore only after you are sure the match is a false positive.',
     ],
     docHref:
       'https://docs.github.com/en/code-security/secret-scanning/about-secret-scanning',
@@ -249,7 +249,7 @@ const FALLBACK_POSTURE_META: (typeof POSTURE_META)[PostureCheckName] = {
   label: 'Posture check',
   failLabel: 'Posture check failed',
   description:
-    'See the detail payload for this check’s findings. OpenSec is rolling out per-check guidance; a detailed remediation walkthrough lands in a follow-up release.',
+    'See the detail payload for this check’s findings. Cliff is rolling out per-check guidance; a detailed remediation walkthrough lands in a follow-up release.',
   steps: [
     'Open the "detail" payload to see exactly what the scanner reported.',
     'Re-assess after addressing the underlying configuration.',
@@ -592,7 +592,7 @@ function PostureCheckRow({
                   <span className="material-symbols-outlined text-sm" aria-hidden>
                     play_arrow
                   </span>
-                  Let OpenSec open a PR
+                  Let Cliff open a PR
                 </button>
                 <span className="text-xs text-on-surface-variant">
                   Opens a draft PR you review before merging.

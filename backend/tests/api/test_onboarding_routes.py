@@ -7,10 +7,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from opensec.api._engine_dep import get_assessment_engine
-from opensec.assessment.posture.github_client import UnableToVerify
-from opensec.main import app
-from opensec.models import CriteriaSnapshot
+from cliff.api._engine_dep import get_assessment_engine
+from cliff.assessment.posture.github_client import UnableToVerify
+from cliff.main import app
+from cliff.models import CriteriaSnapshot
 from tests.fakes.assessment_engine import FakeAssessmentEngine
 
 
@@ -49,9 +49,9 @@ async def test_connect_repo_creates_assessment(db_client, fake_engine):
 
     # PAT lands in a GitHub Integrations row — single source of truth for the
     # assessment engine, posture-fix spawner, and "solve a finding" flow.
-    from opensec.db.connection import _db
-    from opensec.db.repo_integration import list_integrations
-    from opensec.db.repo_setting import get_setting
+    from cliff.db.connection import _db
+    from cliff.db.repo_integration import list_integrations
+    from cliff.db.repo_setting import get_setting
 
     integrations = await list_integrations(_db)
     github = next((i for i in integrations if i.adapter_type == "github"), None)
@@ -111,8 +111,8 @@ async def test_complete_onboarding_happy_path(db_client, fake_engine):
     assert resp.status_code == 200
     assert resp.json() == {"onboarding_completed": True}
 
-    from opensec.db.connection import _db
-    from opensec.db.repo_setting import get_setting
+    from cliff.db.connection import _db
+    from cliff.db.repo_setting import get_setting
 
     setting = await get_setting(_db, "onboarding.completed")
     assert setting.value == {"completed": True}
@@ -120,9 +120,9 @@ async def test_complete_onboarding_happy_path(db_client, fake_engine):
 
 async def test_complete_onboarding_not_complete_returns_409(db_client):
     # Manually seed a pending assessment without running the fake engine.
-    from opensec.db.connection import _db
-    from opensec.db.dao.assessment import create_assessment
-    from opensec.models import AssessmentCreate
+    from cliff.db.connection import _db
+    from cliff.db.dao.assessment import create_assessment
+    from cliff.models import AssessmentCreate
 
     a = await create_assessment(_db, AssessmentCreate(repo_url="https://github.com/a/b"))
 
@@ -147,21 +147,21 @@ async def test_complete_onboarding_unknown_assessment_returns_404(db_client):
 # renders the right ``code``.
 
 # Captured at import time, before the autouse fixture replaces it.
-from opensec.api.routes.onboarding import (  # noqa: E402, N813
+from cliff.api.routes.onboarding import (  # noqa: E402, N813
     _probe_repo_metadata as _original_probe,
 )
 
 
 def _real_probe():
     return patch(
-        "opensec.api.routes.onboarding._probe_repo_metadata",
+        "cliff.api.routes.onboarding._probe_repo_metadata",
         new=_original_probe,
     )
 
 
 def _patch_get_repo_info(return_value):
     return patch(
-        "opensec.api.routes.onboarding.GithubClient.get_repo_info",
+        "cliff.api.routes.onboarding.GithubClient.get_repo_info",
         new=AsyncMock(return_value=return_value),
     )
 
@@ -269,7 +269,7 @@ async def test_repo_network_error_keeps_legacy_soft_path(db_client, fake_engine)
 
 def _patch_list_user_repos(return_value):
     return patch(
-        "opensec.api.routes.onboarding.GithubClient.list_user_repos",
+        "cliff.api.routes.onboarding.GithubClient.list_user_repos",
         new=AsyncMock(return_value=return_value),
     )
 

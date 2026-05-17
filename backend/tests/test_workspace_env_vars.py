@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from opensec.api.routes.workspaces import _resolve_repo_env_vars
-from opensec.models import IntegrationConfig, Workspace
+from cliff.api.routes.workspaces import _resolve_repo_env_vars
+from cliff.models import IntegrationConfig, Workspace
 
 
 def _github_integration(
@@ -51,13 +51,13 @@ async def test_resolve_both_url_and_token(mock_request, mock_db):
     gh = _github_integration(repo_url="https://github.com/org/repo")
 
     with patch(
-        "opensec.api.routes.workspaces.list_integrations",
+        "cliff.api.routes.workspaces.list_integrations",
         new=AsyncMock(return_value=[gh]),
     ):
         result = await _resolve_repo_env_vars(mock_request, mock_db)
 
     assert result == {
-        "OPENSEC_REPO_URL": "https://github.com/org/repo",
+        "CLIFF_REPO_URL": "https://github.com/org/repo",
         "GH_TOKEN": "ghp_realtoken",
     }
     vault.retrieve.assert_awaited_once_with(
@@ -70,19 +70,19 @@ async def test_resolve_url_only(mock_request, mock_db):
     gh = _github_integration(repo_url="https://github.com/org/repo")
 
     with patch(
-        "opensec.api.routes.workspaces.list_integrations",
+        "cliff.api.routes.workspaces.list_integrations",
         new=AsyncMock(return_value=[gh]),
     ):
         result = await _resolve_repo_env_vars(mock_request, mock_db)
 
-    assert result == {"OPENSEC_REPO_URL": "https://github.com/org/repo"}
+    assert result == {"CLIFF_REPO_URL": "https://github.com/org/repo"}
     assert "GH_TOKEN" not in result
 
 
 async def test_resolve_neither(mock_request, mock_db):
     """When no GitHub integration exists, return empty dict."""
     with patch(
-        "opensec.api.routes.workspaces.list_integrations",
+        "cliff.api.routes.workspaces.list_integrations",
         new=AsyncMock(return_value=[]),
     ):
         result = await _resolve_repo_env_vars(mock_request, mock_db)
@@ -96,12 +96,12 @@ async def test_resolve_vault_none(mock_request, mock_db):
     mock_request.app.state.vault = None
 
     with patch(
-        "opensec.api.routes.workspaces.list_integrations",
+        "cliff.api.routes.workspaces.list_integrations",
         new=AsyncMock(return_value=[gh]),
     ):
         result = await _resolve_repo_env_vars(mock_request, mock_db)
 
-    assert result == {"OPENSEC_REPO_URL": "https://github.com/x/y"}
+    assert result == {"CLIFF_REPO_URL": "https://github.com/x/y"}
     assert "GH_TOKEN" not in result
 
 
@@ -133,14 +133,14 @@ async def test_snapshot_url_wins_over_integration(mock_request, mock_db):
     workspace = _ws(repo_url="https://github.com/org/A")
 
     with patch(
-        "opensec.api.routes.workspaces.list_integrations",
+        "cliff.api.routes.workspaces.list_integrations",
         new=AsyncMock(return_value=[gh]),
     ):
         result = await _resolve_repo_env_vars(
             mock_request, mock_db, workspace=workspace
         )
 
-    assert result["OPENSEC_REPO_URL"] == "https://github.com/org/A"
+    assert result["CLIFF_REPO_URL"] == "https://github.com/org/A"
 
 
 async def test_no_snapshot_falls_back_to_integration(mock_request, mock_db):
@@ -149,14 +149,14 @@ async def test_no_snapshot_falls_back_to_integration(mock_request, mock_db):
     workspace = _ws(repo_url=None)
 
     with patch(
-        "opensec.api.routes.workspaces.list_integrations",
+        "cliff.api.routes.workspaces.list_integrations",
         new=AsyncMock(return_value=[gh]),
     ):
         result = await _resolve_repo_env_vars(
             mock_request, mock_db, workspace=workspace
         )
 
-    assert result["OPENSEC_REPO_URL"] == "https://github.com/org/legacy"
+    assert result["CLIFF_REPO_URL"] == "https://github.com/org/legacy"
 
 
 async def test_snapshot_works_without_integration(mock_request, mock_db):
@@ -168,11 +168,11 @@ async def test_snapshot_works_without_integration(mock_request, mock_db):
     workspace = _ws(repo_url="https://github.com/org/snapshotted")
 
     with patch(
-        "opensec.api.routes.workspaces.list_integrations",
+        "cliff.api.routes.workspaces.list_integrations",
         new=AsyncMock(return_value=[]),
     ):
         result = await _resolve_repo_env_vars(
             mock_request, mock_db, workspace=workspace
         )
 
-    assert result == {"OPENSEC_REPO_URL": "https://github.com/org/snapshotted"}
+    assert result == {"CLIFF_REPO_URL": "https://github.com/org/snapshotted"}

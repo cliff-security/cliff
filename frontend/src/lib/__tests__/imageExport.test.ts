@@ -30,7 +30,7 @@ describe('exportCardAsPng', () => {
     const node = document.createElement('div')
     document.body.appendChild(node)
 
-    await exportCardAsPng(node, 'opensec-summary.png')
+    await exportCardAsPng(node, 'cliff-summary.png')
 
     expect(htmlToImage.toBlob).toHaveBeenCalledTimes(1)
     const [passedNode, options] = (htmlToImage.toBlob as ReturnType<typeof vi.fn>)
@@ -86,14 +86,14 @@ describe('exportCardAsPng', () => {
     const appendSpy = vi.spyOn(document.body, 'appendChild')
     // We also verify the anchor is removed from the DOM afterwards.
 
-    await exportCardAsPng(node, 'fast-markdown_opensec-summary_2026-04-14.png')
+    await exportCardAsPng(node, 'fast-markdown_cliff-summary_2026-04-14.png')
 
     // One append for the anchor (the test node itself was appended before
     // the spy was installed, so it doesn't count).
     expect(appendSpy).toHaveBeenCalledTimes(1)
     const anchor = appendSpy.mock.calls[0][0] as HTMLAnchorElement
     expect(anchor.tagName).toBe('A')
-    expect(anchor.download).toBe('fast-markdown_opensec-summary_2026-04-14.png')
+    expect(anchor.download).toBe('fast-markdown_cliff-summary_2026-04-14.png')
     expect(anchor.href).toMatch(/^blob:/)
     // After the function resolves the anchor should not be in the DOM.
     expect(document.body.contains(anchor)).toBe(false)

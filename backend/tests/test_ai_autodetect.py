@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from opensec.ai import autodetect
+from cliff.ai import autodetect
 
 if TYPE_CHECKING:
     from pathlib import Path

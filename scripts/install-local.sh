@@ -1,37 +1,37 @@
 #!/usr/bin/env sh
-# OpenSec native installer (macOS + glibc Linux).
+# Cliff native installer (macOS + glibc Linux).
 #
 # This is the recommended path for new users; Docker stays available as the
 # secondary path (Windows + advanced users). Run it like this:
 #
-#   curl -fsSL https://github.com/galanko/opensec/releases/latest/download/install-local.sh | sh
+#   curl -fsSL https://github.com/galanko/cliff/releases/latest/download/install-local.sh | sh
 #
 # Pin a specific version:
 #
-#   curl -fsSL https://github.com/galanko/opensec/releases/latest/download/install-local.sh | OPENSEC_VERSION=0.1.6 sh
+#   curl -fsSL https://github.com/galanko/cliff/releases/latest/download/install-local.sh | CLIFF_VERSION=0.1.6 sh
 #
 # Environment overrides:
-#   OPENSEC_HOME            Install root (default: $HOME/.opensec)
-#   OPENSEC_VERSION         Pin to a specific release tag (default: latest)
-#   OPENSEC_REPO            github owner/name (default: galanko/opensec)
-#   OPENSEC_LOCAL_TARBALL   Path to a local tarball (skip download — for CI/dev)
+#   CLIFF_HOME            Install root (default: $HOME/.cliff)
+#   CLIFF_VERSION         Pin to a specific release tag (default: latest)
+#   CLIFF_REPO            github owner/name (default: galanko/cliff)
+#   CLIFF_LOCAL_TARBALL   Path to a local tarball (skip download — for CI/dev)
 #
-# Idempotent: re-running upgrades the install without touching ~/.opensec/data
-# or ~/.opensec/config.
+# Idempotent: re-running upgrades the install without touching ~/.cliff/data
+# or ~/.cliff/config.
 
 set -eu
 
-OPENSEC_REPO="${OPENSEC_REPO:-galanko/opensec}"
-OPENSEC_HOME="${OPENSEC_HOME:-$HOME/.opensec}"
-APP_DIR="${OPENSEC_HOME}/app"
+CLIFF_REPO="${CLIFF_REPO:-galanko/cliff}"
+CLIFF_HOME="${CLIFF_HOME:-$HOME/.cliff}"
+APP_DIR="${CLIFF_HOME}/app"
 BACKEND_DIR="${APP_DIR}/backend"
-BIN_DIR="${OPENSEC_HOME}/bin"
-DATA_DIR="${OPENSEC_HOME}/data"
-CONFIG_DIR="${OPENSEC_HOME}/config"
-ENV_FILE="${CONFIG_DIR}/opensec.env"
+BIN_DIR="${CLIFF_HOME}/bin"
+DATA_DIR="${CLIFF_HOME}/data"
+CONFIG_DIR="${CLIFF_HOME}/config"
+ENV_FILE="${CONFIG_DIR}/cliff.env"
 LOCAL_BIN="${HOME}/.local/bin"
-LAUNCHER="${LOCAL_BIN}/opensec"
-CLI_VENV="${OPENSEC_HOME}/cli-venv"
+LAUNCHER="${LOCAL_BIN}/cliff"
+CLI_VENV="${CLIFF_HOME}/cli-venv"
 
 # ---- pretty output ---------------------------------------------------------
 
@@ -133,28 +133,28 @@ ok "Python 3.11 ready"
 
 # ---- download tarball ------------------------------------------------------
 
-mkdir -p "${OPENSEC_HOME}" "${BIN_DIR}" "${DATA_DIR}" "${CONFIG_DIR}" "${LOCAL_BIN}"
+mkdir -p "${CLIFF_HOME}" "${BIN_DIR}" "${DATA_DIR}" "${CONFIG_DIR}" "${LOCAL_BIN}"
 
-VERSION="${OPENSEC_VERSION:-latest}"
+VERSION="${CLIFF_VERSION:-latest}"
 
-if [ -n "${OPENSEC_LOCAL_TARBALL:-}" ]; then
-  say "Using local tarball ${OPENSEC_LOCAL_TARBALL}"
-  TARBALL="${OPENSEC_LOCAL_TARBALL}"
+if [ -n "${CLIFF_LOCAL_TARBALL:-}" ]; then
+  say "Using local tarball ${CLIFF_LOCAL_TARBALL}"
+  TARBALL="${CLIFF_LOCAL_TARBALL}"
 else
   if [ "${VERSION}" = "latest" ]; then
-    URL="https://github.com/${OPENSEC_REPO}/releases/latest/download/opensec.tar.gz"
+    URL="https://github.com/${CLIFF_REPO}/releases/latest/download/cliff.tar.gz"
   else
-    URL="https://github.com/${OPENSEC_REPO}/releases/download/v${VERSION}/opensec-${VERSION}.tar.gz"
+    URL="https://github.com/${CLIFF_REPO}/releases/download/v${VERSION}/cliff-${VERSION}.tar.gz"
   fi
   TMPDIR="$(mktemp -d)"
   trap 'rm -rf "${TMPDIR}"' EXIT
-  TARBALL="${TMPDIR}/opensec.tar.gz"
+  TARBALL="${TMPDIR}/cliff.tar.gz"
   say "Downloading ${URL}"
   curl -fsSL "${URL}" -o "${TARBALL}" \
-    || fail "Download failed. Check the URL or pass OPENSEC_VERSION=<tag> for a specific release."
+    || fail "Download failed. Check the URL or pass CLIFF_VERSION=<tag> for a specific release."
 
   # Best-effort SHA256 verification — the same release uploads
-  # `opensec.tar.gz.sha256` next to the tarball.
+  # `cliff.tar.gz.sha256` next to the tarball.
   SUM_URL="${URL}.sha256"
   if curl -fsSL "${SUM_URL}" -o "${TARBALL}.sha256" 2>/dev/null; then
     EXPECTED=$(awk '{print $1}' "${TARBALL}.sha256")
@@ -199,16 +199,16 @@ ok "backend venv at ${BACKEND_DIR}/.venv"
 
 say "Installing OpenCode binary"
 chmod +x "${APP_DIR}/scripts/install-opencode.sh" "${APP_DIR}/scripts/install-scanners.sh"
-OPENSEC_BIN_DIR="${BIN_DIR}" "${APP_DIR}/scripts/install-opencode.sh" \
+CLIFF_BIN_DIR="${BIN_DIR}" "${APP_DIR}/scripts/install-opencode.sh" \
   || fail "install-opencode.sh failed."
 
 # ---- scanners (trivy, semgrep) ---------------------------------------------
 
 say "Installing scanners (trivy, semgrep)"
-# OPENSEC_SCANNER_VERIFY=warn until .scanner-versions ships real SHAs.
+# CLIFF_SCANNER_VERIFY=warn until .scanner-versions ships real SHAs.
 # Keeps the strict-mode contract for the future without blocking installs today.
-OPENSEC_BIN_DIR="${BIN_DIR}" \
-OPENSEC_SCANNER_VERIFY=warn \
+CLIFF_BIN_DIR="${BIN_DIR}" \
+CLIFF_SCANNER_VERIFY=warn \
   "${APP_DIR}/scripts/install-scanners.sh" \
   || fail "install-scanners.sh failed."
 
@@ -222,11 +222,11 @@ if [ ! -f "${ENV_FILE}" ]; then
     KEY=$(uv run --quiet python -c 'import os, base64; print(base64.b64encode(os.urandom(32)).decode())')
   fi
   cat > "${ENV_FILE}" <<EOF
-# OpenSec local install — environment overrides loaded by \`opensec start\`.
+# Cliff local install — environment overrides loaded by \`cliff start\`.
 # This file lives outside the app directory so reinstalls don't clobber it.
 #
 # Required:
-OPENSEC_CREDENTIAL_KEY=${KEY}
+CLIFF_CREDENTIAL_KEY=${KEY}
 
 # Optional — set your LLM key here, OR paste it into the Settings UI after
 # starting the server (the UI persists it to the encrypted credential vault).
@@ -234,8 +234,8 @@ OPENSEC_CREDENTIAL_KEY=${KEY}
 # OPENAI_API_KEY=
 
 # Optional — bind host/port. The CLI defaults match these.
-# OPENSEC_APP_HOST=127.0.0.1
-# OPENSEC_APP_PORT=8000
+# CLIFF_APP_HOST=127.0.0.1
+# CLIFF_APP_PORT=8000
 EOF
   chmod 600 "${ENV_FILE}"
   ok "wrote ${ENV_FILE}"
@@ -243,9 +243,9 @@ else
   ok "${ENV_FILE} preserved"
 fi
 
-# ---- opensec CLI venv + launcher symlink -----------------------------------
+# ---- cliff CLI venv + launcher symlink -----------------------------------
 
-say "Installing opensec CLI"
+say "Installing cliff CLI"
 # We install the CLI into its own venv (separate from the backend venv) so it
 # can be upgraded independently. cli/ source ships in the tarball.
 rm -rf "${CLI_VENV}"
@@ -253,8 +253,8 @@ uv venv --python 3.11 --quiet "${CLI_VENV}"
 uv pip install --python "${CLI_VENV}/bin/python" --quiet "${APP_DIR}/cli" \
   || fail "uv pip install of cli/ failed."
 
-ln -sf "${CLI_VENV}/bin/opensec" "${LAUNCHER}"
-ok "opensec CLI at ${LAUNCHER}"
+ln -sf "${CLI_VENV}/bin/cliff" "${LAUNCHER}"
+ok "cliff CLI at ${LAUNCHER}"
 
 # ---- final UX --------------------------------------------------------------
 
@@ -269,11 +269,11 @@ case ":${PATH}:" in
     ;;
 esac
 
-printf '%sOpenSec is installed.%s\n\n' "${BOLD}" "${RESET}"
-printf '  %sStart:%s     opensec start --detach\n' "${DIM}" "${RESET}"
-printf '  %sStatus:%s    opensec doctor\n' "${DIM}" "${RESET}"
-printf '  %sLogs:%s      opensec logs -f\n' "${DIM}" "${RESET}"
-printf '  %sStop:%s      opensec stop\n' "${DIM}" "${RESET}"
+printf '%sCliff is installed.%s\n\n' "${BOLD}" "${RESET}"
+printf '  %sStart:%s     cliff start --detach\n' "${DIM}" "${RESET}"
+printf '  %sStatus:%s    cliff doctor\n' "${DIM}" "${RESET}"
+printf '  %sLogs:%s      cliff logs -f\n' "${DIM}" "${RESET}"
+printf '  %sStop:%s      cliff stop\n' "${DIM}" "${RESET}"
 echo
 printf '  Open %shttp://127.0.0.1:8000%s after starting, then paste your\n' "${BLUE}" "${RESET}"
 printf '  Anthropic or OpenAI API key in the Settings page.\n'

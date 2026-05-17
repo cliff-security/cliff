@@ -11,9 +11,9 @@
 
 ## Context
 
-OpenSec ships today with a single-tier "paste your API key" AI configuration. The user picks a provider card (OpenAI / Anthropic / Gemini / Other), pastes a key, and clicks `Test and continue` (see `frontend/src/pages/onboarding/ConfigureAI.tsx`). On success the key is persisted by `ConfigManager.set_api_key()`, which writes it to the `app_setting` table and pushes it to the singleton OpenCode process via `PUT /auth/{id}` (`backend/opensec/engine/config_manager.py:81`).
+Cliff ships today with a single-tier "paste your API key" AI configuration. The user picks a provider card (OpenAI / Anthropic / Gemini / Other), pastes a key, and clicks `Test and continue` (see `frontend/src/pages/onboarding/ConfigureAI.tsx`). On success the key is persisted by `ConfigManager.set_api_key()`, which writes it to the `app_setting` table and pushes it to the singleton OpenCode process via `PUT /auth/{id}` (`backend/cliff/engine/config_manager.py:81`).
 
-This works for users who already hold an Anthropic, OpenAI, or OpenRouter key — a small slice of the target audience. For everyone else, the onboarding cliff is steep: sign up for a provider, fund an account, generate a key, paste it. The current state is the principal drop-off between "downloaded OpenSec" and "ran their first assessment."
+This works for users who already hold an Anthropic, OpenAI, or OpenRouter key — a small slice of the target audience. For everyone else, the onboarding cliff is steep: sign up for a provider, fund an account, generate a key, paste it. The current state is the principal drop-off between "downloaded Cliff" and "ran their first assessment."
 
 The recently merged GitHub App + Device Flow work (ADR-0035, PR #145) reshaped GitHub onboarding into a "two-click install" experience. The AI provider onboarding needs to feel like its peer — same calm, same number of decisions, same time-to-first-value.
 
@@ -23,7 +23,7 @@ OpenCode's own limitations constrain the implementation:
 - `auth.json` storage triggers cryptic cookie-auth failures (anomalyco/opencode#12436).
 - The documented reliable path is **env-var substitution in `opencode.json` via `{env:VAR_NAME}`**.
 
-The workspace runtime (ADR-0014) already exposes the right seam: `WorkspaceProcessPool.start(env_vars=...)` injects env into the per-workspace subprocess at spawn time (`backend/opensec/engine/pool.py:142`). Today it's used for `GH_TOKEN`. We ride the same channel for AI keys.
+The workspace runtime (ADR-0014) already exposes the right seam: `WorkspaceProcessPool.start(env_vars=...)` injects env into the per-workspace subprocess at spawn time (`backend/cliff/engine/pool.py:142`). Today it's used for `GH_TOKEN`. We ride the same channel for AI keys.
 
 ## Decision
 
@@ -41,35 +41,35 @@ The tiers are presented in sequence, not as a three-way choice. Auto-detect runs
 
 ### Model defaults — Sonnet 4.6 everywhere it fits
 
-The model is hidden in the UI across all tiers. OpenSec picks:
+The model is hidden in the UI across all tiers. Cliff picks:
 
 | Provider | Default model | Notes |
 |----------|---------------|-------|
 | OpenRouter | `openrouter/anthropic/claude-sonnet-4.6` | First-class path. The `openrouter/` prefix routes the call through OpenCode's OpenRouter provider; the remainder (`anthropic/claude-sonnet-4-6`) is OpenRouter's own model id. |
 | Anthropic direct | `anthropic/claude-sonnet-4-6` | First-class path. |
-| OpenAI direct | `openai/gpt-5` | Sonnet not available on OpenAI; UI surfaces a one-line "OpenSec is optimized for Claude — Claude tends to perform better on security reasoning. GPT-5 should still work." note at BYOK time and at first agent run. |
+| OpenAI direct | `openai/gpt-5` | Sonnet not available on OpenAI; UI surfaces a one-line "Cliff is optimized for Claude — Claude tends to perform better on security reasoning. GPT-5 should still work." note at BYOK time and at first agent run. |
 | Custom (OpenAI-compatible) | Required field on the BYOK form | User specifies; same "optimized for Claude" note. |
 
-OpenSec is **opinionated about Claude Sonnet 4.6** for the security-reasoning workload. Defaults reflect that.
+Cliff is **opinionated about Claude Sonnet 4.6** for the security-reasoning workload. Defaults reflect that.
 
 ### Model override — env-var escape hatch, no UI in V1
 
 There is no `Advanced → override` UI in V1. The override path is an env var per provider:
 
-- `OPENSEC_AI_MODEL_OVERRIDE_OPENROUTER`
-- `OPENSEC_AI_MODEL_OVERRIDE_ANTHROPIC`
-- `OPENSEC_AI_MODEL_OVERRIDE_OPENAI`
-- `OPENSEC_AI_MODEL_OVERRIDE_CUSTOM`
+- `CLIFF_AI_MODEL_OVERRIDE_OPENROUTER`
+- `CLIFF_AI_MODEL_OVERRIDE_ANTHROPIC`
+- `CLIFF_AI_MODEL_OVERRIDE_OPENAI`
+- `CLIFF_AI_MODEL_OVERRIDE_CUSTOM`
 
 When any override is set:
-- At app boot, a `WARNING` log line: `AI model override active for <provider>: <model>. OpenSec is tuned for claude-sonnet-4-6; performance may vary.`
+- At app boot, a `WARNING` log line: `AI model override active for <provider>: <model>. Cliff is tuned for claude-sonnet-4-6; performance may vary.`
 - The override is surfaced on the Settings → AI provider card with a subtle warning chip ("Custom model: <name>. Default recommended.") so the override isn't invisible.
 
 This satisfies the "override with a warning" requirement without adding a UI affordance that pushes model selection back into the primary flow.
 
 ### OAuth implementation
 
-OpenRouter's PKCE flow exchanges a public `code_challenge` + private `code_verifier` for a static API key. We run the dance entirely in OpenSec's Python backend:
+OpenRouter's PKCE flow exchanges a public `code_challenge` + private `code_verifier` for a static API key. We run the dance entirely in Cliff's Python backend:
 1. Backend mints PKCE pair + CSRF state, stores them in-memory keyed by `session_id`, TTL 10 minutes.
 2. Backend starts a one-shot HTTP listener on `localhost:3000` (OpenRouter requires `:3000` for local callbacks — non-negotiable). Listener auto-shuts on callback or 5-minute timeout.
 3. Frontend opens `https://openrouter.ai/auth?...` in a new tab.
@@ -93,7 +93,7 @@ connected_at    TIMESTAMP NOT NULL
 last_validated_at TIMESTAMP
 ```
 
-The key itself is **not** stored on `ai_integration` directly. It is stored encrypted in the existing `credential` table via `CredentialVault.store()` (AES-256-GCM, `OPENSEC_CREDENTIAL_KEY` via keyring/env/file). `ai_integration.api_key_ref` points to that row.
+The key itself is **not** stored on `ai_integration` directly. It is stored encrypted in the existing `credential` table via `CredentialVault.store()` (AES-256-GCM, `CLIFF_CREDENTIAL_KEY` via keyring/env/file). `ai_integration.api_key_ref` points to that row.
 
 This matches the merged GitHub App work (ADR-0035 / IMPL-0010) which also reuses `CredentialVault` for token storage. One encryption stack, one key resolver, one set of operational concerns.
 
@@ -146,12 +146,12 @@ Strictly worse for users with an existing Anthropic or OpenAI account — forces
 Anthropic banned OAuth for third-party apps in February 2026. Not available to us.
 
 ### Bundled credits / shared API key
-Three failure modes, any one disqualifying: abuse risk (one leaked key compromises every install), cost (free-tier credits at OpenSec's expense at unbounded scale), audit risk (we'd be a proxy for AI usage attributable to us, which violates the self-hosted positioning).
+Three failure modes, any one disqualifying: abuse risk (one leaked key compromises every install), cost (free-tier credits at Cliff's expense at unbounded scale), audit risk (we'd be a proxy for AI usage attributable to us, which violates the self-hosted positioning).
 
 ### Local LLM (Ollama) as the default
-Local models are not yet competent at the security-reasoning tasks OpenSec leans on. Shipping with Ollama as the default would degrade the first-run experience for everyone. Park for v0.2+ as an optional Tier 4.
+Local models are not yet competent at the security-reasoning tasks Cliff leans on. Shipping with Ollama as the default would degrade the first-run experience for everyone. Park for v0.2+ as an optional Tier 4.
 
-### Fernet + new `OPENSEC_SECRETS_KEY` (per brief)
+### Fernet + new `CLIFF_SECRETS_KEY` (per brief)
 The brief proposed a parallel Fernet-based encryption stack. We use `CredentialVault` (AES-256-GCM, ADR-0016) instead — same choice the merged GitHub App work made. One encryption stack across the codebase.
 
 ### A UI "Advanced → override" affordance for model selection
@@ -183,7 +183,7 @@ Polling at 1s for 5 minutes is 300 requests of trivial size. SSE adds a long-liv
 - **Three tiers > one tier of complexity.** More UI states, more error paths. Mitigated by a strict state machine (TS discriminated unions on the frontend, explicit status enum on the backend).
 - **Singleton OpenCode restarts on key change.** A ~1-2s blip every time the user saves a key. Provider-test will see one transient `connection refused` if it runs during the restart window; the UI absorbs this with a retry.
 - **The paste flow lives on through migration.** Two code paths for AI keys until v0.2. Contained behind a 30-day banner; old code is removed in a follow-up ADR.
-- **Auto-detect reads filesystem locations users didn't explicitly grant.** We scan `~/.claude/.credentials.json`, `~/.aider/.env`, `~/.config/openai/`, and four env vars on every Integrations-page visit. The scan is read-only and never writes to OpenSec storage without an explicit click. Setup guide enumerates every path.
+- **Auto-detect reads filesystem locations users didn't explicitly grant.** We scan `~/.claude/.credentials.json`, `~/.aider/.env`, `~/.config/openai/`, and four env vars on every Integrations-page visit. The scan is read-only and never writes to Cliff storage without an explicit click. Setup guide enumerates every path.
 - **OpenAI-direct users see a "tuned for Claude" warning** at BYOK time and at first agent run. Some users may read this as us steering them toward a competitor. Mitigated by framing it as performance guidance, not policy.
 
 ### Neutral

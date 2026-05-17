@@ -1,5 +1,5 @@
 /* =============================================================
-   OpenSec — "The Serene Sentinel" design system
+   Cliff — "The Serene Sentinel" design system
    Creative direction: Editorial Assurance.
    Light-mode-first. Tonal layering > borders. No pure black.
    ============================================================= */
@@ -15,7 +15,7 @@
      ------------------------------------------------------------ */
 
   /* Brand / primary */
-  --primary:              #4d44e3;  /* OpenSec indigo */
+  --primary:              #4d44e3;  /* Cliff indigo */
   --primary-dim:          #4034d7;
   --primary-container:    #e2dfff;
   --primary-fixed:        #e2dfff;

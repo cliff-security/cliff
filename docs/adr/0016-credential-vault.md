@@ -5,7 +5,7 @@
 
 ## Context
 
-OpenSec integrations require credentials to authenticate with external systems: API keys, OAuth tokens, client secrets, personal access tokens. These credentials protect access to systems that guard entire organizations — Wiz, CrowdStrike, Jira, GitHub. Mishandling them would be catastrophic for user trust.
+Cliff integrations require credentials to authenticate with external systems: API keys, OAuth tokens, client secrets, personal access tokens. These credentials protect access to systems that guard entire organizations — Wiz, CrowdStrike, Jira, GitHub. Mishandling them would be catastrophic for user trust.
 
 Today, `IntegrationConfig.config` stores credentials as a JSON blob in SQLite with no encryption. This was acceptable for MVP with mock adapters (ADR-0006), but real integrations demand production-grade secret management.
 
@@ -33,7 +33,7 @@ Key design choices:
 
 2. **Key derivation priority chain:**
    - **System keyring** (GNOME Keyring, macOS Keychain, Windows Credential Manager) — preferred for desktop installs. Key stored in OS-managed secure storage.
-   - **`OPENSEC_CREDENTIAL_KEY` environment variable** — preferred for Docker/server deployments. Set once in `docker-compose.yml` or systemd unit.
+   - **`CLIFF_CREDENTIAL_KEY` environment variable** — preferred for Docker/server deployments. Set once in `docker-compose.yml` or systemd unit.
    - **User passphrase with PBKDF2** — fallback. Prompted on first integration setup. Derived key cached in memory for the session.
 
 3. **Credential injection at transport layer.** When a workspace starts, the MCP Gateway decrypts credentials and writes them into the workspace's `opencode.json` environment variables. The LLM context never contains raw credentials. Workspace directories are ephemeral and file-permission restricted.

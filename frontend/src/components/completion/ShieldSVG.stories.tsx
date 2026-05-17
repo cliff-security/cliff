@@ -9,7 +9,7 @@ const meta: Meta<typeof ShieldSVG> = {
     docs: {
       description: {
         component:
-          'The "Secured by OpenSec" shield. Three sanctioned display sizes: 56×64 (small ghost inside the summary card), 80×96 (dashboard aside, wrapped in a button), 150×180 (celebration hero).',
+          'The "Secured by Cliff" shield. Three sanctioned display sizes: 56×64 (small ghost inside the summary card), 80×96 (dashboard aside, wrapped in a button), 150×180 (celebration hero).',
       },
     },
   },

@@ -255,7 +255,7 @@ function IssueRowImpl({
             className="cd-btn cd-btn--outline cd-btn--sm disabled:opacity-60 disabled:cursor-wait"
           >
             <span
-              className={`material-symbols-outlined ${starting ? 'opensec-pulse-dot' : ''}`}
+              className={`material-symbols-outlined ${starting ? 'cliff-pulse-dot' : ''}`}
               style={{ fontSize: 13 }}
               aria-hidden
             >

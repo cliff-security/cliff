@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from opensec.integrations.normalizer import normalize_findings
-from opensec.models import FindingCreate  # noqa: TCH001 — used in type assertions
+from cliff.integrations.normalizer import normalize_findings
+from cliff.models import FindingCreate  # noqa: TCH001 — used in type assertions
 
 VALID_PRIORITIES = {"critical", "high", "medium", "low", "info"}
 FIXTURES_DIR = Path(__file__).resolve().parents[3] / "fixtures"

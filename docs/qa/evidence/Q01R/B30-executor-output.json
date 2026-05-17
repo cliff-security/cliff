@@ -10,7 +10,7 @@
   "structured_output": {
     "status": "needs_approval",
     "pr_url": null,
-    "branch_name": "opensec/fix/minimist-cve-2021-44906",
+    "branch_name": "cliff/fix/minimist-cve-2021-44906",
     "changes_summary": "Updated minimist from 1.2.0 to 1.2.6 in package-lock.json to fix CVE-2021-44906 prototype pollution vulnerability. This is a patch-level version bump that maintains API compatibility while fixing the security issue.",
     "test_results": "skipped",
     "error_details": "Push to remote failed: Permission to cliff-security/NodeGoat.git denied to galanko. The provided GitHub token belongs to user 'galanko' which does not have push access to the cliff-security/NodeGoat repository. A token with appropriate permissions or a repository maintainer is required to complete the PR creation."

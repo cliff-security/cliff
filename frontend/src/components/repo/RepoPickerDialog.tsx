@@ -116,7 +116,7 @@ export function RepoPickerDialog({
               Pick a repository
             </h3>
             <p className="text-sm text-on-surface-variant mt-1">
-              Choose the repo OpenSec should secure. We'll clone it and run
+              Choose the repo Cliff should secure. We'll clone it and run
               an assessment right after.
             </p>
           </div>

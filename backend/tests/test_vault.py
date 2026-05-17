@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from opensec.db.connection import close_db, init_db
-from opensec.integrations.vault import (
+from cliff.db.connection import close_db, init_db
+from cliff.integrations.vault import (
     CredentialKeyError,
     CredentialVault,
     _decrypt,
@@ -108,8 +108,8 @@ def test_unicode_plaintext_handled():
 
 
 def test_env_var_key_provider(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr("opensec.integrations.vault._try_keyring", lambda: None)
-    monkeypatch.setenv("OPENSEC_CREDENTIAL_KEY", TEST_KEY_B64)
+    monkeypatch.setattr("cliff.integrations.vault._try_keyring", lambda: None)
+    monkeypatch.setenv("CLIFF_CREDENTIAL_KEY", TEST_KEY_B64)
     key = resolve_key()
     assert key == TEST_KEY
 
@@ -120,17 +120,17 @@ def test_resolve_raises_when_every_path_fails(monkeypatch: pytest.MonkeyPatch):
     The Docker path normally falls through to the file-based provider; this
     test forces that path to fail too (e.g. the data dir is read-only).
     """
-    monkeypatch.delenv("OPENSEC_CREDENTIAL_KEY", raising=False)
-    monkeypatch.setattr("opensec.integrations.vault._try_keyring", lambda: None)
-    monkeypatch.setattr("opensec.integrations.vault._try_key_file", lambda: None)
+    monkeypatch.delenv("CLIFF_CREDENTIAL_KEY", raising=False)
+    monkeypatch.setattr("cliff.integrations.vault._try_keyring", lambda: None)
+    monkeypatch.setattr("cliff.integrations.vault._try_key_file", lambda: None)
     with pytest.raises(CredentialKeyError):
         resolve_key()
 
 
 def test_key_must_be_32_bytes(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr("opensec.integrations.vault._try_keyring", lambda: None)
+    monkeypatch.setattr("cliff.integrations.vault._try_keyring", lambda: None)
     short_key = base64.b64encode(b"too-short").decode()
-    monkeypatch.setenv("OPENSEC_CREDENTIAL_KEY", short_key)
+    monkeypatch.setenv("CLIFF_CREDENTIAL_KEY", short_key)
     with pytest.raises(CredentialKeyError, match="32 bytes"):
         resolve_key()
 
@@ -142,14 +142,14 @@ def test_file_provider_auto_generates_on_first_run(
     is created at ``<data_dir>/.credential-key`` with mode 0600 and reused
     on subsequent calls.
     """
-    monkeypatch.setattr("opensec.integrations.vault._try_keyring", lambda: None)
-    monkeypatch.delenv("OPENSEC_CREDENTIAL_KEY", raising=False)
-    monkeypatch.setenv("OPENSEC_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("cliff.integrations.vault._try_keyring", lambda: None)
+    monkeypatch.delenv("CLIFF_CREDENTIAL_KEY", raising=False)
+    monkeypatch.setenv("CLIFF_DATA_DIR", str(tmp_path))
     # Re-import settings so the env var is picked up by ``resolve_data_dir``.
-    from opensec.config import Settings
+    from cliff.config import Settings
 
     fresh = Settings()
-    monkeypatch.setattr("opensec.config.settings", fresh)
+    monkeypatch.setattr("cliff.config.settings", fresh)
 
     key = resolve_key()
     assert len(key) == 32
@@ -169,19 +169,19 @@ def test_file_provider_reads_existing_key(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ):
     """A pre-existing key file (from a prior run / volume mount) is reused."""
-    monkeypatch.setattr("opensec.integrations.vault._try_keyring", lambda: None)
-    monkeypatch.delenv("OPENSEC_CREDENTIAL_KEY", raising=False)
-    monkeypatch.setenv("OPENSEC_DATA_DIR", str(tmp_path))
-    from opensec.config import Settings
+    monkeypatch.setattr("cliff.integrations.vault._try_keyring", lambda: None)
+    monkeypatch.delenv("CLIFF_CREDENTIAL_KEY", raising=False)
+    monkeypatch.setenv("CLIFF_DATA_DIR", str(tmp_path))
+    from cliff.config import Settings
 
     fresh = Settings()
-    monkeypatch.setattr("opensec.config.settings", fresh)
+    monkeypatch.setattr("cliff.config.settings", fresh)
 
     # Pre-write a known key. Header lines (starting with ``#``) must be
     # stripped — the parser is comment-tolerant.
     key_file = tmp_path / ".credential-key"
     key_file.write_text(
-        "# OpenSec credential vault key — pre-existing\n"
+        "# Cliff credential vault key — pre-existing\n"
         f"{TEST_KEY_B64}\n"
     )
 
@@ -194,13 +194,13 @@ def test_file_provider_refuses_to_silently_regenerate_corrupt_key(
     """A wrong-size key file must raise — overwriting it would invalidate
     every credential previously stored under the old key.
     """
-    monkeypatch.setattr("opensec.integrations.vault._try_keyring", lambda: None)
-    monkeypatch.delenv("OPENSEC_CREDENTIAL_KEY", raising=False)
-    monkeypatch.setenv("OPENSEC_DATA_DIR", str(tmp_path))
-    from opensec.config import Settings
+    monkeypatch.setattr("cliff.integrations.vault._try_keyring", lambda: None)
+    monkeypatch.delenv("CLIFF_CREDENTIAL_KEY", raising=False)
+    monkeypatch.setenv("CLIFF_DATA_DIR", str(tmp_path))
+    from cliff.config import Settings
 
     fresh = Settings()
-    monkeypatch.setattr("opensec.config.settings", fresh)
+    monkeypatch.setattr("cliff.config.settings", fresh)
 
     key_file = tmp_path / ".credential-key"
     key_file.write_text(base64.b64encode(b"too-short").decode())

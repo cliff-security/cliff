@@ -9,8 +9,8 @@ PRESERVED for everything else.
 
 from __future__ import annotations
 
-from opensec.db.repo_finding import create_finding, get_finding, list_findings
-from opensec.models import FindingCreate
+from cliff.db.repo_finding import create_finding, get_finding, list_findings
+from cliff.models import FindingCreate
 
 
 async def test_upsert_preserves_id_and_created_at_on_conflict(db) -> None:
@@ -35,8 +35,8 @@ async def test_upsert_preserves_status_when_user_triaged(db) -> None:
     )
     first = await create_finding(db, seed)
     # Simulate a user marking the finding as triaged.
-    from opensec.db.repo_finding import update_finding
-    from opensec.models import FindingUpdate
+    from cliff.db.repo_finding import update_finding
+    from cliff.models import FindingUpdate
 
     await update_finding(db, first.id, FindingUpdate(status="triaged"))
 
@@ -52,8 +52,8 @@ async def test_upsert_preserves_likely_owner_plain_description_why_this_matters(
         title="rce",
     )
     first = await create_finding(db, seed)
-    from opensec.db.repo_finding import update_finding
-    from opensec.models import FindingUpdate
+    from cliff.db.repo_finding import update_finding
+    from cliff.models import FindingUpdate
 
     await update_finding(
         db,
@@ -72,14 +72,14 @@ async def test_upsert_preserves_likely_owner_plain_description_why_this_matters(
 
 async def test_upsert_preserves_pr_url_set_by_agent(db) -> None:
     seed = FindingCreate(
-        source_type="opensec-posture",
+        source_type="cliff-posture",
         source_id="https://github.com/a/b:security_md",
         type="posture",
         title="security_md",
     )
     first = await create_finding(db, seed)
-    from opensec.db.repo_finding import update_finding
-    from opensec.models import FindingUpdate
+    from cliff.db.repo_finding import update_finding
+    from cliff.models import FindingUpdate
 
     await update_finding(
         db,
@@ -120,7 +120,7 @@ async def test_upsert_refreshes_title_description_raw_severity_normalized_priori
 
 async def test_upsert_refreshes_raw_payload_type_grade_impact_category(db) -> None:
     seed = FindingCreate(
-        source_type="opensec-posture",
+        source_type="cliff-posture",
         source_id="https://github.com/a/b:lockfile_present",
         type="posture",
         grade_impact="counts",
@@ -145,8 +145,8 @@ async def test_upsert_refreshes_raw_payload_type_grade_impact_category(db) -> No
 
 
 async def test_upsert_refreshes_assessment_id_and_updated_at(db) -> None:
-    from opensec.db.dao.assessment import create_assessment
-    from opensec.models import AssessmentCreate
+    from cliff.db.dao.assessment import create_assessment
+    from cliff.models import AssessmentCreate
 
     a1 = await create_assessment(db, AssessmentCreate(repo_url="https://x/a"))
     a2 = await create_assessment(db, AssessmentCreate(repo_url="https://x/a"))
@@ -172,7 +172,7 @@ async def test_upsert_refreshes_assessment_id_and_updated_at(db) -> None:
 async def test_upsert_refreshes_status_for_posture_only(db) -> None:
     """Posture: status REFRESHES (scanner is truth). Non-posture: PRESERVES."""
     posture_seed = FindingCreate(
-        source_type="opensec-posture",
+        source_type="cliff-posture",
         source_id="https://github.com/a/b:branch_protection",
         type="posture",
         title="branch_protection",
@@ -192,8 +192,8 @@ async def test_upsert_refreshes_status_for_posture_only(db) -> None:
         status="new",
     )
     first = await create_finding(db, dep_seed)
-    from opensec.db.repo_finding import update_finding
-    from opensec.models import FindingUpdate
+    from cliff.db.repo_finding import update_finding
+    from cliff.models import FindingUpdate
 
     await update_finding(db, first.id, FindingUpdate(status="in_progress"))
     refreshed_dep = await create_finding(
@@ -203,8 +203,8 @@ async def test_upsert_refreshes_status_for_posture_only(db) -> None:
 
 
 async def test_list_findings_filters_by_type_and_assessment_id(db) -> None:
-    from opensec.db.dao.assessment import create_assessment
-    from opensec.models import AssessmentCreate
+    from cliff.db.dao.assessment import create_assessment
+    from cliff.models import AssessmentCreate
 
     a = await create_assessment(db, AssessmentCreate(repo_url="https://x/a"))
     await create_finding(
@@ -220,7 +220,7 @@ async def test_list_findings_filters_by_type_and_assessment_id(db) -> None:
     await create_finding(
         db,
         FindingCreate(
-            source_type="opensec-posture",
+            source_type="cliff-posture",
             source_id="https://github.com/a/b:security_md",
             type="posture",
             assessment_id=a.id,
@@ -234,8 +234,8 @@ async def test_list_findings_filters_by_type_and_assessment_id(db) -> None:
 
 
 async def test_get_finding_round_trip_with_v0_2_columns(db) -> None:
-    from opensec.db.dao.assessment import create_assessment
-    from opensec.models import AssessmentCreate
+    from cliff.db.dao.assessment import create_assessment
+    from cliff.models import AssessmentCreate
 
     a = await create_assessment(db, AssessmentCreate(repo_url="https://x/a"))
     finding = await create_finding(

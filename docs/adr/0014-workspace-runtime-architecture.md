@@ -6,7 +6,7 @@
 
 ## Context
 
-OpenSec's value proposition is not "chat with an LLM about security." It's "an AI copilot that already understands your specific vulnerability, your environment, your code, and your team — before you type a word."
+Cliff's value proposition is not "chat with an LLM about security." It's "an AI copilot that already understands your specific vulnerability, your environment, your code, and your team — before you type a word."
 
 Today, OpenCode runs as a single process against the repository root. All workspaces share the same context, same agents, same config. A workspace is just a database row. This is fundamentally wrong for what we're building.
 
@@ -181,7 +181,7 @@ Agent definitions are **templates** that get rendered with finding context when 
 Base templates live in the repository:
 
 ```
-backend/opensec/agents/templates/
+backend/cliff/agents/templates/
   orchestrator.md.j2
   enricher.md.j2
   owner-resolver.md.j2
@@ -457,7 +457,7 @@ Wires everything into FastAPI routes.
 
 ## Open Questions
 
-1. **Should workspace directories live inside `data/` or a separate configurable path?** Leaning toward `data/workspaces/` for simplicity, with `OPENSEC_WORKSPACE_DIR` env var override.
+1. **Should workspace directories live inside `data/` or a separate configurable path?** Leaning toward `data/workspaces/` for simplicity, with `CLIFF_WORKSPACE_DIR` env var override.
 
 2. **How much context should go into CONTEXT.md vs individual files?** CONTEXT.md should be a summary (< 2000 tokens). Agents that need details should read from `context/*.json`.
 

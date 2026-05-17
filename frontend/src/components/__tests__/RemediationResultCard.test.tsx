@@ -6,7 +6,7 @@ import type { RemediationExecutorOutput } from '@/api/client'
 const prCreatedData: RemediationExecutorOutput = {
   status: 'pr_created',
   pr_url: 'https://github.com/acme/repo/pull/42',
-  branch_name: 'opensec/fix/cve-2026-1234',
+  branch_name: 'cliff/fix/cve-2026-1234',
   changes_summary: 'Updated lodash from 4.17.20 to 4.17.21 in package.json',
   test_results: 'All 50 tests passed',
   error_details: null,
@@ -15,7 +15,7 @@ const prCreatedData: RemediationExecutorOutput = {
 const failedData: RemediationExecutorOutput = {
   status: 'failed',
   pr_url: null,
-  branch_name: 'opensec/fix/cve-2026-1234',
+  branch_name: 'cliff/fix/cve-2026-1234',
   changes_summary: 'Updated lodash in package.json',
   test_results: '3 of 50 tests failed',
   error_details: 'TypeError: merge is not a function in src/utils.test.js',
@@ -34,7 +34,7 @@ describe('RemediationResultCard', () => {
 
   it('renders branch name', () => {
     render(<RemediationResultCard data={prCreatedData} />)
-    expect(screen.getByText('opensec/fix/cve-2026-1234')).toBeInTheDocument()
+    expect(screen.getByText('cliff/fix/cve-2026-1234')).toBeInTheDocument()
   })
 
   it('renders changes summary', () => {

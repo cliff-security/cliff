@@ -52,11 +52,11 @@ if ! docker buildx version >/dev/null 2>&1; then
 fi
 docker buildx build \
     --platform linux/amd64,linux/arm64 \
-    --build-arg "OPENSEC_VERSION=${VERSION}" \
-    --build-arg "OPENSEC_REVISION=$(git rev-parse HEAD)" \
-    --build-arg "OPENSEC_CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --build-arg "CLIFF_VERSION=${VERSION}" \
+    --build-arg "CLIFF_REVISION=$(git rev-parse HEAD)" \
+    --build-arg "CLIFF_CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --file docker/Dockerfile \
-    --tag "opensec:dryrun-${VERSION}" \
+    --tag "cliff:dryrun-${VERSION}" \
     .
 green "OK"
 
@@ -64,11 +64,11 @@ step "5. Local amd64 image builds + Trivy CRITICAL scan"
 docker buildx build \
     --load \
     --platform linux/amd64 \
-    --build-arg "OPENSEC_VERSION=${VERSION}" \
-    --build-arg "OPENSEC_REVISION=$(git rev-parse HEAD)" \
-    --build-arg "OPENSEC_CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --build-arg "CLIFF_VERSION=${VERSION}" \
+    --build-arg "CLIFF_REVISION=$(git rev-parse HEAD)" \
+    --build-arg "CLIFF_CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --file docker/Dockerfile \
-    --tag "opensec:dryrun-${VERSION}-amd64" \
+    --tag "cliff:dryrun-${VERSION}-amd64" \
     .
 
 if command -v trivy >/dev/null 2>&1; then
@@ -76,19 +76,19 @@ if command -v trivy >/dev/null 2>&1; then
         --severity CRITICAL \
         --exit-code 1 \
         --ignore-unfixed \
-        "opensec:dryrun-${VERSION}-amd64"
+        "cliff:dryrun-${VERSION}-amd64"
     green "OK (no fixable CRITICAL CVEs)"
 else
     yellow "Trivy not installed locally; skipping CVE scan. Install with: brew install aquasecurity/trivy/trivy"
 fi
 
 step "6. Image runs as non-root and /app/VERSION is correct"
-ID_OUTPUT="$(docker run --rm "opensec:dryrun-${VERSION}-amd64" id -un)"
-if [ "$ID_OUTPUT" != "opensec" ]; then
-    red "FAIL: image runs as '$ID_OUTPUT', expected 'opensec'"
+ID_OUTPUT="$(docker run --rm "cliff:dryrun-${VERSION}-amd64" id -un)"
+if [ "$ID_OUTPUT" != "cliff" ]; then
+    red "FAIL: image runs as '$ID_OUTPUT', expected 'cliff'"
     exit 1
 fi
-IMAGE_VERSION="$(docker run --rm --entrypoint cat "opensec:dryrun-${VERSION}-amd64" /app/VERSION | tr -d '[:space:]')"
+IMAGE_VERSION="$(docker run --rm --entrypoint cat "cliff:dryrun-${VERSION}-amd64" /app/VERSION | tr -d '[:space:]')"
 if [ "$IMAGE_VERSION" != "$VERSION" ]; then
     red "FAIL: /app/VERSION is '$IMAGE_VERSION', expected '$VERSION'"
     exit 1

@@ -8,7 +8,7 @@ import pytest
 @pytest.fixture
 async def db():
     """Yield an aiosqlite.Connection backed by an in-memory DB with all migrations run."""
-    from opensec.db.connection import close_db, init_db
+    from cliff.db.connection import close_db, init_db
 
     conn = await init_db(":memory:")
     try:

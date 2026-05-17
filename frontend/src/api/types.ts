@@ -76,7 +76,7 @@ export interface paths {
          * @description Poll assessment progress.
          *
          *     When the assessment is ``running``, ``step`` is the live phase from
-         *     :func:`opensec.api._background.get_assessment_step` (e.g. ``cloning`` or
+         *     :func:`cliff.api._background.get_assessment_step` (e.g. ``cloning`` or
          *     ``looking_up_cves``); otherwise it mirrors ``status``.
          */
         get: operations["get_assessment_status_api_assessment_status__assessment_id__get"];
@@ -2099,10 +2099,10 @@ export interface components {
              */
             opencode_version: string;
             /**
-             * Opensec
+             * Cliff
              * @default ok
              */
-            opensec: string;
+            cliff: string;
         };
         /** IngestJobProgress */
         IngestJobProgress: {
@@ -2920,7 +2920,7 @@ export interface components {
         };
         /**
          * VersionInfo
-         * @description Version handshake for the agent CLI (`opensec status`).
+         * @description Version handshake for the agent CLI (`cliff status`).
          *
          *     `min_cli` is the lowest CLI version this server promises to speak to.
          *     A CLI older than this should refuse to operate and tell the user to upgrade.
@@ -2934,8 +2934,8 @@ export interface components {
             min_cli: string;
             /** Opencode */
             opencode: string;
-            /** Opensec */
-            opensec: string;
+            /** Cliff */
+            cliff: string;
             /**
              * Schema Version
              * @default 1

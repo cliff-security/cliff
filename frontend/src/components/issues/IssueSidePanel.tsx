@@ -759,7 +759,7 @@ function SPActivity({ workspaceId }: { workspaceId: string | null }) {
  * URL the activity card's "How to fix" link points to when an agent run
  * surfaces a structured ``error_details`` string. Kept in sync with the
  * backend route's ``GITHUB_APP_PERMS_DOC_URL`` constant
- * (``opensec/api/routes/agent_execution.py``) so the 412 preflight
+ * (``cliff/api/routes/agent_execution.py``) so the 412 preflight
  * response and the historical run cards both deep-link to the same
  * anchor in the setup guide.
  */

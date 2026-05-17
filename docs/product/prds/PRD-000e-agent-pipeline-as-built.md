@@ -9,7 +9,7 @@
 
 ## Problem statement
 
-Remediating a vulnerability requires multiple specialized tasks: understanding the CVE, finding who owns the affected system, assessing exposure, planning the fix, and verifying it worked. No single AI model can do all of these well in one prompt. OpenSec's agent pipeline breaks remediation into 5 specialized sub-agents, each with a focused prompt, structured output contract, and clear role — turning a complex, ambiguous task into a guided, repeatable process.
+Remediating a vulnerability requires multiple specialized tasks: understanding the CVE, finding who owns the affected system, assessing exposure, planning the fix, and verifying it worked. No single AI model can do all of these well in one prompt. Cliff's agent pipeline breaks remediation into 5 specialized sub-agents, each with a focused prompt, structured output contract, and clear role — turning a complex, ambiguous task into a guided, repeatable process.
 
 ## User persona
 

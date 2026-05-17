@@ -59,10 +59,10 @@ Final:    Manual verification gate               (Gal walks every surface)
 
 | File | Changes |
 |------|---------|
-| `backend/opensec/assessment/engine.py` | Replace `run_assessment_on_path`'s lockfile-detection + OSV-lookup pipeline with `SubprocessScannerRunner` calls. Stop importing `osv_client` and `parsers`. Implement the real `run_assessment(repo_url, *, gh_client, ...)` so the API route can call it. Trivy failure is fatal (assessment fails); Semgrep failure is graceful (skipped step, `tools[]` entry state = `skipped`); posture failures are per-check `unknown` — they continue but don't count toward the grade |
-| `backend/opensec/assessment/clone.py` | Already shipped in PR-A. Wire it into `run_assessment` |
-| `backend/opensec/api/routes/assessment.py` | The `/assessment/run` route stops calling `run_assessment_on_path` and calls `run_assessment` instead. Streaming progress (`/assessment/status/{id}`) reads `tools[]` + `steps[]` from the engine's progress callbacks |
-| `backend/opensec/api/routes/dashboard.py` | No changes in Phase 1 — wire shape already matches |
+| `backend/cliff/assessment/engine.py` | Replace `run_assessment_on_path`'s lockfile-detection + OSV-lookup pipeline with `SubprocessScannerRunner` calls. Stop importing `osv_client` and `parsers`. Implement the real `run_assessment(repo_url, *, gh_client, ...)` so the API route can call it. Trivy failure is fatal (assessment fails); Semgrep failure is graceful (skipped step, `tools[]` entry state = `skipped`); posture failures are per-check `unknown` — they continue but don't count toward the grade |
+| `backend/cliff/assessment/clone.py` | Already shipped in PR-A. Wire it into `run_assessment` |
+| `backend/cliff/api/routes/assessment.py` | The `/assessment/run` route stops calling `run_assessment_on_path` and calls `run_assessment` instead. Streaming progress (`/assessment/status/{id}`) reads `tools[]` + `steps[]` from the engine's progress callbacks |
+| `backend/cliff/api/routes/dashboard.py` | No changes in Phase 1 — wire shape already matches |
 | `backend/tests/assessment/test_engine.py` | Rewrite engine tests against the new pipeline. Use real Trivy/Semgrep fixtures from `backend/tests/fixtures/scanners/*.json` (already in tree). Mock the subprocess at the `asyncio.create_subprocess_exec` level — do not invoke real binaries in unit tests |
 | `backend/tests/api/test_integration_engine.py` | Update if it references the old pipeline |
 | `backend/tests/conftest.py` | Adjust fixtures that constructed `ParsedDependency` objects |
@@ -71,15 +71,15 @@ Final:    Manual verification gate               (Gal walks every surface)
 
 | File | Reason |
 |------|--------|
-| `backend/opensec/assessment/parsers/` (entire directory) | Replaced by Trivy |
-| `backend/opensec/assessment/osv_client.py` | Replaced by Trivy DB |
-| `backend/opensec/assessment/ghsa_client.py` | Replaced by Trivy DB |
-| `backend/opensec/assessment/production_engine.py` | Vestigial alternate engine. Confirm no live caller before deleting (a quick `grep -r production_engine backend/`) |
+| `backend/cliff/assessment/parsers/` (entire directory) | Replaced by Trivy |
+| `backend/cliff/assessment/osv_client.py` | Replaced by Trivy DB |
+| `backend/cliff/assessment/ghsa_client.py` | Replaced by Trivy DB |
+| `backend/cliff/assessment/production_engine.py` | Vestigial alternate engine. Confirm no live caller before deleting (a quick `grep -r production_engine backend/`) |
 | `backend/tests/test_parsers_*.py` | Tests for deleted code |
 | `backend/tests/test_osv_client.py` | Same |
 | `backend/tests/test_ghsa_client.py` | Same |
 
-After deletion, `grep -r "from opensec.assessment.parsers" backend/` and `grep -r "from opensec.assessment.osv_client" backend/` must return zero hits.
+After deletion, `grep -r "from cliff.assessment.parsers" backend/` and `grep -r "from cliff.assessment.osv_client" backend/` must return zero hits.
 
 ### Engine shape (target)
 
@@ -100,7 +100,7 @@ The two callbacks emit progress so `/assessment/status/{id}` can stream both `st
 
 ### Acceptance criteria for Phase 1
 
-- [ ] `grep -r "from opensec.assessment.parsers\|from opensec.assessment.osv_client\|from opensec.assessment.ghsa_client" backend/` returns zero hits.
+- [ ] `grep -r "from cliff.assessment.parsers\|from cliff.assessment.osv_client\|from cliff.assessment.ghsa_client" backend/` returns zero hits.
 - [ ] `run_assessment` (not `run_assessment_on_path`) is the entry point used by every route and every test that exercises the pipeline end-to-end.
 - [ ] `test_engine_step_reporting` — engine emits the six expected step keys (`detect`, `trivy_vuln`, `trivy_secret`, `semgrep`, `posture`, `descriptions`) in order.
 - [ ] `test_engine_tools_emission` — engine emits a `tools[]` payload with three entries (`trivy`, `semgrep`, `posture`), states transitioning `pending → active → done`, and `result` populated on `done`.
@@ -108,7 +108,7 @@ The two callbacks emit progress so `/assessment/status/{id}` can stream both `st
 - [ ] `test_engine_semgrep_failure_is_graceful` — `run_semgrep` raising marks the step `skipped`, the tool `skipped`, and the assessment continues.
 - [ ] `test_engine_subprocess_env_whitelist_preserved` — wired engine still passes the env whitelist from PR-A's runner.
 - [ ] `cd backend && uv run pytest -v` is green.
-- [ ] `cd backend && uv run ruff check opensec/ tests/` is clean.
+- [ ] `cd backend && uv run ruff check cliff/ tests/` is clean.
 
 ---
 
@@ -120,8 +120,8 @@ The two callbacks emit progress so `/assessment/status/{id}` can stream both `st
 
 | File | Purpose |
 |------|---------|
-| `backend/opensec/db/migrations/011_unified_findings.sql` | **Destructive migration per ADR-0033.** Drops `finding`, drops `posture_check`, creates the new unified `finding` table with the columns from ADR-0027 (`id`, `source_type`, `source_id`, `type`, `grade_impact`, `category`, `assessment_id`, `title`, `description`, `plain_description`, `raw_severity`, `normalized_priority`, `status`, `likely_owner`, `why_this_matters`, `asset_id`, `asset_label`, `raw_payload`, `pr_url`, `created_at`, `updated_at`). UNIQUE index on `(source_type, source_id)`. Indices on `(type)`, `(status)`, `(assessment_id, type)`. Leading comment lists what gets dropped (per ADR-0033 §"The migration documents what it destroys") |
-| `backend/opensec/assessment/to_findings.py` | Deterministic mappers per ADR-0027 §6: `from_trivy_vulns`, `from_trivy_secrets`, `from_semgrep`, `from_posture` — all return `list[FindingCreate]` with the correct `type`, `source_type`, `source_id`, `grade_impact`, `category` |
+| `backend/cliff/db/migrations/011_unified_findings.sql` | **Destructive migration per ADR-0033.** Drops `finding`, drops `posture_check`, creates the new unified `finding` table with the columns from ADR-0027 (`id`, `source_type`, `source_id`, `type`, `grade_impact`, `category`, `assessment_id`, `title`, `description`, `plain_description`, `raw_severity`, `normalized_priority`, `status`, `likely_owner`, `why_this_matters`, `asset_id`, `asset_label`, `raw_payload`, `pr_url`, `created_at`, `updated_at`). UNIQUE index on `(source_type, source_id)`. Indices on `(type)`, `(status)`, `(assessment_id, type)`. Leading comment lists what gets dropped (per ADR-0033 §"The migration documents what it destroys") |
+| `backend/cliff/assessment/to_findings.py` | Deterministic mappers per ADR-0027 §6: `from_trivy_vulns`, `from_trivy_secrets`, `from_semgrep`, `from_posture` — all return `list[FindingCreate]` with the correct `type`, `source_type`, `source_id`, `grade_impact`, `category` |
 | `backend/tests/db/test_migration_011.py` | Migration test: starts from a Phase-1-shape DB, runs the migration, asserts `finding` exists with the new columns and `posture_check` is gone |
 | `backend/tests/assessment/test_to_findings.py` | Mapper tests — round-trip Trivy/Semgrep/posture fixtures into `FindingCreate` and assert `type`, `source_id`, `grade_impact`, `category` |
 | `backend/tests/db/test_repo_finding_upsert.py` | UPSERT preservation tests — see "UPSERT preservation table" below |
@@ -130,14 +130,14 @@ The two callbacks emit progress so `/assessment/status/{id}` can stream both `st
 
 | File | Changes |
 |------|---------|
-| `backend/opensec/models/finding.py` | Add `FindingType` literal (`dependency` \| `code` \| `secret` \| `posture`), `FindingGradeImpact` literal (`counts` \| `advisory`). Add `type`, `grade_impact`, `category`, `assessment_id`, `pr_url` to `FindingCreate`, `FindingUpdate`, `Finding` |
-| `backend/opensec/db/repo_finding.py` | `create_finding` uses `INSERT ... ON CONFLICT(source_type, source_id) DO UPDATE SET ...` per the preservation table below. `list_findings` accepts `type: list[str] \| None`, `grade_impact: list[str] \| None`, `assessment_id: str \| None` filters. New `list_posture_findings(assessment_id)` helper |
-| `backend/opensec/api/routes/dashboard.py` | Posture queries switch from `list_posture_checks_for_assessment` to `list_posture_findings`. The four-state projection (`pass | fail | done | advisory`) computes from `(status, pr_url, grade_impact)`. The `vulnerabilities.by_source` split queries `finding` filtered by `type` |
-| `backend/opensec/db/dao/posture_check.py` | **Delete.** Callers migrate to `repo_finding.list_posture_findings` |
-| `backend/opensec/models/posture_check.py` | **Delete.** `PostureCheckResult` (the in-pipeline DTO) moves to `backend/opensec/assessment/posture/__init__.py` |
-| `backend/opensec/assessment/engine.py` | After Trivy / Semgrep / posture each finishes, call the matching `to_findings` mapper and persist via `create_finding`. After all scanners finish, run the stale-close pass (per ADR-0027 §"Closing stale findings"): for each `source_type` that ran successfully this assessment, mark prior open findings of the same `source_type` not seen this run as `status='closed'` with a `system_note` |
-| `backend/opensec/integrations/normalizer.py` | LLM-normalizer prompt update per ADR-0027: add `type` field to the output schema with default `dependency` for ambiguous payloads. Single-sentence rule: "If the finding is a hygiene/config issue, use `posture`; if a leaked credential, use `secret`; if a SAST/code pattern, use `code`; otherwise `dependency`." No restructure |
-| `backend/opensec/integrations/ingest_worker.py` | Pass `type` through from normalizer output |
+| `backend/cliff/models/finding.py` | Add `FindingType` literal (`dependency` \| `code` \| `secret` \| `posture`), `FindingGradeImpact` literal (`counts` \| `advisory`). Add `type`, `grade_impact`, `category`, `assessment_id`, `pr_url` to `FindingCreate`, `FindingUpdate`, `Finding` |
+| `backend/cliff/db/repo_finding.py` | `create_finding` uses `INSERT ... ON CONFLICT(source_type, source_id) DO UPDATE SET ...` per the preservation table below. `list_findings` accepts `type: list[str] \| None`, `grade_impact: list[str] \| None`, `assessment_id: str \| None` filters. New `list_posture_findings(assessment_id)` helper |
+| `backend/cliff/api/routes/dashboard.py` | Posture queries switch from `list_posture_checks_for_assessment` to `list_posture_findings`. The four-state projection (`pass | fail | done | advisory`) computes from `(status, pr_url, grade_impact)`. The `vulnerabilities.by_source` split queries `finding` filtered by `type` |
+| `backend/cliff/db/dao/posture_check.py` | **Delete.** Callers migrate to `repo_finding.list_posture_findings` |
+| `backend/cliff/models/posture_check.py` | **Delete.** `PostureCheckResult` (the in-pipeline DTO) moves to `backend/cliff/assessment/posture/__init__.py` |
+| `backend/cliff/assessment/engine.py` | After Trivy / Semgrep / posture each finishes, call the matching `to_findings` mapper and persist via `create_finding`. After all scanners finish, run the stale-close pass (per ADR-0027 §"Closing stale findings"): for each `source_type` that ran successfully this assessment, mark prior open findings of the same `source_type` not seen this run as `status='closed'` with a `system_note` |
+| `backend/cliff/integrations/normalizer.py` | LLM-normalizer prompt update per ADR-0027: add `type` field to the output schema with default `dependency` for ambiguous payloads. Single-sentence rule: "If the finding is a hygiene/config issue, use `posture`; if a leaked credential, use `secret`; if a SAST/code pattern, use `code`; otherwise `dependency`." No restructure |
+| `backend/cliff/integrations/ingest_worker.py` | Pass `type` through from normalizer output |
 
 ### UPSERT preservation table (verbatim from IMPL-0003 rev. 2 — must be implemented exactly)
 
@@ -185,7 +185,7 @@ After all scanners finish in `engine.py`, for each **scanner `source_type`** tha
 
 ### Acceptance criteria for Phase 2
 
-- [ ] `grep -r "from opensec.db.dao.posture_check\|from opensec.models.posture_check" backend/` returns zero hits.
+- [ ] `grep -r "from cliff.db.dao.posture_check\|from cliff.models.posture_check" backend/` returns zero hits.
 - [ ] `posture_check` table does not exist in the DB after migration 011 runs (asserted in `test_migration_011`).
 - [ ] All 4 mappers in `to_findings.py` have round-trip tests against fixtures.
 - [ ] UPSERT preservation tests cover all 6 preserved columns and a representative subset of the refreshed columns.
@@ -306,7 +306,7 @@ No other new ADRs are required. ADR-0027 (unified findings), ADR-0028 (subproces
 | **Total new** | **~35** | (on top of the ~70+ already in PR-A) |
 
 Run after each phase:
-- `cd backend && uv run pytest -v && uv run ruff check opensec/ tests/`
+- `cd backend && uv run pytest -v && uv run ruff check cliff/ tests/`
 - `cd frontend && npm test && npm run build`
 
 A red test at any boundary blocks the next phase.
@@ -331,7 +331,7 @@ A red test at any boundary blocks the next phase.
 PRD-0003 is implemented and ready for the v0.1 alpha tag when:
 
 1. All Phase 1, 2, 3 acceptance criteria are checked off.
-2. `cd backend && uv run pytest -v` is green; `cd frontend && npm test && npm run build` is green; `cd backend && uv run ruff check opensec/ tests/` is clean.
+2. `cd backend && uv run pytest -v` is green; `cd frontend && npm test && npm run build` is green; `cd backend && uv run ruff check cliff/ tests/` is clean.
 3. The verification report (`docs/architecture/plans/IMPL-0003-p2-verification-report.md`) is committed with screenshots and "Ready for CEO walkthrough".
 4. The PR description includes: the verification report link, a list of what was deleted (per ADR-0033), and a one-line confirmation that the destructive migration license was used only on the authorized tables.
 5. Gal walks every surface manually and approves.

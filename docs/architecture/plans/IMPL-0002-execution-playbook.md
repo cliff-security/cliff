@@ -22,26 +22,26 @@ Before any feature work, land these in one small PR on `main` (`feat/earn-the-ba
    - A `package.json` + `package-lock.json` pinned to `braces@3.0.2`, `lodash@4.17.20`, `minimatch@3.0.4` (the exact packages used in UX-0002 mockups). These produce real findings.
    - No `SECURITY.md`, no `.github/dependabot.yml` (so posture checks fail).
    - A `README.md` so the badge installer has something to edit.
-2. **Feature flag.** Add `OPENSEC_EARN_THE_BADGE_ENABLED=false` in `config.py`. Every new route and UI surface is gated on it. The main app ships normally; you test the new flow by setting the flag locally.
+2. **Feature flag.** Add `CLIFF_EARN_THE_BADGE_ENABLED=false` in `config.py`. Every new route and UI surface is gated on it. The main app ships normally; you test the new flow by setting the flag locally.
 3. **API contracts as stubs.** Add empty route files `onboarding.py`, `assessment.py`, `posture.py`, `badge.py`, `dashboard.py` that return hardcoded fixture JSON matching the shapes in IMPL-0002 §D. These unblock the frontend team on day 1.
 4. **Worktrees.** Create three workspace directories:
    ```
-   ~/projects/OpenSec                 # main worktree, for PR reviews
-   ~/projects/OpenSec-v1-agents       # branch earn/v1-agents
-   ~/projects/OpenSec-v2-backend      # branch earn/v2-backend
-   ~/projects/OpenSec-v2-frontend     # branch earn/v2-frontend
+   ~/projects/Cliff                 # main worktree, for PR reviews
+   ~/projects/Cliff-v1-agents       # branch earn/v1-agents
+   ~/projects/Cliff-v2-backend      # branch earn/v2-backend
+   ~/projects/Cliff-v2-frontend     # branch earn/v2-frontend
    ```
    Command:
    ```bash
-   cd ~/projects/OpenSec
-   git worktree add ../OpenSec-v1-agents -b earn/v1-agents
-   git worktree add ../OpenSec-v2-backend -b earn/v2-backend
-   git worktree add ../OpenSec-v2-frontend -b earn/v2-frontend
+   cd ~/projects/Cliff
+   git worktree add ../Cliff-v1-agents -b earn/v1-agents
+   git worktree add ../Cliff-v2-backend -b earn/v2-backend
+   git worktree add ../Cliff-v2-frontend -b earn/v2-frontend
    ```
 5. **Three Claude Code sessions.** Open one session per worktree:
-   - **Session A — V1 agents** (worktree `OpenSec-v1-agents`). Owns Milestone C1 + E1–E4. Invoked as `/opensec-agent-orchestrator`.
-   - **Session B — V2 backend** (worktree `OpenSec-v2-backend`). Owns A, B, C2, D. Invoked as `/app-builder`.
-   - **Session C — V2 frontend** (worktree `OpenSec-v2-frontend`). Owns F, G, H. Invoked as `/app-builder`.
+   - **Session A — V1 agents** (worktree `Cliff-v1-agents`). Owns Milestone C1 + E1–E4. Invoked as `/cliff-agent-orchestrator`.
+   - **Session B — V2 backend** (worktree `Cliff-v2-backend`). Owns A, B, C2, D. Invoked as `/app-builder`.
+   - **Session C — V2 frontend** (worktree `Cliff-v2-frontend`). Owns F, G, H. Invoked as `/app-builder`.
 
 After the Day 0 PR merges, all three sessions run to the next wave **in parallel**.
 
@@ -62,7 +62,7 @@ Goal: by end of wave, `scripts/dev.sh` boots into an onboarding welcome page, yo
 | `feat/earn-dashboard-shell` | Session C | Frame 2.2 (Dashboard) + 3.1 row shape with plain-language **dummy** strings, behind the feature flag |
 
 **Visual validation at end of Wave 1:**
-- `OPENSEC_EARN_THE_BADGE_ENABLED=true scripts/dev.sh` → browser → walk Welcome → Connect (anything validates) → AI → Start → Dashboard
+- `CLIFF_EARN_THE_BADGE_ENABLED=true scripts/dev.sh` → browser → walk Welcome → Connect (anything validates) → AI → Start → Dashboard
 - Every screen from the UX gallery renders against fake data. You can click every button.
 - Take a 30-second screen recording; if the flow feels off, we fix the UX now while the cost is low.
 
@@ -83,7 +83,7 @@ Now we replace the fake data with a real assessment.
 
 **Visual validation at end of Wave 2:**
 - `pytest tests/test_assessment/` green (unit).
-- `pytest tests/e2e/test_assessment_e2e.py -k demo_repo` runs an assessment against `fixtures/demo-repo-alex/` and you see 3 findings in the SQLite DB. Open the DB with `sqlite3 data/opensec.db "select id, plain_description from findings"` — each row has a plain-English sentence.
+- `pytest tests/e2e/test_assessment_e2e.py -k demo_repo` runs an assessment against `fixtures/demo-repo-alex/` and you see 3 findings in the SQLite DB. Open the DB with `sqlite3 data/cliff.db "select id, plain_description from findings"` — each row has a plain-English sentence.
 
 ### Wave 3 · "Real end-to-end" (2 days)
 
@@ -120,7 +120,7 @@ Now we replace the fake data with a real assessment.
 |---|---|---|
 | `feat/earn-e2e-playwright` | Session C | I1 · end-to-end Playwright walk-through against the demo repo |
 | `docs/earn-assessment-engine-guide` | Session B | I2 · contributor guide |
-| `feat/earn-flag-on-default` | any | Flip `OPENSEC_EARN_THE_BADGE_ENABLED=true` in the default config. Remove the flag in a later cleanup PR after soak. |
+| `feat/earn-flag-on-default` | any | Flip `CLIFF_EARN_THE_BADGE_ENABLED=true` in the default config. Remove the flag in a later cleanup PR after soak. |
 
 ---
 
@@ -137,9 +137,9 @@ For the Waves above, the full "can I see it work?" journey is:
 | After Wave | What you physically do | What you should see |
 |---|---|---|
 | 1 | `scripts/dev.sh`, open `localhost:5173` | Walk the whole UX gallery end-to-end with fake data |
-| 2 | `pytest backend/tests/test_assessment/` + open `data/opensec.db` | Real assessment rows + real plain-language strings |
+| 2 | `pytest backend/tests/test_assessment/` + open `data/cliff.db` | Real assessment rows + real plain-language strings |
 | 3 | Onboarding flow in the browser against `fixtures/demo-repo-alex/` | Real grade C, real 3 findings on Dashboard |
-| 4 | Click "Generate and open PR" on SECURITY.md against a real test repo (e.g. `galanko/opensec-demo`) | A draft PR appears on GitHub |
+| 4 | Click "Generate and open PR" on SECURITY.md against a real test repo (e.g. `galanko/cliff-demo`) | A draft PR appears on GitHub |
 | 5 | `npm run test:e2e` | Playwright walks the full journey, green |
 
 ---
@@ -151,7 +151,7 @@ The three sessions should each start by reading:
 1. `CLAUDE.md` (project conventions, Git Workflow rules)
 2. `docs/architecture/plans/IMPL-0002-earn-the-badge.md`
 3. This file
-4. Their vertical's existing code (Session A: `backend/opensec/agents/`, `backend/opensec/workspace/`; Session B: `backend/opensec/api/routes/`, `backend/opensec/db/`; Session C: `frontend/src/`)
+4. Their vertical's existing code (Session A: `backend/cliff/agents/`, `backend/cliff/workspace/`; Session B: `backend/cliff/api/routes/`, `backend/cliff/db/`; Session C: `frontend/src/`)
 
 Each session follows the PR rules from `CLAUDE.md`:
 
@@ -188,7 +188,7 @@ Rationale: you are the only reviewer. Small PRs merge in 5 minutes of review; bi
 
 IMPL-0002 is done when:
 
-- Alex (the persona) can run `docker run opensec`, go through onboarding against their real repo, see a real grade, solve real findings, and end up with a real "Secured by OpenSec" badge on their README.
+- Alex (the persona) can run `docker run cliff`, go through onboarding against their real repo, see a real grade, solve real findings, and end up with a real "Secured by Cliff" badge on their README.
 - You have watched this happen, end to end, on your own eyes against `fixtures/demo-repo-alex/` and then against one real external repo.
 - The E2E Playwright test is green in CI.
-- `OPENSEC_EARN_THE_BADGE_ENABLED` is on by default.
+- `CLIFF_EARN_THE_BADGE_ENABLED` is on by default.

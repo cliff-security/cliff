@@ -15,9 +15,9 @@ async def test_bootstrap_empty_db(db_client) -> None:
 
 async def test_bootstrap_reports_assessment_presence(db_client) -> None:
     """``has_any_assessment`` flips to True once at least one row exists."""
-    from opensec.db.connection import _db
-    from opensec.db.dao.assessment import create_assessment
-    from opensec.models import AssessmentCreate
+    from cliff.db.connection import _db
+    from cliff.db.dao.assessment import create_assessment
+    from cliff.models import AssessmentCreate
 
     assert _db is not None
     await create_assessment(
@@ -32,8 +32,8 @@ async def test_bootstrap_reports_assessment_presence(db_client) -> None:
 
 async def test_bootstrap_reports_onboarding_completed(db_client) -> None:
     """``onboarding_completed`` mirrors the app_setting written by the complete endpoint."""
-    from opensec.db.connection import _db
-    from opensec.db.repo_setting import upsert_setting
+    from cliff.db.connection import _db
+    from cliff.db.repo_setting import upsert_setting
 
     assert _db is not None
     await upsert_setting(_db, "onboarding.completed", {"completed": True})

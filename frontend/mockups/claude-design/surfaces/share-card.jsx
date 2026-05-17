@@ -18,7 +18,7 @@ function ShareCardPage() {
               <div className="w-11 h-11 rounded-2xl bg-on-primary/15 flex items-center justify-center backdrop-blur">
                 <span className="font-headline text-2xl font-extrabold text-on-primary">O</span>
               </div>
-              <span className="font-headline text-[22px] font-bold tracking-tight text-on-primary">OpenSec</span>
+              <span className="font-headline text-[22px] font-bold tracking-tight text-on-primary">Cliff</span>
             </div>
             <span className="text-[13px] font-semibold uppercase tracking-[0.2em] text-on-primary/70">Secured</span>
           </div>
@@ -34,7 +34,7 @@ function ShareCardPage() {
               </div>
             </div>
             <div className="flex-1">
-              <p className="text-[18px] font-semibold uppercase tracking-[0.2em] text-on-primary/70">galanko / opensec-demo</p>
+              <p className="text-[18px] font-semibold uppercase tracking-[0.2em] text-on-primary/70">galanko / cliff-demo</p>
               <h1 className="mt-3 font-headline text-[68px] font-extrabold leading-[0.95] tracking-tight">10 criteria met.</h1>
               <p className="mt-4 font-headline text-[28px] font-bold text-on-primary/80 leading-snug">Vulnerabilities resolved. Posture hardened. CI pinned.</p>
             </div>
@@ -46,7 +46,7 @@ function ShareCardPage() {
               <p className="text-[14px] font-medium text-on-primary/60">
                 Scanned by: Trivy 0.52 · Semgrep 1.70 · 15 posture checks
               </p>
-              <p className="mt-2 text-[16px] font-semibold text-on-primary/80">opensec.dev / galanko / opensec-demo</p>
+              <p className="mt-2 text-[16px] font-semibold text-on-primary/80">cliff.dev / galanko / cliff-demo</p>
             </div>
             <div className="text-right">
               <p className="text-[12px] font-semibold uppercase tracking-[0.2em] text-on-primary/60">Apr 25, 2026</p>

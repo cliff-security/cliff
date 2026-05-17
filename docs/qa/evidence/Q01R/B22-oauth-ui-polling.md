@@ -5,7 +5,7 @@
 
 ## What I observed
 1. Clicked "Connect with OpenRouter" → opened openrouter.ai auth page in a new tab.
-2. Authorized → callback page rendered at `http://localhost:3000/callback?code=...` ("You can close this tab. OpenSec received the authorization.")
+2. Authorized → callback page rendered at `http://localhost:3000/callback?code=...` ("You can close this tab. Cliff received the authorization.")
 3. Returned to Cliff onboarding tab — UI still spinning on "Waiting for you to authorize on openrouter.ai..." with link "Open authorization page again".
 4. Manually navigated to `/onboarding/ai` (reload) — only then did the UI flip to "Connected to OpenRouter".
 

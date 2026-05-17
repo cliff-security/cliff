@@ -6,10 +6,10 @@ reconciliation pass runs would lose the link entirely.
 
 from __future__ import annotations
 
-from opensec.agents.executor import _advance_finding_status
-from opensec.db.repo_finding import create_finding, get_finding
-from opensec.db.repo_workspace import create_workspace
-from opensec.models import FindingCreate, WorkspaceCreate
+from cliff.agents.executor import _advance_finding_status
+from cliff.db.repo_finding import create_finding, get_finding
+from cliff.db.repo_workspace import create_workspace
+from cliff.models import FindingCreate, WorkspaceCreate
 
 PR_URL = "https://github.com/cliff-security/NodeGoat/pull/6"
 

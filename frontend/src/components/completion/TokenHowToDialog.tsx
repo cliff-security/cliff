@@ -9,7 +9,7 @@ export interface TokenHowToDialogProps {
  * "How to create a token" modal (UX frame 1.1a).
  *
  * Walks the user through creating a **fine-grained** personal access token
- * scoped to a single repository with the minimum three permissions OpenSec
+ * scoped to a single repository with the minimum three permissions Cliff
  * needs: Contents (read/write), Pull requests (read/write), Metadata (read).
  * Fine-grained tokens avoid the Classic PAT's "all private repos on your
  * account" blast radius.
@@ -138,7 +138,7 @@ export default function TokenHowToDialog({ open, onClose }: TokenHowToDialogProp
             <p className="text-sm text-on-surface leading-relaxed">
               Give it a name like{' '}
               <span className="font-mono bg-surface-container-low px-1.5 py-0.5 rounded text-xs">
-                OpenSec · your-project
+                Cliff · your-project
               </span>{' '}
               and pick an expiration (90 days is a reasonable default).
             </p>
@@ -154,7 +154,7 @@ export default function TokenHowToDialog({ open, onClose }: TokenHowToDialogProp
               and pick the single repo you're going to assess.
             </p>
             <p className="text-xs text-on-surface-variant">
-              Never grant "All repositories" — OpenSec only needs this one.
+              Never grant "All repositories" — Cliff only needs this one.
             </p>
           </Step>
 
@@ -184,7 +184,7 @@ export default function TokenHowToDialog({ open, onClose }: TokenHowToDialogProp
             </div>
             <p className="text-xs text-on-surface-variant mt-2">
               Leave <span className="font-semibold">Account permissions</span>{' '}
-              and every other section untouched — OpenSec never reads user
+              and every other section untouched — Cliff never reads user
               profile data.
             </p>
           </Step>
@@ -194,7 +194,7 @@ export default function TokenHowToDialog({ open, onClose }: TokenHowToDialogProp
               Click <span className="font-semibold">Generate token</span>,
               copy the value starting with{' '}
               <span className="font-mono">github_pat_</span>, and paste it
-              back into OpenSec.
+              back into Cliff.
             </p>
           </Step>
         </ol>
@@ -207,7 +207,7 @@ export default function TokenHowToDialog({ open, onClose }: TokenHowToDialogProp
             lock
           </span>
           <p className="text-xs text-on-surface-variant leading-relaxed">
-            Tokens are stored locally in your OpenSec vault. They never leave
+            Tokens are stored locally in your Cliff vault. They never leave
             this machine and are never logged. Revoke any time at{' '}
             <a
               href="https://github.com/settings/personal-access-tokens"

@@ -1,6 +1,6 @@
 """Unit tests for the agent CLI.
 
-These mock the OpenSec HTTP API via pytest-httpx and assert the JSON shape +
+These mock the Cliff HTTP API via pytest-httpx and assert the JSON shape +
 exit codes the skill depends on. The contract surface is tiny on purpose —
 the skill cannot tolerate drift here without breaking for every user.
 """
@@ -12,12 +12,12 @@ import json
 import pytest
 from click.testing import CliRunner
 
-from opensec_cli.cli import main
+from cliff_cli.cli import main
 
 
 @pytest.fixture(autouse=True)
 def _set_base_url(monkeypatch):
-    monkeypatch.setenv("OPENSEC_URL", "http://test-server")
+    monkeypatch.setenv("CLIFF_URL", "http://test-server")
 
 
 @pytest.fixture
@@ -37,7 +37,7 @@ def _stub_ai_integration_status(
     *,
     model: str | None = None,
 ) -> None:
-    """Stub ``GET /api/integrations/ai/status`` for ``opensec status``.
+    """Stub ``GET /api/integrations/ai/status`` for ``cliff status``.
 
     ADR-0037 / architect M9: the live-probe + drift signal were removed.
     The CLI now only reads the canonical ``model`` field; the singleton
@@ -60,7 +60,7 @@ def test_status_ready(cli, httpx_mock):
     httpx_mock.add_response(
         url="http://test-server/health",
         json={
-            "opensec": "ok",
+            "cliff": "ok",
             "opencode": "ok",
             "opencode_version": "1.3.2",
             "model": "openai/gpt-4.1",
@@ -70,7 +70,7 @@ def test_status_ready(cli, httpx_mock):
     httpx_mock.add_response(
         url="http://test-server/api/version",
         json={
-            "opensec": "0.1.1-alpha",
+            "cliff": "0.1.1-alpha",
             "opencode": "1.3.2",
             "schema_version": "1",
             "min_cli": "0.1.0",
@@ -82,7 +82,7 @@ def test_status_ready(cli, httpx_mock):
     payload = _last_json(res.stdout)
     assert payload["ok"] is True
     assert payload["ready"] is True
-    assert payload["opensec"] == "0.1.1-alpha"
+    assert payload["cliff"] == "0.1.1-alpha"
     assert payload["blockers"] == []
 
 
@@ -96,7 +96,7 @@ def test_status_blocked_when_ai_provider_not_ready(cli, httpx_mock):
     httpx_mock.add_response(
         url="http://test-server/health",
         json={
-            "opensec": "ok",
+            "cliff": "ok",
             "opencode": "ok",
             "opencode_version": "1.3.2",
             "model": "anthropic/claude-sonnet-4-6",
@@ -106,7 +106,7 @@ def test_status_blocked_when_ai_provider_not_ready(cli, httpx_mock):
     httpx_mock.add_response(
         url="http://test-server/api/version",
         json={
-            "opensec": "0.1.1-alpha",
+            "cliff": "0.1.1-alpha",
             "opencode": "1.3.2",
             "schema_version": "1",
             "min_cli": "0.1.0",
@@ -126,12 +126,12 @@ def test_status_blocked_when_ai_provider_not_ready(cli, httpx_mock):
 def test_status_blockers_when_engine_down(cli, httpx_mock):
     httpx_mock.add_response(
         url="http://test-server/health",
-        json={"opensec": "ok", "opencode": "unavailable", "opencode_version": "1.3.2", "model": ""},
+        json={"cliff": "ok", "opencode": "unavailable", "opencode_version": "1.3.2", "model": ""},
     )
     httpx_mock.add_response(
         url="http://test-server/api/version",
         json={
-            "opensec": "0.1.1-alpha",
+            "cliff": "0.1.1-alpha",
             "opencode": "1.3.2",
             "schema_version": "1",
             "min_cli": "0.1.0",
@@ -163,7 +163,7 @@ def test_status_prefers_canonical_model_and_omits_drift_fields(
     httpx_mock.add_response(
         url="http://test-server/health",
         json={
-            "opensec": "ok",
+            "cliff": "ok",
             "opencode": "ok",
             "opencode_version": "1.3.2",
             # /health still carries the singleton's view; canonical wins.
@@ -174,7 +174,7 @@ def test_status_prefers_canonical_model_and_omits_drift_fields(
     httpx_mock.add_response(
         url="http://test-server/api/version",
         json={
-            "opensec": "0.1.1-alpha",
+            "cliff": "0.1.1-alpha",
             "opencode": "1.3.2",
             "schema_version": "1",
             "min_cli": "0.1.0",
@@ -210,7 +210,7 @@ def test_status_falls_back_to_health_model_when_status_endpoint_unavailable(
     httpx_mock.add_response(
         url="http://test-server/health",
         json={
-            "opensec": "ok",
+            "cliff": "ok",
             "opencode": "ok",
             "opencode_version": "1.3.2",
             "model": "anthropic/claude-haiku-4-5",
@@ -220,7 +220,7 @@ def test_status_falls_back_to_health_model_when_status_endpoint_unavailable(
     httpx_mock.add_response(
         url="http://test-server/api/version",
         json={
-            "opensec": "0.1.1-alpha",
+            "cliff": "0.1.1-alpha",
             "opencode": "1.3.2",
             "schema_version": "1",
             "min_cli": "0.1.0",
@@ -252,12 +252,12 @@ def test_status_daemon_down(cli, httpx_mock):
 def test_status_version_mismatch(cli, httpx_mock):
     httpx_mock.add_response(
         url="http://test-server/health",
-        json={"opensec": "ok", "opencode": "ok", "opencode_version": "1.3.2", "model": "x"},
+        json={"cliff": "ok", "opencode": "ok", "opencode_version": "1.3.2", "model": "x"},
     )
     httpx_mock.add_response(
         url="http://test-server/api/version",
         json={
-            "opensec": "9.9.9",
+            "cliff": "9.9.9",
             "opencode": "1.3.2",
             "schema_version": "2",
             "min_cli": "9.9.9",
@@ -279,7 +279,7 @@ def _stub_version(httpx_mock):
     httpx_mock.add_response(
         url="http://test-server/api/version",
         json={
-            "opensec": "0.1.1-alpha",
+            "cliff": "0.1.1-alpha",
             "opencode": "1.3.2",
             "schema_version": "1",
             "min_cli": "0.1.0",

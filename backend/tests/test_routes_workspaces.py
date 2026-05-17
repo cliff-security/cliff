@@ -6,10 +6,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from opensec.db.repo_finding import mark_started_on_workspace_create
-from opensec.db.repo_workspace import create_workspace as raw_create_workspace
-from opensec.db.repo_workspace import delete_workspace as raw_delete_workspace
-from opensec.models import WorkspaceCreate
+from cliff.db.repo_finding import mark_started_on_workspace_create
+from cliff.db.repo_workspace import create_workspace as raw_create_workspace
+from cliff.db.repo_workspace import delete_workspace as raw_delete_workspace
+from cliff.models import WorkspaceCreate
 
 
 @pytest.fixture
@@ -30,7 +30,7 @@ async def _configure_mock_builder(db_client):
     instead of the raw repo function. The mock must create a real DB row so
     the rest of the test can read/update/delete it.
     """
-    from opensec.main import app
+    from cliff.main import app
 
     async def _mock_create(db, finding, **_kwargs):
         data = WorkspaceCreate(finding_id=finding.id)
@@ -139,9 +139,9 @@ async def test_resolve_workspace_http_reconciles_pr_url_from_executor_run(
     """EF-B14 HTTP-level — PATCH /api/workspaces state=closed must reconcile
     Finding.pr_url from the latest remediation_executor AgentRun before the
     response returns, so the UI sees the link instead of pr_url=null."""
-    import opensec.db.connection as conn_module
-    from opensec.db.repo_agent_run import create_agent_run, update_agent_run
-    from opensec.models import AgentRunCreate, AgentRunUpdate
+    import cliff.db.connection as conn_module
+    from cliff.db.repo_agent_run import create_agent_run, update_agent_run
+    from cliff.models import AgentRunCreate, AgentRunUpdate
 
     pr_url = "https://github.com/cliff-security/NodeGoat/pull/6"
 
@@ -210,9 +210,9 @@ async def test_resolve_workspace_http_does_not_clobber_user_supplied_pr_url(
     """If a user explicitly set pr_url via PATCH /api/findings/{id}, the
     close-handler's reconciliation must not overwrite it with a stale URL
     from an old AgentRun."""
-    import opensec.db.connection as conn_module
-    from opensec.db.repo_agent_run import create_agent_run, update_agent_run
-    from opensec.models import AgentRunCreate, AgentRunUpdate
+    import cliff.db.connection as conn_module
+    from cliff.db.repo_agent_run import create_agent_run, update_agent_run
+    from cliff.models import AgentRunCreate, AgentRunUpdate
 
     user_url = "https://github.com/example/repo/pull/42"
     stale_url = "https://github.com/example/repo/pull/1"

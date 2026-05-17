@@ -9,11 +9,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from opensec.ai import repo as ai_repo
-from opensec.ai.legacy_migration import migrate_legacy_api_keys_once
-from opensec.ai.service import AIIntegrationService
-from opensec.db.connection import close_db, init_db
-from opensec.integrations.vault import CredentialVault
+from cliff.ai import repo as ai_repo
+from cliff.ai.legacy_migration import migrate_legacy_api_keys_once
+from cliff.ai.service import AIIntegrationService
+from cliff.db.connection import close_db, init_db
+from cliff.integrations.vault import CredentialVault
 
 if TYPE_CHECKING:
     import aiosqlite

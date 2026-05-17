@@ -12,21 +12,21 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from opensec.db import repo_integration
-from opensec.db.connection import close_db, init_db
-from opensec.integrations.audit import AuditLogger
-from opensec.integrations.github_app import repo as gh_repo
-from opensec.integrations.github_app.client import (
+from cliff.db import repo_integration
+from cliff.db.connection import close_db, init_db
+from cliff.integrations.audit import AuditLogger
+from cliff.integrations.github_app import repo as gh_repo
+from cliff.integrations.github_app.client import (
     DeviceCodeResponse,
     PollTokenResult,
     UserInfo,
 )
-from opensec.integrations.github_app.flow import (
+from cliff.integrations.github_app.flow import (
     DeviceFlowOrchestrator,
     InstallationCsrfMismatchError,
 )
-from opensec.integrations.vault import CredentialVault
-from opensec.models import IntegrationConfigCreate
+from cliff.integrations.vault import CredentialVault
+from cliff.models import IntegrationConfigCreate
 
 if TYPE_CHECKING:
     import aiosqlite
@@ -150,7 +150,7 @@ def orchestrator(
         vault=vault,
         audit=audit,
         client_factory=lambda: fake_client,
-        app_slug="opensec",
+        app_slug="cliff",
         client_id="Iv23liTestId",
         clock=fake_clock,
     )
@@ -475,7 +475,7 @@ async def test_poll_step_transient_github_5xx_does_not_terminate(
     fake_client: FakeGitHubClient,
     integration_id: str,
 ):
-    from opensec.integrations.github_app.client import GitHubDeviceFlowTransientError
+    from cliff.integrations.github_app.client import GitHubDeviceFlowTransientError
 
     await orchestrator.initiate(integration_id)
 

@@ -1,6 +1,6 @@
 # Adapter Interfaces
 
-OpenSec connects to external systems through four adapter interfaces. Each interface has an abstract contract and at least one provider implementation. MVP ships with mock providers only.
+Cliff connects to external systems through four adapter interfaces. Each interface has an abstract contract and at least one provider implementation. MVP ships with mock providers only.
 
 See [ADR-0006](../adr/0006-mock-first-adapters.md) for the rationale.
 

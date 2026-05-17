@@ -48,7 +48,7 @@ Add a `type` column to the `finding` table with this enum:
 | `dependency` | Vulnerable third-party dependency | `trivy`, `snyk`, `wiz`, `dependabot` |
 | `code` | Static-analysis finding in the repo's own code | `semgrep`, `codeql` |
 | `secret` | Leaked credential / key detected in source | `trivy-secret`, `gitleaks` |
-| `posture` | Failing or advisory repo-hygiene check | `opensec-posture` |
+| `posture` | Failing or advisory repo-hygiene check | `cliff-posture` |
 
 **Naming rationale:** CEO called out that "vulnerability" is ambiguous because posture issues and code issues are *also* vulnerabilities in the colloquial sense. `dependency` is precise: it describes the *what* (a dependency), and severity/exploitability live on other columns. `code` covers SAST and `secret` gets its own type because leaked credentials have a distinct remediation path (rotate + scrub) that differs from both dependency upgrades and code fixes.
 
@@ -91,7 +91,7 @@ Every source now converges on `FindingCreate`:
        ▼              ▼                  ▼                      ▼
 ┌──────────────────────────────────────────┐       ┌────────────────────────┐
 │   DETERMINISTIC NORMALIZERS              │       │   LLM NORMALIZER       │
-│   backend/opensec/assessment/            │       │   backend/opensec/     │
+│   backend/cliff/assessment/            │       │   backend/cliff/     │
 │     to_findings.py                       │       │     integrations/      │
 │                                          │       │     normalizer.py      │
 │   from_trivy_vulns(result)   → dependency│       │                        │
@@ -233,7 +233,7 @@ INSERT INTO finding (
 )
 SELECT
     pc.id,
-    'opensec-posture',
+    'cliff-posture',
     (SELECT repo_url FROM assessment WHERE id = pc.assessment_id) || ':' || pc.check_name,
     'posture',
     CASE pc.status WHEN 'advisory' THEN 'advisory' ELSE 'counts' END,
@@ -258,7 +258,7 @@ COMMIT;
 ### Model changes
 
 ```python
-# backend/opensec/models/finding.py
+# backend/cliff/models/finding.py
 FindingType = Literal["dependency", "code", "secret", "posture"]
 FindingGradeImpact = Literal["counts", "advisory"]
 

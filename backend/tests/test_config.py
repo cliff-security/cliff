@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from opensec.config import Settings, _find_repo_root
+from cliff.config import Settings, _find_repo_root
 
 
 def test_default_settings():

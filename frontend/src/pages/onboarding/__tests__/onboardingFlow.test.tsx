@@ -56,7 +56,7 @@ describe('onboarding wizard', () => {
 
     // 1.0 Welcome
     expect(
-      screen.getByRole('heading', { name: /welcome to opensec/i }),
+      screen.getByRole('heading', { name: /welcome to cliff/i }),
     ).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /get started/i }))
 

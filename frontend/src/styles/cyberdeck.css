@@ -391,7 +391,7 @@
 
 /* === Staggered reveal — used by dashboard hero blocks on first mount.
  *     Each block fades in 80ms after the previous. The base animation
- *     and reduce-motion guard live in `index.css` (.opensec-fade-in). */
+ *     and reduce-motion guard live in `index.css` (.cliff-fade-in). */
 .cd-stagger-1 { animation-delay: 0ms; }
 .cd-stagger-2 { animation-delay: 80ms; }
 .cd-stagger-3 { animation-delay: 160ms; }

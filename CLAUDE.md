@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-OpenSec is a self-hosted cybersecurity remediation copilot. It ingests vulnerability findings, enriches them with AI agents, and guides users through planning, ticketing, validating, and closing remediations — all from a chat-led web workspace.
+Cliff is a self-hosted cybersecurity remediation copilot. It ingests vulnerability findings, enriches them with AI agents, and guides users through planning, ticketing, validating, and closing remediations — all from a chat-led web workspace.
 
 Built on the [OpenCode](https://github.com/anomalyco/opencode) engine. Single-user community edition. AGPL-3.0 licensed.
 
@@ -15,8 +15,8 @@ Built on the [OpenCode](https://github.com/anomalyco/opencode) engine. Single-us
 | Frontend | React + TypeScript + Vite + Tailwind | `frontend/` |
 | Backend | FastAPI (Python 3.11+) | `backend/` |
 | AI Engine | OpenCode (Go) — binary dependency, pinned in `.opencode-version` | managed subprocess |
-| Workspace Runtime | Per-workspace OpenCode processes with isolated context (ADR-0014) | `backend/opensec/workspace/`, `backend/opensec/engine/pool.py` |
-| Database | SQLite (single file) | `data/opensec.db` |
+| Workspace Runtime | Per-workspace OpenCode processes with isolated context (ADR-0014) | `backend/cliff/workspace/`, `backend/cliff/engine/pool.py` |
+| Database | SQLite (single file) | `data/cliff.db` |
 | Deployment | Single Docker container, port 8000 | `docker/` |
 
 See `docs/architecture/overview.md` for the full system diagram and `docs/adr/0014-workspace-runtime-architecture.md` for the workspace isolation architecture.
@@ -48,7 +48,7 @@ The UI follows the Stitch-generated "Ethos Security" design system (Stitch proje
 
 ```
 backend/              FastAPI app (Python)
-  opensec/
+  cliff/
     main.py           App entry point, lifespan, CORS
     config.py         Settings via env vars
     engine/           OpenCode integration (process manager, HTTP client, process pool)
@@ -122,7 +122,7 @@ See `docs/architecture/agent-pipeline.md` for I/O contracts.
 scripts/dev.sh
 
 # Backend only
-cd backend && uv run uvicorn opensec.main:app --reload --port 8000
+cd backend && uv run uvicorn cliff.main:app --reload --port 8000
 
 # Frontend only (needs backend running for API proxy)
 cd frontend && npm run dev
@@ -142,7 +142,7 @@ cd frontend && npm test
 3. Vite dev server starts on port 5173 and proxies `/api/*` to FastAPI
 4. Browser talks to Vite (5173) in dev, or FastAPI (8000) in production
 5. All OpenCode communication goes through FastAPI — frontend never talks to OpenCode directly
-6. Idle workspace processes are automatically stopped after 10 minutes (configurable via `OPENSEC_WORKSPACE_IDLE_TIMEOUT_SECONDS`)
+6. Idle workspace processes are automatically stopped after 10 minutes (configurable via `CLIFF_WORKSPACE_IDLE_TIMEOUT_SECONDS`)
 
 ## Testing
 
@@ -159,7 +159,7 @@ cd backend && uv run pytest tests/e2e/ -v
 cd backend && uv run pytest -v
 
 # Lint
-cd backend && uv run ruff check opensec/ tests/
+cd backend && uv run ruff check cliff/ tests/
 ```
 
 ### Unit tests (187, ~0.9s)
@@ -223,11 +223,11 @@ Each workspace gets an isolated environment. See `docs/adr/0014-workspace-runtim
 | 3 | `WorkspaceProcessPool` — per-workspace OpenCode processes | Complete |
 | 4 | API integration — workspace-scoped sessions, chat, context routes | Complete |
 
-Key files: `backend/opensec/workspace/`, `backend/opensec/engine/pool.py`, `backend/opensec/agents/`
+Key files: `backend/cliff/workspace/`, `backend/cliff/engine/pool.py`, `backend/cliff/agents/`
 
 ## AI provider integration (ADR-0037, supersedes ADR-0036)
 
-OpenSec's AI provider key flows into per-workspace OpenCode subprocesses
+Cliff's AI provider key flows into per-workspace OpenCode subprocesses
 via env vars at spawn time, plus a parallel push to OpenCode's `auth.json`
 (both paths because OpenCode 1.3.x prefers `auth.json` on the outbound
 request). Six supported providers: OpenRouter, Anthropic, OpenAI, Google,
@@ -237,7 +237,7 @@ Ollama, custom OpenAI-compatible.
 `ai_integration` + `credential` vault entry. Active model is
 `app_setting(key="model")`. Per-workspace `opencode.json` and the
 singleton `opencode.json` are reconciled from these two at every save +
-spawn. `OPENSEC_AI_MODEL_OVERRIDE_*` env vars are a DEV/CI escape hatch
+spawn. `CLIFF_AI_MODEL_OVERRIDE_*` env vars are a DEV/CI escape hatch
 only — the UI picker is the canonical write path.
 
 **Three onboarding tiers (ADR-0035):**
@@ -258,15 +258,15 @@ Settings.
 **Drift detection.** `GET /api/integrations/ai/status` returns both the
 canonical model and a live probe of OpenCode's `/config`. When they
 disagree the Settings card shows a red banner with a one-click reconcile,
-and `opensec status` reports `drifted: true` with both values.
+and `cliff status` reports `drifted: true` with both values.
 
-Key files: `backend/opensec/ai/`, `backend/opensec/api/routes/ai_integrations.py`,
+Key files: `backend/cliff/ai/`, `backend/cliff/api/routes/ai_integrations.py`,
 `frontend/src/components/ai-provider/`. User-facing guide:
 `docs/guides/setup-ai-provider.md`.
 
 ## Development Workflow
 
-OpenSec uses a 4-team pipeline with CEO approval gates. Each team is a Claude Code skill.
+Cliff uses a 4-team pipeline with CEO approval gates. Each team is a Claude Code skill.
 
 ### Teams
 
@@ -276,7 +276,7 @@ OpenSec uses a 4-team pipeline with CEO approval gates. Each team is a Claude Co
 | UI/UX | `/ux-designer` | Mockups (via Stitch MCP), UX specs, design system enforcement |
 | Architect | `/architect` | ADRs, implementation plans, plan review, post-mortems |
 | R&D: App Builder | `/app-builder` | Frontend, integrations, API, Docker (Vertical 2) |
-| R&D: Agent Orchestrator | `/opensec-agent-orchestrator` | Agent pipeline, workspace runtime, engine (Vertical 1) |
+| R&D: Agent Orchestrator | `/cliff-agent-orchestrator` | Agent pipeline, workspace runtime, engine (Vertical 1) |
 
 ### Pipeline
 

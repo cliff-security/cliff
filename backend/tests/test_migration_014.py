@@ -20,12 +20,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from opensec.db.connection import close_db, init_db
+from cliff.db.connection import close_db, init_db
 
 if TYPE_CHECKING:
     import aiosqlite
 
-MIGRATIONS_DIR = Path(__file__).parent.parent / "opensec" / "db" / "migrations"
+MIGRATIONS_DIR = Path(__file__).parent.parent / "cliff" / "db" / "migrations"
 
 
 @pytest.fixture

@@ -50,7 +50,7 @@ this session, and faking screenshots would defeat the purpose of the gate.
   - `tests/api/test_dashboard_v2_payload.py` (PR-A regression contract,
     11 tests) — still green; the four-state vocab now reads from the
     unified `finding` table.
-- **Lint** — `cd backend && uv run ruff check opensec/ tests/` → "All
+- **Lint** — `cd backend && uv run ruff check cliff/ tests/` → "All
   checks passed!"
 
 ### Frontend — `cd frontend && npm test`
@@ -118,8 +118,8 @@ local app, captured side-by-side against the
 `frontend/mockups/claude-design/PRD-0003 design.html` mockup. The full
 walkthrough requires:
 
-1. Trivy + Semgrep binaries installed at `<home>/.opensec/bin/` (or
-   `OPENSEC_SCANNER_BIN_DIR` set). The runner enforces the ADR-0028 env
+1. Trivy + Semgrep binaries installed at `<home>/.cliff/bin/` (or
+   `CLIFF_SCANNER_BIN_DIR` set). The runner enforces the ADR-0028 env
    whitelist, so the binaries cannot be substituted.
 2. A GitHub PAT in the credential vault for the posture-check probes.
 3. `scripts/dev.sh` running locally with the v0.2 build, plus a browser

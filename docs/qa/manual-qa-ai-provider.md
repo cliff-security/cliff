@@ -13,9 +13,9 @@ real OpenCode subprocess, port conflicts, browser behavior).
 ```bash
 # Terminal A — backend (fresh DB)
 cd backend
-OPENSEC_DATA_DIR=/tmp/opensec-qa \
-  OPENSEC_DEMO=true \
-  uv run uvicorn opensec.main:app --port 8765 --host 127.0.0.1
+CLIFF_DATA_DIR=/tmp/cliff-qa \
+  CLIFF_DEMO=true \
+  uv run uvicorn cliff.main:app --port 8765 --host 127.0.0.1
 
 # Terminal B — frontend
 cd frontend
@@ -26,7 +26,7 @@ Open <http://127.0.0.1:5174/dashboard>. For each section below, keep the
 **Network** + **Console** panes of devtools visible.
 
 > If you need a clean slate between tiers: stop the backend, `rm -rf
-> /tmp/opensec-qa`, restart.
+> /tmp/cliff-qa`, restart.
 
 ---
 
@@ -37,8 +37,8 @@ Open <http://127.0.0.1:5174/dashboard>. For each section below, keep the
 1. Stop the backend. Restart with the key in the env:
    ```bash
    ANTHROPIC_API_KEY="<real-anthropic-key>" \
-     OPENSEC_DATA_DIR=/tmp/opensec-qa \
-     uv run uvicorn opensec.main:app --port 8765 --host 127.0.0.1
+     CLIFF_DATA_DIR=/tmp/cliff-qa \
+     uv run uvicorn cliff.main:app --port 8765 --host 127.0.0.1
    ```
 2. Hard-reload `/dashboard`.
    - [ ] Banner appears above the hero: *"We found an Anthropic API
@@ -55,7 +55,7 @@ Open <http://127.0.0.1:5174/dashboard>. For each section below, keep the
          environment)"*.
 5. Tail the backend log (`tail -f`) and grep:
    ```bash
-   grep -c "$ANTHROPIC_API_KEY" /tmp/opensec-qa-backend.log   # should print 0
+   grep -c "$ANTHROPIC_API_KEY" /tmp/cliff-qa-backend.log   # should print 0
    ```
    - [ ] Zero matches — the real key never appears in logs.
 6. Quick audit check:
@@ -78,7 +78,7 @@ Open <http://127.0.0.1:5174/dashboard>. For each section below, keep the
 
 **Goal**: cold install → two clicks → connected.
 
-1. Wipe state: stop backend, `rm -rf /tmp/opensec-qa`, restart (no key
+1. Wipe state: stop backend, `rm -rf /tmp/cliff-qa`, restart (no key
    env vars).
 2. Settings → AI provider → **Connect AI provider**.
    - [ ] Modal opens. Primary CTA: *"Connect with OpenRouter"*.
@@ -92,20 +92,20 @@ Open <http://127.0.0.1:5174/dashboard>. For each section below, keep the
    - [ ] *"Open authorization page again"* link visible below the
          spinner.
 4. In the OpenRouter tab, sign in (Google or GitHub one-click).
-   Authorize OpenSec.
+   Authorize Cliff.
    - [ ] OpenRouter shows *"You can close this tab."*
-5. Switch back to OpenSec.
+5. Switch back to Cliff.
    - [ ] Modal flips to success card within ~2s.
    - [ ] Card reads: *"Add five dollars of credits to unlock every
          model, or try free sponsored models now."*
    - [ ] Two actions: *"Add credits at openrouter.ai →"* (opens new
-         tab) and *"Start using OpenSec"* (closes modal).
+         tab) and *"Start using Cliff"* (closes modal).
 6. Settings page:
    - [ ] *"Connected via OpenRouter as <your-email>"*.
 7. Grep logs:
    ```bash
    # The OAuth code and the resulting key should never appear.
-   grep -cE "sk-or-v1|code_verifier" /tmp/opensec-qa-backend.log
+   grep -cE "sk-or-v1|code_verifier" /tmp/cliff-qa-backend.log
    ```
    - [ ] Zero matches.
 
@@ -161,7 +161,7 @@ Open <http://127.0.0.1:5174/dashboard>. For each section below, keep the
 ### OpenAI variant
 
 6. Change the dropdown to **OpenAI**.
-   - [ ] Subtitle appears under dropdown: *"OpenSec is tuned for Claude.
+   - [ ] Subtitle appears under dropdown: *"Cliff is tuned for Claude.
          Your choice should still work, but Claude tends to perform
          better on security reasoning."*
    - [ ] Instructions update to OpenAI-specific steps.
@@ -180,20 +180,20 @@ Open <http://127.0.0.1:5174/dashboard>. For each section below, keep the
 
 1. Stop backend. Restart with override env var:
    ```bash
-   OPENSEC_AI_MODEL_OVERRIDE_ANTHROPIC=claude-opus-4-1 \
-     OPENSEC_DATA_DIR=/tmp/opensec-qa \
-     uv run uvicorn opensec.main:app --port 8765 --host 127.0.0.1
+   CLIFF_AI_MODEL_OVERRIDE_ANTHROPIC=claude-opus-4-1 \
+     CLIFF_DATA_DIR=/tmp/cliff-qa \
+     uv run uvicorn cliff.main:app --port 8765 --host 127.0.0.1
    ```
 2. Watch the boot log.
    - [ ] WARNING line: *"AI model override active for anthropic:
-         claude-opus-4-1. OpenSec is tuned for claude-sonnet-4-6;
+         claude-opus-4-1. Cliff is tuned for claude-sonnet-4-6;
          performance may vary."*
 3. With an Anthropic provider already connected, open Settings.
    - [ ] Warning chip below provider name: *"Custom model:
          claude-opus-4-1. Default recommended."*
 4. Open a workspace, then inspect:
    ```bash
-   cat /tmp/opensec-qa/workspaces/<workspace_id>/opencode.json
+   cat /tmp/cliff-qa/workspaces/<workspace_id>/opencode.json
    ```
    - [ ] `model` field reads `claude-opus-4-1`, not `claude-sonnet-4-6`.
    - [ ] No `api_key`, no `sk-` substring anywhere in the file.
@@ -244,7 +244,7 @@ Open <http://127.0.0.1:5174/dashboard>. For each section below, keep the
 1. Manually insert a legacy `app_setting` row to simulate an existing
    user:
    ```bash
-   sqlite3 /tmp/opensec-qa/opensec.db \
+   sqlite3 /tmp/cliff-qa/cliff.db \
      "INSERT INTO app_setting (key, value, updated_at) VALUES ('api_key:anthropic', '{\"key\":\"sk-x\",\"key_masked\":\"sk-...x\"}', datetime('now'));"
    ```
 2. Reload `/dashboard` with the AI provider **not** connected.
@@ -255,9 +255,9 @@ Open <http://127.0.0.1:5174/dashboard>. For each section below, keep the
    - [ ] Banner stays hidden.
 5. In devtools:
    ```js
-   localStorage.removeItem('opensec.aiMigrationBanner.dismissed');
+   localStorage.removeItem('cliff.aiMigrationBanner.dismissed');
    localStorage.setItem(
-     'opensec.aiMigrationBanner.firstShownAt',
+     'cliff.aiMigrationBanner.firstShownAt',
      String(Date.now() - 31 * 24 * 60 * 60 * 1000),
    );
    ```
@@ -272,7 +272,7 @@ Open the connect modal. With devtools → **Computed**:
 
 - [ ] No element on the modal has `border-style: solid` with a
       `border-width: 1px` (use the Elements panel filter).
-- [ ] Primary CTAs (Connect / Save / Start using OpenSec) compute
+- [ ] Primary CTAs (Connect / Save / Start using Cliff) compute
       `background-color: rgb(77, 68, 227)` → `#4d44e3`.
 - [ ] Body text computes a non-pure-black color (something close to
       `#2b3437`).
@@ -280,7 +280,7 @@ Open the connect modal. With devtools → **Computed**:
 - [ ] Material Symbols Outlined is loaded for the arrow icon on the
       primary OpenRouter card.
 - [ ] All button labels are sentence case (*"Connect with OpenRouter"*,
-      *"Start using OpenSec"* — never *"Connect With OpenRouter"*).
+      *"Start using Cliff"* — never *"Connect With OpenRouter"*).
 
 ---
 

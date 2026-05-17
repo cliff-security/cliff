@@ -153,7 +153,7 @@ function ChatReplay({ messages }: { messages: ChatMessage[] }) {
               <div className="flex items-center gap-1.5 mb-1.5">
                 <span className="material-symbols-outlined text-primary text-xs">auto_awesome</span>
                 <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">
-                  OpenSec
+                  Cliff
                 </span>
               </div>
               <div className="text-xs">

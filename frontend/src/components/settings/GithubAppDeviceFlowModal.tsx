@@ -149,7 +149,7 @@ export function GithubAppDeviceFlowModal({
               tabIndex={-1}
               className="text-lg font-semibold tracking-tight text-on-surface focus:outline-none"
             >
-              Authorize OpenSec on this device
+              Authorize Cliff on this device
             </h3>
             <p className="text-sm text-on-surface-variant mt-1">
               Two steps: copy the code, paste it on GitHub. We'll handle the

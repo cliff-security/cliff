@@ -1,0 +1,29 @@
+{
+  "id": "snyk",
+  "name": "Snyk",
+  "adapter_type": "finding_source",
+  "description": "Import open-source vulnerability findings from Snyk for dependency and container scanning.",
+  "icon": "bug_report",
+  "status": "coming_soon",
+  "setup_guide_md": "## Snyk integration\n\nImport open-source and container vulnerability findings from Snyk into the Cliff queue.\n\n### Prerequisites\n\n1. A Snyk account with at least one monitored project\n2. A Snyk **API token**\n\n### Get your API token\n\n1. Go to **Account Settings** in Snyk\n2. Under **Auth Token**, click **Click to show** or generate a new one\n3. Copy the token\n\n*This integration will be available in a future release.*",
+  "credentials_schema": [
+    {
+      "key_name": "snyk_api_token",
+      "label": "API token",
+      "type": "password",
+      "required": true,
+      "help_text": "Snyk API token from your account settings.",
+      "placeholder": null
+    },
+    {
+      "key_name": "snyk_org_id",
+      "label": "Organization ID",
+      "type": "text",
+      "required": false,
+      "help_text": "Snyk organization ID (optional, defaults to your default org).",
+      "placeholder": null
+    }
+  ],
+  "capabilities": ["collect", "enrich"],
+  "docs_url": null
+}

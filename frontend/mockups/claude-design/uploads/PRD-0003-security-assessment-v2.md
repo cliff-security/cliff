@@ -34,13 +34,13 @@ Three problems with the homebrew approach:
 
 **1. Our scanning is shallow compared to what exists for free.** Trivy (34.5k GitHub stars, backed by Aqua Security) covers dependency vulnerabilities, secrets, IaC misconfigurations, and license compliance across every major ecosystem — in a single binary. Our six custom parsers cover dependency vulnerabilities in six ecosystems with none of the edge case handling that Trivy has accumulated over years. We're spending engineering time reinventing a commodity and producing worse results.
 
-**2. Our posture checks are surface-level.** Seven GitHub API checks (branch protection, SECURITY.md, secrets in code, etc.) cover the basics. But the Axiom/xz-utils supply chain attack — where an APT group socially engineered a maintainer over months to gain commit access and release a backdoored version — showed that the real attack surface isn't code. It's the humans and processes around the code. Stale collaborators with write access, CI actions pinned to mutable tags instead of SHAs, no code owners file, no signed commits. These are the gaps that actually get exploited. No existing tool checks them because they're not "vulnerabilities" in the traditional sense. They're organizational hygiene — and they're where OpenSec can be genuinely differentiated.
+**2. Our posture checks are surface-level.** Seven GitHub API checks (branch protection, SECURITY.md, secrets in code, etc.) cover the basics. But the Axiom/xz-utils supply chain attack — where an APT group socially engineered a maintainer over months to gain commit access and release a backdoored version — showed that the real attack surface isn't code. It's the humans and processes around the code. Stale collaborators with write access, CI actions pinned to mutable tags instead of SHAs, no code owners file, no signed commits. These are the gaps that actually get exploited. No existing tool checks them because they're not "vulnerabilities" in the traditional sense. They're organizational hygiene — and they're where Cliff can be genuinely differentiated.
 
 **3. We don't offer SAST or code-quality scanning.** Dependency vulnerabilities are one category. Code-level issues — SQL injection, XSS, insecure deserialization, hardcoded credentials — are another. Semgrep (14.3k stars, $100M raised) offers community rules for free that catch these. Our assessment currently has a blind spot for an entire class of security issues.
 
-The market report (2026-04-15) validates this direction: "Scanning is commoditized. Trivy 34.5k★, Semgrep 14.3k★ — winner-take-most. OpenSec should ingest, not compete." Our moat is remediation. Our assessment strategy should maximize finding coverage by standing on the shoulders of best-of-breed tools, then differentiate with posture checks that nobody else offers.
+The market report (2026-04-15) validates this direction: "Scanning is commoditized. Trivy 34.5k★, Semgrep 14.3k★ — winner-take-most. Cliff should ingest, not compete." Our moat is remediation. Our assessment strategy should maximize finding coverage by standing on the shoulders of best-of-breed tools, then differentiate with posture checks that nobody else offers.
 
-If we don't solve this, the "Secured by OpenSec" completion criteria remains a shallow checkbox exercise that any security-aware reviewer will see through. The completion ceremony celebrates something that isn't actually comprehensive. And we leave the most dangerous attack vectors (human/process gaps) completely unchecked.
+If we don't solve this, the "Secured by Cliff" completion criteria remains a shallow checkbox exercise that any security-aware reviewer will see through. The completion ceremony celebrates something that isn't actually comprehensive. And we leave the most dangerous attack vectors (human/process gaps) completely unchecked.
 
 ## Strategic context
 
@@ -71,23 +71,23 @@ Alex's experience of the assessment itself doesn't change — they still connect
 
 ## Value hypothesis
 
-> If OpenSec replaces its homebrew scanning with best-of-breed tools (Trivy, Semgrep) and deepens posture checks to cover human attack surface and CI supply chain risks, the "secured" completion status becomes credible enough that maintainers trust it, security-aware reviewers respect it, and the foundation is set for a public badge that actually means something.
+> If Cliff replaces its homebrew scanning with best-of-breed tools (Trivy, Semgrep) and deepens posture checks to cover human attack surface and CI supply chain risks, the "secured" completion status becomes credible enough that maintainers trust it, security-aware reviewers respect it, and the foundation is set for a public badge that actually means something.
 
 ## User stories
 
 ### Story 1: Automatic scanner orchestration
 
-**As** an open-source maintainer who just connected my repo, **I want** OpenSec to automatically choose and run the best security scanners for my project's tech stack, **so that** I get comprehensive vulnerability coverage without needing to know what scanners exist or how to configure them.
+**As** an open-source maintainer who just connected my repo, **I want** Cliff to automatically choose and run the best security scanners for my project's tech stack, **so that** I get comprehensive vulnerability coverage without needing to know what scanners exist or how to configure them.
 
 **Given** I've completed the onboarding wizard and my repo is connected,
 **When** the assessment runs,
-**Then** OpenSec detects my repo's ecosystems (e.g., npm + Python from the presence of `package-lock.json` and `requirements.txt`), selects the appropriate scanners (Trivy for dependency vulnerabilities and secrets, Semgrep for code issues when available), runs them against my repo clone, and normalizes all results into the same findings format I'm already used to from PRD-0002.
+**Then** Cliff detects my repo's ecosystems (e.g., npm + Python from the presence of `package-lock.json` and `requirements.txt`), selects the appropriate scanners (Trivy for dependency vulnerabilities and secrets, Semgrep for code issues when available), runs them against my repo clone, and normalizes all results into the same findings format I'm already used to from PRD-0002.
 
 **The user should feel:** "I didn't have to choose anything. It just figured out what my project needs and checked it. These results look thorough — I trust this."
 
 **How it works under the hood:**
 
-OpenSec ships with a `ScannerRunner` protocol (per ADR-0028). On assessment start, OpenSec:
+Cliff ships with a `ScannerRunner` protocol (per ADR-0028). On assessment start, Cliff:
 
 1. Scans the repo's file tree for ecosystem markers (lockfiles, config files, language-specific directories)
 2. Runs Trivy (always) and Semgrep (when code files are detected)
@@ -127,7 +127,7 @@ The existing import path for Snyk / Dependabot / Trivy JSON files stays unchange
 - [ ] Re-scan correctly closes findings that disappeared. Scope is per-`source_type`: a Trivy run does not touch externally-imported Snyk findings even though both are `type='dependency'`
 - [ ] Assessment progress indicator shows scanner-specific stages with state ("Detecting…", "Scanning dependencies with Trivy…", "Scanning code with Semgrep…", "Checking repo posture…", "Generating descriptions…")
 - [ ] Homebrew lockfile parsers and OSV.dev/GHSA clients removed from codebase when Trivy ships (no fallback period)
-- [ ] Trivy and Semgrep binaries are baked into the Docker image at build time via `scripts/install-scanners.sh`, with SHA256 verification against `.scanner-versions`. Build fails on checksum mismatch (per ADR-0028). Strict checksum mode is the default at runtime; `OPENSEC_SCANNER_CHECKSUM_VERIFY=warn` is an opt-in for air-gapped mirrors
+- [ ] Trivy and Semgrep binaries are baked into the Docker image at build time via `scripts/install-scanners.sh`, with SHA256 verification against `.scanner-versions`. Build fails on checksum mismatch (per ADR-0028). Strict checksum mode is the default at runtime; `CLIFF_SCANNER_CHECKSUM_VERIFY=warn` is an opt-in for air-gapped mirrors
 - [ ] Scanner subprocesses receive a minimal env whitelist (`PATH`, `HOME`, `LANG`, scanner cache dirs only). The GitHub PAT is **not** in the scanner env (per ADR-0028)
 - [ ] Assessment completes within 5 minutes for a repo with 500 dependencies
 - [ ] Semgrep findings render with a visual indicator on the finding card: "Code issue — may require manual review" (distinct from dependency findings which agents can auto-fix)
@@ -139,7 +139,7 @@ The existing import path for Snyk / Dependabot / Trivy JSON files stays unchange
 
 ### Story 2: Deep repo posture — CI supply chain
 
-**As** an open-source maintainer, **I want** OpenSec to check whether my CI/CD pipeline is vulnerable to supply chain attacks, **so that** I don't become the next xz-utils or tj-actions incident.
+**As** an open-source maintainer, **I want** Cliff to check whether my CI/CD pipeline is vulnerable to supply chain attacks, **so that** I don't become the next xz-utils or tj-actions incident.
 
 **Given** the assessment has run and my repo has GitHub Actions workflows,
 **When** I view the posture section of the report card,
@@ -151,7 +151,7 @@ The existing import path for Snyk / Dependabot / Trivy JSON files stays unchange
 
 | Check | What it verifies | Why it matters | Fix guidance |
 |---|---|---|---|
-| Actions pinned to SHA | Third-party GitHub Actions reference a commit SHA, not a tag or branch | Tags are mutable — a compromised action maintainer can push malicious code to an existing tag (tj-actions/changed-files incident, March 2025) | "Pin `actions/checkout@v4` to `actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11`. OpenSec can generate the pinned versions for you" |
+| Actions pinned to SHA | Third-party GitHub Actions reference a commit SHA, not a tag or branch | Tags are mutable — a compromised action maintainer can push malicious code to an existing tag (tj-actions/changed-files incident, March 2025) | "Pin `actions/checkout@v4` to `actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11`. Cliff can generate the pinned versions for you" |
 | Trusted action sources | Actions come from verified publishers or well-known organizations (actions/*, github/*, etc.) | Unknown third-party actions with write permissions are supply chain risk | "Review these actions from unverified sources: [list]. Consider replacing with alternatives from verified publishers" |
 | Workflow trigger scope | `pull_request_target` and `workflow_dispatch` triggers reviewed for injection risk | `pull_request_target` runs in the context of the base branch with write access — a common source of GitHub Actions exploits | "This workflow uses `pull_request_target` with `checkout` of PR code. This pattern is dangerous. See [GitHub security guide link]" |
 
@@ -163,14 +163,14 @@ The existing import path for Snyk / Dependabot / Trivy JSON files stays unchange
 - [ ] Trusted source check flags actions not from GitHub-verified publishers
 - [ ] Workflow trigger check identifies dangerous `pull_request_target` + `checkout` patterns
 - [ ] Each failing check shows the specific file, line number, and action reference
-- [ ] Fix guidance for SHA pinning includes an "OpenSec can pin these for you" action that generates a PR with all actions pinned to their current SHAs
+- [ ] Fix guidance for SHA pinning includes an "Cliff can pin these for you" action that generates a PR with all actions pinned to their current SHAs
 - [ ] All CI supply chain checks are completion criteria
 
 ---
 
 ### Story 3: Deep repo posture — collaborator hygiene
 
-**As** an open-source maintainer, **I want** OpenSec to flag risky collaborator access patterns, **so that** I reduce my exposure to compromised or disengaged accounts with write access to my repo.
+**As** an open-source maintainer, **I want** Cliff to flag risky collaborator access patterns, **so that** I reduce my exposure to compromised or disengaged accounts with write access to my repo.
 
 **Given** the assessment has run,
 **When** I view the posture section of the report card,
@@ -200,7 +200,7 @@ The existing import path for Snyk / Dependabot / Trivy JSON files stays unchange
 
 ### Story 4: Deep repo posture — code integrity
 
-**As** an open-source maintainer, **I want** OpenSec to verify that my repo has code integrity protections in place, **so that** I can be confident that the code in my repo is what my contributors actually wrote.
+**As** an open-source maintainer, **I want** Cliff to verify that my repo has code integrity protections in place, **so that** I can be confident that the code in my repo is what my contributors actually wrote.
 
 **Given** the assessment has run,
 **When** I view the posture section of the report card,
@@ -213,9 +213,9 @@ The existing import path for Snyk / Dependabot / Trivy JSON files stays unchange
 | Check | What it verifies | Why it matters | Fix guidance |
 |---|---|---|---|
 | Secret scanning enabled | GitHub secret scanning is turned on for the repo | Catches accidentally committed tokens and keys before they're exploited | "Enable secret scanning: Settings > Code security and analysis > Secret scanning" |
-| Code owners file | `CODEOWNERS` file exists in `.github/`, `docs/`, or repo root | Ensures PRs to sensitive paths require review from designated owners | "Create a CODEOWNERS file. OpenSec can generate one based on your git blame history" |
+| Code owners file | `CODEOWNERS` file exists in `.github/`, `docs/`, or repo root | Ensures PRs to sensitive paths require review from designated owners | "Create a CODEOWNERS file. Cliff can generate one based on your git blame history" |
 | Signed commits | Whether the repo encourages or requires commit signing | Signed commits prove authorship — unsigned commits can be spoofed | "Consider requiring signed commits for the default branch. See GitHub docs on commit signing setup" |
-| Dependabot/Renovate configured | Automated dependency update tool is set up | Keeps dependencies current, reducing the window of vulnerability exposure | "Create a `.github/dependabot.yml` config. OpenSec can generate this for you" |
+| Dependabot/Renovate configured | Automated dependency update tool is set up | Keeps dependencies current, reducing the window of vulnerability exposure | "Create a `.github/dependabot.yml` config. Cliff can generate this for you" |
 
 **Acceptance criteria:**
 
@@ -223,7 +223,7 @@ The existing import path for Snyk / Dependabot / Trivy JSON files stays unchange
 - [ ] Code owners check scans for `CODEOWNERS` in `.github/`, `docs/`, and repo root
 - [ ] Signed commits check reads branch protection rules for commit signing requirements
 - [ ] Dependabot check looks for `.github/dependabot.yml` or `renovate.json` / `.renovate.json`
-- [ ] For CODEOWNERS and Dependabot: "OpenSec can generate this" action triggers an agent that creates the file and opens a PR (same pattern as PRD-0002's SECURITY.md generator)
+- [ ] For CODEOWNERS and Dependabot: "Cliff can generate this" action triggers an agent that creates the file and opens a PR (same pattern as PRD-0002's SECURITY.md generator)
 - [ ] All code integrity checks are completion criteria
 
 ---
@@ -234,7 +234,7 @@ The existing import path for Snyk / Dependabot / Trivy JSON files stays unchange
 
 **Given** I'm going through the onboarding wizard (same 3-step flow from PRD-0002),
 **When** I reach Step 3 ("Start security assessment"),
-**Then** I see a brief explanation of what OpenSec will do — "We'll scan your repository using industry-standard security tools (Trivy, Semgrep) and check your repo's security configuration. This usually takes 2-5 minutes." — and the assessment runs automatically with a progress indicator showing which scanner is running.
+**Then** I see a brief explanation of what Cliff will do — "We'll scan your repository using industry-standard security tools (Trivy, Semgrep) and check your repo's security configuration. This usually takes 2-5 minutes." — and the assessment runs automatically with a progress indicator showing which scanner is running.
 
 **The user should feel:** "It mentioned real tools I might have heard of — Trivy, Semgrep. That gives me confidence this is thorough. And I didn't have to choose or configure anything."
 
@@ -379,7 +379,7 @@ The letter grade (A-F) adjusts to the expanded criteria set: A = all 10 met, B =
 
 **Upstream (from PRD-0002, assumed complete):**
 
-- Assessment engine module (`backend/opensec/assessment/`)
+- Assessment engine module (`backend/cliff/assessment/`)
 - Finding normalization with `plain_description` via LLM normalizer (ADR-0022)
 - Report card dashboard page with completion progress tracking
 - Completion ceremony and shareable summary card
@@ -390,16 +390,16 @@ The letter grade (A-F) adjusts to the expanded criteria set: A = all 10 met, B =
 **New infrastructure needed:**
 
 - Trivy and Semgrep binaries: pinned by SHA256 in `.scanner-versions`, downloaded from each project's GitHub releases, installed via `scripts/install-scanners.sh` (used by both `scripts/dev.sh` and `docker/Dockerfile`). Strict checksum verification by default — see ADR-0028
-- `ScannerRunner` protocol module: `backend/opensec/assessment/scanners/`
+- `ScannerRunner` protocol module: `backend/cliff/assessment/scanners/`
 - Ecosystem auto-detection helper inside the engine (no separate module; gates whether Semgrep runs)
-- Unified findings: schema migration to add `type`, `grade_impact`, `category`, `assessment_id` columns to `finding`; deprecate `posture_check` table; deterministic mapper module `backend/opensec/assessment/to_findings.py` per ADR-0027
-- Updated posture check registry: extend `backend/opensec/assessment/posture/` with new check modules
+- Unified findings: schema migration to add `type`, `grade_impact`, `category`, `assessment_id` columns to `finding`; deprecate `posture_check` table; deterministic mapper module `backend/cliff/assessment/to_findings.py` per ADR-0027
+- Updated posture check registry: extend `backend/cliff/assessment/posture/` with new check modules
 - CODEOWNERS generator agent template
 - SHA pinning generator agent template
 
 **Downstream (unblocked by this PRD):**
 
-- Public "Secured by OpenSec" README badge (v1.2) — now backed by credible assessment
+- Public "Secured by Cliff" README badge (v1.2) — now backed by credible assessment
 - SAST remediation agents (future PRD) — Semgrep findings exist, agents don't yet
 - OpenSSF Scorecard alignment — criteria overlap now closer, integration more meaningful
 - Enterprise posture features — org admin checks build on this foundation
@@ -409,7 +409,7 @@ The letter grade (A-F) adjusts to the expanded criteria set: A = all 10 met, B =
 - [x] **Trivy version pinning strategy:** Pin to a specific version. Trivy itself was targeted in a supply chain attack, so we must practice what we preach. *Originally:* pin in `.trivy-version`, auto-download script validates checksum, manual bumps required. *Superseded by ADR-0028 (2026-04-19):* pinning is per-SHA256-checksum (not per-tag) for both Trivy and Semgrep, in a unified `.scanner-versions` file. The release-time review of that file is the human gate. *Decided by: CEO (2026-04-16); evolved by ADR-0028 / rev. 2 (2026-04-25)*
 - [x] **Semgrep rule set scope:** Use `p/security-audit` (focused, security-only rules). `p/default` (~500 rules) would overwhelm Alex with non-security findings. Start narrow, expand later if users ask for more. *Decided by: CEO (2026-04-16)*
 - [x] **Stale collaborator threshold:** 90 days, not configurable. Keep it simple — no settings UI for this. If feedback from real users shows 90 days is too aggressive, revisit with data. *Decided by: CEO (2026-04-16)*
-- [x] **CODEOWNERS generation accuracy:** Generated from git blame heuristic, but the PR must be reviewed and approved by the user before merge (same draft PR pattern as all OpenSec-generated PRs). The user is the final authority on who owns what. *Decided by: CEO (2026-04-16)*
+- [x] **CODEOWNERS generation accuracy:** Generated from git blame heuristic, but the PR must be reviewed and approved by the user before merge (same draft PR pattern as all Cliff-generated PRs). The user is the final authority on who owns what. *Decided by: CEO (2026-04-16)*
 - [x] **Homebrew parser removal timing:** Remove immediately when Trivy adapter ships. No fallback period. Trivy is strictly more capable — keeping dead code adds maintenance burden and confusion. *Decided by: CEO (2026-04-16)*
 - [x] **Sequencing relative to PRD-0004 (rev. 2):** PRD-0003 ships as **v0.2**, after PRD-0004 (v0.1 alpha blockers). Get an external alpha user to Grade A unattended on the existing assessment first, then expand the scanner surface. *Decided by: CEO (2026-04-25)*
 - [x] **govulncheck (rev. 2):** Dropped. Trivy already covers Go via `go.sum`. Marginal precision gain did not justify a third pinned binary and another supply-chain surface. Revisit if Go-repo users specifically request it. *Decided by: CEO (2026-04-25)*
@@ -422,4 +422,4 @@ All resolved. No remaining blockers for v0.2 implementation planning.
 
 ---
 
-_This PRD follows the OpenSec product workflow. After the rev. 2 amendment (2026-04-25), the PRD is handed to **Claude design** for mockups (replacing the `/ux-designer` skill on this round), then to `/architect` to refresh IMPL-0003 against the agreed scope. Design hand-off uses a self-contained context bundle — see `docs/design/briefs/PRD-0003-claude-design-brief.md` (created alongside this revision)._
+_This PRD follows the Cliff product workflow. After the rev. 2 amendment (2026-04-25), the PRD is handed to **Claude design** for mockups (replacing the `/ux-designer` skill on this round), then to `/architect` to refresh IMPL-0003 against the agreed scope. Design hand-off uses a self-contained context bundle — see `docs/design/briefs/PRD-0003-claude-design-brief.md` (created alongside this revision)._

@@ -31,7 +31,7 @@ export interface PostureCheckItemProps {
   label: string
   /** Short explanation rendered under the title. Keep to 1–2 lines. */
   description?: string
-  /** Pending first click — disables the "Let OpenSec open a PR" button. */
+  /** Pending first click — disables the "Let Cliff open a PR" button. */
   pending?: boolean
   /** Fired by the state="to_do" primary button. */
   onStart?: (checkName: PostureCheckName) => void
@@ -181,7 +181,7 @@ export default function PostureCheckItem({
             <span className="material-symbols-outlined text-sm" aria-hidden>
               play_arrow
             </span>
-            {pending ? 'Starting…' : 'Let OpenSec open a PR'}
+            {pending ? 'Starting…' : 'Let Cliff open a PR'}
           </button>
         )}
         {state === 'running' && (

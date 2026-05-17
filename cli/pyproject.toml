@@ -1,7 +1,7 @@
 [project]
-name = "opensec-cli"
+name = "cliff-cli"
 version = "0.1.1"
-description = "Agent-friendly CLI for OpenSec — drive the full remediation loop from Claude Code or any agent."
+description = "Agent-friendly CLI for Cliff — drive the full remediation loop from Claude Code or any agent."
 requires-python = ">=3.11"
 license = "AGPL-3.0-only"
 dependencies = [
@@ -19,14 +19,14 @@ dev = [
 ]
 
 [project.scripts]
-opensec = "opensec_cli.cli:main"
+cliff = "cliff_cli.cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["opensec_cli*"]
+include = ["cliff_cli*"]
 exclude = ["tests*"]
 
 [tool.ruff]

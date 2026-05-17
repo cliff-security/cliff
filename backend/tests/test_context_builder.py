@@ -8,17 +8,17 @@ from typing import TYPE_CHECKING
 import aiosqlite
 import pytest
 
-from opensec.agents import AgentTemplateEngine
-from opensec.db.migrations import run_migrations
-from opensec.db.repo_finding import create_finding
-from opensec.db.repo_workspace import get_workspace
-from opensec.models import FindingCreate
-from opensec.workspace import WorkspaceContextBuilder, WorkspaceDirManager
+from cliff.agents import AgentTemplateEngine
+from cliff.db.migrations import run_migrations
+from cliff.db.repo_finding import create_finding
+from cliff.db.repo_workspace import get_workspace
+from cliff.models import FindingCreate
+from cliff.workspace import WorkspaceContextBuilder, WorkspaceDirManager
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from opensec.models import Finding
+    from cliff.models import Finding
 
 
 # ---------------------------------------------------------------------------
@@ -391,8 +391,8 @@ async def test_mark_plan_approved_writes_both_stores(
     store flips would leave the run-all loop stuck in ``await_approval``
     even though the user has approved.
     """
-    from opensec.db.repo_sidebar import get_sidebar, upsert_sidebar
-    from opensec.models import SidebarStateUpdate
+    from cliff.db.repo_sidebar import get_sidebar, upsert_sidebar
+    from cliff.models import SidebarStateUpdate
 
     workspace = await builder.create_workspace(db, sample_finding)
 

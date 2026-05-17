@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from opensec.ai import repo as ai_repo
-from opensec.db import repo_integration
-from opensec.db.connection import close_db, init_db
-from opensec.models import IntegrationConfigCreate
+from cliff.ai import repo as ai_repo
+from cliff.db import repo_integration
+from cliff.db.connection import close_db, init_db
+from cliff.models import IntegrationConfigCreate
 
 if TYPE_CHECKING:
     import aiosqlite

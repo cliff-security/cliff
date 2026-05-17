@@ -6,7 +6,7 @@
 Every prompt assumes:
 
 - The session is running Claude Code with full tool access (Read/Write/Edit/Bash/Task).
-- The repo is checked out at `/Users/galankonina/projects/OpenSec` (or the equivalent on the machine running the session).
+- The repo is checked out at `/Users/galankonina/projects/Cliff` (or the equivalent on the machine running the session).
 - Session 0 has been run and merged before any of Sessions A–F start.
 
 ---
@@ -27,11 +27,11 @@ Every prompt assumes:
 >
 > **Deliverables (all in this one PR):**
 >
-> 1. DB migration at `backend/opensec/db/migrations/0014_from_zero_to_secure.sql`. Adds `plain_description TEXT NULL` to `findings`. Creates three new tables per IMPL-0002 Milestone A: `assessments`, `posture_checks`, `completions` (including `share_actions_used TEXT[]`).
-> 2. Pydantic models for the four affected entities at `backend/opensec/models/{finding,assessment,posture_check,completion}.py`. Fields only — no DAO logic yet.
-> 3. FastAPI route stubs at `backend/opensec/api/routes/{onboarding,assessment,dashboard,posture,completion}.py`. Correct request/response types, bodies raise `NotImplementedError()`. Snapshot test at `tests/api/test_openapi_snapshot.py` that freezes the current OpenAPI schema.
+> 1. DB migration at `backend/cliff/db/migrations/0014_from_zero_to_secure.sql`. Adds `plain_description TEXT NULL` to `findings`. Creates three new tables per IMPL-0002 Milestone A: `assessments`, `posture_checks`, `completions` (including `share_actions_used TEXT[]`).
+> 2. Pydantic models for the four affected entities at `backend/cliff/models/{finding,assessment,posture_check,completion}.py`. Fields only — no DAO logic yet.
+> 3. FastAPI route stubs at `backend/cliff/api/routes/{onboarding,assessment,dashboard,posture,completion}.py`. Correct request/response types, bodies raise `NotImplementedError()`. Snapshot test at `tests/api/test_openapi_snapshot.py` that freezes the current OpenAPI schema.
 > 4. Auto-generate TypeScript types: run `npx openapi-typescript` against the running backend stubs and commit the output to `frontend/src/api/types.ts`.
-> 5. V1↔V2 interface stub in `backend/opensec/workspace/dir_manager.py`: add `WorkspaceKind` enum with `repo_action_security_md` and `repo_action_dependabot`. Add `create_repo_workspace(kind, repo_url, params)` signature with `raise NotImplementedError`.
+> 5. V1↔V2 interface stub in `backend/cliff/workspace/dir_manager.py`: add `WorkspaceKind` enum with `repo_action_security_md` and `repo_action_dependabot`. Add `create_repo_workspace(kind, repo_url, params)` signature with `raise NotImplementedError`.
 > 6. Five placeholder components in Storybook: `CompletionProgressCard`, `CompletionStatusCard`, `ScorecardInfoLine`, `ShareableSummaryCard`, `SummaryActionPanel`. Each renders its prop list — no styling beyond baseline.
 >
 > **Rules:**
@@ -53,7 +53,7 @@ Every prompt assumes:
 >
 > **Scope:** IMPL-0002 Milestone B (B1–B6) — lockfile parsers, OSV.dev client, GHSA fallback, posture checks, assessment orchestrator.
 >
-> **Owns files:** `backend/opensec/assessment/**`, fixtures under `backend/tests/fixtures/lockfiles/**`, tests under `backend/tests/assessment/**`.
+> **Owns files:** `backend/cliff/assessment/**`, fixtures under `backend/tests/fixtures/lockfiles/**`, tests under `backend/tests/assessment/**`.
 >
 > **Do NOT touch:** API routes (Session B), frontend (Sessions D/E/F), agent templates (Session C), DB migrations (Session 0 owns).
 >
@@ -80,9 +80,9 @@ Every prompt assumes:
 >
 > **Scope:** A2 (DAOs), C2 (thread `plain_description` through ingest), D1–D5 (five API routes with real implementations).
 >
-> **Owns files:** `backend/opensec/db/dao/{assessment,posture_check,completion}.py`, `backend/opensec/api/routes/{onboarding,assessment,dashboard,posture,completion}.py`, `backend/opensec/ingest/worker.py`.
+> **Owns files:** `backend/cliff/db/dao/{assessment,posture_check,completion}.py`, `backend/cliff/api/routes/{onboarding,assessment,dashboard,posture,completion}.py`, `backend/cliff/ingest/worker.py`.
 >
-> **Do NOT touch:** the assessment engine internals (Session A owns `backend/opensec/assessment/**`), frontend, agent templates.
+> **Do NOT touch:** the assessment engine internals (Session A owns `backend/cliff/assessment/**`), frontend, agent templates.
 >
 > **Mocks you'll use:**
 >
@@ -108,7 +108,7 @@ Every prompt assumes:
 >
 > **Scope:** extend the `finding-normalizer` agent to emit `plain_description`; create two new single-shot template agents (SECURITY.md generator, dependabot.yml generator); wire `WorkspaceKind` enum through to the process pool.
 >
-> **Owns files:** `.opencode/agents/finding-normalizer.md`, `backend/opensec/agents/templates/{security_md_generator,dependabot_config_generator}.md.j2`, `backend/opensec/workspace/dir_manager.py` (add enum handling), `backend/opensec/engine/pool.py` (cleanup trigger), `backend/tests/e2e/test_repo_workspace_agents.py`.
+> **Owns files:** `.opencode/agents/finding-normalizer.md`, `backend/cliff/agents/templates/{security_md_generator,dependabot_config_generator}.md.j2`, `backend/cliff/workspace/dir_manager.py` (add enum handling), `backend/cliff/engine/pool.py` (cleanup trigger), `backend/tests/e2e/test_repo_workspace_agents.py`.
 >
 > **Do NOT touch:** the assessment engine, API routes, any frontend.
 >
@@ -247,13 +247,13 @@ Every prompt assumes:
 > **Steps:**
 >
 > 1. Delete the MSW mocks in the frontend for routes that now have real backend implementations. Routes: `POST /api/onboarding/repo`, `POST /api/onboarding/complete`, `POST /api/assessment/run`, `GET /api/assessment/status/:id`, `GET /api/assessment/latest`, `GET /api/dashboard`, `POST /api/posture/fix/:check`, `POST /api/completion/:id/share-action`. Leave any others mocked if they exist. Specifically: strip `startMockApi()` from `frontend/src/main.tsx` (or flip its default so the `VITE_USE_REAL_API` gate becomes the fall-through), remove `frontend/src/test/msw/browser.ts`, and delete `frontend/public/mockServiceWorker.js`. The Vitest server at `frontend/src/test/msw/server.ts` stays for unit-test isolation.
-> 2. Wire the real engine into the DI seam. Edit `backend/opensec/api/_engine_dep.py::get_assessment_engine` so its body returns Session A's engine (`from opensec.assessment.engine import AssessmentEngine; return AssessmentEngine(...)`). Same for `get_repo_workspace_spawner` — its body should construct and return the spawner shim built on top of Session C's `WorkspaceDirManager.create_repo_workspace`. Do NOT touch the protocol definitions or route code; the DI seam is designed so integration is a two-line body swap. Then resolve the three contract gaps in `docs/known-issues/session-b-handoff-gaps.md` (posture-check dict shape, findings persistence path, DAO-write ownership) — each is either a "Session A already did it this way, good" confirmation or a small adapter in `_background.run_and_persist_assessment`. Re-run `uv run pytest -v` — route tests still use `app.dependency_overrides` with the fake and must stay green.
-> 3. **Contract gap from Session D — close it here.** The `OnboardingRepoResponse` Session-0 stub is `{ assessment_id, repo_url }`. Session D's `ConnectionResultCard` reads `response.verified` (visibility, default branch, permissions) from the MSW payload. Either (a) extend `backend/opensec/api/routes/onboarding.py::OnboardingRepoResponse` to return a `verified: VerifiedRepoSummary` subobject populated by Session B's real repo check, or (b) make `ConnectionResultCard` render a derived-from-URL fallback when `verified` is absent. Prefer (a) — it's two fields and the backend already hits the GitHub API. Update `frontend/src/api/types.ts` via `npm run generate:types`.
+> 2. Wire the real engine into the DI seam. Edit `backend/cliff/api/_engine_dep.py::get_assessment_engine` so its body returns Session A's engine (`from cliff.assessment.engine import AssessmentEngine; return AssessmentEngine(...)`). Same for `get_repo_workspace_spawner` — its body should construct and return the spawner shim built on top of Session C's `WorkspaceDirManager.create_repo_workspace`. Do NOT touch the protocol definitions or route code; the DI seam is designed so integration is a two-line body swap. Then resolve the three contract gaps in `docs/known-issues/session-b-handoff-gaps.md` (posture-check dict shape, findings persistence path, DAO-write ownership) — each is either a "Session A already did it this way, good" confirmation or a small adapter in `_background.run_and_persist_assessment`. Re-run `uv run pytest -v` — route tests still use `app.dependency_overrides` with the fake and must stay green.
+> 3. **Contract gap from Session D — close it here.** The `OnboardingRepoResponse` Session-0 stub is `{ assessment_id, repo_url }`. Session D's `ConnectionResultCard` reads `response.verified` (visibility, default branch, permissions) from the MSW payload. Either (a) extend `backend/cliff/api/routes/onboarding.py::OnboardingRepoResponse` to return a `verified: VerifiedRepoSummary` subobject populated by Session B's real repo check, or (b) make `ConnectionResultCard` render a derived-from-URL fallback when `verified` is absent. Prefer (a) — it's two fields and the backend already hits the GitHub API. Update `frontend/src/api/types.ts` via `npm run generate:types`.
 > 4. In `backend/tests/api/`, replace the `FakeAssessmentEngine` from Session B with the real engine from Session A (the route DI override; the production wiring is step 2). Re-run the full backend test suite — `uv run pytest -v`. Fix any integration breakage by reopening the owning session's PR as a hot-fix.
 > 5. Write the end-to-end Playwright test at `frontend/tests/e2e/from_zero_to_secure.spec.ts`: start from empty DB, complete onboarding against a seeded fixture repo, run assessment, solve one finding, reach completion, click Download, verify a non-empty PNG lands in the Playwright download directory. Verify via backend check that `completions.share_actions_used` contains `download`.
 > 6. Run the cross-browser PNG-export smoke across Chromium, Firefox, and WebKit (`playwright test --project=chromium --project=firefox --project=webkit`). Note: Session D and Session F shipped without Playwright CT — this is the first Playwright install in the repo. `npm install --save-dev @playwright/test` + `npx playwright install` + a minimal `playwright.config.ts` is part of this session's setup.
 > 7. Write `docs/guides/assessment-engine.md` — a contributor guide for adding a new lockfile parser or posture check. 1–2 pages.
-> 8. Add a `OPENSEC_V1_1_FROM_ZERO_TO_SECURE_ENABLED` feature flag to `backend/opensec/config.py` defaulting to `false`. Guard the new onboarding-wizard redirect behind it.
+> 8. Add a `CLIFF_V1_1_FROM_ZERO_TO_SECURE_ENABLED` feature flag to `backend/cliff/config.py` defaulting to `false`. Guard the new onboarding-wizard redirect behind it.
 > 9. Smoke-test the full flow manually against a throwaway repo. Screenshot the celebration + summary card for the PR description.
 >
 > **Branch:** `feat/from-zero-to-secure-integration`. This is the final PR.

@@ -73,7 +73,7 @@ The AI runtime engine — see [ADR-0001](../adr/0001-opencode-engine-integration
 
 Product state store — see [ADR-0004](../adr/0004-sqlite-persistence.md).
 
-- Single file at `data/opensec.db`
+- Single file at `data/cliff.db`
 - All domain entities (see [domain-model.md](domain-model.md))
 - WAL mode for read concurrency
 - Numbered migration scripts
@@ -112,7 +112,7 @@ Browser  --HTTP/SSE-->  FastAPI (:8000)
 Single Docker container — see [ADR-0005](../adr/0005-single-docker-container.md).
 
 ```
-docker run -p 8000:8000 -v opensec-data:/data opensec
+docker run -p 8000:8000 -v cliff-data:/data cliff
 ```
 
 Internally managed by a process supervisor (supervisord):

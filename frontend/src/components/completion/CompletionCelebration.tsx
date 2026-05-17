@@ -107,7 +107,7 @@ export default function CompletionCelebration({
         </div>
 
         <p className="mt-6 text-xs text-on-surface-variant max-w-md mx-auto">
-          OpenSec never writes to your README. The full summary panel with
+          Cliff never writes to your README. The full summary panel with
           previews is just below.
         </p>
       </div>

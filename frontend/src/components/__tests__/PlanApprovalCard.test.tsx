@@ -35,12 +35,12 @@ describe('PlanApprovalCard', () => {
     render(
       <PlanApprovalCard
         plan={basePlan}
-        branchName="opensec/fix/cve-2026-1234"
+        branchName="cliff/fix/cve-2026-1234"
         onApprove={vi.fn()}
         onModify={vi.fn()}
       />
     )
-    expect(screen.getByText('opensec/fix/cve-2026-1234')).toBeInTheDocument()
+    expect(screen.getByText('cliff/fix/cve-2026-1234')).toBeInTheDocument()
   })
 
   it('renders definition of done', () => {

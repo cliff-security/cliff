@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Build the OpenSec local-install tarball.
+# Build the Cliff local-install tarball.
 #
 # Output:
-#   dist/opensec-<version>.tar.gz
-#   dist/opensec-<version>.tar.gz.sha256
+#   dist/cliff-<version>.tar.gz
+#   dist/cliff-<version>.tar.gz.sha256
 #
 # Layout inside the tarball (extracts directly under the install's app dir):
-#   backend/                pyproject.toml, uv.lock, opensec/
+#   backend/                pyproject.toml, uv.lock, cliff/
 #   frontend/dist/          prebuilt SPA (vite output)
-#   cli/                    opensec_cli source + pyproject.toml
+#   cli/                    cliff_cli source + pyproject.toml
 #   scripts/                install-opencode.sh, install-scanners.sh
 #   .opencode-version
 #   .scanner-versions
@@ -35,7 +35,7 @@ if [[ -z "${VERSION}" ]]; then
 fi
 
 DIST_DIR="${REPO_ROOT}/dist"
-STAGE_DIR="$(mktemp -d -t opensec-build-XXXXXXXX)"
+STAGE_DIR="$(mktemp -d -t cliff-build-XXXXXXXX)"
 trap 'rm -rf "${STAGE_DIR}"' EXIT
 mkdir -p "${DIST_DIR}"
 
@@ -107,20 +107,20 @@ cp .scanner-versions "${STAGE_DIR}/"
 echo "${VERSION}" > "${STAGE_DIR}/VERSION"
 
 cat > "${STAGE_DIR}/README-LOCAL-INSTALL.md" <<'EOF'
-This tarball is the OpenSec native install payload.
+This tarball is the Cliff native install payload.
 
 If you got here directly, you almost certainly want the installer instead:
 
-    curl -fsSL https://github.com/galanko/opensec/releases/latest/download/install-local.sh | sh
+    curl -fsSL https://github.com/galanko/cliff/releases/latest/download/install-local.sh | sh
 
-The installer downloads this tarball, extracts it under ~/.opensec/app/,
+The installer downloads this tarball, extracts it under ~/.cliff/app/,
 sets up a uv-managed Python venv, installs the opencode/trivy/semgrep
-binaries via the bundled scripts, and drops `opensec` into ~/.local/bin/.
+binaries via the bundled scripts, and drops `cliff` into ~/.local/bin/.
 EOF
 
 # ---- archive ---------------------------------------------------------------
 
-ARCHIVE_NAME="opensec-${VERSION}.tar.gz"
+ARCHIVE_NAME="cliff-${VERSION}.tar.gz"
 ARCHIVE_PATH="${DIST_DIR}/${ARCHIVE_NAME}"
 echo "==> writing ${ARCHIVE_PATH}"
 tar -czf "${ARCHIVE_PATH}" -C "${STAGE_DIR}" .
@@ -134,17 +134,17 @@ else
   echo "warn: no shasum/sha256sum found — skipping .sha256 generation" >&2
 fi
 
-# Also produce a stable-name copy so /releases/latest/download/opensec.tar.gz
+# Also produce a stable-name copy so /releases/latest/download/cliff.tar.gz
 # resolves cleanly. CI uploads both.
-cp "${ARCHIVE_PATH}" "${DIST_DIR}/opensec.tar.gz"
+cp "${ARCHIVE_PATH}" "${DIST_DIR}/cliff.tar.gz"
 if [[ -f "${ARCHIVE_PATH}.sha256" ]]; then
-  cp "${ARCHIVE_PATH}.sha256" "${DIST_DIR}/opensec.tar.gz.sha256"
+  cp "${ARCHIVE_PATH}.sha256" "${DIST_DIR}/cliff.tar.gz.sha256"
   # Rewrite the filename inside the .sha256 file so `shasum -c` works against
   # the stable-name copy too.
-  awk -v new="opensec.tar.gz" '{print $1"  "new}' "${ARCHIVE_PATH}.sha256" \
-    > "${DIST_DIR}/opensec.tar.gz.sha256"
+  awk -v new="cliff.tar.gz" '{print $1"  "new}' "${ARCHIVE_PATH}.sha256" \
+    > "${DIST_DIR}/cliff.tar.gz.sha256"
 fi
 
 echo
 echo "Built:"
-ls -lh "${DIST_DIR}"/opensec*.tar.gz "${DIST_DIR}"/opensec*.sha256 2>/dev/null || true
+ls -lh "${DIST_DIR}"/cliff*.tar.gz "${DIST_DIR}"/cliff*.sha256 2>/dev/null || true

@@ -9,7 +9,7 @@
 
 ## Summary
 
-Replace the single-tier "paste an API key" AI configuration with a tiered onboarding (auto-detect → OpenRouter OAuth → direct BYOK). The model is hidden in the UI across all three tiers; OpenSec opinionates on Sonnet 4.6 (`anthropic/claude-sonnet-4-6` on OpenRouter, `claude-sonnet-4-6` direct) and falls back to `gpt-5` for OpenAI-direct with a "tuned for Claude" warning. Keys flow into per-workspace OpenCode subprocesses via the existing env-var injection seam (`WorkspaceProcessPool.start(env_vars=...)`); they never touch `opencode.json` or `auth.json`.
+Replace the single-tier "paste an API key" AI configuration with a tiered onboarding (auto-detect → OpenRouter OAuth → direct BYOK). The model is hidden in the UI across all three tiers; Cliff opinionates on Sonnet 4.6 (`anthropic/claude-sonnet-4-6` on OpenRouter, `claude-sonnet-4-6` direct) and falls back to `gpt-5` for OpenAI-direct with a "tuned for Claude" warning. Keys flow into per-workspace OpenCode subprocesses via the existing env-var injection seam (`WorkspaceProcessPool.start(env_vars=...)`); they never touch `opencode.json` or `auth.json`.
 
 Encryption reuses `CredentialVault` (AES-256-GCM, ADR-0016) — same choice as the merged GitHub App work (ADR-0035, PR #145).
 
@@ -17,24 +17,24 @@ Encryption reuses `CredentialVault` (AES-256-GCM, ADR-0016) — same choice as t
 
 | Layer | Team | Files |
 |-------|------|-------|
-| DB migration + repo | App Builder | `backend/opensec/db/migrations/0017_ai_integration.sql`, `backend/opensec/db/repo_ai_integration.py` |
-| Encryption (reuse) | App Builder | `backend/opensec/integrations/vault.py` (no changes) |
-| Auto-detect scanner | App Builder | `backend/opensec/ai/autodetect.py` |
-| OAuth PKCE + listener | App Builder | `backend/opensec/ai/openrouter_oauth.py` |
-| BYOK validators | App Builder | `backend/opensec/ai/validators.py` |
-| AI integration service | App Builder | `backend/opensec/ai/service.py` |
-| API routes | App Builder | `backend/opensec/api/routes/ai_integrations.py` |
-| OpenCode env injection | Agent Orchestrator | `backend/opensec/engine/pool.py` callers, `backend/opensec/workspace/context_builder.py` |
+| DB migration + repo | App Builder | `backend/cliff/db/migrations/0017_ai_integration.sql`, `backend/cliff/db/repo_ai_integration.py` |
+| Encryption (reuse) | App Builder | `backend/cliff/integrations/vault.py` (no changes) |
+| Auto-detect scanner | App Builder | `backend/cliff/ai/autodetect.py` |
+| OAuth PKCE + listener | App Builder | `backend/cliff/ai/openrouter_oauth.py` |
+| BYOK validators | App Builder | `backend/cliff/ai/validators.py` |
+| AI integration service | App Builder | `backend/cliff/ai/service.py` |
+| API routes | App Builder | `backend/cliff/api/routes/ai_integrations.py` |
+| OpenCode env injection | Agent Orchestrator | `backend/cliff/engine/pool.py` callers, `backend/cliff/workspace/context_builder.py` |
 | Workspace opencode.json template | Agent Orchestrator | wherever `opencode.json` is rendered into the workspace dir |
-| Singleton restart on key change | Agent Orchestrator | `backend/opensec/engine/process.py`, `backend/opensec/main.py` lifespan |
+| Singleton restart on key change | Agent Orchestrator | `backend/cliff/engine/process.py`, `backend/cliff/main.py` lifespan |
 | Modal + state machine | App Builder | `frontend/src/components/ai-provider/` |
 | Auto-detect banner | App Builder | `frontend/src/components/ai-provider/AutoDetectBanner.tsx` (mount in `IssuesPage` / `DashboardPage`) |
 | Settings status card | App Builder | `frontend/src/components/ai-provider/AIProviderStatus.tsx` |
 | User docs | App Builder | `docs/guides/setup-ai-provider.md` |
 
-Cross-vertical interface: the **AI integration service** in `backend/opensec/ai/service.py` is the single point that resolves a key and an env-var name for a given provider. Both the workspace pool and the singleton OpenCode launcher import from it. No frontend → agent coupling; no agent → integration coupling beyond this one read interface.
+Cross-vertical interface: the **AI integration service** in `backend/cliff/ai/service.py` is the single point that resolves a key and an env-var name for a given provider. Both the workspace pool and the singleton OpenCode launcher import from it. No frontend → agent coupling; no agent → integration coupling beyond this one read interface.
 
-Migration number `0017` confirmed by inspecting `backend/opensec/db/migrations/` — `0016` is the GitHub App table from PR #145.
+Migration number `0017` confirmed by inspecting `backend/cliff/db/migrations/` — `0016` is the GitHub App table from PR #145.
 
 ## Task breakdown (TDD-first)
 
@@ -60,9 +60,9 @@ Tests first in each task.
 - Test: `tests/test_repo_ai_integration.py` — CRUD round-trip; cascade behavior verified.
 
 #### A4 — Provider catalog (constant)
-- `backend/opensec/ai/catalog.py` — for each `AIProvider`: `env_var_name`, `default_model`, `console_url`, `key_hint` (e.g. `"sk-ant-"`).
+- `backend/cliff/ai/catalog.py` — for each `AIProvider`: `env_var_name`, `default_model`, `console_url`, `key_hint` (e.g. `"sk-ant-"`).
 - `default_model` values per ADR-0036: openrouter → `anthropic/claude-sonnet-4-6`, anthropic → `claude-sonnet-4-6`, openai → `gpt-5`, custom → `None` (required field).
-- `resolve_model(provider)` — reads the env-var override (`OPENSEC_AI_MODEL_OVERRIDE_<PROVIDER>`) if set, else returns `default_model`. Logs a `WARNING` once at startup if any override is active.
+- `resolve_model(provider)` — reads the env-var override (`CLIFF_AI_MODEL_OVERRIDE_<PROVIDER>`) if set, else returns `default_model`. Logs a `WARNING` once at startup if any override is active.
 - Tests: `tests/test_ai_catalog.py` — every `AIProvider` enum value has an entry; env-var override returns the override; warning is logged once and only once.
 
 #### A5 — `AIIntegrationService`
@@ -77,7 +77,7 @@ Tests first in each task.
 
 ### Phase B — Auto-detect (App Builder)
 
-#### B1 — Scanner `backend/opensec/ai/autodetect.py`
+#### B1 — Scanner `backend/cliff/ai/autodetect.py`
 Priority order, first match wins, returns `DetectedKey(provider, source, raw_key)` or `None`:
 1. `~/.claude/.credentials.json` — JSON; look for top-level `anthropic_api_key` or nested under `accounts[].api_key`. Tolerate malformed files (return `None`, never raise).
 2. `ANTHROPIC_API_KEY` env var.
@@ -97,7 +97,7 @@ Priority order, first match wins, returns `DetectedKey(provider, source, raw_key
 
 ### Phase C — OpenRouter OAuth (App Builder)
 
-#### C1 — PKCE primitives `backend/opensec/ai/openrouter_oauth.py`
+#### C1 — PKCE primitives `backend/cliff/ai/openrouter_oauth.py`
 - `generate_pkce_pair()` → `(code_verifier: str, code_challenge: str)`; verifier is 43-char URL-safe random, challenge is `base64url(sha256(verifier))` without padding.
 - `generate_state()` → 32-char URL-safe random CSRF token.
 - Test: `tests/test_pkce.py` — pair determinism (challenge derives from verifier), length contracts, alphabet.
@@ -127,7 +127,7 @@ Priority order, first match wins, returns `DetectedKey(provider, source, raw_key
 
 ### Phase D — Direct BYOK validators (App Builder)
 
-#### D1 — Per-provider validators `backend/opensec/ai/validators.py`
+#### D1 — Per-provider validators `backend/cliff/ai/validators.py`
 - `validate_anthropic(key)` → `POST https://api.anthropic.com/v1/messages` with `model: claude-sonnet-4-6`, `max_tokens: 1`, body `[{role: "user", content: "ok"}]`. Headers: `x-api-key`, `anthropic-version: 2023-06-01`.
 - `validate_openai(key)` → `POST https://api.openai.com/v1/chat/completions` with `model: gpt-5`, `max_tokens: 1`, body `[{role: "user", content: "ok"}]`. Header: `Authorization: Bearer <key>`.
 - `validate_openrouter(key)` → `GET https://openrouter.ai/api/v1/key` with `Authorization: Bearer <key>`.
@@ -213,7 +213,7 @@ type AIProviderState =
 - Initial: primary CTA "Connect with OpenRouter."
 - Loading: opens auth URL in new tab, switches to "Waiting for you to authorize on openrouter.ai" card + `[Open authorization page again]` link.
 - Polling `/openrouter/status` every 1s, 5-min hard timeout (counts down visibly under the spinner).
-- On `connected`: success card per brief copy ("Add $5 of credits..." with deep link + Start using OpenSec primary CTA).
+- On `connected`: success card per brief copy ("Add $5 of credits..." with deep link + Start using Cliff primary CTA).
 - On `port_3000_in_use` (start returned 409): switches to friendly conflict card with `[Try again]` + `[Use my own API key]`.
 - On `denied` / `timeout` / `error`: non-judgmental retry card.
 - Test: each branch.
@@ -221,7 +221,7 @@ type AIProviderState =
 #### G5 — `DirectBYOKForm.tsx`
 - Provider dropdown (Anthropic default, OpenAI, Other).
 - Provider-specific instructions panel updates inline. Deep-link button (`[Open Anthropic console →]`) opens in a new tab — never auto-navigates the user away.
-- When `openai` or `custom` is selected, a calm subtitle reads: "OpenSec is tuned for Claude. GPT-5 should still work but Claude tends to perform better on security reasoning." (Sentence case, no warning iconography — informational only.)
+- When `openai` or `custom` is selected, a calm subtitle reads: "Cliff is tuned for Claude. GPT-5 should still work but Claude tends to perform better on security reasoning." (Sentence case, no warning iconography — informational only.)
 - Password-style key input.
 - Live validation: debounced 250ms on blur / paste. Hits `POST /api/integrations/ai/byok` with the key. **Inline spinner** beside the field; **never** a blocking overlay. Inline ✓ on success, inline error copy on failure (401/403/network per brief).
 - Save button disabled until validation passes.
@@ -252,7 +252,7 @@ type AIProviderState =
 #### G9 — Agent-button gating
 - A small `useAIRequired()` hook returns `{ enabled: bool, tooltip: string, onClick: () => void }`.
 - Every agent CTA (`Run agent`, `Enrich finding`, chat send, `Solve`) uses it: when `unconfigured`, the button is disabled with tooltip "Configure AI provider first." and clicking opens the modal at `picking-method`.
-- For OpenAI/custom configured users on first agent click: a one-time toast "OpenSec is tuned for Claude; performance may vary with your selected model." (sessionStorage so it appears once per session).
+- For OpenAI/custom configured users on first agent click: a one-time toast "Cliff is tuned for Claude; performance may vary with your selected model." (sessionStorage so it appears once per session).
 - Test: button disabled in unconfigured state, opens modal on click, one-time toast appears for OpenAI users.
 
 ### Phase H — Documentation + final wiring
@@ -265,7 +265,7 @@ type AIProviderState =
   - The "tuned for Claude" guidance — why we recommend Claude, what to expect on other models.
   - Port 3000 conflict troubleshooting.
   - Disconnect + key-revocation instructions.
-  - Model override env vars (`OPENSEC_AI_MODEL_OVERRIDE_*`) — documented as an advanced escape hatch with a "default recommended" callout.
+  - Model override env vars (`CLIFF_AI_MODEL_OVERRIDE_*`) — documented as an advanced escape hatch with a "default recommended" callout.
 
 #### H2 — Update ADR-0012 cross-reference
 - ADR-0012 was "runtime settings via OpenCode API." Add a "Partially superseded by ADR-0036" note for the AI-key portion specifically (other config like model selection still flows through OpenCode `/config`).
@@ -319,7 +319,7 @@ type AIProviderState =
 Tests the parts CI can't fully simulate.
 
 **Auto-detect (Tier 1)**
-- [ ] With `ANTHROPIC_API_KEY` in the shell that launched OpenSec, opening `/dashboard` shows the auto-detect banner within 1s.
+- [ ] With `ANTHROPIC_API_KEY` in the shell that launched Cliff, opening `/dashboard` shows the auto-detect banner within 1s.
 - [ ] Clicking `[Use it]` → toast + Settings shows "Connected via Anthropic (auto-detected from environment)".
 - [ ] With `~/.claude/.credentials.json` present and **no** env vars, the banner says "Found a Claude Code API key" — not the env-var variant.
 - [ ] Dismissing the banner sticks for the session; reloading does not bring it back.
@@ -329,7 +329,7 @@ Tests the parts CI can't fully simulate.
 **OpenRouter OAuth (Tier 2)**
 - [ ] Cold install + click "Connect with OpenRouter" → new tab opens to openrouter.ai/auth, modal shows the waiting card.
 - [ ] Sign in via Google → authorize → tab shows "you can close this tab" → modal flips to success card within 2s.
-- [ ] Success card primary CTA "Start using OpenSec" closes the modal; secondary "Add credits at openrouter.ai" opens in new tab.
+- [ ] Success card primary CTA "Start using Cliff" closes the modal; secondary "Add credits at openrouter.ai" opens in new tab.
 - [ ] Pre-open another process bound to port 3000 (`python -m http.server 3000`) → click Connect → 409 returns friendly "another app is using port 3000" with `[Try again]` and `[Use my own API key]`.
 - [ ] Start OAuth, don't authorize, wait 5 minutes → modal flips to timeout state with retry button.
 - [ ] Start OAuth, click Deny on openrouter.ai → modal flips to non-judgmental retry card.
@@ -346,7 +346,7 @@ Tests the parts CI can't fully simulate.
 - [ ] Switch to Other → base URL field appears alongside key field; both required; "tuned for Claude" subtitle appears.
 
 **Model override**
-- [ ] Launch OpenSec with `OPENSEC_AI_MODEL_OVERRIDE_ANTHROPIC=claude-opus-4-1` set. Backend logs a `WARNING` at boot mentioning the override.
+- [ ] Launch Cliff with `CLIFF_AI_MODEL_OVERRIDE_ANTHROPIC=claude-opus-4-1` set. Backend logs a `WARNING` at boot mentioning the override.
 - [ ] Settings → AI provider card renders the "Custom model: claude-opus-4-1. Default recommended." chip.
 - [ ] Open a workspace → `opencode.json` contains `claude-opus-4-1`, not `claude-sonnet-4-6`.
 - [ ] Unset the env var and restart → chip disappears, model returns to default.

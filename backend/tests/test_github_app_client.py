@@ -19,7 +19,7 @@ from urllib.parse import parse_qs
 import httpx
 import pytest
 
-from opensec.integrations.github_app.client import (
+from cliff.integrations.github_app.client import (
     DeviceCodeResponse,
     GitHubDeviceFlowClient,
     GitHubDeviceFlowError,

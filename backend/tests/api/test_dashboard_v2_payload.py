@@ -22,7 +22,7 @@ import json
 
 import pytest
 
-from opensec.models import (
+from cliff.models import (
     AssessmentCreate,
     CriteriaSnapshot,
     FindingCreate,
@@ -48,10 +48,10 @@ def _all_met_snapshot() -> CriteriaSnapshot:
 
 async def _seed_assessment(grade: str = "B", *, with_pr_url: bool = False) -> str:
     """Seed an assessment with 15 posture findings via the unified UPSERT path."""
-    from opensec.assessment.posture import ADVISORY_CHECKS, CHECK_CATEGORY
-    from opensec.db.connection import _db
-    from opensec.db.dao.assessment import create_assessment, set_assessment_result
-    from opensec.db.repo_finding import create_finding
+    from cliff.assessment.posture import ADVISORY_CHECKS, CHECK_CATEGORY
+    from cliff.db.connection import _db
+    from cliff.db.dao.assessment import create_assessment, set_assessment_result
+    from cliff.db.repo_finding import create_finding
 
     assert _db is not None
     repo_url = "https://github.com/a/b"
@@ -95,7 +95,7 @@ async def _seed_assessment(grade: str = "B", *, with_pr_url: bool = False) -> st
         await create_finding(
             _db,
             FindingCreate(
-                source_type="opensec-posture",
+                source_type="cliff-posture",
                 source_id=f"{repo_url}:{name}",
                 type="posture",
                 grade_impact=grade_impact,
@@ -283,8 +283,8 @@ async def test_assessment_status_step_hint_for_posture(
     """While the posture step is pending, it carries a ``hint`` of '15 checks'
     so the UI can render the intent before the run starts.
     """
-    from opensec.db.connection import _db
-    from opensec.db.dao.assessment import create_assessment
+    from cliff.db.connection import _db
+    from cliff.db.dao.assessment import create_assessment
 
     assert _db is not None
     a = await create_assessment(

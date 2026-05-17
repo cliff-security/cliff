@@ -1,8 +1,8 @@
 # Design brief — PRD-0003 (Security assessment v2)
 
-> Self-contained brief for handing off to Claude design (or any design tool that doesn't have access to the OpenSec codebase). The full PRD lives at `docs/product/prds/PRD-0003-security-assessment-v2.md`; reference HTML mockups live at `frontend/mockups/html/prd-0003-*.html`. This document compresses everything a designer needs into one place.
+> Self-contained brief for handing off to Claude design (or any design tool that doesn't have access to the Cliff codebase). The full PRD lives at `docs/product/prds/PRD-0003-security-assessment-v2.md`; reference HTML mockups live at `frontend/mockups/html/prd-0003-*.html`. This document compresses everything a designer needs into one place.
 
-**Author:** Gal Ankonina (CEO, OpenSec)
+**Author:** Gal Ankonina (CEO, Cliff)
 **Last updated:** 2026-04-25
 **Sequencing:** Ships as v0.2, after PRD-0004 (v0.1 alpha blockers)
 
@@ -10,13 +10,13 @@
 
 ## 1. What we're building
 
-OpenSec is a self-hosted cybersecurity remediation copilot for open-source maintainers. It scans a repo, surfaces security findings, and walks the maintainer through fixing them — all from a chat-led web workspace. Single-user community edition, AGPL-3.0, runs as one Docker container.
+Cliff is a self-hosted cybersecurity remediation copilot for open-source maintainers. It scans a repo, surfaces security findings, and walks the maintainer through fixing them — all from a chat-led web workspace. Single-user community edition, AGPL-3.0, runs as one Docker container.
 
-**This release (v0.2)** swaps OpenSec's homebrew vulnerability scanning for industry-standard tools (Trivy + Semgrep), expands posture checks from 7 to 15 across four categories (CI supply chain, collaborator hygiene, code integrity, repo configuration), and recalibrates the letter grade from 5 to 10 criteria. Alex's mental model doesn't change — connect a repo, get a report card, fix things, reach completion. The report card just gets deeper and more credible.
+**This release (v0.2)** swaps Cliff's homebrew vulnerability scanning for industry-standard tools (Trivy + Semgrep), expands posture checks from 7 to 15 across four categories (CI supply chain, collaborator hygiene, code integrity, repo configuration), and recalibrates the letter grade from 5 to 10 criteria. Alex's mental model doesn't change — connect a repo, get a report card, fix things, reach completion. The report card just gets deeper and more credible.
 
 ## 2. Who you're designing for
 
-**Alex, the open-source maintainer.** Not a security expert. Has shipped 5+ years of code, runs one or two side projects on GitHub, has heard of CVEs but doesn't understand CVSS scoring. Wants to do the right thing for their users without becoming a security professional. Will use OpenSec on their own repo, alone, in a single browser tab.
+**Alex, the open-source maintainer.** Not a security expert. Has shipped 5+ years of code, runs one or two side projects on GitHub, has heard of CVEs but doesn't understand CVSS scoring. Wants to do the right thing for their users without becoming a security professional. Will use Cliff on their own repo, alone, in a single browser tab.
 
 **Emotional truth:** Alex is a little embarrassed they don't already have this stuff dialed in. The product must reduce that anxiety, not amplify it. Tone is calm, authoritative, gallery-like — never alarmist, never condescending, never rewarding panic.
 
@@ -133,7 +133,7 @@ Google Material Symbols Outlined, only. Common pairs:
 
 ## 5. The product as it exists today (so you know what evolves)
 
-OpenSec already ships a working report card from PRD-0002. Below is what you're evolving, not designing from scratch.
+Cliff already ships a working report card from PRD-0002. Below is what you're evolving, not designing from scratch.
 
 ### 5.1 Layout map
 
@@ -268,7 +268,7 @@ Shown once after the assessment completes, before the report card. Bridges the g
 - Three side-by-side cards:
   - **Vulnerabilities** — total count + severity breakdown chips (high/medium/low/code) + which tools found them
   - **Posture** — "X of 15 pass" + names the 4 categories (CI supply chain, Collaborator hygiene, Code integrity, Repo configuration). This is the moment that primes Alex for the grouped posture card on the next screen
-  - **Quick wins** — count of items OpenSec can fix automatically + 2-3 short labels. This card uses an accent: `bg-primary-container/15`
+  - **Quick wins** — count of items Cliff can fix automatically + 2-3 short labels. This card uses an accent: `bg-primary-container/15`
 - Completion preview: "8 of 10 criteria met — grade B" with a mini grade ring
 - Single CTA at the bottom: "View your report card →" (primary pill button)
 - Tighten: `py-10`, `gap-6`, card `p-4`
@@ -306,7 +306,7 @@ The 1200×630 social-share PNG generated when Alex reaches Grade A. Mostly uncha
 
 **Required elements (delta only):**
 - Replace "5 criteria met" → "10 criteria met"
-- Add a small line above the OpenSec wordmark: "Scanned by: Trivy 0.52 · Semgrep 1.70 · 15 posture checks" in white at 60% opacity, Inter 500, 14px
+- Add a small line above the Cliff wordmark: "Scanned by: Trivy 0.52 · Semgrep 1.70 · 15 posture checks" in white at 60% opacity, Inter 500, 14px
 
 ---
 
@@ -360,7 +360,7 @@ These exist in the repo and are useful as inputs but are **not** the authoritati
 
 ## 11. What success looks like
 
-A maintainer who has never used OpenSec can:
+A maintainer who has never used Cliff can:
 
 1. Open the dashboard and immediately understand their grade, what's failing, and what's fixable in one glance
 2. Tell at a glance which posture group needs attention (CI supply chain vs collaborator hygiene vs code integrity vs repo config)
@@ -379,7 +379,7 @@ If a Claude design output enables all six, it's done.
 - **Don't redesign the side nav, the workspace layout, or the chat surface.** Those are stable
 - **Don't redesign the four-state posture-row pattern itself** (To do / Running / Done / Failed with leading icon column + row tint + action slot variants). PRD-0004 owns it. PRD-0003 only contributes new content to fill those rows
 - **Don't show severity using raw red/green hexes.** Always use the `error`, `tertiary`, `warning`, or neutral tokens
-- **Don't use Title Case or ALL CAPS** outside of the 10px uppercase status label in the posture row's leading column (a PRD-0004 inheritance) and the share-card OpenSec wordmark
+- **Don't use Title Case or ALL CAPS** outside of the 10px uppercase status label in the posture row's leading column (a PRD-0004 inheritance) and the share-card Cliff wordmark
 - **Don't fill the page edge to edge.** The product feels like an editorial gallery, not a dashboard
 - **Don't add elements that aren't in the deliverable list above** without flagging why. Scope discipline matters; the design feeds into a single implementation plan
 

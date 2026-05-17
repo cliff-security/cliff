@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
-from opensec.engine.models import MessageInfo, SessionDetail
+from cliff.engine.models import MessageInfo, SessionDetail
 
 
 def test_create_session_success(client):

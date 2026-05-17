@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from opensec.engine.client import OpenCodeClient
+from cliff.engine.client import OpenCodeClient
 
 
 @pytest.fixture

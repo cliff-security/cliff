@@ -6,12 +6,12 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from opensec.models import FindingCreate
+from cliff.models import FindingCreate
 
 
 @pytest.fixture
 async def db():
-    from opensec.db.connection import close_db, init_db
+    from cliff.db.connection import close_db, init_db
 
     conn = await init_db(":memory:")
     try:
@@ -21,9 +21,9 @@ async def db():
 
 
 async def test_process_job_persists_plain_description(db):
-    from opensec.db.repo_finding import list_findings
-    from opensec.db.repo_ingest_job import create_ingest_job
-    from opensec.integrations.ingest_worker import _process_job
+    from cliff.db.repo_finding import list_findings
+    from cliff.db.repo_ingest_job import create_ingest_job
+    from cliff.integrations.ingest_worker import _process_job
 
     # Create a job with one raw item.
     job = await create_ingest_job(
@@ -38,7 +38,7 @@ async def test_process_job_persists_plain_description(db):
         plain_description="Upgrade libfoo to 1.2.3. This blocks a crash bug.",
     )
     mocked = AsyncMock(return_value=([fc], []))
-    with patch("opensec.integrations.ingest_worker.normalize_findings", mocked):
+    with patch("cliff.integrations.ingest_worker.normalize_findings", mocked):
         await _process_job(db, job.job_id)
 
     findings = await list_findings(db)

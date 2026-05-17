@@ -11,8 +11,8 @@ from shutil import which
 import pytest
 from fastapi.testclient import TestClient
 
-from opensec.config import settings
-from opensec.engine.process import OpenCodeProcess
+from cliff.config import settings
+from cliff.engine.process import OpenCodeProcess
 
 # Skip all e2e tests if prerequisites are missing
 _opencode_available = settings.opencode_binary_path.exists() or which("opencode") is not None
@@ -68,9 +68,9 @@ def app_client(opencode_server):
 
     Each test gets a fresh TestClient to avoid connection pool issues.
     """
-    from opensec.db.connection import close_db, init_db
-    from opensec.engine.client import OpenCodeClient
-    from opensec.main import app
+    from cliff.db.connection import close_db, init_db
+    from cliff.engine.client import OpenCodeClient
+    from cliff.main import app
 
     # Skip lifespan — OpenCode is already running via session fixture
     app.router.lifespan_context = _noop_lifespan
@@ -82,8 +82,8 @@ def app_client(opencode_server):
     loop.run_until_complete(init_db(":memory:"))
 
     # Reset the singleton client to avoid stale connections
-    import opensec.api.routes.chat as chat_mod
-    import opensec.api.routes.sessions as sessions_mod
+    import cliff.api.routes.chat as chat_mod
+    import cliff.api.routes.sessions as sessions_mod
 
     fresh_client = OpenCodeClient(base_url=settings.opencode_url)
     sessions_mod.opencode_client = fresh_client

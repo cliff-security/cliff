@@ -2,10 +2,10 @@
 
 **Date**: 2026-05-17
 **Target**: cliff-security/NodeGoat (master branch)
-**Environment**: docker `opensec:qa-rerun` built from main, port 8088, fresh volume, fresh credential key, no provider env vars
-**Driver**: Claude in Chrome — UI only, opensec CLI forbidden per Wave 2 policy
+**Environment**: docker `cliff:qa-rerun` built from main, port 8088, fresh volume, fresh credential key, no provider env vars
+**Driver**: Claude in Chrome — UI only, cliff CLI forbidden per Wave 2 policy
 **Provider**: OpenRouter OAuth → `openrouter/anthropic/claude-haiku-4.5` (auto-selected)
-**GitHub**: galanko, Device-flow OAuth (installation_id=133122855, app "opensec-local-test")
+**GitHub**: galanko, Device-flow OAuth (installation_id=133122855, app "cliff-local-test")
 **Branch**: `qa/q01-campaign-fixes` policy applied (would-be — current run was on main; Wave-2 to enforce)
 
 ## Headline verdict: RED (UI-only happy path is fully blocked)
@@ -68,8 +68,8 @@ In priority order:
 
 ## Cleanup performed
 - Closed all browser tabs related to the Docker instance (handled separately)
-- Container `opensec-qa-rerun` and volume `opensec-qa-rerun-data` left running for follow-up; tear down with:
+- Container `cliff-qa-rerun` and volume `cliff-qa-rerun-data` left running for follow-up; tear down with:
   ```
-  docker rm -f opensec-qa-rerun
-  docker volume rm opensec-qa-rerun-data
+  docker rm -f cliff-qa-rerun
+  docker volume rm cliff-qa-rerun-data
   ```

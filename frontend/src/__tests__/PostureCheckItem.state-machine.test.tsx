@@ -36,7 +36,7 @@ describe('<PostureCheckItem /> state machine', () => {
     expect(icon).toHaveTextContent('radio_button_unchecked')
 
     const button = screen.getByRole('button', {
-      name: /let opensec open a pr/i,
+      name: /let cliff open a pr/i,
     })
     await userEvent.click(button)
     expect(onStart).toHaveBeenCalledWith('security_md')
@@ -102,7 +102,7 @@ describe('<PostureCheckItem /> state machine', () => {
     expect(screen.getByText('Failed')).toBeInTheDocument()
     // No primary button, no chip, no link — only the retry hint.
     expect(
-      screen.queryByRole('button', { name: /let opensec open a pr/i }),
+      screen.queryByRole('button', { name: /let cliff open a pr/i }),
     ).not.toBeInTheDocument()
     expect(
       screen.queryByTestId('posture-check-done-link'),

@@ -1,15 +1,15 @@
 {
-  "name": "opensec",
+  "name": "cliff",
   "owner": {
     "name": "galanko",
     "email": "galank@gmail.com"
   },
-  "description": "OpenSec — self-hosted cybersecurity remediation copilot. Plugins that let Claude Code drive the full remediation loop.",
+  "description": "Cliff — self-hosted cybersecurity remediation copilot. Plugins that let Claude Code drive the full remediation loop.",
   "plugins": [
     {
       "name": "secure-repo",
       "source": "./plugins/secure-repo",
-      "description": "Run OpenSec end-to-end on the current repo from Claude Code: install if needed, scan, plan, approve, PR, merge, close. Wraps the agent-shaped `opensec` CLI."
+      "description": "Run Cliff end-to-end on the current repo from Claude Code: install if needed, scan, plan, approve, PR, merge, close. Wraps the agent-shaped `cliff` CLI."
     }
   ]
 }

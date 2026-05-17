@@ -20,7 +20,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from opensec.models import (
+from cliff.models import (
     AssessmentCreate,
     CriteriaSnapshot,
     FindingCreate,
@@ -71,9 +71,9 @@ async def test_dashboard_phase2_empty_repo(db_client):
 
 async def test_dashboard_phase2_open_issues_with_no_history(db_client):
     """5 fresh open findings → current=5, history is 29 zeros + [5], delta=0."""
-    from opensec.db.connection import _db
-    from opensec.db.dao.assessment import create_assessment, set_assessment_result
-    from opensec.db.repo_finding import create_finding
+    from cliff.db.connection import _db
+    from cliff.db.dao.assessment import create_assessment, set_assessment_result
+    from cliff.db.repo_finding import create_finding
 
     a = await create_assessment(_db, AssessmentCreate(repo_url="https://github.com/a/b"))
     await set_assessment_result(
@@ -106,7 +106,7 @@ async def test_dashboard_phase2_open_issues_with_no_history(db_client):
 
 async def test_dashboard_phase2_grade_history_two_assessments(db_client):
     """Two completed assessments on different days populate grade_history."""
-    from opensec.db.connection import _db
+    from cliff.db.connection import _db
 
     today = datetime.now(UTC)
     five_days_ago = today - timedelta(days=5)
@@ -159,9 +159,9 @@ async def test_dashboard_phase2_grade_history_two_assessments(db_client):
 
 async def test_dashboard_phase2_severity_history_today(db_client):
     """severity_history's most-recent day equals today's open severity counts."""
-    from opensec.db.connection import _db
-    from opensec.db.dao.assessment import create_assessment, set_assessment_result
-    from opensec.db.repo_finding import create_finding
+    from cliff.db.connection import _db
+    from cliff.db.dao.assessment import create_assessment, set_assessment_result
+    from cliff.db.repo_finding import create_finding
 
     a = await create_assessment(_db, AssessmentCreate(repo_url="https://github.com/a/b"))
     await set_assessment_result(
@@ -209,12 +209,12 @@ async def test_dashboard_phase2_severity_history_today(db_client):
 
 async def test_dashboard_phase2_needs_you_counts(db_client):
     """needs_you reflects (plans_waiting, prs_ready, critical_todo)."""
-    from opensec.db.connection import _db
-    from opensec.db.dao.assessment import create_assessment, set_assessment_result
-    from opensec.db.repo_finding import create_finding
-    from opensec.db.repo_sidebar import upsert_sidebar
-    from opensec.db.repo_workspace import create_workspace
-    from opensec.models import SidebarStateUpdate, WorkspaceCreate
+    from cliff.db.connection import _db
+    from cliff.db.dao.assessment import create_assessment, set_assessment_result
+    from cliff.db.repo_finding import create_finding
+    from cliff.db.repo_sidebar import upsert_sidebar
+    from cliff.db.repo_workspace import create_workspace
+    from cliff.models import SidebarStateUpdate, WorkspaceCreate
 
     a = await create_assessment(_db, AssessmentCreate(repo_url="https://github.com/a/b"))
     await set_assessment_result(
@@ -294,9 +294,9 @@ async def test_dashboard_phase2_needs_you_counts(db_client):
 
 async def test_dashboard_phase2_time_to_close_p50_today(db_client):
     """Three closures today with deltas {1h,2h,4h} → p50=2h."""
-    from opensec.db.connection import _db
-    from opensec.db.dao.assessment import create_assessment, set_assessment_result
-    from opensec.db.repo_finding import create_finding
+    from cliff.db.connection import _db
+    from cliff.db.dao.assessment import create_assessment, set_assessment_result
+    from cliff.db.repo_finding import create_finding
 
     a = await create_assessment(_db, AssessmentCreate(repo_url="https://github.com/a/b"))
     await set_assessment_result(
@@ -369,9 +369,9 @@ async def test_dashboard_phase2_does_not_break_v0_2_contract(db_client):
 
 async def test_dashboard_phase2_delta_pct_handles_zero_baseline(db_client):
     """delta_pct_30d returns 0 (not infinity) when 30-day baseline is 0."""
-    from opensec.db.connection import _db
-    from opensec.db.dao.assessment import create_assessment, set_assessment_result
-    from opensec.db.repo_finding import create_finding
+    from cliff.db.connection import _db
+    from cliff.db.dao.assessment import create_assessment, set_assessment_result
+    from cliff.db.repo_finding import create_finding
 
     a = await create_assessment(_db, AssessmentCreate(repo_url="https://github.com/a/b"))
     await set_assessment_result(
@@ -439,9 +439,9 @@ async def test_dashboard_impl0009_empty_repo_defaults(db_client):
 
 async def test_dashboard_impl0009_seeded_payload_shape(db_client):
     """Seed an assessment + a few findings + verify the new fields populate."""
-    from opensec.db.connection import _db
-    from opensec.db.dao.assessment import create_assessment, set_assessment_result
-    from opensec.db.repo_finding import create_finding
+    from cliff.db.connection import _db
+    from cliff.db.dao.assessment import create_assessment, set_assessment_result
+    from cliff.db.repo_finding import create_finding
 
     a = await create_assessment(_db, AssessmentCreate(repo_url="https://github.com/a/b"))
     await set_assessment_result(
@@ -507,8 +507,8 @@ async def test_dashboard_impl0009_grade_label_transitions(db_client):
     """A second completed assessment with a different grade flips the label."""
     import asyncio
 
-    from opensec.db.connection import _db
-    from opensec.db.dao.assessment import create_assessment, set_assessment_result
+    from cliff.db.connection import _db
+    from cliff.db.dao.assessment import create_assessment, set_assessment_result
 
     snap = CriteriaSnapshot(no_critical_vulns=True)
 

@@ -94,14 +94,14 @@ export function OpenRouterConnectFlow({
       <div className="space-y-6">
         <Header
           title="Connect with OpenRouter"
-          body="One account, every model. Sign in with Google or GitHub, then authorize OpenSec — about thirty seconds."
+          body="One account, every model. Sign in with Google or GitHub, then authorize Cliff — about thirty seconds."
         />
         <div className="rounded-2xl bg-surface-container p-5 text-sm leading-relaxed text-on-surface-variant">
           <p className="font-medium text-on-surface">What happens next</p>
           <ol className="mt-2 space-y-1 pl-5 list-decimal">
             <li>OpenRouter opens in a new tab.</li>
-            <li>You sign in and authorize OpenSec.</li>
-            <li>OpenSec receives your key — encrypted at rest, never logged.</li>
+            <li>You sign in and authorize Cliff.</li>
+            <li>Cliff receives your key — encrypted at rest, never logged.</li>
           </ol>
         </div>
         <div className="flex justify-end gap-3">
@@ -131,7 +131,7 @@ export function OpenRouterConnectFlow({
       <div className="space-y-6">
         <Header
           title="Waiting for you to authorize"
-          body="Head to the OpenRouter tab and authorize OpenSec. We'll know the moment you're done."
+          body="Head to the OpenRouter tab and authorize Cliff. We'll know the moment you're done."
         />
         <div className="rounded-2xl bg-surface-container px-5 py-8 text-center">
           <SpinnerIcon className="mx-auto h-10 w-10 text-primary" />
@@ -175,7 +175,7 @@ export function OpenRouterConnectFlow({
             onClick={onConnected}
             className="rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary"
           >
-            Start using OpenSec
+            Start using Cliff
           </button>
         </div>
       </div>

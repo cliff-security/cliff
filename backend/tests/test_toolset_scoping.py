@@ -11,8 +11,8 @@ import os
 
 import pytest
 
-from opensec.integrations.gateway import _apply_toolset_scoping
-from opensec.integrations.registry import (
+from cliff.integrations.gateway import _apply_toolset_scoping
+from cliff.integrations.registry import (
     RegistryEntry,
     get_registry_entry,
 )
@@ -153,11 +153,11 @@ class TestGatewayToolsetIntegration:
     @pytest.mark.asyncio
     async def test_github_tier0_gets_read_only_and_toolsets(self):
         """GitHub at tier 0 keeps --read-only and gets repos,code_security."""
-        from opensec.db.connection import close_db, init_db
-        from opensec.db.repo_integration import create_integration
-        from opensec.integrations.gateway import MCPConfigResolver
-        from opensec.integrations.vault import CredentialVault
-        from opensec.models import IntegrationConfigCreate
+        from cliff.db.connection import close_db, init_db
+        from cliff.db.repo_integration import create_integration
+        from cliff.integrations.gateway import MCPConfigResolver
+        from cliff.integrations.vault import CredentialVault
+        from cliff.models import IntegrationConfigCreate
 
         db = await init_db(":memory:")
         try:
@@ -186,11 +186,11 @@ class TestGatewayToolsetIntegration:
     @pytest.mark.asyncio
     async def test_github_tier2_removes_read_only(self):
         """GitHub at tier 2 drops --read-only and gets full toolsets."""
-        from opensec.db.connection import close_db, init_db
-        from opensec.db.repo_integration import create_integration
-        from opensec.integrations.gateway import MCPConfigResolver
-        from opensec.integrations.vault import CredentialVault
-        from opensec.models import IntegrationConfigCreate
+        from cliff.db.connection import close_db, init_db
+        from cliff.db.repo_integration import create_integration
+        from cliff.integrations.gateway import MCPConfigResolver
+        from cliff.integrations.vault import CredentialVault
+        from cliff.models import IntegrationConfigCreate
 
         db = await init_db(":memory:")
         try:
@@ -219,11 +219,11 @@ class TestGatewayToolsetIntegration:
     @pytest.mark.asyncio
     async def test_jira_args_unchanged(self):
         """Jira has no toolsets — args stay as-is."""
-        from opensec.db.connection import close_db, init_db
-        from opensec.db.repo_integration import create_integration
-        from opensec.integrations.gateway import MCPConfigResolver
-        from opensec.integrations.vault import CredentialVault
-        from opensec.models import IntegrationConfigCreate
+        from cliff.db.connection import close_db, init_db
+        from cliff.db.repo_integration import create_integration
+        from cliff.integrations.gateway import MCPConfigResolver
+        from cliff.integrations.vault import CredentialVault
+        from cliff.models import IntegrationConfigCreate
 
         db = await init_db(":memory:")
         try:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from opensec.models import AssessmentCreate, CompletionCreate, CriteriaSnapshot
+from cliff.models import AssessmentCreate, CompletionCreate, CriteriaSnapshot
 
 
 @pytest.fixture
@@ -19,9 +19,9 @@ def criteria():
 
 
 async def _seed_completion(criteria: CriteriaSnapshot) -> str:
-    from opensec.db.connection import _db
-    from opensec.db.dao.assessment import create_assessment
-    from opensec.db.dao.completion import create_completion
+    from cliff.db.connection import _db
+    from cliff.db.dao.assessment import create_assessment
+    from cliff.db.dao.completion import create_completion
 
     assert _db is not None
     a = await create_assessment(_db, AssessmentCreate(repo_url="https://github.com/a/b"))

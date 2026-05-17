@@ -204,7 +204,7 @@ export function DirectBYOKForm({
         </div>
         {isOpenAIClass && (
           <p className="text-xs leading-relaxed text-on-surface-variant">
-            OpenSec is tuned for Claude. {info.name} should still work, but
+            Cliff is tuned for Claude. {info.name} should still work, but
             Claude tends to perform better on security reasoning.
           </p>
         )}

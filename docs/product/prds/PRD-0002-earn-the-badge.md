@@ -10,9 +10,9 @@
 
 ## Revision note (2026-04-15)
 
-The original PRD-0002 was titled "Earn the Badge" and bet on a public "Secured by OpenSec" README badge as both the user's goal and OpenSec's growth engine. After a brainstorm pass with the CEO, the badge has been **deferred to v1.2**. Rationale:
+The original PRD-0002 was titled "Earn the Badge" and bet on a public "Secured by Cliff" README badge as both the user's goal and Cliff's growth engine. After a brainstorm pass with the CEO, the badge has been **deferred to v1.2**. Rationale:
 
-- The badge needs brand recognition to deliver consumer-side trust. OpenSec has none yet.
+- The badge needs brand recognition to deliver consumer-side trust. Cliff has none yet.
 - Static, self-declared security badges have a poor reputation history in OSS.
 - Competing with the incumbent (OpenSSF Scorecard) is a weaker position than complementing it.
 - Automatically adding a badge to a maintainer's README is the one place a security tool must be maximally above-board — a stronger brand is needed before this becomes an asset.
@@ -25,25 +25,25 @@ The title, comparison table, Story 5, acceptance criteria, success metrics, and 
 
 ## Problem statement
 
-PRD-0001 built OpenSec for a developer who already knows security — someone who has Snyk installed, understands CVEs, and just wants the remediation work done faster. That's a real pain point, but a narrow audience.
+PRD-0001 built Cliff for a developer who already knows security — someone who has Snyk installed, understands CVEs, and just wants the remediation work done faster. That's a real pain point, but a narrow audience.
 
 The bigger opportunity is the open-source maintainer who has *no security tooling at all*. They maintain a popular library or side project. They know they should "do something about security" but they don't know where to start, what tools to install, or what a CVE even means in practical terms. They have no Snyk, no Dependabot, no security scanner configured. They have a GitHub repo and good intentions.
 
 Today, securing an open-source project requires: choosing a scanner, configuring it, interpreting its output (which is written for security engineers, not developers), figuring out fixes, and doing the remediation work. Most maintainers never start because step one is already overwhelming.
 
-If we don't solve this, open-source projects — which power most of the world's software — remain systematically under-secured. And OpenSec remains a tool for the small audience of security-aware developers instead of becoming the default way open-source gets secured.
+If we don't solve this, open-source projects — which power most of the world's software — remain systematically under-secured. And Cliff remains a tool for the small audience of security-aware developers instead of becoming the default way open-source gets secured.
 
 ## Strategic context
 
-This PRD shifts OpenSec's target from "security-savvy developer who already has findings" to "any open-source maintainer who wants their project secured." The product becomes the entry point — it finds the problems, explains them in plain language, fixes them, and celebrates when the repo meets a baseline security standard.
+This PRD shifts Cliff's target from "security-savvy developer who already has findings" to "any open-source maintainer who wants their project secured." The product becomes the entry point — it finds the problems, explains them in plain language, fixes them, and celebrates when the repo meets a baseline security standard.
 
-**Distribution strategy for v1.1:** word-of-mouth through the CEO's OSS network. Friends and personally-known maintainers install OpenSec on real repos, remediate real vulnerabilities, and share their experience. A shareable completion card provides a lightweight viral artifact without the risk profile of a public README badge. The public badge returns in v1.2 after the core flow is validated.
+**Distribution strategy for v1.1:** word-of-mouth through the CEO's OSS network. Friends and personally-known maintainers install Cliff on real repos, remediate real vulnerabilities, and share their experience. A shareable completion card provides a lightweight viral artifact without the risk profile of a public README badge. The public badge returns in v1.2 after the core flow is validated.
 
 **What changes from v1.0:**
 
 | Area | v1.0 (PRD-0001) | v1.1 (this PRD) |
 |---|---|---|
-| Entry point | User imports Snyk JSON manually | OpenSec runs its own assessment + imports from existing tools |
+| Entry point | User imports Snyk JSON manually | Cliff runs its own assessment + imports from existing tools |
 | Target user | Developer with Snyk findings | Any maintainer, including security-clueless |
 | Finding descriptions | Technical CVE data | Plain-language explanation + technical details accessible |
 | Posture awareness | None | Repo posture report card (display-only, not auto-remediated) |
@@ -71,9 +71,9 @@ Still fully supported. They can skip the assessment and import their own Snyk/Tr
 
 ## Value hypothesis
 
-> If an open-source maintainer can install OpenSec, connect their GitHub repo, have it automatically assess their security posture, explain problems in plain language, fix the vulnerabilities through collaborative AI agents, and reach a visible completion milestone they can share — they will secure their project when they otherwise would not have.
+> If an open-source maintainer can install Cliff, connect their GitHub repo, have it automatically assess their security posture, explain problems in plain language, fix the vulnerabilities through collaborative AI agents, and reach a visible completion milestone they can share — they will secure their project when they otherwise would not have.
 
-The completion ceremony is the reward. The plain-language descriptions remove the knowledge barrier. The agentic remediation removes the work barrier. The shareable summary gives the maintainer something concrete to celebrate publicly if they choose, without OpenSec writing to their README unprompted.
+The completion ceremony is the reward. The plain-language descriptions remove the knowledge barrier. The agentic remediation removes the work barrier. The shareable summary gives the maintainer something concrete to celebrate publicly if they choose, without Cliff writing to their README unprompted.
 
 ---
 
@@ -81,9 +81,9 @@ The completion ceremony is the reward. The plain-language descriptions remove th
 
 ### Story 1: First-run onboarding
 
-**As** an open-source maintainer installing OpenSec for the first time, **I want** a guided setup experience that walks me through connecting my project and getting started, **so that** I can go from "just installed" to "assessment running" without reading documentation.
+**As** an open-source maintainer installing Cliff for the first time, **I want** a guided setup experience that walks me through connecting my project and getting started, **so that** I can go from "just installed" to "assessment running" without reading documentation.
 
-**Given** I've started OpenSec for the first time (empty database, no configuration),
+**Given** I've started Cliff for the first time (empty database, no configuration),
 **When** the app loads,
 **Then** I see a welcoming onboarding wizard — not an empty dashboard — that walks me through three steps: connect my GitHub repo, configure my AI model, and start the security assessment.
 
@@ -102,7 +102,7 @@ The completion ceremony is the reward. The plain-language descriptions remove th
 - Model provider selection (OpenAI, Anthropic, local — whatever OpenCode supports)
 - API key field
 - "Test connection" button that validates the key works
-- Brief explanation: "OpenSec uses AI agents to understand vulnerabilities and write fixes. Your API key is stored locally and never sent to OpenSec servers."
+- Brief explanation: "Cliff uses AI agents to understand vulnerabilities and write fixes. Your API key is stored locally and never sent to Cliff servers."
 - Optional: model selection dropdown if the provider supports multiple models
 
 **Step 3 — Start security assessment**
@@ -128,11 +128,11 @@ The completion ceremony is the reward. The plain-language descriptions remove th
 
 ### Story 2: Security assessment and report card
 
-**As** an open-source maintainer who just connected my repo, **I want** OpenSec to assess my project's security posture automatically, **so that** I understand where I stand without needing to know what to look for.
+**As** an open-source maintainer who just connected my repo, **I want** Cliff to assess my project's security posture automatically, **so that** I understand where I stand without needing to know what to look for.
 
 **Given** I've completed the onboarding wizard and clicked "Start assessment,"
 **When** the assessment runs,
-**Then** I see a progress indicator as OpenSec scans my repo, and when it finishes, I see a security report card — a visual dashboard showing my repo's security posture broken into two categories: vulnerabilities and repo posture.
+**Then** I see a progress indicator as Cliff scans my repo, and when it finishes, I see a security report card — a visual dashboard showing my repo's security posture broken into two categories: vulnerabilities and repo posture.
 
 **The user should feel:** "Now I know where I stand. I can see exactly what needs fixing, and it doesn't feel overwhelming because it's organized and clear."
 
@@ -141,8 +141,8 @@ The completion ceremony is the reward. The plain-language descriptions remove th
 *Vulnerabilities (auto-remediated via agents):*
 - Parse lockfiles (package-lock.json, yarn.lock, Pipfile.lock, go.sum, Gemfile.lock, etc.) and cross-reference against known CVE databases
 - Detect outdated dependencies with known security advisories
-- If the user has existing tool findings (Dependabot alerts, Snyk JSON, Trivy output), import and deduplicate against OpenSec's own scan
-- Each finding is normalized into OpenSec's finding model with both technical data AND plain-language description (Story 3)
+- If the user has existing tool findings (Dependabot alerts, Snyk JSON, Trivy output), import and deduplicate against Cliff's own scan
+- Each finding is normalized into Cliff's finding model with both technical data AND plain-language description (Story 3)
 
 *Repo posture (displayed with fix guidance, not auto-remediated):*
 - Branch protection: is the default branch protected? Are force pushes allowed? Is review required?
@@ -158,7 +158,7 @@ The completion ceremony is the reward. The plain-language descriptions remove th
 - Vulnerability section: count by severity (critical/high/medium/low), with a prominent call-to-action: "Start fixing" that takes the user to the Findings page
 - Posture section: checklist of checks with pass/fail/warning status and one-line fix instructions for each failing check (e.g., "Enable branch protection — Settings > Branches > Add rule")
 - Completion progress: shows "X of 5 criteria met" with the list of remaining items (see Story 5 for the completion criteria)
-- Independent-standard info line: a small, static info card at the bottom of the Dashboard that reads roughly "Want an independent second opinion? OpenSSF Scorecard is a free, third-party security assessment you can run on your repo." with a link to the Scorecard project. This is a one-sentence pointer — no API call, no live data, no dependency on whether the repo has a Scorecard result. Plants the positioning that OpenSec is the coach and Scorecard is the independent judge, without any feature that can appear broken
+- Independent-standard info line: a small, static info card at the bottom of the Dashboard that reads roughly "Want an independent second opinion? OpenSSF Scorecard is a free, third-party security assessment you can run on your repo." with a link to the Scorecard project. This is a one-sentence pointer — no API call, no live data, no dependency on whether the repo has a Scorecard result. Plants the positioning that Cliff is the coach and Scorecard is the independent judge, without any feature that can appear broken
 - Import option: "Already using Snyk, Trivy, or Dependabot? Import additional findings" — links to the existing import flow
 
 **Acceptance criteria:**
@@ -167,7 +167,7 @@ The completion ceremony is the reward. The plain-language descriptions remove th
 - [ ] Progress indicator shows assessment stages (scanning dependencies, checking posture, importing existing tools, generating report)
 - [ ] Lockfile parsing supports at minimum: package-lock.json, yarn.lock, Pipfile.lock, requirements.txt, go.sum, Gemfile.lock, pom.xml, Cargo.lock
 - [ ] CVE lookup uses a free, open data source (e.g., OSV.dev API, GitHub Advisory Database) — no paid scanner dependency
-- [ ] Findings from the assessment are created in the OpenSec findings table (same model as imported findings)
+- [ ] Findings from the assessment are created in the Cliff findings table (same model as imported findings)
 - [ ] Assessment deduplicates against any previously imported findings (no double-counting)
 - [ ] Posture checks query the GitHub API via the configured PAT
 - [ ] Report card renders within 3 seconds after assessment completes
@@ -202,7 +202,7 @@ The completion ceremony is the reward. The plain-language descriptions remove th
 
 **How it works:**
 
-The plain-language description is generated during finding normalization — either when OpenSec's own assessment creates findings, or when the user imports findings from an external tool. The existing LLM normalizer (ADR-0022) is extended to produce a `plain_description` field alongside the existing structured fields. The prompt instructs the LLM to explain the vulnerability as if talking to a developer who has never read a CVE before: what's the risk in practical terms, how could it be exploited, and what does the fix look like.
+The plain-language description is generated during finding normalization — either when Cliff's own assessment creates findings, or when the user imports findings from an external tool. The existing LLM normalizer (ADR-0022) is extended to produce a `plain_description` field alongside the existing structured fields. The prompt instructs the LLM to explain the vulnerability as if talking to a developer who has never read a CVE before: what's the risk in practical terms, how could it be exploited, and what does the fix look like.
 
 **Acceptance criteria:**
 
@@ -214,7 +214,7 @@ The plain-language description is generated during finding normalization — eit
 - [ ] Workspace chat and sidebar use the plain-language description in context
 - [ ] The enricher agent's output builds on (not replaces) the plain-language description — adding depth about exploitability and exposure specific to this repo
 - [ ] Descriptions avoid unnecessary alarm ("your project is compromised!") and unnecessary reassurance ("this is probably fine") — they're factual and clear
-- [ ] Works for all scanner formats: the LLM normalizer generates good plain-language descriptions regardless of whether the input is from OpenSec's own scan, Snyk, Trivy, Dependabot, or any other format
+- [ ] Works for all scanner formats: the LLM normalizer generates good plain-language descriptions regardless of whether the input is from Cliff's own scan, Snyk, Trivy, Dependabot, or any other format
 
 ---
 
@@ -236,13 +236,13 @@ The plain-language description is generated during finding normalization — eit
 | Force push disabled | Force pushes to default branch are blocked | "In your branch protection rule, check 'Do not allow force pushes'" |
 | Signed commits | Whether signed commits are encouraged (not required — display only) | "Consider requiring signed commits. See GitHub docs on commit signing" |
 | No secrets in code | No obvious API keys, tokens, or passwords in tracked files | "Found potential secrets in: [file list]. Remove them and rotate the exposed credentials" |
-| SECURITY.md exists | Repo has a security policy file | "Create a SECURITY.md with vulnerability reporting instructions. OpenSec can generate a template for you" |
+| SECURITY.md exists | Repo has a security policy file | "Create a SECURITY.md with vulnerability reporting instructions. Cliff can generate a template for you" |
 | Lockfile present | Dependency lockfile is committed | "Commit your lockfile (package-lock.json, yarn.lock, etc.) to ensure reproducible builds" |
-| Dependabot/Renovate configured | Automated dependency updates are set up | "Create a `.github/dependabot.yml` to get automatic dependency update PRs. OpenSec can generate this for you" |
+| Dependabot/Renovate configured | Automated dependency updates are set up | "Create a `.github/dependabot.yml` to get automatic dependency update PRs. Cliff can generate this for you" |
 
 **Interaction model:**
 
-Posture checks are display-only in v1.1 — they show status and provide instructions, but OpenSec does not auto-remediate them. The maintainer fixes these themselves via GitHub settings or by committing config files. For two items (SECURITY.md and dependabot.yml), OpenSec offers to generate a template file and create a PR — these are simple enough for agents to handle reliably.
+Posture checks are display-only in v1.1 — they show status and provide instructions, but Cliff does not auto-remediate them. The maintainer fixes these themselves via GitHub settings or by committing config files. For two items (SECURITY.md and dependabot.yml), Cliff offers to generate a template file and create a PR — these are simple enough for agents to handle reliably.
 
 After fixing posture issues, the user clicks "Re-assess" to update the report card. Progress toward completion updates in real-time.
 
@@ -251,7 +251,7 @@ After fixing posture issues, the user clicks "Re-assess" to update the report ca
 - [ ] All posture checks listed above run as part of the assessment
 - [ ] Each check shows one of three states: pass (green), fail (red/orange), or info (gray — for advisory checks like signed commits)
 - [ ] Failing checks include a one-line fix instruction and optionally a link to relevant GitHub docs
-- [ ] For SECURITY.md and dependabot.yml: an "OpenSec can create this" button triggers a simple agent that generates the file and creates a PR
+- [ ] For SECURITY.md and dependabot.yml: an "Cliff can create this" button triggers a simple agent that generates the file and creates a PR
 - [ ] Posture check results are stored in the database (not just computed on-the-fly) so they persist across sessions
 - [ ] "Re-assess" button re-runs posture checks and updates the report card
 - [ ] Posture checks query the GitHub API — they check the actual repo state, not just local files
@@ -262,11 +262,11 @@ After fixing posture issues, the user clicks "Re-assess" to update the report ca
 
 ### Story 5: Completion ceremony and shareable summary
 
-**As** an open-source maintainer who has remediated my vulnerabilities and fixed my repo posture, **I want** OpenSec to celebrate the completion and give me something concrete I can share, **so that** I feel rewarded for the work and can tell others what I just did — without OpenSec modifying my README on my behalf.
+**As** an open-source maintainer who has remediated my vulnerabilities and fixed my repo posture, **I want** Cliff to celebrate the completion and give me something concrete I can share, **so that** I feel rewarded for the work and can tell others what I just did — without Cliff modifying my README on my behalf.
 
 **Given** I've been working through findings and posture issues,
 **When** all completion criteria are met (no critical/high vulnerabilities remaining + baseline posture checks pass),
-**Then** OpenSec celebrates the achievement in-app and offers me a shareable summary card I can download or copy to share publicly.
+**Then** Cliff celebrates the achievement in-app and offers me a shareable summary card I can download or copy to share publicly.
 
 **The user should feel:** "I earned this. The work was worth it. I have something I can point to — and I decide where, if anywhere, I share it."
 
@@ -285,19 +285,19 @@ Medium and low severity findings do NOT block completion — they're tracked but
 
 1. **Progress tracking** — Throughout the remediation process, the report card shows "X of 5 criteria met" with a visual progress bar and clear indication of remaining items
 2. **Completion state** — When all criteria are met, the report card shows a celebration state: 3-second confetti animation (30-40 small particles in primary/tertiary colors, gentle fall), subtle background color shift to tertiary-fixed, and a completion badge preview scales up with a spring animation. No sound. Celebratory but fits the Serene Sentinel calm authority tone
-3. **No auto-write to README.** OpenSec will not create a PR that modifies the user's README in v1.1. This is a deliberate trust posture — a security tool must not silently touch repo content
+3. **No auto-write to README.** Cliff will not create a PR that modifies the user's README in v1.1. This is a deliberate trust posture — a security tool must not silently touch repo content
 
 **Shareable summary card:**
 
 The ceremony produces a summary artifact the maintainer can choose to share. The card is generated locally and displayed in the app after the celebration animation.
 
-- **Content:** Repo name, completion date, count of vulnerabilities remediated (by severity), posture checks passed, number of PRs merged via OpenSec
+- **Content:** Repo name, completion date, count of vulnerabilities remediated (by severity), posture checks passed, number of PRs merged via Cliff
 - **Format:** A rendered PNG/SVG image sized for social sharing (roughly 1200×630), plus a matching plain-text version
 - **Actions available to the user:**
   - "Download image" — saves the PNG/SVG locally
-  - "Copy text summary" — copies a tweet-sized plain-text version to clipboard (e.g., "I secured `cool-lib` with OpenSec — 12 vulns fixed, branch protection enabled, SECURITY.md added. opensec.dev")
-  - "Copy markdown" — copies a markdown snippet the user can optionally paste into their own README manually (explicit user action — OpenSec does not create the PR)
-- **No public URL dependency.** The image is generated by OpenSec locally. There is no verification server and no OpenSec-hosted badge URL to fetch in v1.1
+  - "Copy text summary" — copies a tweet-sized plain-text version to clipboard (e.g., "I secured `cool-lib` with Cliff — 12 vulns fixed, branch protection enabled, SECURITY.md added. cliff.dev")
+  - "Copy markdown" — copies a markdown snippet the user can optionally paste into their own README manually (explicit user action — Cliff does not create the PR)
+- **No public URL dependency.** The image is generated by Cliff locally. There is no verification server and no Cliff-hosted badge URL to fetch in v1.1
 
 **Acceptance criteria:**
 
@@ -308,9 +308,9 @@ The ceremony produces a summary artifact the maintainer can choose to share. The
 - [ ] "Download image" action saves the summary card as PNG or SVG locally
 - [ ] "Copy text summary" action copies a short (tweet-sized) plain-text summary to the clipboard
 - [ ] "Copy markdown" action copies a markdown snippet the user can paste into their README themselves
-- [ ] OpenSec does NOT create any PR that writes to the user's README in v1.1
+- [ ] Cliff does NOT create any PR that writes to the user's README in v1.1
 - [ ] If the user hasn't reached completion yet, the completion section shows a preview of the celebration and the remaining criteria — motivating, not discouraging
-- [ ] If findings are re-imported or a new assessment finds new critical/high vulns, the completion status reverts to "action needed" on the report card. Any shareable card the user already downloaded is theirs — OpenSec does not try to track or invalidate it
+- [ ] If findings are re-imported or a new assessment finds new critical/high vulns, the completion status reverts to "action needed" on the report card. Any shareable card the user already downloaded is theirs — Cliff does not try to track or invalidate it
 - [ ] Summary card date format is ISO 8601 (YYYY-MM-DD)
 - [ ] Summary card design follows the Serene Sentinel design system
 
@@ -321,7 +321,7 @@ The ceremony produces a summary artifact the maintainer can choose to share. The
 **As** an open-source maintainer who reached completion weeks ago, **I want** to re-run the security assessment to check for new vulnerabilities, **so that** my project remains secure over time.
 
 **Given** I've previously completed the assessment and reached (or made progress toward) completion,
-**When** I open OpenSec and navigate to the report card,
+**When** I open Cliff and navigate to the report card,
 **Then** I see my last assessment results with a "Re-assess" button and the date of the last assessment. Running a new assessment picks up new CVEs, new dependencies, and updated posture state.
 
 **The user should feel:** "It's easy to keep this current. A quick re-assessment and I know where I stand."
@@ -359,13 +359,13 @@ The ceremony produces a summary artifact the maintainer can choose to share. The
 
 ### Future considerations (P2) — Design for but don't build in v1.1
 
-- **Public README badge ("Secured by OpenSec")** — Deferred from v1.1 after brainstorm (2026-04-15). Returns in v1.2 once core flow is validated, criteria are tightened, and the brand has traction. Includes the PR creation, badge SVG design, freshness semantics, and tamper-resistance considerations
-- **Continuous monitoring** — GitHub Action that runs OpenSec assessment on a schedule or on PR merge. A prerequisite for a meaningful public badge
+- **Public README badge ("Secured by Cliff")** — Deferred from v1.1 after brainstorm (2026-04-15). Returns in v1.2 once core flow is validated, criteria are tightened, and the brand has traction. Includes the PR creation, badge SVG design, freshness semantics, and tamper-resistance considerations
+- **Continuous monitoring** — GitHub Action that runs Cliff assessment on a schedule or on PR merge. A prerequisite for a meaningful public badge
 - **Badge verification server** — SaaS endpoint that verifies a badge is legitimate (for when brand value makes faking worth preventing)
-- **Multi-repo support** — Assess and badge multiple repos from a single OpenSec instance
+- **Multi-repo support** — Assess and badge multiple repos from a single Cliff instance
 - **Organization-wide assessment** — Assess all repos in a GitHub org
 - **Posture auto-remediation** — Agents that fix branch protection, remove secrets, etc. (v1.1 is display + guidance only)
-- **OpenSSF Scorecard integration** — Full integration returns in v1.2+. Two layers to design together: (1) align OpenSec's completion criteria with a subset of Scorecard checks so remediation improves both simultaneously; (2) run Scorecard ourselves (either by bundling the binary or via the continuous-monitoring GitHub Action) so we always have a live score to display rather than depending on public API coverage. The v1.1 decision is to ship neither of these — just a static info-line pointer so the positioning is planted
+- **OpenSSF Scorecard integration** — Full integration returns in v1.2+. Two layers to design together: (1) align Cliff's completion criteria with a subset of Scorecard checks so remediation improves both simultaneously; (2) run Scorecard ourselves (either by bundling the binary or via the continuous-monitoring GitHub Action) so we always have a live score to display rather than depending on public API coverage. The v1.1 decision is to ship neither of these — just a static info-line pointer so the positioning is planted
 
 ## Success metrics
 
@@ -385,7 +385,7 @@ The ceremony produces a summary artifact the maintainer can choose to share. The
 ### In scope
 
 - Onboarding wizard (3 steps: repo, LLM, assessment)
-- OpenSec's own dependency vulnerability scanner (lockfile parsing + OSV.dev/GitHub Advisory DB lookup)
+- Cliff's own dependency vulnerability scanner (lockfile parsing + OSV.dev/GitHub Advisory DB lookup)
 - Repo posture checks via GitHub API (7 checks)
 - Plain-language finding descriptions in the LLM normalizer
 - Security report card page with vulnerability summary + posture checklist + completion progress
@@ -398,13 +398,13 @@ The ceremony produces a summary artifact the maintainer can choose to share. The
 
 ### Out of scope (and why)
 
-- **Public "Secured by OpenSec" README badge** — Deferred to v1.2. The brainstorm on 2026-04-15 concluded that v1.1's risk/reward favors ceremony + user-controlled share actions over a silent or one-click README modification. Returns once the core product is validated and the brand has enough recognition to make the badge meaningful
-- **Full SAST/DAST scanning** — OpenSec checks known CVEs in dependencies, not custom code vulnerabilities. Adding SAST is a separate product capability with different accuracy expectations. Future consideration
+- **Public "Secured by Cliff" README badge** — Deferred to v1.2. The brainstorm on 2026-04-15 concluded that v1.1's risk/reward favors ceremony + user-controlled share actions over a silent or one-click README modification. Returns once the core product is validated and the brand has enough recognition to make the badge meaningful
+- **Full SAST/DAST scanning** — Cliff checks known CVEs in dependencies, not custom code vulnerabilities. Adding SAST is a separate product capability with different accuracy expectations. Future consideration
 - **Posture auto-remediation** — Changing GitHub repo settings via API is risky (could lock out maintainers, break CI). Display + guidance for v1.1; auto-fix in a future version after trust is established
 - **Badge verification server** — Tied to the public badge, which is itself deferred
 - **Continuous monitoring / GitHub Action** — Excellent v1.2 feature and a prerequisite for a meaningful public badge. v1.1 is manual re-assessment
 - **Live OpenSSF Scorecard integration** — Deferred to v1.2. The public `api.securityscorecards.dev` API only has results for repos that OpenSSF considers "critical" enough to scan automatically, and coverage for the small-to-medium OSS repos in our actual v1.1 user set is a coin flip. A feature that silently works 30-50% of the time feels broken. v1.2 will address this properly by either aligning our criteria to Scorecard checks or running Scorecard ourselves
-- **Multi-repo support** — One repo per OpenSec instance for v1.1. Multi-repo is a future product expansion
+- **Multi-repo support** — One repo per Cliff instance for v1.1. Multi-repo is a future product expansion
 - **Secret scanning with rotation** — v1.1 does basic pattern matching for obvious secrets. Full secret scanning with automatic rotation is a separate product capability
 - **License compliance** — Not a security posture issue in the strict sense. Potentially a future completion criterion
 - **Automated batch remediation** — Still one workspace at a time. Batch mode is a separate future feature
@@ -424,7 +424,7 @@ The ceremony produces a summary artifact the maintainer can choose to share. The
 
 - CVE data source: OSV.dev API (primary) with GitHub Advisory Database as fallback — for the assessment engine
 - Lockfile parsers: lightweight custom Python parsers per ecosystem (npm, pip, go, ruby, java, rust) — ~200-300 LOC each, stdlib only, no CLI tool dependencies
-- New module: `backend/opensec/assessment/` with parsers, CVE lookup, and posture checker
+- New module: `backend/cliff/assessment/` with parsers, CVE lookup, and posture checker
 - GitHub API client for posture checks (branch protection, repo settings) — extends existing PAT usage
 - Report card data model — new tables/fields for assessment results, posture checks, completion status
 - New "Dashboard" page in frontend — report card with letter grade, posture checklist, completion progress
@@ -432,7 +432,7 @@ The ceremony produces a summary artifact the maintainer can choose to share. The
 
 **Downstream (unblocked by v1.1):**
 
-- Public "Secured by OpenSec" README badge and PR flow (v1.2)
+- Public "Secured by Cliff" README badge and PR flow (v1.2)
 - GitHub Action for continuous monitoring (v1.2)
 - Badge verification server (v1.3+)
 - Multi-repo / org-wide assessment (v1.3+)
@@ -443,11 +443,11 @@ The ceremony produces a summary artifact the maintainer can choose to share. The
 - [x] **Public README badge for v1.1:** Deferred to v1.2. v1.1 ships a private completion ceremony + user-controlled shareable summary card. Rationale documented in the revision note above. *Decided by: CEO + Product (2026-04-15)*
 - [x] **Scoring model:** Letter grade (A-F) with a visual progress bar toward completion. Grades map to completion criteria: A = 5/5 met (complete), B = 4/5, C = 3/5, D = 2/5, F = 0-1. Letter grades are intuitive for non-experts and more motivating than numeric scores. *Decided by: CEO + UX (2026-04-12)*
 - [x] **CVE data source:** OSV.dev (Google) as primary, GitHub Advisory Database as secondary fallback. OSV has broad multi-ecosystem coverage, free API (~100 req/sec), single unified schema. GitHub Advisory DB fills gaps for Java/Maven and .NET. *Decided by: Engineering (2026-04-12)*
-- [x] **Lockfile parser build vs. buy:** Build lightweight custom Python parsers per ecosystem (~200-300 LOC each). Lockfiles are simple structured formats (JSON, TOML, YAML, text). Custom parsers avoid deployment dependencies on npm/pip CLIs, subprocess overhead, and failure modes. Six ecosystems for v1.1: npm (package-lock.json), Python (Pipfile.lock/requirements.txt), Go (go.sum), Ruby (Gemfile.lock), Java (pom.xml), Rust (Cargo.lock). New module: `backend/opensec/assessment/parsers/`. *Decided by: Engineering (2026-04-12)*
+- [x] **Lockfile parser build vs. buy:** Build lightweight custom Python parsers per ecosystem (~200-300 LOC each). Lockfiles are simple structured formats (JSON, TOML, YAML, text). Custom parsers avoid deployment dependencies on npm/pip CLIs, subprocess overhead, and failure modes. Six ecosystems for v1.1: npm (package-lock.json), Python (Pipfile.lock/requirements.txt), Go (go.sum), Ruby (Gemfile.lock), Java (pom.xml), Rust (Cargo.lock). New module: `backend/cliff/assessment/parsers/`. *Decided by: Engineering (2026-04-12)*
 - [x] **Report card as new page or enhanced findings page:** New "Dashboard" page in the main navigation. The report card is strategic ("how's my posture?") while Findings is tactical ("which vulns to fix?"). Separate pages respect the information hierarchy. Dashboard becomes the landing page after onboarding, with "Start fixing" CTA bridging to Findings. *Decided by: CEO + UX (2026-04-12)*
 - [x] **Celebration UX:** 3-second confetti animation + subtle background color shift. ~30-40 small particles in primary (#4d44e3) and tertiary (#575e78) colors, gentle fall speed. Background tints briefly to tertiary-fixed. Completion badge preview scales up with a spring animation. No sound. Fits the Serene Sentinel "calm authority" tone — celebratory without being cheesy. *Decided by: UX (2026-04-12)*
-- [x] **OpenSSF Scorecard relationship:** Position OpenSec as the coach, Scorecard as the independent judge. v1.1 ships a single static info-line on the Dashboard pointing to Scorecard as a third-party standard the maintainer may want to know about — no API call, no live score, no broken-feature risk. A live Scorecard integration (aligned criteria + running Scorecard ourselves) is deferred to v1.2 because public-API coverage for our actual v1.1 user set (small-to-medium OSS repos) is a coin flip. No Scorecard outreach to the OpenSSF team in v1.1 — wait for traction first. *Decided by: CEO + Product (2026-04-15)*
-- [x] **Shareable summary card format:** Locally generated PNG/SVG sized ~1200×630 for social sharing, plus a plain-text version for clipboard. Download, copy-text, and copy-markdown actions are available to the user. No OpenSec-hosted URL, no verification server, no tracking. *Decided by: CEO + Product (2026-04-15)*
+- [x] **OpenSSF Scorecard relationship:** Position Cliff as the coach, Scorecard as the independent judge. v1.1 ships a single static info-line on the Dashboard pointing to Scorecard as a third-party standard the maintainer may want to know about — no API call, no live score, no broken-feature risk. A live Scorecard integration (aligned criteria + running Scorecard ourselves) is deferred to v1.2 because public-API coverage for our actual v1.1 user set (small-to-medium OSS repos) is a coin flip. No Scorecard outreach to the OpenSSF team in v1.1 — wait for traction first. *Decided by: CEO + Product (2026-04-15)*
+- [x] **Shareable summary card format:** Locally generated PNG/SVG sized ~1200×630 for social sharing, plus a plain-text version for clipboard. Download, copy-text, and copy-markdown actions are available to the user. No Cliff-hosted URL, no verification server, no tracking. *Decided by: CEO + Product (2026-04-15)*
 
 ## Open questions
 
@@ -455,4 +455,4 @@ All resolved. No remaining blockers for CEO approval of the revised PRD.
 
 ---
 
-_This PRD follows the OpenSec product workflow. After CEO approval, it moves to the UX team for mockup updates via `/ux-designer`, then to `/architect` for implementation plan updates. Note that UX-0002 and IMPL-0002 were drafted against the original badge-centric PRD and will need revision passes to reflect the v1.1 scope change._
+_This PRD follows the Cliff product workflow. After CEO approval, it moves to the UX team for mockup updates via `/ux-designer`, then to `/architect` for implementation plan updates. Note that UX-0002 and IMPL-0002 were drafted against the original badge-centric PRD and will need revision passes to reflect the v1.1 scope change._

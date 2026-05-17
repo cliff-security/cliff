@@ -75,8 +75,8 @@ describe('<AssessmentRunningCard />', () => {
     render(<AssessmentRunningCard {...baseProps} />)
     const active = screen.getByTestId('scanner-pill-semgrep')
     expect(active).toHaveAttribute('data-state', 'active')
-    // The active pill embeds a span with the opensec-pulse-dot class.
-    expect(active.querySelector('.opensec-pulse-dot')).not.toBeNull()
+    // The active pill embeds a span with the cliff-pulse-dot class.
+    expect(active.querySelector('.cliff-pulse-dot')).not.toBeNull()
   })
 
   it('renders the elapsed timer formatted as MM:SS', () => {

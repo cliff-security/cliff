@@ -22,11 +22,11 @@ from pathlib import Path
 import aiosqlite
 import pytest
 
-from opensec.db import repo_integration
-from opensec.db.connection import close_db, init_db
-from opensec.models import IntegrationConfigCreate
+from cliff.db import repo_integration
+from cliff.db.connection import close_db, init_db
+from cliff.models import IntegrationConfigCreate
 
-MIGRATIONS_DIR = Path(__file__).parent.parent / "opensec" / "db" / "migrations"
+MIGRATIONS_DIR = Path(__file__).parent.parent / "cliff" / "db" / "migrations"
 
 
 @pytest.fixture

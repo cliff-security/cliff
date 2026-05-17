@@ -10,7 +10,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { request } from './client'
 import type { components } from './types'
 
-// Names match backend/opensec/models/posture_check.py :: PostureCheckName.
+// Names match backend/cliff/models/posture_check.py :: PostureCheckName.
 // Frontend-owned so we don't wait on an OpenAPI regen every time we add
 // state to the PostureCard. PR-B (PRD-0003 v0.2) extended the set from 7
 // to 15 — keep both halves below in lockstep with the backend.

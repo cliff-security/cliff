@@ -3,11 +3,11 @@ set -euo pipefail
 
 # Install OpenCode binary for the current platform.
 # Reads version from .opencode-version at the repo root.
-# Installs to ~/.opensec/bin/opencode by default.
+# Installs to ~/.cliff/bin/opencode by default.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-INSTALL_DIR="${OPENSEC_BIN_DIR:-$HOME/.opensec/bin}"
+INSTALL_DIR="${CLIFF_BIN_DIR:-$HOME/.cliff/bin}"
 
 # Read pinned version
 VERSION_FILE="$REPO_ROOT/.opencode-version"

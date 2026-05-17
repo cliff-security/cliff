@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from opensec.config import Settings
+from cliff.config import Settings
 
 
 def test_static_dir_setting_default():
@@ -30,7 +30,7 @@ def test_docker_env_defaults():
 
 
 def test_spa_fallback_not_mounted_without_static_dir(client):
-    """Without OPENSEC_STATIC_DIR, unknown paths should 404 (no SPA fallback)."""
+    """Without CLIFF_STATIC_DIR, unknown paths should 404 (no SPA fallback)."""
     resp = client.get("/some/random/path")
     # Should be 404 or 405 since no SPA fallback is mounted
     assert resp.status_code in (404, 405)
@@ -41,7 +41,7 @@ def test_health_still_works_without_static_dir(client):
     resp = client.get("/health")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["opensec"] == "ok"
+    assert data["cliff"] == "ok"
 
 
 class TestSpaFallback:
@@ -52,18 +52,18 @@ class TestSpaFallback:
         # Set up a fake static directory
         static_dir = tmp_path / "dist"
         static_dir.mkdir()
-        (static_dir / "index.html").write_text("<html><body>OpenSec</body></html>")
+        (static_dir / "index.html").write_text("<html><body>Cliff</body></html>")
         assets_dir = static_dir / "assets"
         assets_dir.mkdir()
         (assets_dir / "main.js").write_text("console.log('app')")
 
-        with patch("opensec.main.settings") as mock_settings:
+        with patch("cliff.main.settings") as mock_settings:
             mock_settings.static_dir = str(static_dir)
             # Re-import to trigger mount logic
             # Instead, test the logic directly
             index = static_dir / "index.html"
             assert index.exists()
-            assert "OpenSec" in index.read_text()
+            assert "Cliff" in index.read_text()
 
     def test_static_file_candidate_check(self, tmp_path):
         """Verify static file resolution logic."""
@@ -114,7 +114,7 @@ class TestDockerfileStructure:
         assert conf.exists(), "docker/supervisord.conf must exist"
         content = conf.read_text()
         assert "uvicorn" in content, "Supervisord must manage uvicorn"
-        assert "opensec.main:app" in content
+        assert "cliff.main:app" in content
         assert "autorestart" in content
 
     def test_entrypoint_exists(self):
@@ -123,7 +123,7 @@ class TestDockerfileStructure:
         assert entrypoint.exists(), "docker/entrypoint.sh must exist"
         content = entrypoint.read_text()
         assert "#!/usr/bin/env bash" in content
-        assert "OPENSEC_DATA_DIR" in content
+        assert "CLIFF_DATA_DIR" in content
         assert "supervisord" in content
 
     def test_docker_compose_exists(self):
@@ -131,7 +131,7 @@ class TestDockerfileStructure:
         compose = root / "docker" / "docker-compose.yml"
         assert compose.exists(), "docker/docker-compose.yml must exist"
         content = compose.read_text()
-        assert "opensec" in content
+        assert "cliff" in content
         assert "8000" in content
         assert "volumes:" in content
         assert "healthcheck" in content
@@ -191,17 +191,17 @@ class TestReleaseHardening:
     def test_dockerfile_creates_non_root_user(self):
         content = (self._repo_root() / "docker" / "Dockerfile").read_text()
         # User+group with fixed UID/GID 10001 so bind-mount ownership is predictable.
-        assert "groupadd" in content and "10001 opensec" in content, (
-            "Dockerfile must create the opensec group at GID 10001"
+        assert "groupadd" in content and "10001 cliff" in content, (
+            "Dockerfile must create the cliff group at GID 10001"
         )
-        assert "useradd" in content and "10001" in content and "opensec" in content, (
-            "Dockerfile must create the opensec user at UID 10001"
+        assert "useradd" in content and "10001" in content and "cliff" in content, (
+            "Dockerfile must create the cliff user at UID 10001"
         )
 
     def test_dockerfile_has_user_directive(self):
         content = (self._repo_root() / "docker" / "Dockerfile").read_text()
-        assert "USER opensec" in content, (
-            "Dockerfile must drop privileges via 'USER opensec' before ENTRYPOINT"
+        assert "USER cliff" in content, (
+            "Dockerfile must drop privileges via 'USER cliff' before ENTRYPOINT"
         )
 
     def test_dockerfile_copies_version_file(self):
@@ -225,12 +225,12 @@ class TestReleaseHardening:
 
     def test_dockerfile_accepts_version_build_args(self):
         content = (self._repo_root() / "docker" / "Dockerfile").read_text()
-        for arg in ("OPENSEC_VERSION", "OPENSEC_REVISION", "OPENSEC_CREATED"):
+        for arg in ("CLIFF_VERSION", "CLIFF_REVISION", "CLIFF_CREATED"):
             assert f"ARG {arg}" in content, f"Dockerfile must accept build arg {arg}"
 
-    def test_supervisord_runs_as_opensec_user(self):
+    def test_supervisord_runs_as_cliff_user(self):
         content = (self._repo_root() / "docker" / "supervisord.conf").read_text()
-        assert "user=opensec" in content, "supervisord must run as the opensec user"
+        assert "user=cliff" in content, "supervisord must run as the cliff user"
         assert "/var/run/" not in content, (
             "supervisord must not write to /var/run/ (not writable by non-root)"
         )

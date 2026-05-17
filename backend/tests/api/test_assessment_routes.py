@@ -6,9 +6,9 @@ import asyncio
 
 import pytest
 
-from opensec.api._engine_dep import get_assessment_engine
-from opensec.main import app
-from opensec.models import CriteriaSnapshot
+from cliff.api._engine_dep import get_assessment_engine
+from cliff.main import app
+from cliff.models import CriteriaSnapshot
 from tests.fakes.assessment_engine import FakeAssessmentEngine
 
 
@@ -82,10 +82,10 @@ async def test_run_assessment_persists_result_and_posture(db_client, fake_engine
     aid = resp.json()["assessment_id"]
     await _drain_background_tasks()
 
-    from opensec.db.connection import _db
-    from opensec.db.dao.assessment import get_assessment
-    from opensec.db.dao.completion import get_completion_for_assessment
-    from opensec.db.repo_finding import list_posture_findings
+    from cliff.db.connection import _db
+    from cliff.db.dao.assessment import get_assessment
+    from cliff.db.dao.completion import get_completion_for_assessment
+    from cliff.db.repo_finding import list_posture_findings
 
     a = await get_assessment(_db, aid)
     assert a.status == "complete"
@@ -143,8 +143,8 @@ async def test_run_assessment_persists_findings_emitted_by_engine(db_client):
         assert resp.status_code == 200
         await _drain_background_tasks()
 
-        from opensec.db.connection import _db
-        from opensec.db.repo_finding import list_findings
+        from cliff.db.connection import _db
+        from cliff.db.repo_finding import list_findings
 
         persisted = await list_findings(_db)
         engine_persisted = [f for f in persisted if f.source_type == "osv"]
@@ -165,8 +165,8 @@ async def test_run_assessment_no_completion_when_criteria_unmet(db_client):
         aid = resp.json()["assessment_id"]
         await _drain_background_tasks()
 
-        from opensec.db.connection import _db
-        from opensec.db.dao.completion import get_completion_for_assessment
+        from cliff.db.connection import _db
+        from cliff.db.dao.completion import get_completion_for_assessment
 
         completion = await get_completion_for_assessment(_db, aid)
         assert completion is None
@@ -184,8 +184,8 @@ async def test_run_assessment_engine_failure_marks_failed(db_client):
         aid = resp.json()["assessment_id"]
         await _drain_background_tasks()
 
-        from opensec.db.connection import _db
-        from opensec.db.dao.assessment import get_assessment
+        from cliff.db.connection import _db
+        from cliff.db.dao.assessment import get_assessment
 
         a = await get_assessment(_db, aid)
         assert a.status == "failed"
@@ -202,7 +202,7 @@ async def test_status_response_carries_error_block_when_failed(db_client):
     new ``error`` block + ``repo_url`` so the dashboard can render the
     failure card without an extra round-trip.
     """
-    from opensec.assessment.clone import CloneError
+    from cliff.assessment.clone import CloneError
 
     engine = FakeAssessmentEngine(
         raise_on_run=CloneError("git clone failed for https://github.com/a/d (exit 128)"),
@@ -312,13 +312,13 @@ async def test_status_previous_assessment_null_on_first_scan(db_client, fake_eng
 
 async def test_status_previous_assessment_populated_when_prior_exists(db_client):
     """Second run sees the first as ``previous_assessment``."""
-    from opensec.db.connection import _db
-    from opensec.db.dao.assessment import (
+    from cliff.db.connection import _db
+    from cliff.db.dao.assessment import (
         create_assessment,
         set_assessment_result,
         update_assessment,
     )
-    from opensec.models import AssessmentCreate, AssessmentUpdate
+    from cliff.models import AssessmentCreate, AssessmentUpdate
 
     snap = _all_criteria_met()
 
@@ -327,8 +327,8 @@ async def test_status_previous_assessment_populated_when_prior_exists(db_client)
     await set_assessment_result(_db, prior.id, grade="C", criteria_snapshot=snap)
     await update_assessment(_db, prior.id, AssessmentUpdate(commit_sha="deadbee"))
 
-    from opensec.db.repo_finding import create_finding
-    from opensec.models import FindingCreate
+    from cliff.db.repo_finding import create_finding
+    from cliff.models import FindingCreate
 
     for i in range(2):
         await create_finding(

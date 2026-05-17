@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from opensec.agents.pipeline import (
+from cliff.agents.pipeline import (
     MAX_RETRY_ITERATIONS,
     PIPELINE_ORDER,
     VALID_AGENT_TYPES,

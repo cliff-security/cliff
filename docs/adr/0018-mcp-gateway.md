@@ -5,7 +5,7 @@
 
 ## Context
 
-OpenSec needs a component that manages MCP server connections for each workspace: starting/stopping processes, injecting credentials, enforcing permissions, intercepting tool calls for audit logging, and tying the MCP server lifecycle to the workspace lifecycle (ADR-0014).
+Cliff needs a component that manages MCP server connections for each workspace: starting/stopping processes, injecting credentials, enforcing permissions, intercepting tool calls for audit logging, and tying the MCP server lifecycle to the workspace lifecycle (ADR-0014).
 
 We evaluated 12+ open-source MCP Gateway projects:
 
@@ -22,11 +22,11 @@ The core problem: none of these gateways understand OpenCode's workspace process
 
 ## Decision
 
-Build the MCP Gateway inline within the OpenSec codebase, heavily borrowing patterns from the best existing projects.
+Build the MCP Gateway inline within the Cliff codebase, heavily borrowing patterns from the best existing projects.
 
 Key design choices:
 
-1. **Inline, not external dependency.** The gateway lives in `backend/opensec/integrations/gateway.py` — part of the OpenSec monorepo. No separate package, no additional deployment artifact. This aligns with our inline packaging decision and keeps the system simple for self-hosted users.
+1. **Inline, not external dependency.** The gateway lives in `backend/cliff/integrations/gateway.py` — part of the Cliff monorepo. No separate package, no additional deployment artifact. This aligns with our inline packaging decision and keeps the system simple for self-hosted users.
 
 2. **Patterns borrowed from ecosystem:**
    - **Gate22** → Per-call audit event schema and function-level permission model

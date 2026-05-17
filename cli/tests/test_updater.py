@@ -16,8 +16,8 @@ import httpx
 import pytest
 from click.testing import CliRunner
 
-from opensec_cli import updater
-from opensec_cli.updater import (
+from cliff_cli import updater
+from cliff_cli.updater import (
     _release_urls,
     is_newer,
     safe_extract,
@@ -45,7 +45,7 @@ def test_is_newer(latest, current, expected):
 
 def test_release_urls_uses_versioned_asset_name():
     tar, sha = _release_urls("v0.1.7-alpha")
-    assert tar.endswith("/v0.1.7-alpha/opensec-0.1.7-alpha.tar.gz")
+    assert tar.endswith("/v0.1.7-alpha/cliff-0.1.7-alpha.tar.gz")
     assert sha == tar + ".sha256"
 
 
@@ -99,19 +99,19 @@ def test_update_lock_blocks_concurrent_holder(tmp_path):
 
 @pytest.fixture
 def fake_install(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Set up a fake OPENSEC_HOME with a pre-existing 'installed' app/."""
+    """Set up a fake CLIFF_HOME with a pre-existing 'installed' app/."""
     home = tmp_path / "home"
     (home / "app").mkdir(parents=True)
     (home / "app" / "VERSION").write_text("0.1.6-alpha\n")
     (home / "app" / "scripts").mkdir()
     (home / "bin").mkdir()
     (home / "run").mkdir()
-    monkeypatch.setenv("OPENSEC_HOME", str(home))
+    monkeypatch.setenv("CLIFF_HOME", str(home))
 
     import importlib
 
-    import opensec_cli.daemon as d
-    import opensec_cli.updater as u
+    import cliff_cli.daemon as d
+    import cliff_cli.updater as u
 
     importlib.reload(d)
     importlib.reload(u)
@@ -197,7 +197,7 @@ def test_update_happy_path_replaces_install(fake_install, httpx_mock, monkeypatc
     import hashlib
     expected_sha = hashlib.sha256(tar_bytes).hexdigest()
     httpx_mock.add_response(url=tar_url, content=tar_bytes)
-    httpx_mock.add_response(url=sha_url, text=f"{expected_sha}  opensec-0.1.7-alpha.tar.gz\n")
+    httpx_mock.add_response(url=sha_url, text=f"{expected_sha}  cliff-0.1.7-alpha.tar.gz\n")
 
     # Stub the bundled installers — they're shell scripts but we can't rely on
     # the test box having `sh` paths set up the way the real installers want.
@@ -310,11 +310,11 @@ def test_update_errors_when_not_installed(tmp_path, monkeypatch):
     """No VERSION file -> not_installed error."""
     home = tmp_path / "home"
     home.mkdir()
-    monkeypatch.setenv("OPENSEC_HOME", str(home))
+    monkeypatch.setenv("CLIFF_HOME", str(home))
     import importlib
 
-    import opensec_cli.daemon as d
-    import opensec_cli.updater as u
+    import cliff_cli.daemon as d
+    import cliff_cli.updater as u
 
     importlib.reload(d)
     importlib.reload(u)
@@ -444,7 +444,7 @@ def test_update_aborts_on_bad_checksum_without_touching_install(
     )
     httpx_mock.add_response(url=tar_url, content=tar_path.read_bytes())
     # Sidecar advertises the WRONG digest -> checksum mismatch.
-    httpx_mock.add_response(url=sha_url, text="0" * 64 + "  opensec-0.1.7-alpha.tar.gz\n")
+    httpx_mock.add_response(url=sha_url, text="0" * 64 + "  cliff-0.1.7-alpha.tar.gz\n")
 
     res = CliRunner().invoke(u.update_cmd, ["--yes"])
     assert res.exit_code == 1

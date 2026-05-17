@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
-from opensec.engine.models import SessionDetail, SessionSummary
+from cliff.engine.models import SessionDetail, SessionSummary
 
 
 @asynccontextmanager
@@ -27,7 +27,7 @@ def _stub_onboarding_repo_probe():
     so the suite stays offline and fast.
     """
     with patch(
-        "opensec.api.routes.onboarding._probe_repo_metadata",
+        "cliff.api.routes.onboarding._probe_repo_metadata",
         AsyncMock(return_value=None),
     ):
         yield
@@ -42,8 +42,8 @@ def _stub_onboarding_repo_probe():
 def mock_opencode_process():
     """Mock the OpenCode process manager so tests don't need a real server."""
     with (
-        patch("opensec.api.routes.health.opencode_process") as mock_proc,
-        patch("opensec.api.routes.health.opencode_client") as mock_health_client,
+        patch("cliff.api.routes.health.opencode_process") as mock_proc,
+        patch("cliff.api.routes.health.opencode_client") as mock_health_client,
     ):
         mock_proc.health_check = AsyncMock(return_value=True)
         mock_proc.is_running = True
@@ -58,8 +58,8 @@ def mock_opencode_process():
 def mock_opencode_client():
     """Mock the OpenCode HTTP client in all route modules."""
     with (
-        patch("opensec.api.routes.sessions.opencode_client") as mock_sessions,
-        patch("opensec.api.routes.chat.opencode_client") as mock_chat,
+        patch("cliff.api.routes.sessions.opencode_client") as mock_sessions,
+        patch("cliff.api.routes.chat.opencode_client") as mock_chat,
     ):
         # Default behaviors
         for m in (mock_sessions, mock_chat):
@@ -86,7 +86,7 @@ def mock_opencode_client():
 @pytest.fixture
 def client(mock_opencode_process, mock_opencode_client):
     """FastAPI test client with mocked dependencies."""
-    from opensec.main import app
+    from cliff.main import app
 
     app.router.lifespan_context = _noop_lifespan
     with TestClient(app) as c:
@@ -108,8 +108,8 @@ async def db_client():
     Injects mock process_pool and context_builder on app.state so workspace
     routes that access request.app.state don't crash.
     """
-    from opensec.db.connection import close_db, init_db
-    from opensec.main import app
+    from cliff.db.connection import close_db, init_db
+    from cliff.main import app
 
     app.router.lifespan_context = _noop_lifespan
     await init_db(":memory:")
@@ -117,15 +117,15 @@ async def db_client():
     # Mock app.state objects for workspace routes (Layer 3+4).
     # The mocks must produce real Workspace objects so FastAPI response
     # validation passes. We delegate to raw DB functions.
-    from opensec.db.repo_finding import mark_started_on_workspace_create
-    from opensec.db.repo_sidebar import mark_plan_approved as _raw_mark_approved
-    from opensec.db.repo_workspace import (
+    from cliff.db.repo_finding import mark_started_on_workspace_create
+    from cliff.db.repo_sidebar import mark_plan_approved as _raw_mark_approved
+    from cliff.db.repo_workspace import (
         create_workspace as raw_create,
     )
-    from opensec.db.repo_workspace import (
+    from cliff.db.repo_workspace import (
         delete_workspace as raw_delete,
     )
-    from opensec.models import WorkspaceCreate
+    from cliff.models import WorkspaceCreate
 
     mock_pool = AsyncMock()
     mock_pool.stop = AsyncMock()

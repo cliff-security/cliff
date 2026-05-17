@@ -384,7 +384,7 @@ function ConfiguredCard({
     const confirmed = window.confirm(
       `Disconnect ${label}? Workspaces that depend on it will stop until you reconnect.` +
         (isGithubAppRow
-          ? '\n\nThis only removes the local connection. To revoke OpenSec on GitHub, visit github.com/settings/applications afterwards.'
+          ? '\n\nThis only removes the local connection. To revoke Cliff on GitHub, visit github.com/settings/applications afterwards.'
           : ''),
     )
     if (!confirmed) return

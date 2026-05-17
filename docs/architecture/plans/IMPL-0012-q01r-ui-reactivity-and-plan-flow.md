@@ -37,8 +37,8 @@ Frontend (V2):
 - `frontend/src/pages/IssuesPage.tsx` — `severityFilter` / `typeFilter` hydrate from URL; `showEmptyReviewCard` adds `&& todo.length === 0`; heading copy
 
 Backend (V2):
-- `backend/opensec/api/routes/_level_up.py:_posture_gate()` and the dependency / secret / high-finding gate builders — add `first_finding_id` (and `first_action_href`) so frontend can deep-link to side panel
-- `backend/opensec/api/routes/ai_integrations.py` — `openrouter_status()` keeps the session alive long enough that late polls still return `completed` (or returns synthetic `completed` if `/api/integrations/ai/status` confirms openrouter is connected)
+- `backend/cliff/api/routes/_level_up.py:_posture_gate()` and the dependency / secret / high-finding gate builders — add `first_finding_id` (and `first_action_href`) so frontend can deep-link to side panel
+- `backend/cliff/api/routes/ai_integrations.py` — `openrouter_status()` keeps the session alive long enough that late polls still return `completed` (or returns synthetic `completed` if `/api/integrations/ai/status` confirms openrouter is connected)
 
 No ADR needed — this is wiring within ADR-0021 (agent execution model) and ADR-0036 (AI provider integration) boundaries.
 

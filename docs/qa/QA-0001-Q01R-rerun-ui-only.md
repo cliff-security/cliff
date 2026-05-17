@@ -1,14 +1,14 @@
 # QA-0001 / Q01 re-run (Wave 1.5) — UI-only on fresh Docker
 
 **Date**: 2026-05-17
-**Driver**: Claude in Chrome — UI only, `opensec` CLI forbidden per Wave 2 policy
+**Driver**: Claude in Chrome — UI only, `cliff` CLI forbidden per Wave 2 policy
 **Target**: cliff-security/NodeGoat (master branch)
 **Environment**:
-- Docker image `opensec:qa-rerun` built from `main` at commit `6d2d228`
-- Container on port 8088, fresh volume `opensec-qa-rerun-data`, fresh credential key
+- Docker image `cliff:qa-rerun` built from `main` at commit `6d2d228`
+- Container on port 8088, fresh volume `cliff-qa-rerun-data`, fresh credential key
 - No provider env vars (forces real BYOK flow)
 - Provider: OpenRouter OAuth → `openrouter/anthropic/claude-haiku-4.5` (auto-selected)
-- GitHub: galanko, device-flow OAuth (`opensec-local-test` app, installation_id=133122855)
+- GitHub: galanko, device-flow OAuth (`cliff-local-test` app, installation_id=133122855)
 
 ## Headline verdict: RED
 
@@ -76,7 +76,7 @@ Adapted from the user's instructions during this session, to be enforced by the 
 - Every prompt explicitly lists the flow: build → launch → onboarding (UI) → finding triage (UI) → re-assessment (UI) → cleanup.
 - After report + bug investigations are done, every session tears down its own container and volume.
 - Concurrency is improved — the campaign drives multiple findings in parallel with explicit pool sizing.
-- For every user role except the opensec-CLI QA session, the work is driven entirely via Claude-in-Chrome against the Cliff UI. CLI use is forbidden.
+- For every user role except the cliff-CLI QA session, the work is driven entirely via Claude-in-Chrome against the Cliff UI. CLI use is forbidden.
 - Every session pursues grade A on the dashboard and follows the dashboard's own "Level up to" guidance. If a dashboard instruction is unclear, that itself is a bug to file.
 
 ## Files
@@ -88,9 +88,9 @@ Adapted from the user's instructions during this session, to be enforced by the 
 
 ## Cleanup
 
-Container `opensec-qa-rerun` and volume `opensec-qa-rerun-data` left running for follow-up investigation. Tear down with:
+Container `cliff-qa-rerun` and volume `cliff-qa-rerun-data` left running for follow-up investigation. Tear down with:
 
 ```
-docker rm -f opensec-qa-rerun
-docker volume rm opensec-qa-rerun-data
+docker rm -f cliff-qa-rerun
+docker volume rm cliff-qa-rerun-data
 ```

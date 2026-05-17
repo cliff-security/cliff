@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from opensec.agents.output_parser import (
+from cliff.agents.output_parser import (
     extract_json_block,
     parse_agent_response,
     validate_structured_output,

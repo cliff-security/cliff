@@ -1,6 +1,6 @@
 """E2E tests for repo-action agent templates (IMPL-0002 I3).
 
-Each test dogfoods a single-shot repo-action agent against the OpenSec
+Each test dogfoods a single-shot repo-action agent against the Cliff
 repo itself (resolved from ``git config --get remote.origin.url``). The
 flow exercised end-to-end is:
 
@@ -15,16 +15,16 @@ skips in this file):
 
 - OpenCode binary installed
 - ``OPENAI_API_KEY`` or ``ANTHROPIC_API_KEY`` set
-- ``GH_TOKEN`` set with write access to the OpenSec origin repo
+- ``GH_TOKEN`` set with write access to the Cliff origin repo
 - ``gh`` CLI on ``$PATH`` (for teardown)
 - The current clone's ``origin`` points to an ``https://github.com/...`` URL
 
 The tests are network- and cost-sensitive and each should complete inside
 10 minutes. Teardown MUST run even on failure — we do not leave draft PRs
-or branches lying around on the OpenSec repo.
+or branches lying around on the Cliff repo.
 
 **Not xdist-safe.** Both tests push the fixed branch names
-``opensec/posture/security-md`` and ``opensec/posture/dependabot``. If run
+``cliff/posture/security-md`` and ``cliff/posture/dependabot``. If run
 concurrently (e.g. under ``pytest-xdist``), two workers race on the same
 push ref and one fails. Keep this suite single-threaded or make the branch
 name unique per run before enabling ``-n auto``.
@@ -41,10 +41,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from opensec.agents.output_parser import extract_json_block
-from opensec.agents.template_engine import AgentTemplateEngine
-from opensec.engine.pool import PortAllocator, WorkspaceProcessPool
-from opensec.workspace.workspace_dir_manager import WorkspaceDirManager, WorkspaceKind
+from cliff.agents.output_parser import extract_json_block
+from cliff.agents.template_engine import AgentTemplateEngine
+from cliff.engine.pool import PortAllocator, WorkspaceProcessPool
+from cliff.workspace.workspace_dir_manager import WorkspaceDirManager, WorkspaceKind
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -59,7 +59,7 @@ pytestmark = pytest.mark.e2e
 
 
 def _resolve_origin_url() -> str | None:
-    """Resolve the OpenSec clone's origin URL, normalised to HTTPS.
+    """Resolve the Cliff clone's origin URL, normalised to HTTPS.
 
     Returns None if the repo isn't a git checkout or origin isn't GitHub.
     """
@@ -132,7 +132,7 @@ def _close_pr_and_branch(pr_url: str | None, branch: str, repo: str) -> None:
         # `gh pr close --delete-branch` closes and removes the branch in one shot.
         cmd = [
             _GH_CLI, "pr", "close", pr_url, "--delete-branch", "--comment",
-            "Automated OpenSec E2E run — closing and deleting branch.",
+            "Automated Cliff E2E run — closing and deleting branch.",
         ]
     else:
         # No PR (agent may have aborted) — best-effort delete of the branch.
@@ -243,7 +243,7 @@ async def _run_repo_action_e2e(
             assert structured.get("branch_name") == branch_name
 
     finally:
-        # Always tear down — we cannot leave PRs on the OpenSec repo.
+        # Always tear down — we cannot leave PRs on the Cliff repo.
         try:
             _close_pr_and_branch(pr_url, branch_name, repo_slug)
         finally:
@@ -258,12 +258,12 @@ async def _run_repo_action_e2e(
 async def test_security_md_generator_opens_draft_pr(
     dir_manager: WorkspaceDirManager, pool: WorkspaceProcessPool
 ) -> None:
-    """Dogfood the SECURITY.md generator against the OpenSec repo."""
+    """Dogfood the SECURITY.md generator against the Cliff repo."""
     await _run_repo_action_e2e(
         kind=WorkspaceKind.repo_action_security_md,
         template_stem="security_md_generator",
-        branch_name="opensec/posture/security-md",
-        params={"contact_email": "security@opensec.example"},
+        branch_name="cliff/posture/security-md",
+        params={"contact_email": "security@cliff.example"},
         dir_manager=dir_manager,
         pool=pool,
     )
@@ -275,11 +275,11 @@ async def test_security_md_generator_opens_draft_pr(
 async def test_dependabot_config_generator_opens_draft_pr(
     dir_manager: WorkspaceDirManager, pool: WorkspaceProcessPool
 ) -> None:
-    """Dogfood the dependabot.yml generator against the OpenSec repo."""
+    """Dogfood the dependabot.yml generator against the Cliff repo."""
     await _run_repo_action_e2e(
         kind=WorkspaceKind.repo_action_dependabot,
         template_stem="dependabot_config_generator",
-        branch_name="opensec/posture/dependabot",
+        branch_name="cliff/posture/dependabot",
         params={},
         dir_manager=dir_manager,
         pool=pool,

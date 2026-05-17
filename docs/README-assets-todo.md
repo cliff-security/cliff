@@ -14,16 +14,16 @@ Companion to `README.md`. Replace placeholders in order — each unblocks the ne
 
 ### Logo + wordmark
 
-- **Where:** `docs/assets/brand/opensec-logo.svg` (light) and `opensec-logo-dark.svg` (dark)
+- **Where:** `docs/assets/brand/cliff-logo.svg` (light) and `cliff-logo-dark.svg` (dark)
 - **Dimensions:** 240×64 wordmark, plus icon-only 80×80
-- **Why:** Currently using `frontend/public/favicon.svg` (the icon alone) as a stand-in. A wordmark gives OpenSec recognizable brand lift.
+- **Why:** Currently using `frontend/public/favicon.svg` (the icon alone) as a stand-in. A wordmark gives Cliff recognizable brand lift.
 - **Update in README:** swap the hero `<img src="frontend/public/favicon.svg" ...>` for the wordmark. If you want the GitHub light/dark-mode swap trick Supabase uses, reference both with `#gh-light-mode-only` / `#gh-dark-mode-only` URL fragments.
 
 ### Social / Open Graph card
 
 - **Where:** `docs/assets/brand/og-card.png`
 - **Dimensions:** 1280×640
-- **Shows:** OpenSec wordmark, tagline ("Your security team, in chat."), background texture matching the Serene Sentinel palette
+- **Shows:** Cliff wordmark, tagline ("Your security team, in chat."), background texture matching the Serene Sentinel palette
 - **Why:** Controls what shows up when the repo is shared on Twitter/X, LinkedIn, Slack, Discord. Huge lift for referral traffic.
 - **Where it's used:** GitHub repo Settings → Social preview (uploaded via UI, not linked from README)
 
@@ -40,18 +40,18 @@ Companion to `README.md`. Replace placeholders in order — each unblocks the ne
 
 ### Live demo environment
 
-- **Where:** `demo.opensec.dev` (or pick your subdomain)
+- **Where:** `demo.cliff.dev` (or pick your subdomain)
 - **Shows:** A seeded single-user instance with 5–10 demo findings across severity levels
-- **Credentials:** Public, posted in README (e.g. `demo / opensec`)
+- **Credentials:** Public, posted in README (e.g. `demo / cliff`)
 - **Why:** DefectDojo has a live demo in their README — it removes every objection. "Try it in your browser right now" > "clone this and configure that."
-- **Update in README:** Replace the "Live hosted demo coming soon at `demo.opensec.dev`" line under `## Demo` with the real URL + credential block.
+- **Update in README:** Replace the "Live hosted demo coming soon at `demo.cliff.dev`" line under `## Demo` with the real URL + credential block.
 
 ## Tier 3 — Ship when it's fun (brand polish)
 
 ### Earn the Badge preview SVG
 
 - **Where:** `docs/assets/brand/badge-preview.svg`
-- **Shows:** A sample Grade-A badge ("OpenSec · A · audited 2026-05-12") in the actual style it would render on a user's README
+- **Shows:** A sample Grade-A badge ("Cliff · A · audited 2026-05-12") in the actual style it would render on a user's README
 - **Why:** The badge is your growth engine per strategy memory. Showing a visual preview of what users earn makes "Earn the badge" tangible instead of abstract.
 - **Update in README:** Insert the SVG inside the `## Earn the badge` section, above the code snippet that shows how to embed it.
 

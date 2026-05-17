@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from opensec.workspace.workspace_dir_manager import WorkspaceDirManager, WorkspaceKind
+from cliff.workspace.workspace_dir_manager import WorkspaceDirManager, WorkspaceKind
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -69,7 +69,7 @@ class TestSecurityMdRepoWorkspace:
         # Template substitutions landed.
         assert "https://github.com/acme/widget" in content
         assert "ciso@example.org" in content
-        assert "opensec/posture/security-md" in content
+        assert "cliff/posture/security-md" in content
         assert "gh pr create --draft" in content
 
         # Defence in depth: the PAT must never be persisted to disk. The agent
@@ -120,7 +120,7 @@ class TestDependabotRepoWorkspace:
         assert agent_file.is_file()
         content = agent_file.read_text()
         assert ".github/dependabot.yml" in content
-        assert "opensec/posture/dependabot" in content
+        assert "cliff/posture/dependabot" in content
         assert "https://github.com/acme/widget" in content
 
         # The SECURITY.md template must NOT be written for a dependabot workspace.

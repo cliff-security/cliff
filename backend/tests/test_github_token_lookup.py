@@ -14,10 +14,10 @@ from unittest.mock import patch
 
 import pytest
 
-from opensec.db import repo_integration
-from opensec.db.connection import close_db, init_db
-from opensec.integrations.vault import CredentialVault
-from opensec.models import IntegrationConfigCreate
+from cliff.db import repo_integration
+from cliff.db.connection import close_db, init_db
+from cliff.integrations.vault import CredentialVault
+from cliff.models import IntegrationConfigCreate
 
 VAULT_KEY = b"\x00" * 32
 
@@ -66,13 +66,13 @@ async def test_token_lookup_resolves_pat_row_with_capitalized_provider(db):
         db, adapter_type="github", provider_name="GitHub", enabled=True
     )
 
-    from opensec.api import _engine_dep
-    from opensec.main import app
+    from cliff.api import _engine_dep
+    from cliff.main import app
 
     vault = CredentialVault(db, key=VAULT_KEY)
     app.state.vault = vault
     try:
-        with patch("opensec.db.connection._db", db):
+        with patch("cliff.db.connection._db", db):
             token = await _engine_dep._github_token_from_integration()
     finally:
         app.state.vault = None
@@ -90,13 +90,13 @@ async def test_token_lookup_resolves_app_flow_row_with_lowercase_provider(db):
         enabled=True,
     )
 
-    from opensec.api import _engine_dep
-    from opensec.main import app
+    from cliff.api import _engine_dep
+    from cliff.main import app
 
     vault = CredentialVault(db, key=VAULT_KEY)
     app.state.vault = vault
     try:
-        with patch("opensec.db.connection._db", db):
+        with patch("cliff.db.connection._db", db):
             token = await _engine_dep._github_token_from_integration()
     finally:
         app.state.vault = None
@@ -109,13 +109,13 @@ async def test_token_lookup_returns_none_when_no_enabled_row(db):
         db, adapter_type="github", provider_name="GitHub", enabled=False
     )
 
-    from opensec.api import _engine_dep
-    from opensec.main import app
+    from cliff.api import _engine_dep
+    from cliff.main import app
 
     vault = CredentialVault(db, key=VAULT_KEY)
     app.state.vault = vault
     try:
-        with patch("opensec.db.connection._db", db):
+        with patch("cliff.db.connection._db", db):
             token = await _engine_dep._github_token_from_integration()
     finally:
         app.state.vault = None
@@ -143,13 +143,13 @@ async def test_token_lookup_picks_enabled_row_when_pat_archived(db):
         token="ghu_active_app_token",
     )
 
-    from opensec.api import _engine_dep
-    from opensec.main import app
+    from cliff.api import _engine_dep
+    from cliff.main import app
 
     vault = CredentialVault(db, key=VAULT_KEY)
     app.state.vault = vault
     try:
-        with patch("opensec.db.connection._db", db):
+        with patch("cliff.db.connection._db", db):
             token = await _engine_dep._github_token_from_integration()
     finally:
         app.state.vault = None

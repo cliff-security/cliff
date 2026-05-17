@@ -4,7 +4,7 @@
  * In progress section header. Reduced-motion users get a static dot.
  */
 
-@keyframes opensec-pulse-dot {
+@keyframes cliff-pulse-dot {
   0%,
   100% {
     transform: scale(1);
@@ -16,12 +16,12 @@
   }
 }
 
-.opensec-pulse-dot {
-  animation: opensec-pulse-dot 1.4s ease-in-out infinite;
+.cliff-pulse-dot {
+  animation: cliff-pulse-dot 1.4s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .opensec-pulse-dot {
+  .cliff-pulse-dot {
     animation: none;
   }
 }

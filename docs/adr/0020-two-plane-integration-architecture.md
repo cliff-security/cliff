@@ -6,7 +6,7 @@
 
 ## Context
 
-OpenSec integrations serve two fundamentally different execution modes:
+Cliff integrations serve two fundamentally different execution modes:
 
 1. **Deterministic operations.** Poll Wiz every 15 minutes for new findings. Receive a webhook from GitHub Dependabot. Sync ticket status from Jira nightly. Update a finding's status in the source system after validation. These are scheduled, predictable, and must succeed reliably without human intervention.
 
@@ -40,7 +40,7 @@ Adopt a two-plane integration architecture where both planes share the same inte
 - Action tier enforcement: read-only default, write requires opt-in (ADR-0015)
 
 **Shared integration contract.** Both planes implement the same four verbs:
-- `collect` — Pull data from external system into OpenSec
+- `collect` — Pull data from external system into Cliff
 - `enrich` — Add context to an existing entity (finding, asset, workspace)
 - `investigate` — Query external system for analysis (may be interactive)
 - `update` — Write back to external system (status change, ticket creation)

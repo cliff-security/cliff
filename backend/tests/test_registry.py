@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from opensec.db.connection import close_db, init_db
-from opensec.integrations.registry import (
+from cliff.db.connection import close_db, init_db
+from cliff.integrations.registry import (
     RegistryEntry,
     get_registry_entry,
     load_registry,
@@ -84,7 +84,7 @@ def test_coming_soon_entries():
 
 def test_load_registry_returns_module_level_list(monkeypatch):
     """Verify load_registry() returns the module-level REGISTRY list."""
-    import opensec.integrations.registry as reg
+    import cliff.integrations.registry as reg
 
     fake = [RegistryEntry(id="fake", name="Fake", adapter_type="validation", description="test")]
     monkeypatch.setattr(reg, "REGISTRY", fake)
@@ -108,7 +108,7 @@ async def test_registry_api_list(db: aiosqlite.Connection):
 
     from httpx import ASGITransport, AsyncClient
 
-    from opensec.main import app
+    from cliff.main import app
 
     @asynccontextmanager
     async def _noop_lifespan(a):
@@ -137,7 +137,7 @@ async def test_registry_api_single(db: aiosqlite.Connection):
 
     from httpx import ASGITransport, AsyncClient
 
-    from opensec.main import app
+    from cliff.main import app
 
     @asynccontextmanager
     async def _noop_lifespan(a):
@@ -171,9 +171,9 @@ async def test_credential_store_and_list(db: aiosqlite.Connection):
 
     from httpx import ASGITransport, AsyncClient
 
-    from opensec.integrations.audit import AuditLogger
-    from opensec.integrations.vault import CredentialVault
-    from opensec.main import app
+    from cliff.integrations.audit import AuditLogger
+    from cliff.integrations.vault import CredentialVault
+    from cliff.main import app
 
     @asynccontextmanager
     async def _noop_lifespan(a):
@@ -228,8 +228,8 @@ async def test_integration_delete_cascades_credentials(db: aiosqlite.Connection)
 
     from httpx import ASGITransport, AsyncClient
 
-    from opensec.integrations.vault import CredentialVault
-    from opensec.main import app
+    from cliff.integrations.vault import CredentialVault
+    from cliff.main import app
 
     @asynccontextmanager
     async def _noop_lifespan(a):

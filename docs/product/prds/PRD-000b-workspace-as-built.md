@@ -9,7 +9,7 @@
 
 ## Problem statement
 
-Once a security engineer decides to remediate a finding, the process is manual and fragmented: research CVE details in one tool, find the asset owner in another, write a fix plan in a document, create a ticket in Jira, and verify the fix after deployment. This takes hours per finding and requires deep expertise. OpenSec's Workspace is the product center — a chat-led AI copilot that guides the user through the entire remediation lifecycle from enrichment to validated closure.
+Once a security engineer decides to remediate a finding, the process is manual and fragmented: research CVE details in one tool, find the asset owner in another, write a fix plan in a document, create a ticket in Jira, and verify the fix after deployment. This takes hours per finding and requires deep expertise. Cliff's Workspace is the product center — a chat-led AI copilot that guides the user through the entire remediation lifecycle from enrichment to validated closure.
 
 ## User persona
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from opensec.models import (
+from cliff.models import (
     AssessmentResult,
     AssessmentTool,
     AssessmentToolResult,
@@ -103,9 +103,9 @@ class FakeAssessmentEngine:
         if db is not None:
             import contextlib
 
-            from opensec.assessment.posture import ADVISORY_CHECKS, CHECK_CATEGORY
-            from opensec.db.repo_finding import create_finding
-            from opensec.models import FindingCreate
+            from cliff.assessment.posture import ADVISORY_CHECKS, CHECK_CATEGORY
+            from cliff.db.repo_finding import create_finding
+            from cliff.models import FindingCreate
 
             for f in self.findings:
                 payload = {**f}
@@ -134,7 +134,7 @@ class FakeAssessmentEngine:
                     await create_finding(
                         db,
                         FindingCreate(
-                            source_type="opensec-posture",
+                            source_type="cliff-posture",
                             source_id=f"{repo_url}:{name}",
                             type="posture",
                             grade_impact=grade_impact,

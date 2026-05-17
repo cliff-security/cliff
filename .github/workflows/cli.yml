@@ -34,7 +34,7 @@ jobs:
         run: uv sync --all-extras
 
       - name: Lint
-        run: uv run ruff check opensec_cli/ tests/
+        run: uv run ruff check cliff_cli/ tests/
 
       - name: Unit tests
         run: uv run pytest -v

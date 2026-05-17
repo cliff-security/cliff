@@ -10,7 +10,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from opensec.ai import validators
+from cliff.ai import validators
 
 # ---------------------------------------------------------------------------
 # OpenRouter

@@ -1,5 +1,5 @@
 /**
- * ShieldSVG — the "Secured by OpenSec" badge.
+ * ShieldSVG — the "Secured by Cliff" badge.
  *
  * Three sanctioned sizes:
  *  - 150×180 — the celebration overlay hero (default)
@@ -35,7 +35,7 @@ export default function ShieldSVG({
 }: ShieldSVGProps) {
   const a11yProps = ariaHidden
     ? { 'aria-hidden': true as const }
-    : { role: 'img' as const, 'aria-label': 'Secured by OpenSec' }
+    : { role: 'img' as const, 'aria-label': 'Secured by Cliff' }
 
   return (
     <svg
@@ -58,7 +58,7 @@ export default function ShieldSVG({
         strokeOpacity="0.15"
         strokeWidth="1"
       />
-      {/* SECURED / by OpenSec wordmark */}
+      {/* SECURED / by Cliff wordmark */}
       <text
         x="80"
         y="70"
@@ -80,7 +80,7 @@ export default function ShieldSVG({
         fontWeight="800"
         fontSize="16"
       >
-        by OpenSec
+        by Cliff
       </text>
       {/* Check ring + check */}
       <circle cx="80" cy="122" r="22" fill="#ffffff" fillOpacity="0.14" />

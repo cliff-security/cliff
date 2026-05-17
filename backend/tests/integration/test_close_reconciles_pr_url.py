@@ -1,7 +1,7 @@
 """EF-B14 regression — close handler must reconcile pr_url back to Finding.
 
 Reproduces the QA-0001 fsevents scenario: executor opens a real PR (recorded
-in AgentRun.structured_output), user calls opensec close (PATCH /workspaces
+in AgentRun.structured_output), user calls cliff close (PATCH /workspaces
 state=closed), and the Finding silently lands in status=validated with
 pr_url=null — leaving the PR orphaned and the dashboard lying about closure.
 """
@@ -10,14 +10,14 @@ from __future__ import annotations
 
 import logging
 
-from opensec.db.repo_agent_run import create_agent_run, update_agent_run
-from opensec.db.repo_finding import (
+from cliff.db.repo_agent_run import create_agent_run, update_agent_run
+from cliff.db.repo_finding import (
     create_finding,
     get_finding,
     mark_resolved_on_workspace_close,
 )
-from opensec.db.repo_workspace import create_workspace
-from opensec.models import (
+from cliff.db.repo_workspace import create_workspace
+from cliff.models import (
     AgentRunCreate,
     AgentRunUpdate,
     FindingCreate,
@@ -123,7 +123,7 @@ async def test_close_warns_when_executor_ran_but_pr_url_missing(db, caplog) -> N
         AgentRunUpdate(status="failed", summary_markdown="Agent timed out."),
     )
 
-    with caplog.at_level(logging.WARNING, logger="opensec.db.repo_finding"):
+    with caplog.at_level(logging.WARNING, logger="cliff.db.repo_finding"):
         flipped = await mark_resolved_on_workspace_close(
             db, finding.id, workspace_id=workspace.id
         )

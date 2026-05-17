@@ -9,8 +9,8 @@
 ## Clone
 
 ```bash
-git clone https://github.com/galanko/OpenSec.git
-cd OpenSec
+git clone https://github.com/galanko/Cliff.git
+cd Cliff
 ```
 
 ## Quick Start (both servers)
@@ -26,7 +26,7 @@ This starts FastAPI on port 8000 (which manages OpenCode on port 4096 internally
 ```bash
 cd backend
 uv sync --extra dev    # install dependencies including test tools
-uv run uvicorn opensec.main:app --reload --port 8000
+uv run uvicorn cliff.main:app --reload --port 8000
 ```
 
 ## Frontend Only
@@ -58,7 +58,7 @@ The pinned version is in `.opencode-version`.
 cd backend && uv run pytest -v
 
 # Lint check
-cd backend && uv run ruff check opensec/ tests/
+cd backend && uv run ruff check cliff/ tests/
 
 # Frontend (coming in Phase 2)
 cd frontend && npm test

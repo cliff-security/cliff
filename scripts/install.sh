@@ -1,18 +1,18 @@
 #!/usr/bin/env sh
-# OpenSec one-line installer
+# Cliff one-line installer
 #
 # Usage:
-#   curl -fsSL https://github.com/galanko/opensec/releases/latest/download/install.sh | sh
+#   curl -fsSL https://github.com/galanko/cliff/releases/latest/download/install.sh | sh
 #
 # Or to install a specific version:
-#   curl -fsSL https://github.com/galanko/opensec/releases/latest/download/install.sh | OPENSEC_VERSION=0.1.0-alpha sh
+#   curl -fsSL https://github.com/galanko/cliff/releases/latest/download/install.sh | CLIFF_VERSION=0.1.0-alpha sh
 #
 # Environment overrides:
-#   OPENSEC_HOME            Install directory (default: $HOME/opensec)
-#   OPENSEC_VERSION         Image tag to install (default: latest)
+#   CLIFF_HOME            Install directory (default: $HOME/cliff)
+#   CLIFF_VERSION         Image tag to install (default: latest)
 #   ANTHROPIC_API_KEY       Skips the interactive key prompt
 #   OPENAI_API_KEY          Skips the interactive key prompt
-#   OPENSEC_NON_INTERACTIVE Set to 1 to skip all prompts (CI/scripts)
+#   CLIFF_NON_INTERACTIVE Set to 1 to skip all prompts (CI/scripts)
 #
 # This script is idempotent: re-running pulls the latest image, leaves
 # .env and the data volume untouched.
@@ -20,11 +20,11 @@
 set -eu
 
 REPO_OWNER="galanko"
-REPO_NAME="opensec"
+REPO_NAME="cliff"
 GH_REPO="https://github.com/${REPO_OWNER}/${REPO_NAME}"
-INSTALL_DIR="${OPENSEC_HOME:-$HOME/opensec}"
-VERSION="${OPENSEC_VERSION:-latest}"
-NON_INTERACTIVE="${OPENSEC_NON_INTERACTIVE:-}"
+INSTALL_DIR="${CLIFF_HOME:-$HOME/cliff}"
+VERSION="${CLIFF_VERSION:-latest}"
+NON_INTERACTIVE="${CLIFF_NON_INTERACTIVE:-}"
 
 # ---- pretty output ----------------------------------------------------------
 
@@ -47,7 +47,7 @@ fail() { printf '%s✗%s %s\n' "${RED}" "${RESET}" "$1" >&2; exit 1; }
 
 # ---- preflight --------------------------------------------------------------
 
-say "OpenSec installer"
+say "Cliff installer"
 printf '%sInstall dir:%s %s\n' "${DIM}" "${RESET}" "${INSTALL_DIR}"
 printf '%sVersion:%s     %s\n' "${DIM}" "${RESET}" "${VERSION}"
 echo
@@ -90,7 +90,7 @@ download() {
   fi
 }
 
-# Install the agent-facing CLI (`opensec`) into ~/.local/bin if the release
+# Install the agent-facing CLI (`cliff`) into ~/.local/bin if the release
 # ships it. The CLI is a normal Unix binary going to a normal Unix location,
 # so this is an extension of `curl ... | sh` consent — same as rustup, nvm,
 # uv, etc. install.
@@ -100,7 +100,7 @@ download() {
 # requires explicit user opt-in via `/plugin marketplace add` + `/plugin
 # install`. We just print the command at the end (see end of script).
 install_agent_cli() {
-  cli_archive="opensec-cli.tar.gz"
+  cli_archive="cliff-cli.tar.gz"
   cli_url="${RELEASE_BASE}/${cli_archive}"
   bin_dir="${HOME}/.local/bin"
 
@@ -110,16 +110,16 @@ install_agent_cli() {
   if ! download "${cli_url}" "/tmp/${cli_archive}" 2>/dev/null; then
     return 0
   fi
-  venv_dir="${HOME}/.opensec/cli-venv"
+  venv_dir="${HOME}/.cliff/cli-venv"
   python3 -m venv "${venv_dir}" >/dev/null 2>&1 || true
   "${venv_dir}/bin/pip" install --quiet --upgrade pip >/dev/null 2>&1 || true
   if "${venv_dir}/bin/pip" install --quiet "/tmp/${cli_archive}" >/dev/null 2>&1; then
     mkdir -p "${bin_dir}"
-    ln -sf "${venv_dir}/bin/opensec" "${bin_dir}/opensec"
-    ok "Installed opensec CLI to ${bin_dir}/opensec"
+    ln -sf "${venv_dir}/bin/cliff" "${bin_dir}/cliff"
+    ok "Installed cliff CLI to ${bin_dir}/cliff"
     case ":${PATH}:" in
       *":${bin_dir}:"*) : ;;
-      *) warn "${bin_dir} is not in your PATH — add it to use the 'opensec' command." ;;
+      *) warn "${bin_dir} is not in your PATH — add it to use the 'cliff' command." ;;
     esac
   fi
   rm -f "/tmp/${cli_archive}"
@@ -140,10 +140,10 @@ else
   say "Generating .env"
   download "${RELEASE_BASE}/.env.example" ".env.example" 2>/dev/null \
     || cat > .env.example <<'EOF'
-# OpenSec runtime config
+# Cliff runtime config
 OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
-OPENSEC_CREDENTIAL_KEY=
+CLIFF_CREDENTIAL_KEY=
 EOF
   cp .env.example .env
 
@@ -153,15 +153,15 @@ EOF
   elif command -v python3 >/dev/null 2>&1; then
     KEY=$(python3 -c 'import os,base64; print(base64.b64encode(os.urandom(32)).decode())')
   else
-    warn "Neither openssl nor python3 available — skipping OPENSEC_CREDENTIAL_KEY generation."
+    warn "Neither openssl nor python3 available — skipping CLIFF_CREDENTIAL_KEY generation."
     KEY=""
   fi
   if [ -n "${KEY}" ]; then
-    # Replace OPENSEC_CREDENTIAL_KEY=... with the generated value.
+    # Replace CLIFF_CREDENTIAL_KEY=... with the generated value.
     # Use awk for portable in-place edit (sed -i is not POSIX).
-    awk -v k="${KEY}" '/^OPENSEC_CREDENTIAL_KEY=/ {print "OPENSEC_CREDENTIAL_KEY=" k; next} {print}' \
+    awk -v k="${KEY}" '/^CLIFF_CREDENTIAL_KEY=/ {print "CLIFF_CREDENTIAL_KEY=" k; next} {print}' \
       .env > .env.tmp && mv .env.tmp .env
-    ok "OPENSEC_CREDENTIAL_KEY generated"
+    ok "CLIFF_CREDENTIAL_KEY generated"
   fi
 fi
 
@@ -188,7 +188,7 @@ if [ "${ENV_EXISTS}" -eq 0 ]; then
     ok "OPENAI_API_KEY copied from environment"
   elif [ -z "${NON_INTERACTIVE}" ] && [ -t 0 ]; then
     echo
-    echo "OpenSec needs an LLM API key. Paste your Anthropic or OpenAI key:"
+    echo "Cliff needs an LLM API key. Paste your Anthropic or OpenAI key:"
     printf '  %sANTHROPIC_API_KEY%s (preferred, leave blank to enter OPENAI_API_KEY): ' "${BOLD}" "${RESET}"
     read -r INPUT_KEY
     if [ -n "${INPUT_KEY}" ]; then
@@ -207,27 +207,27 @@ fi
 
 if ! key_set_in_env; then
   warn "No LLM API key set in .env. The container will start but agent calls will fail."
-  warn "Edit ${INSTALL_DIR}/.env and set ANTHROPIC_API_KEY or OPENAI_API_KEY before using OpenSec."
+  warn "Edit ${INSTALL_DIR}/.env and set ANTHROPIC_API_KEY or OPENAI_API_KEY before using Cliff."
 fi
 
 # ---- pull and start --------------------------------------------------------
 
 # If a non-default version was requested, pin docker-compose.yml to it.
 if [ "${VERSION}" != "latest" ]; then
-  export OPENSEC_VERSION="${VERSION}"
+  export CLIFF_VERSION="${VERSION}"
 fi
 
 say "Pulling image"
 docker compose pull >/dev/null 2>&1 || warn "Image pull reported a problem; continuing in case the image is already local."
 
-say "Starting OpenSec"
+say "Starting Cliff"
 docker compose up -d
 ok "Container started"
 
 # ---- wait for /health ------------------------------------------------------
 
-# Try a few candidate ports in case OPENSEC_APP_PORT is set in .env.
-PORT=$(grep -E '^OPENSEC_APP_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d '[:space:]' || true)
+# Try a few candidate ports in case CLIFF_APP_PORT is set in .env.
+PORT=$(grep -E '^CLIFF_APP_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d '[:space:]' || true)
 PORT="${PORT:-8000}"
 URL="http://localhost:${PORT}/health"
 
@@ -237,11 +237,11 @@ MAX_ATTEMPTS=60   # ~60s
 while [ "${ATTEMPT}" -lt "${MAX_ATTEMPTS}" ]; do
   if curl -fsS "${URL}" >/dev/null 2>&1; then
     echo
-    ok "OpenSec is healthy"
+    ok "Cliff is healthy"
 
     # ---- agent CLI + Claude Code skill -----------------------------------
     # Best-effort: if the release doesn't carry these assets yet, skip
-    # quietly. The user can still drive OpenSec from the web UI.
+    # quietly. The user can still drive Cliff from the web UI.
     install_agent_cli || true
 
     echo
@@ -250,9 +250,9 @@ while [ "${ATTEMPT}" -lt "${MAX_ATTEMPTS}" ]; do
     echo
     printf '  %sUsing Claude Code?%s Install the /secure-repo plugin (one-time):\n' \
       "${BOLD}" "${RESET}"
-    printf '    %s/plugin marketplace add galanko/OpenSec%s\n' "${DIM}" "${RESET}"
-    printf '    %s/plugin install secure-repo@opensec%s\n' "${DIM}" "${RESET}"
-    printf '  Then ask Claude: %s"secure this repo with OpenSec"%s\n' "${BOLD}" "${RESET}"
+    printf '    %s/plugin marketplace add galanko/Cliff%s\n' "${DIM}" "${RESET}"
+    printf '    %s/plugin install secure-repo@cliff%s\n' "${DIM}" "${RESET}"
+    printf '  Then ask Claude: %s"secure this repo with Cliff"%s\n' "${BOLD}" "${RESET}"
     echo
     printf '  %sLogs:%s    docker compose -f %s/docker-compose.yml logs -f\n' \
       "${DIM}" "${RESET}" "${INSTALL_DIR}"

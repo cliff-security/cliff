@@ -5,7 +5,7 @@
 
 ## Context
 
-OpenSec needs a product backend to manage findings, workspaces, agent runs, history, settings, and adapter integrations. While OpenCode provides an LLM/runtime server, it does not handle product domain state.
+Cliff needs a product backend to manage findings, workspaces, agent runs, history, settings, and adapter integrations. While OpenCode provides an LLM/runtime server, it does not handle product domain state.
 
 We need a framework that supports:
 

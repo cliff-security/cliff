@@ -3,7 +3,7 @@
  * in sessionStorage between pages. Centralised so the keys are declared
  * once and can be cleared together on success or abandon.
  */
-const PREFIX = 'opensec.onboarding.'
+const PREFIX = 'cliff.onboarding.'
 
 const KEYS = {
   assessmentId: `${PREFIX}assessment_id`,

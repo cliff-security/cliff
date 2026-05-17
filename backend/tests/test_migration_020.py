@@ -24,9 +24,9 @@ from pathlib import Path
 import aiosqlite
 import pytest
 
-from opensec.db.migrations import run_migrations
+from cliff.db.migrations import run_migrations
 
-MIGRATIONS_DIR = Path(__file__).parent.parent / "opensec" / "db" / "migrations"
+MIGRATIONS_DIR = Path(__file__).parent.parent / "cliff" / "db" / "migrations"
 
 
 @pytest.fixture

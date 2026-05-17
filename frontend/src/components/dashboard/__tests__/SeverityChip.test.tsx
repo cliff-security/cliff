@@ -26,7 +26,7 @@ describe('SeverityChip', () => {
      * Architect-mandated regression guard (ADR-0029).
      *
      * The Claude design's reference JSX defaults medium severity to the
-     * tertiary token family. That is wrong for the OpenSec codebase: PRD-0004
+     * tertiary token family. That is wrong for the Cliff codebase: PRD-0004
      * landed the warning token specifically for medium severity, stale data,
      * and degraded service. Medium chips MUST use:
      *

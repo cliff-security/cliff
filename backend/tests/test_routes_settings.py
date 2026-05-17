@@ -11,7 +11,7 @@ import pytest
 async def test_get_model(db_client):
     """GET /api/settings/model returns current model config."""
     with patch(
-        "opensec.engine.config_manager.opencode_client"
+        "cliff.engine.config_manager.opencode_client"
     ) as mock_client:
         mock_client.get_config = AsyncMock(
             return_value={"model": "openai/gpt-4.1-nano"}
@@ -29,10 +29,10 @@ async def test_update_model(db_client, tmp_path):
     """PUT /api/settings/model updates the model."""
     with (
         patch(
-            "opensec.engine.config_manager.opencode_client"
+            "cliff.engine.config_manager.opencode_client"
         ) as mock_client,
         patch(
-            "opensec.engine.config_manager.settings"
+            "cliff.engine.config_manager.settings"
         ) as mock_settings,
     ):
         mock_client.update_config = AsyncMock(return_value={})
@@ -70,8 +70,8 @@ async def test_update_model_accepts_provider_and_model_id(db_client):
     validator should synthesize ``model_full_id`` from the parts.
     """
     with (
-        patch("opensec.engine.config_manager.opencode_client") as mock_client,
-        patch("opensec.engine.config_manager.settings") as mock_settings,
+        patch("cliff.engine.config_manager.opencode_client") as mock_client,
+        patch("cliff.engine.config_manager.settings") as mock_settings,
     ):
         mock_client.update_config = AsyncMock(return_value={})
         mock_client.get_config = AsyncMock(
@@ -102,7 +102,7 @@ async def test_update_model_rejects_empty_body(db_client):
 async def test_list_providers(db_client):
     """GET /api/settings/providers returns provider list."""
     with patch(
-        "opensec.engine.config_manager.opencode_client"
+        "cliff.engine.config_manager.opencode_client"
     ) as mock_client:
         mock_client.list_providers = AsyncMock(
             return_value={
@@ -122,7 +122,7 @@ async def test_list_providers(db_client):
 async def test_set_api_key(db_client):
     """PUT /api/settings/api-keys/{provider} stores a masked key."""
     with patch(
-        "opensec.engine.config_manager.opencode_client"
+        "cliff.engine.config_manager.opencode_client"
     ) as mock_client:
         mock_client.set_auth = AsyncMock(return_value=True)
 
@@ -143,7 +143,7 @@ async def test_set_api_key(db_client):
 async def test_list_api_keys_masked(db_client):
     """GET /api/settings/api-keys returns DB-stored keys masked, tagged source=db."""
     with patch(
-        "opensec.engine.config_manager.opencode_client"
+        "cliff.engine.config_manager.opencode_client"
     ) as mock_client:
         mock_client.set_auth = AsyncMock(return_value=True)
         mock_client.get_provider_auth = AsyncMock(return_value={})
@@ -170,7 +170,7 @@ async def test_list_api_keys_includes_env_sourced(db_client):
     via /api-keys with source=env so users can tell the system already has a key.
     """
     with patch(
-        "opensec.engine.config_manager.opencode_client"
+        "cliff.engine.config_manager.opencode_client"
     ) as mock_client:
         # No DB-stored keys; OpenCode reports openai is auth'd from env.
         mock_client.get_provider_auth = AsyncMock(
@@ -192,7 +192,7 @@ async def test_list_api_keys_db_overrides_env(db_client):
     """If both DB and env have a key for the same provider, DB wins (the user
     explicitly stored it, so it takes precedence)."""
     with patch(
-        "opensec.engine.config_manager.opencode_client"
+        "cliff.engine.config_manager.opencode_client"
     ) as mock_client:
         mock_client.set_auth = AsyncMock(return_value=True)
         mock_client.get_provider_auth = AsyncMock(
@@ -216,7 +216,7 @@ async def test_list_api_keys_db_overrides_env(db_client):
 async def test_delete_api_key(db_client):
     """DELETE /api/settings/api-keys/{provider} removes the key."""
     with patch(
-        "opensec.engine.config_manager.opencode_client"
+        "cliff.engine.config_manager.opencode_client"
     ) as mock_client:
         mock_client.set_auth = AsyncMock(return_value=True)
         mock_client.get_provider_auth = AsyncMock(return_value={})
@@ -307,7 +307,7 @@ def _fake_client_raising(exc: BaseException) -> object:
 @pytest.mark.asyncio
 async def test_provider_test_endpoint_success(db_client):
     with patch(
-        "opensec.api.routes.settings.opencode_client",
+        "cliff.api.routes.settings.opencode_client",
         _fake_client_success("OK"),
     ):
         resp = await db_client.post("/api/settings/providers/test", json={})
@@ -322,7 +322,7 @@ async def test_provider_test_endpoint_success(db_client):
 @pytest.mark.asyncio
 async def test_provider_test_endpoint_empty_response_is_timeout(db_client):
     with patch(
-        "opensec.api.routes.settings.opencode_client",
+        "cliff.api.routes.settings.opencode_client",
         _fake_client_success(""),
     ):
         resp = await db_client.post("/api/settings/providers/test", json={})
@@ -342,7 +342,7 @@ async def test_provider_test_endpoint_auth_failed(db_client):
     )
     exc = httpx.HTTPStatusError("401", request=response.request, response=response)
     with patch(
-        "opensec.api.routes.settings.opencode_client",
+        "cliff.api.routes.settings.opencode_client",
         _fake_client_raising(exc),
     ):
         resp = await db_client.post("/api/settings/providers/test", json={})
@@ -363,7 +363,7 @@ async def test_provider_test_endpoint_model_not_found(db_client):
     )
     exc = httpx.HTTPStatusError("404", request=response.request, response=response)
     with patch(
-        "opensec.api.routes.settings.opencode_client",
+        "cliff.api.routes.settings.opencode_client",
         _fake_client_raising(exc),
     ):
         resp = await db_client.post("/api/settings/providers/test", json={})
@@ -383,7 +383,7 @@ async def test_provider_test_endpoint_rate_limited(db_client):
     )
     exc = httpx.HTTPStatusError("429", request=response.request, response=response)
     with patch(
-        "opensec.api.routes.settings.opencode_client",
+        "cliff.api.routes.settings.opencode_client",
         _fake_client_raising(exc),
     ):
         resp = await db_client.post("/api/settings/providers/test", json={})
@@ -395,7 +395,7 @@ async def test_provider_test_endpoint_rate_limited(db_client):
 @pytest.mark.asyncio
 async def test_provider_test_endpoint_timeout(db_client):
     with patch(
-        "opensec.api.routes.settings.opencode_client",
+        "cliff.api.routes.settings.opencode_client",
         _fake_client_raising(TimeoutError()),
     ):
         resp = await db_client.post("/api/settings/providers/test", json={})
@@ -407,7 +407,7 @@ async def test_provider_test_endpoint_timeout(db_client):
 @pytest.mark.asyncio
 async def test_provider_test_endpoint_other_error(db_client):
     with patch(
-        "opensec.api.routes.settings.opencode_client",
+        "cliff.api.routes.settings.opencode_client",
         _fake_client_raising(RuntimeError("catastrophic lightning strike")),
     ):
         resp = await db_client.post("/api/settings/providers/test", json={})

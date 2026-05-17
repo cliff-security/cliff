@@ -172,7 +172,7 @@ export default function SummaryActionPanel({
       <div className="mt-6 rounded-xl bg-surface-container-low px-5 py-4 flex items-start gap-3">
         <span className="material-symbols-outlined text-on-surface-variant mt-0.5">lock</span>
         <p className="text-sm text-on-surface-variant">
-          This card is generated on your machine. No OpenSec-hosted URL, no
+          This card is generated on your machine. No Cliff-hosted URL, no
           tracking, no account required. v1.2 will add an optional public
           badge with verification — not today.
         </p>

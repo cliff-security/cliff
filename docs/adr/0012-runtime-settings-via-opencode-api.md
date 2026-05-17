@@ -62,10 +62,10 @@ When the model is changed via the UI, both `opencode.json` and the `app_setting`
 
 | File | Purpose |
 |------|---------|
-| `backend/opensec/engine/client.py` | OpenCode REST client (config, provider, auth endpoints) |
-| `backend/opensec/engine/config_manager.py` | Orchestrates config changes (API + DB + file) |
-| `backend/opensec/api/routes/settings.py` | Settings REST endpoints |
-| `backend/opensec/db/repo_setting.py` | App settings DB repository |
-| `backend/opensec/db/repo_integration.py` | Integration config DB repository |
+| `backend/cliff/engine/client.py` | OpenCode REST client (config, provider, auth endpoints) |
+| `backend/cliff/engine/config_manager.py` | Orchestrates config changes (API + DB + file) |
+| `backend/cliff/api/routes/settings.py` | Settings REST endpoints |
+| `backend/cliff/db/repo_setting.py` | App settings DB repository |
+| `backend/cliff/db/repo_integration.py` | Integration config DB repository |
 | `frontend/src/components/settings/ProviderSettings.tsx` | Unified provider/model/auth UI |
 | `frontend/src/components/settings/IntegrationSettings.tsx` | Integration management UI |

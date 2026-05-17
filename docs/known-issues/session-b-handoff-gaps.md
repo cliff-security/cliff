@@ -10,9 +10,9 @@ After all seven Sessions 0/A–F PRs landed on `main`, each gap was validated ag
 
 | Gap | Result | Evidence |
 |-----|--------|----------|
-| **#1 — DAO-write ownership** | ✅ **clean** | `git grep 'from opensec.db.dao' backend/opensec/assessment/` returns zero matches. Session A's orchestrator never calls a DAO. |
-| **#2 — Posture-check dict shape** | ✅ **clean** | `backend/opensec/assessment/engine.py` returns `[pc.model_dump() for pc in posture_checks]` where `PostureCheck.check_name` and `PostureCheck.status` are `Literal` types matching exactly what `_background.py::run_and_persist_assessment` reads via `check["check_name"]` / `check["status"]`. |
-| **#3 — Findings persistence path** | ✅ **resolved in Session G** | The Gap #3 loop landed in `backend/opensec/api/_background.py::run_and_persist_assessment` on branch `feat/from-zero-to-secure-integration`. Regression covered by `tests/api/test_assessment_routes.py::test_run_assessment_persists_findings_emitted_by_engine`. Engine-emitted findings are tagged `source_type='opensec-assessment'` so the dashboard can distinguish them from vendor imports. |
+| **#1 — DAO-write ownership** | ✅ **clean** | `git grep 'from cliff.db.dao' backend/cliff/assessment/` returns zero matches. Session A's orchestrator never calls a DAO. |
+| **#2 — Posture-check dict shape** | ✅ **clean** | `backend/cliff/assessment/engine.py` returns `[pc.model_dump() for pc in posture_checks]` where `PostureCheck.check_name` and `PostureCheck.status` are `Literal` types matching exactly what `_background.py::run_and_persist_assessment` reads via `check["check_name"]` / `check["status"]`. |
+| **#3 — Findings persistence path** | ✅ **resolved in Session G** | The Gap #3 loop landed in `backend/cliff/api/_background.py::run_and_persist_assessment` on branch `feat/from-zero-to-secure-integration`. Regression covered by `tests/api/test_assessment_routes.py::test_run_assessment_persists_findings_emitted_by_engine`. Engine-emitted findings are tagged `source_type='cliff-assessment'` so the dashboard can distinguish them from vendor imports. |
 
 Session G's first action item (I0) closes Gap #3 by adding the loop in `_background.py::run_and_persist_assessment`.
 
@@ -20,7 +20,7 @@ Session G's first action item (I0) closes Gap #3 by adding the loop in `_backgro
 
 ## Context
 
-Session B's DI seam (`backend/opensec/api/_engine_dep.py`) declares `AssessmentEngineProtocol.run_assessment(repo_url, *, assessment_id) -> AssessmentResult`. Session B's background coroutine (`backend/opensec/api/_background.py::run_and_persist_assessment`) then drives that protocol and writes every output to the DB.
+Session B's DI seam (`backend/cliff/api/_engine_dep.py`) declares `AssessmentEngineProtocol.run_assessment(repo_url, *, assessment_id) -> AssessmentResult`. Session B's background coroutine (`backend/cliff/api/_background.py::run_and_persist_assessment`) then drives that protocol and writes every output to the DB.
 
 The protocol return type is `AssessmentResult`, which was frozen in Session 0 as:
 
@@ -42,10 +42,10 @@ The `list[dict[str, Any]]` typing leaves the inner item shapes unspecified. Sess
 
 **IMPL-0002 Milestone B6 wording:** "writes `assessments` + `posture_checks` rows, emits `FindingCreate` list for the ingest pipeline."
 
-**Gap:** the plan says "writes rows"; Session B's implementation interprets "writes rows" as "hands the data to Session B to write." Session A might import `opensec.db.dao.assessment` and call `set_assessment_result` itself — causing double-writes, or overwriting the `pending → running → complete` status transitions Session B is driving.
+**Gap:** the plan says "writes rows"; Session B's implementation interprets "writes rows" as "hands the data to Session B to write." Session A might import `cliff.db.dao.assessment` and call `set_assessment_result` itself — causing double-writes, or overwriting the `pending → running → complete` status transitions Session B is driving.
 
 **Session G validation (I0):**
-- `grep -R 'from opensec.db.dao' backend/opensec/assessment/` must return zero matches.
+- `grep -R 'from cliff.db.dao' backend/cliff/assessment/` must return zero matches.
 - Run one end-to-end assessment and assert only one row per `assessment_id` in `assessment` and one per `(assessment_id, check_name)` in `posture_check`.
 
 **Fix if Session A did import DAOs:** strip the writes out of Session A's orchestrator (one-line deletes per row) rather than disabling Session B's writer — Session B's writer owns status transitions and completion-row creation, which Session A's orchestrator doesn't know about.
@@ -78,14 +78,14 @@ The `list[dict[str, Any]]` typing leaves the inner item shapes unspecified. Sess
 - (b) push findings into the ingest pipeline itself and leave `AssessmentResult.findings` empty (what Session B expects).
 
 **Session G validation:**
-- After a real end-to-end run, assert `SELECT COUNT(*) FROM finding WHERE source_type = 'opensec-assessment'` returns the expected count for the fixture repo.
+- After a real end-to-end run, assert `SELECT COUNT(*) FROM finding WHERE source_type = 'cliff-assessment'` returns the expected count for the fixture repo.
 - Assert `len(result.findings) == 0` from Session A's engine, or at least that whatever's in it is a duplicate of what's already in the DB.
 
 **Fix if Session A populated `result.findings` instead:** add a single loop in `_background.py::run_and_persist_assessment`:
 
 ```python
 for finding_data in result.findings:
-    await create_finding(db, FindingCreate(**finding_data, source_type="opensec-assessment"))
+    await create_finding(db, FindingCreate(**finding_data, source_type="cliff-assessment"))
 ```
 
 Position it after the posture-check loop, before `set_assessment_result`. Add the `source_type` default so frontend filters can distinguish engine-emitted findings from vendor-imported ones.
@@ -100,8 +100,8 @@ If a future multi-session execution plan surfaces the same class of ambiguity ag
 
 ## Checklist for Session G
 
-- [x] Grep Session A's tree for `from opensec.db.dao` imports — must be empty. _(Validated 2026-04-16 post-merge — clean.)_
-- [x] Apply the Gap #3 fix-path: add the `for finding_data in result.findings` loop in `_background.py::run_and_persist_assessment` immediately after the posture-check loop. Pass `source_type="opensec-assessment"` so dashboard filters can distinguish engine-emitted findings from vendor-imported ones. _(Landed in Session G PR against `feat/from-zero-to-secure-integration`.)_
+- [x] Grep Session A's tree for `from cliff.db.dao` imports — must be empty. _(Validated 2026-04-16 post-merge — clean.)_
+- [x] Apply the Gap #3 fix-path: add the `for finding_data in result.findings` loop in `_background.py::run_and_persist_assessment` immediately after the posture-check loop. Pass `source_type="cliff-assessment"` so dashboard filters can distinguish engine-emitted findings from vendor-imported ones. _(Landed in Session G PR against `feat/from-zero-to-secure-integration`.)_
 - [x] Run a real end-to-end assessment against a fixture repo with known posture gaps and planted vulns. _(Covered by `tests/api/test_integration_engine.py` using `ProductionAssessmentEngine` with the planted-repo `clone_strategy` seam.)_
-- [x] Assert exactly one `assessment` row, one row per unique `check_name` in `posture_check`, and the expected number of `finding` rows with `source_type='opensec-assessment'`.
+- [x] Assert exactly one `assessment` row, one row per unique `check_name` in `posture_check`, and the expected number of `finding` rows with `source_type='cliff-assessment'`.
 - [x] Resolved by Session G PR on branch `feat/from-zero-to-secure-integration`.

@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from opensec.integrations.ingest_worker import estimate_tokens
+from cliff.integrations.ingest_worker import estimate_tokens
 
 # ---------------------------------------------------------------------------
 # Token estimation
@@ -45,11 +45,11 @@ class TestEstimateTokens:
 
 @pytest.mark.asyncio
 async def test_create_and_get_ingest_job():
-    from opensec.db.connection import close_db, init_db
-    from opensec.db.repo_ingest_job import create_ingest_job, get_ingest_job
+    from cliff.db.connection import close_db, init_db
+    from cliff.db.repo_ingest_job import create_ingest_job, get_ingest_job
 
     await init_db(":memory:")
-    from opensec.db.connection import _db as db
+    from cliff.db.connection import _db as db
 
     raw = [{"id": "1", "title": "test"}]
     job = await create_ingest_job(
@@ -72,15 +72,15 @@ async def test_create_and_get_ingest_job():
 
 @pytest.mark.asyncio
 async def test_set_job_status():
-    from opensec.db.connection import close_db, init_db
-    from opensec.db.repo_ingest_job import (
+    from cliff.db.connection import close_db, init_db
+    from cliff.db.repo_ingest_job import (
         create_ingest_job,
         get_ingest_job,
         set_job_status,
     )
 
     await init_db(":memory:")
-    from opensec.db.connection import _db as db
+    from cliff.db.connection import _db as db
 
     job = await create_ingest_job(db, source="snyk", raw_data=[{"a": 1}])
     await set_job_status(db, job.job_id, "processing")
@@ -91,15 +91,15 @@ async def test_set_job_status():
 
 @pytest.mark.asyncio
 async def test_increment_completed_chunk():
-    from opensec.db.connection import close_db, init_db
-    from opensec.db.repo_ingest_job import (
+    from cliff.db.connection import close_db, init_db
+    from cliff.db.repo_ingest_job import (
         create_ingest_job,
         get_ingest_job,
         increment_completed_chunk,
     )
 
     await init_db(":memory:")
-    from opensec.db.connection import _db as db
+    from cliff.db.connection import _db as db
 
     job = await create_ingest_job(
         db, source="trivy", raw_data=[{"a": 1}] * 5, chunk_size=2
@@ -113,15 +113,15 @@ async def test_increment_completed_chunk():
 
 @pytest.mark.asyncio
 async def test_increment_failed_chunk():
-    from opensec.db.connection import close_db, init_db
-    from opensec.db.repo_ingest_job import (
+    from cliff.db.connection import close_db, init_db
+    from cliff.db.repo_ingest_job import (
         create_ingest_job,
         get_ingest_job,
         increment_failed_chunk,
     )
 
     await init_db(":memory:")
-    from opensec.db.connection import _db as db
+    from cliff.db.connection import _db as db
 
     job = await create_ingest_job(db, source="wiz", raw_data=[{"a": 1}])
     await increment_failed_chunk(db, job.job_id, "LLM timeout")
@@ -133,15 +133,15 @@ async def test_increment_failed_chunk():
 
 @pytest.mark.asyncio
 async def test_get_next_pending_job_id():
-    from opensec.db.connection import close_db, init_db
-    from opensec.db.repo_ingest_job import (
+    from cliff.db.connection import close_db, init_db
+    from cliff.db.repo_ingest_job import (
         create_ingest_job,
         get_next_pending_job_id,
         set_job_status,
     )
 
     await init_db(":memory:")
-    from opensec.db.connection import _db as db
+    from cliff.db.connection import _db as db
 
     # No jobs yet
     assert await get_next_pending_job_id(db) is None
@@ -162,11 +162,11 @@ async def test_get_next_pending_job_id():
 
 @pytest.mark.asyncio
 async def test_get_ingest_job_raw_data():
-    from opensec.db.connection import close_db, init_db
-    from opensec.db.repo_ingest_job import create_ingest_job, get_ingest_job_raw_data
+    from cliff.db.connection import close_db, init_db
+    from cliff.db.repo_ingest_job import create_ingest_job, get_ingest_job_raw_data
 
     await init_db(":memory:")
-    from opensec.db.connection import _db as db
+    from cliff.db.connection import _db as db
 
     raw = [{"id": "1"}, {"id": "2"}]
     job = await create_ingest_job(db, source="wiz", raw_data=raw, chunk_size=5)
@@ -188,18 +188,18 @@ async def test_get_ingest_job_raw_data():
 @pytest.mark.asyncio
 async def test_process_job_success():
     """Worker processes a job with multiple chunks successfully."""
-    from opensec.db.connection import close_db, init_db
-    from opensec.db.repo_ingest_job import create_ingest_job, get_ingest_job
+    from cliff.db.connection import close_db, init_db
+    from cliff.db.repo_ingest_job import create_ingest_job, get_ingest_job
 
     await init_db(":memory:")
-    from opensec.db.connection import _db as db
+    from cliff.db.connection import _db as db
 
     # Use 8 items to exceed _SMALL_IMPORT_THRESHOLD (5), so chunk_size=3 is kept
     raw = [{"id": str(i), "title": f"Finding {i}"} for i in range(8)]
     job = await create_ingest_job(db, source="wiz", raw_data=raw, chunk_size=3)
 
     # Mock normalize_findings to return valid FindingCreate objects
-    from opensec.models import FindingCreate
+    from cliff.models import FindingCreate
 
     async def _mock_normalize(source, data, *, model=None):
         return [
@@ -209,15 +209,15 @@ async def test_process_job_success():
 
     with (
         patch(
-            "opensec.integrations.ingest_worker.normalize_findings",
+            "cliff.integrations.ingest_worker.normalize_findings",
             side_effect=_mock_normalize,
         ),
         patch(
-            "opensec.integrations.ingest_worker.create_finding",
+            "cliff.integrations.ingest_worker.create_finding",
             new_callable=AsyncMock,
         ) as mock_create,
     ):
-        from opensec.integrations.ingest_worker import _process_job
+        from cliff.integrations.ingest_worker import _process_job
 
         await _process_job(db, job.job_id)
 
@@ -231,11 +231,11 @@ async def test_process_job_success():
 @pytest.mark.asyncio
 async def test_process_job_partial_failure():
     """Worker handles chunk failures gracefully."""
-    from opensec.db.connection import close_db, init_db
-    from opensec.db.repo_ingest_job import create_ingest_job, get_ingest_job
+    from cliff.db.connection import close_db, init_db
+    from cliff.db.repo_ingest_job import create_ingest_job, get_ingest_job
 
     await init_db(":memory:")
-    from opensec.db.connection import _db as db
+    from cliff.db.connection import _db as db
 
     # Use 6 items > _SMALL_IMPORT_THRESHOLD so chunk_size=3 is preserved
     raw = [{"id": str(i)} for i in range(6)]
@@ -248,7 +248,7 @@ async def test_process_job_partial_failure():
         call_count += 1
         if call_count == 1:
             raise RuntimeError("LLM timeout")
-        from opensec.models import FindingCreate
+        from cliff.models import FindingCreate
 
         return [
             FindingCreate(source_type="snyk", source_id=f"s-{i}", title=f"F {i}")
@@ -257,15 +257,15 @@ async def test_process_job_partial_failure():
 
     with (
         patch(
-            "opensec.integrations.ingest_worker.normalize_findings",
+            "cliff.integrations.ingest_worker.normalize_findings",
             side_effect=_mock_normalize,
         ),
         patch(
-            "opensec.integrations.ingest_worker.create_finding",
+            "cliff.integrations.ingest_worker.create_finding",
             new_callable=AsyncMock,
         ),
     ):
-        from opensec.integrations.ingest_worker import _process_job
+        from cliff.integrations.ingest_worker import _process_job
 
         await _process_job(db, job.job_id)
 
@@ -280,15 +280,15 @@ async def test_process_job_partial_failure():
 @pytest.mark.asyncio
 async def test_process_job_cancellation():
     """Worker respects cancellation between chunks."""
-    from opensec.db.connection import close_db, init_db
-    from opensec.db.repo_ingest_job import (
+    from cliff.db.connection import close_db, init_db
+    from cliff.db.repo_ingest_job import (
         create_ingest_job,
         get_ingest_job,
         set_job_status,
     )
 
     await init_db(":memory:")
-    from opensec.db.connection import _db as db
+    from cliff.db.connection import _db as db
 
     raw = [{"id": str(i)} for i in range(6)]
     job = await create_ingest_job(db, source="wiz", raw_data=raw, chunk_size=3)
@@ -300,7 +300,7 @@ async def test_process_job_cancellation():
         chunk_calls += 1
         # Cancel after first chunk
         await set_job_status(db, job.job_id, "cancelled")
-        from opensec.models import FindingCreate
+        from cliff.models import FindingCreate
 
         return [
             FindingCreate(source_type="wiz", source_id="x", title="t")
@@ -308,15 +308,15 @@ async def test_process_job_cancellation():
 
     with (
         patch(
-            "opensec.integrations.ingest_worker.normalize_findings",
+            "cliff.integrations.ingest_worker.normalize_findings",
             side_effect=_mock_normalize,
         ),
         patch(
-            "opensec.integrations.ingest_worker.create_finding",
+            "cliff.integrations.ingest_worker.create_finding",
             new_callable=AsyncMock,
         ),
     ):
-        from opensec.integrations.ingest_worker import _process_job
+        from cliff.integrations.ingest_worker import _process_job
 
         await _process_job(db, job.job_id)
 
@@ -421,8 +421,8 @@ async def test_cancel_completed_job_fails(db_client):
     job_id = resp.json()["job_id"]
 
     # Manually set to completed
-    from opensec.db.connection import _db as db
-    from opensec.db.repo_ingest_job import set_job_status
+    from cliff.db.connection import _db as db
+    from cliff.db.repo_ingest_job import set_job_status
 
     await set_job_status(db, job_id, "completed")
 

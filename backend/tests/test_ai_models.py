@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from opensec.ai.models import (
+from cliff.ai.models import (
     AIIntegration,
     AIIntegrationCreate,
     AIStatus,

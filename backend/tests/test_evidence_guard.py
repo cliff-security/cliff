@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from opensec.services.evidence_guard import guard_evidence_output
+from cliff.services.evidence_guard import guard_evidence_output
 
 
 def _finding(version: str | None, fixed_version: str | None) -> dict:

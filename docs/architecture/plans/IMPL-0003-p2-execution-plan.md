@@ -27,15 +27,15 @@ The gate at the very end is a manual visual walkthrough; Gal merges only after h
 
 | Path | State on `main` |
 |------|-----------------|
-| `backend/opensec/assessment/scanners/{__init__,runner,verify,models}.py` | exists; `SubprocessScannerRunner` ready |
-| `backend/opensec/assessment/posture/{ci_supply_chain,collaborator_hygiene,code_integrity,__init__}.py` | exists; `run_all_posture_checks()` returns 15 `PostureCheckResult` rows |
-| `backend/opensec/assessment/clone.py` | exists (RepoCloner per ADR-0024) |
-| `backend/opensec/db/migrations/010_assessment_v2_dashboard.sql` | adds `assessment.tools_json`, `assessment.summary_seen_at`, `posture_check.pr_url`, `posture_check.category` |
-| `backend/opensec/api/routes/dashboard.py` | returns the v0.2 shape but reads `posture_check` via `list_posture_checks_for_assessment()` |
+| `backend/cliff/assessment/scanners/{__init__,runner,verify,models}.py` | exists; `SubprocessScannerRunner` ready |
+| `backend/cliff/assessment/posture/{ci_supply_chain,collaborator_hygiene,code_integrity,__init__}.py` | exists; `run_all_posture_checks()` returns 15 `PostureCheckResult` rows |
+| `backend/cliff/assessment/clone.py` | exists (RepoCloner per ADR-0024) |
+| `backend/cliff/db/migrations/010_assessment_v2_dashboard.sql` | adds `assessment.tools_json`, `assessment.summary_seen_at`, `posture_check.pr_url`, `posture_check.category` |
+| `backend/cliff/api/routes/dashboard.py` | returns the v0.2 shape but reads `posture_check` via `list_posture_checks_for_assessment()` |
 | `backend/tests/api/test_dashboard_v2_payload.py` | 10 contract tests, green |
-| `backend/opensec/assessment/engine.py` | still uses `parsers.detect_lockfiles` + `osv_client.lookup_with_fallback` (Phase 1 fixes) |
-| `backend/opensec/assessment/parsers/`, `osv_client.py`, `ghsa_client.py`, `production_engine.py` | still in tree (Phase 1 deletes) |
-| `backend/opensec/db/dao/posture_check.py`, `backend/opensec/models/posture_check.py` | still in tree (Phase 2 deletes) |
+| `backend/cliff/assessment/engine.py` | still uses `parsers.detect_lockfiles` + `osv_client.lookup_with_fallback` (Phase 1 fixes) |
+| `backend/cliff/assessment/parsers/`, `osv_client.py`, `ghsa_client.py`, `production_engine.py` | still in tree (Phase 1 deletes) |
+| `backend/cliff/db/dao/posture_check.py`, `backend/cliff/models/posture_check.py` | still in tree (Phase 2 deletes) |
 | `frontend/src/components/dashboard/SeverityChip.tsx` | exists with regression test (medium = warning token, code = indigo) |
 | `frontend/src/pages/DashboardPage.tsx` | barely changed (Phase 3 rebuilds) |
 | `frontend/src/api/dashboard.ts` | already typed against v0.2 wire shape |
@@ -51,9 +51,9 @@ The gate at the very end is a manual visual walkthrough; Gal merges only after h
 
 | File | Change |
 |------|--------|
-| `backend/opensec/assessment/engine.py` | Rewrite from the `run_assessment_on_path`-shaped function to a real `run_assessment(repo_url, *, gh_client, runner, on_step, on_tool)`. Stop importing `osv_client`/`parsers`. Trivy raise → fatal; Semgrep raise → graceful (tool/state `skipped`); per-check posture exception → status `unknown`, run continues |
-| `backend/opensec/api/routes/assessment.py` | `/assessment/run` calls `run_assessment(...)`; `/assessment/status/{id}` reads from a per-assessment progress store the engine populates via `on_step` + `on_tool` |
-| `backend/opensec/api/_background.py` | Replace `ProductionAssessmentEngine`/`run_assessment_on_path` with the new `run_assessment`; pass the singleton `SubprocessScannerRunner` and `RepoCloner` from app state |
+| `backend/cliff/assessment/engine.py` | Rewrite from the `run_assessment_on_path`-shaped function to a real `run_assessment(repo_url, *, gh_client, runner, on_step, on_tool)`. Stop importing `osv_client`/`parsers`. Trivy raise → fatal; Semgrep raise → graceful (tool/state `skipped`); per-check posture exception → status `unknown`, run continues |
+| `backend/cliff/api/routes/assessment.py` | `/assessment/run` calls `run_assessment(...)`; `/assessment/status/{id}` reads from a per-assessment progress store the engine populates via `on_step` + `on_tool` |
+| `backend/cliff/api/_background.py` | Replace `ProductionAssessmentEngine`/`run_assessment_on_path` with the new `run_assessment`; pass the singleton `SubprocessScannerRunner` and `RepoCloner` from app state |
 | `backend/tests/conftest.py` | Drop fixtures that built `ParsedDependency`/`Advisory` objects |
 | `backend/tests/assessment/test_engine.py` | Full rewrite (test list below) |
 | `backend/tests/api/test_integration_engine.py` | Update to drive the new pipeline (real `SubprocessScannerRunner` with mocked subprocess) |
@@ -62,19 +62,19 @@ The gate at the very end is a manual visual walkthrough; Gal merges only after h
 
 | Path | Notes |
 |------|-------|
-| `backend/opensec/assessment/parsers/` (entire directory) | replaced by Trivy DB |
-| `backend/opensec/assessment/osv_client.py` | replaced by Trivy DB |
-| `backend/opensec/assessment/ghsa_client.py` | replaced by Trivy DB |
-| `backend/opensec/assessment/production_engine.py` | vestigial; only call site is `_background.py`, which moves to direct `run_assessment` import |
+| `backend/cliff/assessment/parsers/` (entire directory) | replaced by Trivy DB |
+| `backend/cliff/assessment/osv_client.py` | replaced by Trivy DB |
+| `backend/cliff/assessment/ghsa_client.py` | replaced by Trivy DB |
+| `backend/cliff/assessment/production_engine.py` | vestigial; only call site is `_background.py`, which moves to direct `run_assessment` import |
 | `backend/tests/assessment/test_npm_parser.py`, `test_go_parser.py`, `test_pip_parser.py` | tests for deleted code |
 | `backend/tests/assessment/test_osv_client.py` | same |
 
-After deletion: `grep -r "from opensec.assessment.parsers\|from opensec.assessment.osv_client\|from opensec.assessment.ghsa_client" backend/` returns zero hits.
+After deletion: `grep -r "from cliff.assessment.parsers\|from cliff.assessment.osv_client\|from cliff.assessment.ghsa_client" backend/` returns zero hits.
 
 ### Engine pseudocode — `run_assessment`
 
 ```python
-# backend/opensec/assessment/engine.py
+# backend/cliff/assessment/engine.py
 
 async def run_assessment(
     repo_url: str,
@@ -166,7 +166,7 @@ async def run_assessment(
         "trivy":         {"ran": True,         "ids": _trivy_vuln_source_ids(trivy_result)},
         "trivy-secret":  {"ran": True,         "ids": _trivy_secret_source_ids(trivy_result)},
         "semgrep":       {"ran": semgrep_ran,  "ids": _semgrep_source_ids(semgrep_result) if semgrep_ran else set()},
-        "opensec-posture": {"ran": True,       "ids": _posture_source_ids(repo_url, posture_results)},
+        "cliff-posture": {"ran": True,       "ids": _posture_source_ids(repo_url, posture_results)},
     })
 
     # ---- 7. Snapshot + grade ----
@@ -193,10 +193,10 @@ Notes:
 
 ### Phase 1 acceptance criteria
 
-- `grep -r "from opensec.assessment.parsers\|from opensec.assessment.osv_client\|from opensec.assessment.ghsa_client" backend/` → zero hits
+- `grep -r "from cliff.assessment.parsers\|from cliff.assessment.osv_client\|from cliff.assessment.ghsa_client" backend/` → zero hits
 - `grep -r "production_engine\|run_assessment_on_path" backend/` → zero hits
 - `cd backend && uv run pytest -v -m 'not e2e'` → green
-- `cd backend && uv run ruff check opensec/ tests/` → clean
+- `cd backend && uv run ruff check cliff/ tests/` → clean
 
 ---
 
@@ -206,7 +206,7 @@ Notes:
 
 ### Migration 011 — exact full file content
 
-`backend/opensec/db/migrations/011_unified_findings.sql`:
+`backend/cliff/db/migrations/011_unified_findings.sql`:
 
 ```sql
 -- 011_unified_findings.sql
@@ -275,8 +275,8 @@ COMMIT;
 
 | File | Purpose |
 |------|---------|
-| `backend/opensec/db/migrations/011_unified_findings.sql` | the migration above |
-| `backend/opensec/assessment/to_findings.py` | four deterministic mappers (signatures below) |
+| `backend/cliff/db/migrations/011_unified_findings.sql` | the migration above |
+| `backend/cliff/assessment/to_findings.py` | four deterministic mappers (signatures below) |
 | `backend/tests/db/test_migration_011.py` | starts from a Phase-1-shape DB, runs 011, asserts schema |
 | `backend/tests/assessment/test_to_findings.py` | round-trip Trivy/Semgrep/posture fixtures into `FindingCreate` |
 | `backend/tests/db/test_repo_finding_upsert.py` | UPSERT preservation (6 preserved cols + representative refreshed cols) |
@@ -285,28 +285,28 @@ COMMIT;
 
 | File | Change |
 |------|--------|
-| `backend/opensec/models/finding.py` | add `FindingType = Literal["dependency","code","secret","posture"]` and `FindingGradeImpact = Literal["counts","advisory"]`; add `type`, `grade_impact`, `category`, `assessment_id`, `pr_url` to `FindingCreate`/`FindingUpdate`/`Finding` |
-| `backend/opensec/db/repo_finding.py` | rewrite `create_finding` as `INSERT ... ON CONFLICT(source_type, source_id) DO UPDATE` per the preservation table; add `list_findings(type=, grade_impact=, assessment_id=)` filters; add `list_posture_findings(assessment_id)`; add `close_disappeared_findings(source_type, kept_source_ids, assessment_id)` |
-| `backend/opensec/api/routes/dashboard.py` | swap posture queries from `list_posture_checks_for_assessment` to `list_posture_findings`; project `(status, pr_url, grade_impact)` → `pass\|fail\|done\|advisory`; vulnerabilities `by_source` filters by `type` |
-| `backend/opensec/integrations/normalizer.py` | LLM prompt adds `type` field to output schema (default `dependency`); single rule line per ADR-0027 |
-| `backend/opensec/integrations/ingest_worker.py` | thread `type` through from normalizer output to `FindingCreate` |
-| `backend/opensec/assessment/engine.py` | after each scanner finishes, persist via `to_findings.*` mappers; after all scanners finish, run the close pass (already shown in pseudocode above) |
+| `backend/cliff/models/finding.py` | add `FindingType = Literal["dependency","code","secret","posture"]` and `FindingGradeImpact = Literal["counts","advisory"]`; add `type`, `grade_impact`, `category`, `assessment_id`, `pr_url` to `FindingCreate`/`FindingUpdate`/`Finding` |
+| `backend/cliff/db/repo_finding.py` | rewrite `create_finding` as `INSERT ... ON CONFLICT(source_type, source_id) DO UPDATE` per the preservation table; add `list_findings(type=, grade_impact=, assessment_id=)` filters; add `list_posture_findings(assessment_id)`; add `close_disappeared_findings(source_type, kept_source_ids, assessment_id)` |
+| `backend/cliff/api/routes/dashboard.py` | swap posture queries from `list_posture_checks_for_assessment` to `list_posture_findings`; project `(status, pr_url, grade_impact)` → `pass\|fail\|done\|advisory`; vulnerabilities `by_source` filters by `type` |
+| `backend/cliff/integrations/normalizer.py` | LLM prompt adds `type` field to output schema (default `dependency`); single rule line per ADR-0027 |
+| `backend/cliff/integrations/ingest_worker.py` | thread `type` through from normalizer output to `FindingCreate` |
+| `backend/cliff/assessment/engine.py` | after each scanner finishes, persist via `to_findings.*` mappers; after all scanners finish, run the close pass (already shown in pseudocode above) |
 
 ### Files deleted
 
 | File | Notes |
 |------|-------|
-| `backend/opensec/db/dao/posture_check.py` | callers (engine, dashboard route) move to `repo_finding.list_posture_findings` |
-| `backend/opensec/models/posture_check.py` | `PostureCheckResult` moves to `backend/opensec/assessment/posture/__init__.py` (it is the in-pipeline DTO, not a DB row) |
+| `backend/cliff/db/dao/posture_check.py` | callers (engine, dashboard route) move to `repo_finding.list_posture_findings` |
+| `backend/cliff/models/posture_check.py` | `PostureCheckResult` moves to `backend/cliff/assessment/posture/__init__.py` (it is the in-pipeline DTO, not a DB row) |
 | `backend/tests/db/test_posture_check_dao.py` | tests for deleted DAO |
 
 ### `to_findings.py` mapper signatures
 
 ```python
-# backend/opensec/assessment/to_findings.py
-from opensec.assessment.scanners.models import TrivyResult, SemgrepResult
-from opensec.assessment.posture import PostureCheckResult
-from opensec.models.finding import FindingCreate
+# backend/cliff/assessment/to_findings.py
+from cliff.assessment.scanners.models import TrivyResult, SemgrepResult
+from cliff.assessment.posture import PostureCheckResult
+from cliff.models.finding import FindingCreate
 
 def from_trivy_vulns(result: TrivyResult, *, assessment_id: str) -> list[FindingCreate]:
     """source_type='trivy', type='dependency', grade_impact='counts'.
@@ -326,7 +326,7 @@ def from_semgrep(result: SemgrepResult, *, assessment_id: str) -> list[FindingCr
 def from_posture(
     results: list[PostureCheckResult], *, repo_url: str, assessment_id: str,
 ) -> list[FindingCreate]:
-    """source_type='opensec-posture', type='posture'.
+    """source_type='cliff-posture', type='posture'.
     Only fail/advisory rows are returned (passes do NOT become finding rows).
     grade_impact='advisory' for advisory checks; otherwise 'counts'.
     category = the posture category (ci_supply_chain | collaborator_hygiene | code_integrity | repo_configuration).
@@ -378,7 +378,7 @@ ON CONFLICT(source_type, source_id) DO UPDATE SET
 
 ### Phase 2 acceptance criteria
 
-- `grep -r "from opensec.db.dao.posture_check\|from opensec.models.posture_check" backend/` → zero hits
+- `grep -r "from cliff.db.dao.posture_check\|from cliff.models.posture_check" backend/` → zero hits
 - `posture_check` table does not exist after migration 011 (`test_migration_011`)
 - All 4 mappers have round-trip tests
 - UPSERT preservation covers all 6 preserved columns and 4 representative refreshed columns
@@ -644,7 +644,7 @@ The branch will end with roughly 15–18 commits. One commit per logical chunk s
 17. `docs: IMPL-0003-p2 verification report (screenshots + test tail)`
 18. (optional) `docs(adr): flip ADR-0027/0028/0029/0032/0033 to Accepted` — done as part of v0.1.0-alpha tag commit, not required in this PR
 
-Each phase boundary runs `cd backend && uv run pytest -v && uv run ruff check opensec/ tests/` and `cd frontend && npm test && npm run build` before advancing.
+Each phase boundary runs `cd backend && uv run pytest -v && uv run ruff check cliff/ tests/` and `cd frontend && npm test && npm run build` before advancing.
 
 ---
 

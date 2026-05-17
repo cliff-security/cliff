@@ -1,9 +1,9 @@
 """Auto-mark and gate docker install smoke tests.
 
-These tests boot the published OpenSec image, so they require:
+These tests boot the published Cliff image, so they require:
   1. A docker daemon reachable from the test runner.
-  2. The image to be available locally (set via OPENSEC_TEST_IMAGE,
-     default `opensec:dev`).
+  2. The image to be available locally (set via CLIFF_TEST_IMAGE,
+     default `cliff:dev`).
 
 Both gates skip the tests rather than failing them, so the suite stays
 green on machines without Docker.
@@ -46,7 +46,7 @@ def _image_present(ref: str) -> bool:
         return False
 
 
-_TEST_IMAGE = os.environ.get("OPENSEC_TEST_IMAGE", "opensec:dev")
+_TEST_IMAGE = os.environ.get("CLIFF_TEST_IMAGE", "cliff:dev")
 _daemon_ok = _docker_daemon_reachable()
 _image_ok = _daemon_ok and _image_present(_TEST_IMAGE)
 
@@ -57,9 +57,9 @@ _skip_no_daemon = pytest.mark.skipif(
 _skip_no_image = pytest.mark.skipif(
     not _image_ok,
     reason=(
-        f"OpenSec image '{_TEST_IMAGE}' not found locally. "
-        "Build it first (`docker build -f docker/Dockerfile -t opensec:dev .`) "
-        "or set OPENSEC_TEST_IMAGE to an existing image."
+        f"Cliff image '{_TEST_IMAGE}' not found locally. "
+        "Build it first (`docker build -f docker/Dockerfile -t cliff:dev .`) "
+        "or set CLIFF_TEST_IMAGE to an existing image."
     ),
 )
 

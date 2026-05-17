@@ -15,8 +15,8 @@ import time
 
 import pytest
 
-from opensec.config import settings
-from opensec.engine.process import OpenCodeProcess
+from cliff.config import settings
+from cliff.engine.process import OpenCodeProcess
 
 try:
     from shutil import which
@@ -79,8 +79,8 @@ def opencode_server():
 @pytest.fixture(autouse=True)
 def reset_client(opencode_server):
     """Reset the singleton OpenCode client before each test."""
-    import opensec.integrations.normalizer as normalizer_mod
-    from opensec.engine.client import OpenCodeClient
+    import cliff.integrations.normalizer as normalizer_mod
+    from cliff.engine.client import OpenCodeClient
 
     fresh_client = OpenCodeClient(base_url=settings.opencode_url)
     normalizer_mod.opencode_client = fresh_client

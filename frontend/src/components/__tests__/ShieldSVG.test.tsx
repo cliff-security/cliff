@@ -38,7 +38,7 @@ describe('ShieldSVG', () => {
     )
     const svg = container.querySelector('svg')!
     expect(svg.getAttribute('role')).toBe('img')
-    expect(svg.getAttribute('aria-label')).toMatch(/OpenSec/i)
+    expect(svg.getAttribute('aria-label')).toMatch(/Cliff/i)
   })
 
   it('allows callers to mark it decorative via aria-hidden', () => {

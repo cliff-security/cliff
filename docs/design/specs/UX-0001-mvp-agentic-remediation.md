@@ -69,7 +69,7 @@
 
 ### Flow 1: First run — import findings (Stories 1 + 2)
 
-**Entry point:** User opens OpenSec for the first time. Findings page is empty.
+**Entry point:** User opens Cliff for the first time. Findings page is empty.
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -207,9 +207,9 @@ Findings page populates in real-time as findings are imported (each chunk appear
 │ │                                                │   │
 │ │  GitHub repository                             │   │
 │ │  ┌──────────────────────────────────────────┐  │   │
-│ │  │ https://github.com/galanko/opensec       │  │   │
+│ │  │ https://github.com/galanko/cliff       │  │   │
 │ │  └──────────────────────────────────────────┘  │   │
-│ │  The repo OpenSec will clone into workspaces   │   │
+│ │  The repo Cliff will clone into workspaces   │   │
 │ │                                                │   │
 │ │  Personal access token                         │   │
 │ │  ┌──────────────────────────────────────────┐  │   │
@@ -245,7 +245,7 @@ If user clicks "Solve" on Findings page without a repo configured:
 ┌─────────────────────────────────────────────────────┐
 │ Repository not configured                    [×]     │
 │                                                      │
-│ To remediate findings, OpenSec needs access to       │
+│ To remediate findings, Cliff needs access to       │
 │ your repository so agents can analyze code and       │
 │ create pull requests.                                │
 │                                                      │
@@ -402,7 +402,7 @@ After the Planner has run and the user clicks the "Remediate" action chip (or th
 │ │  2. Run npm install                              │ │
 │ │  3. Run full test suite                          │ │
 │ │                                                   │ │
-│ │  Branch: opensec/fix/cve-2024-48930-lodash       │ │
+│ │  Branch: cliff/fix/cve-2024-48930-lodash       │ │
 │ └─────────────────────────────────────────────────┘ │
 │                                                      │
 │ You can modify this plan by typing in the chat.      │
@@ -423,7 +423,7 @@ Once approved, the chat shows live progress:
 │ (icon: build — animated)                             │
 │                                                      │
 │ ┌─────────────────────────────────────────────────┐ │
-│ │ ✓ Created branch opensec/fix/cve-2024-48930     │ │
+│ │ ✓ Created branch cliff/fix/cve-2024-48930     │ │
 │ │ ✓ Updated package.json (lodash: 4.17.21)         │ │
 │ │ ● Running npm install...                          │ │
 │ │ ○ Run test suite                                  │ │
@@ -471,7 +471,7 @@ Once approved, the chat shows live progress:
 │ │  │ fix: lodash prototype pollution           │    │ │
 │ │  │ (CVE-2024-48930)                          │    │ │
 │ │  │                                           │    │ │
-│ │  │ opensec/fix/cve-2024-48930 → main         │    │ │
+│ │  │ cliff/fix/cve-2024-48930 → main         │    │ │
 │ │  │                                           │    │ │
 │ │  │ [Review on GitHub →]                      │    │ │
 │ │  └──────────────────────────────────────────┘    │ │
@@ -539,7 +539,7 @@ The sidebar evolves from the current 7-section layout to an MVP-appropriate layo
 │                                                      │
 │ ┌─────────────────────────────────────────────────┐ │
 │ │  status   Draft PR #42                           │ │
-│ │  branch   opensec/fix/cve-2024-48930             │ │
+│ │  branch   cliff/fix/cve-2024-48930             │ │
 │ │  files    2 changed (+13 -9)                     │ │
 │ │  tests    47 passed                              │ │
 │ │                                                   │ │
@@ -677,4 +677,4 @@ MVP targets desktop only (1280px+ viewport). The Serene Sentinel design system i
 
 ---
 
-_This UX spec follows the OpenSec design workflow. After CEO approval, it moves to the architect team for implementation planning via `/architect`._
+_This UX spec follows the Cliff design workflow. After CEO approval, it moves to the architect team for implementation planning via `/architect`._

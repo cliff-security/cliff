@@ -9,11 +9,11 @@
 
 ## Problem statement
 
-OpenSec has a working engine — agents run, workspaces isolate, findings persist, the UI renders. But no real user has ever used it to actually *fix* a real vulnerability. We have technology but not yet a product.
+Cliff has a working engine — agents run, workspaces isolate, findings persist, the UI renders. But no real user has ever used it to actually *fix* a real vulnerability. We have technology but not yet a product.
 
-The original vision framed OpenSec as an advisory copilot: understand findings, plan fixes, export plans. That's useful but not transformative. The real value — the thing that makes OpenSec the "Claude Code for security" — is going all the way: **understand the finding, write the fix, create the PR, close the vulnerability.** Not "here's what you should do." Instead: "I did it, here's the PR, review and merge."
+The original vision framed Cliff as an advisory copilot: understand findings, plan fixes, export plans. That's useful but not transformative. The real value — the thing that makes Cliff the "Claude Code for security" — is going all the way: **understand the finding, write the fix, create the PR, close the vulnerability.** Not "here's what you should do." Instead: "I did it, here's the PR, review and merge."
 
-This PRD defines the minimum set of work needed to make OpenSec deliver that end-to-end value against a real open-source repository with real Snyk findings. The measure of success is not "it produced nice plans" but "it actually remediated findings and created mergeable PRs."
+This PRD defines the minimum set of work needed to make Cliff deliver that end-to-end value against a real open-source repository with real Snyk findings. The measure of success is not "it produced nice plans" but "it actually remediated findings and created mergeable PRs."
 
 ## User persona
 
@@ -40,9 +40,9 @@ The MVP proves or disproves this hypothesis. Everything in scope serves this tes
 
 ## Dogfooding scenario
 
-**Input:** Snyk JSON export from the OpenSec repository itself (or another open-source project Gal maintains).
+**Input:** Snyk JSON export from the Cliff repository itself (or another open-source project Gal maintains).
 
-**Setup:** User configures a GitHub repo URL and a personal access token in Settings. OpenSec clones the repo into each workspace directory when a finding is opened for remediation.
+**Setup:** User configures a GitHub repo URL and a personal access token in Settings. Cliff clones the repo into each workspace directory when a finding is opened for remediation.
 
 **Session goal:** Import all findings, work through them one-by-one: enrich (understand the CVE), analyze exposure (is it real in this repo?), plan the fix, execute the fix (agent modifies code), and create a draft PR on GitHub. Human reviews and merges each PR.
 
@@ -50,11 +50,11 @@ The MVP proves or disproves this hypothesis. Everything in scope serves this tes
 
 **The end-to-end loop:**
 1. Snyk scans repo → produces findings JSON
-2. Import findings JSON into OpenSec
+2. Import findings JSON into Cliff
 3. For each finding: Enrich → Analyze → Plan → Remediate (agent writes fix) → Create PR
 4. Human reviews and merges PRs
 5. Re-run Snyk scan → findings are resolved
-6. Finding status in OpenSec → closed
+6. Finding status in Cliff → closed
 
 ## What exists today (gap analysis)
 
@@ -109,7 +109,7 @@ The MVP proves or disproves this hypothesis. Everything in scope serves this tes
 
 ### Story 1: Import my findings
 
-**As** an open-source maintainer, **I want to** upload a Snyk JSON export of my repo's vulnerabilities, **so that** I can start working on them in OpenSec without manual data entry.
+**As** an open-source maintainer, **I want to** upload a Snyk JSON export of my repo's vulnerabilities, **so that** I can start working on them in Cliff without manual data entry.
 
 **Given** I'm on the Findings page,
 **When** I click "Import findings" and upload my Snyk JSON export (or paste the JSON),
@@ -148,13 +148,13 @@ The MVP proves or disproves this hypothesis. Everything in scope serves this tes
 
 ### Story 3: Connect my repo
 
-**As** an open-source maintainer, **I want to** tell OpenSec which GitHub repo to work on, **so that** agents can access my source code and create PRs.
+**As** an open-source maintainer, **I want to** tell Cliff which GitHub repo to work on, **so that** agents can access my source code and create PRs.
 
 **Given** I'm in Settings (or first-run onboarding),
 **When** I enter my GitHub repo URL and personal access token,
-**Then** OpenSec validates the connection and stores the credentials. When I open a workspace, the repo is cloned into the workspace directory automatically.
+**Then** Cliff validates the connection and stores the credentials. When I open a workspace, the repo is cloned into the workspace directory automatically.
 
-**The user should feel:** "Setup was quick. Now OpenSec has everything it needs to actually fix my code."
+**The user should feel:** "Setup was quick. Now Cliff has everything it needs to actually fix my code."
 
 **Acceptance criteria:**
 
@@ -162,7 +162,7 @@ The MVP proves or disproves this hypothesis. Everything in scope serves this tes
 - [ ] "Test connection" button validates the token has repo access (clone + push + PR creation permissions)
 - [ ] Token stored securely in the existing credential vault
 - [ ] When a workspace is created for a finding, the repo is cloned into the workspace directory
-- [ ] Clone happens on a fresh branch named `opensec/fix/<finding-slug>` (e.g., `opensec/fix/cve-2026-1234`)
+- [ ] Clone happens on a fresh branch named `cliff/fix/<finding-slug>` (e.g., `cliff/fix/cve-2026-1234`)
 - [ ] Clone is shallow (depth=1) for speed; full history fetched only if agents need git log
 - [ ] If the repo is already cloned (workspace reopened), pull latest from main instead of re-cloning
 - [ ] Workspace context (CONTEXT.md) includes repo structure overview so agents understand the codebase
@@ -230,7 +230,7 @@ The chat is the timeline — it shows structured cards inline as agents complete
 **When** I click "Remediate" (or the pipeline suggests it as the next step),
 **Then** the agent:
 1. Presents the fix plan in chat and asks for approval before executing
-2. On approval, creates a fix branch (`opensec/fix/<finding-slug>`)
+2. On approval, creates a fix branch (`cliff/fix/<finding-slug>`)
 3. Makes the code changes (e.g., updates `package.json`, runs `npm install`, updates lockfile)
 4. Runs the full test suite and reports results
 5. Commits with a descriptive message referencing the CVE
@@ -255,12 +255,12 @@ The agent creates a *draft* PR. The human reviews the diff on GitHub, checks tes
 - [ ] "Remediate" action chip available after the planner has run
 - [ ] Agent presents the fix plan in chat and waits for user approval before executing
 - [ ] User can modify the plan via chat before approving (e.g., "use version 4.17.21 instead of 4.18.0")
-- [ ] Agent creates a branch named `opensec/fix/<finding-slug>` from latest `main`
+- [ ] Agent creates a branch named `cliff/fix/<finding-slug>` from latest `main`
 - [ ] Agent makes code changes guided by the (possibly user-modified) remediation plan
 - [ ] Agent runs the full test suite by default (e.g., `npm test`, `pytest`) and reports results in chat
 - [ ] If tests fail, agent reports the failure and asks for user guidance — does NOT push a broken branch
 - [ ] User can chat with the agent mid-execution to steer, correct, or redirect (Claude Code model)
-- [ ] Agent commits changes with message format: `fix: <finding title> (CVE-XXXX-YYYY)\n\nRemediation by OpenSec`
+- [ ] Agent commits changes with message format: `fix: <finding title> (CVE-XXXX-YYYY)\n\nRemediation by Cliff`
 - [ ] Agent pushes branch to GitHub remote
 - [ ] Agent creates a draft PR with: title, description (from enricher + planner), test results, and CVE references
 - [ ] PR link is displayed in the workspace chat as a result card and persisted to sidebar
@@ -392,4 +392,4 @@ All resolved. No remaining blockers for CEO approval.
 
 ---
 
-_This PRD follows the OpenSec product workflow. After CEO approval, it moves to the UX team for mockup creation via `/ux-designer`, then to `/architect` for implementation planning._
+_This PRD follows the Cliff product workflow. After CEO approval, it moves to the UX team for mockup creation via `/ux-designer`, then to `/architect` for implementation planning._

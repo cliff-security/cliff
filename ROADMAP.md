@@ -1,6 +1,6 @@
-# OpenSec Roadmap
+# Cliff Roadmap
 
-> **Convention:** Every phase must have automated tests passing before it is considered complete. Run `cd backend && uv run pytest -v` and `cd backend && uv run ruff check opensec/ tests/` before marking a phase done.
+> **Convention:** Every phase must have automated tests passing before it is considered complete. Run `cd backend && uv run pytest -v` and `cd backend && uv run ruff check cliff/ tests/` before marking a phase done.
 
 ## Phase 0: Decisions & Setup (Complete)
 
@@ -229,12 +229,12 @@ Final packaging. Depends on everything above.
 ### Phase 9b: Packaging Finalization
 
 - [ ] Startup migration runner
-- [ ] Seed demo data mode (`OPENSEC_DEMO=true`)
+- [ ] Seed demo data mode (`CLIFF_DEMO=true`)
 - [ ] Install documentation
 - [ ] Upgrade documentation
 - [ ] First tagged release (v0.1.0-alpha)
 
-**Exit criteria:** `docker run -p 8000:8000 opensec` starts the full app. Demo data works. Config survives restart.
+**Exit criteria:** `docker run -p 8000:8000 cliff` starts the full app. Demo data works. Config survives restart.
 
 ---
 

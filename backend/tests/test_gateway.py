@@ -10,12 +10,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from opensec.db.connection import close_db, init_db
-from opensec.db.repo_integration import create_integration
-from opensec.integrations.audit import AuditLogger
-from opensec.integrations.gateway import MCPConfigResolver
-from opensec.integrations.vault import CredentialVault
-from opensec.models import Finding, IntegrationConfigCreate
+from cliff.db.connection import close_db, init_db
+from cliff.db.repo_integration import create_integration
+from cliff.integrations.audit import AuditLogger
+from cliff.integrations.gateway import MCPConfigResolver
+from cliff.integrations.vault import CredentialVault
+from cliff.models import Finding, IntegrationConfigCreate
 
 if TYPE_CHECKING:
     import aiosqlite
@@ -234,7 +234,7 @@ async def test_audit_event_emitted(
     await resolver_with_audit.resolve_workspace_mcp_configs(db)
     await asyncio.sleep(0.1)  # Let async audit writer process
 
-    from opensec.db import repo_audit
+    from cliff.db import repo_audit
 
     events = await repo_audit.query_audit_log(db, event_type="mcp.config_resolved")
     assert len(events) == 1
@@ -261,7 +261,7 @@ def sample_finding() -> Finding:
 
 
 def test_workspace_opencode_json_includes_mcp(tmp_path, sample_finding: Finding):
-    from opensec.workspace import WorkspaceDirManager
+    from cliff.workspace import WorkspaceDirManager
 
     mgr = WorkspaceDirManager(base_dir=tmp_path)
     mcp_servers = {
@@ -282,7 +282,7 @@ def test_workspace_opencode_json_includes_mcp(tmp_path, sample_finding: Finding)
 
 
 def test_workspace_opencode_json_no_mcp_without_servers(tmp_path, sample_finding: Finding):
-    from opensec.workspace import WorkspaceDirManager
+    from cliff.workspace import WorkspaceDirManager
 
     mgr = WorkspaceDirManager(base_dir=tmp_path)
     ws = mgr.create("ws-no-mcp", sample_finding)
@@ -293,7 +293,7 @@ def test_workspace_opencode_json_no_mcp_without_servers(tmp_path, sample_finding
 
 
 def test_workspace_opencode_json_empty_mcp_dict(tmp_path, sample_finding: Finding):
-    from opensec.workspace import WorkspaceDirManager
+    from cliff.workspace import WorkspaceDirManager
 
     mgr = WorkspaceDirManager(base_dir=tmp_path)
     ws = mgr.create("ws-empty-mcp", sample_finding, mcp_servers={})
