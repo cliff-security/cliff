@@ -255,8 +255,42 @@ export function useOpenRouterPolling(
 
   const query = useQuery({
     queryKey: ['ai-provider', 'openrouter', sessionId],
-    queryFn: () => aiProviderApi.openrouterStatus(sessionId as string),
+    queryFn: async () => {
+      try {
+        return await aiProviderApi.openrouterStatus(sessionId as string)
+      } catch (err) {
+        // B22 — when the backend's listener TTL (5 min) elapses or the
+        // singleton was restarted, /openrouter/status returns 404 even
+        // though the callback may have already persisted the key. Fall
+        // back to the canonical /ai/status read: if a connected
+        // OpenRouter account is on file, treat the OAuth flow as
+        // ``connected`` so the modal advances instead of stalling on
+        // "Waiting for you to authorize" forever.
+        // ``request<T>`` throws Error("404: <body>") — parse the prefix.
+        const msg = err instanceof Error ? err.message : String(err ?? '')
+        const httpStatus = Number.parseInt(msg.split(':', 1)[0] ?? '', 10)
+        if (httpStatus === 404) {
+          try {
+            const ai = await aiProviderApi.status()
+            if (ai.state === 'connected' && ai.provider === 'openrouter') {
+              return {
+                status: 'connected' as const,
+                detail: null,
+              } satisfies OpenRouterStatusResponse
+            }
+          } catch {
+            // Swallow — surface the original 404 path instead.
+          }
+        }
+        throw err
+      }
+    },
     enabled: !!sessionId,
+    // Refetch when the tab regains focus so a user who tabs back from
+    // the OpenRouter consent screen sees the terminal status without
+    // waiting for the next 1-second tick (Chrome aggressively throttles
+    // background-tab timers). This is in addition to the 1 s poll.
+    refetchOnWindowFocus: true,
     refetchInterval: (q) => {
       if (!q.state.data) return 1000
       if (q.state.data.status !== 'waiting') return false
