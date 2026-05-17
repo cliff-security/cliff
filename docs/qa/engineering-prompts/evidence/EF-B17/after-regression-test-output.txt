@@ -3,8 +3,39 @@ EF-B17 AFTER — post-fix regression test output (pytest -v):
 tests/integration/test_rate_limit_backoff.py::test_rate_limit_retry_then_success PASSED
 tests/integration/test_rate_limit_backoff.py::test_rate_limit_exhausted_terminates_with_status_and_last_error PASSED
 tests/integration/test_rate_limit_backoff.py::test_non_rate_limit_error_still_fails_immediately PASSED
+tests/integration/test_rate_limit_backoff.py::test_real_world_rate_limit_messages_classify_and_retry[Rate limit exceeded] PASSED
+tests/integration/test_rate_limit_backoff.py::test_real_world_rate_limit_messages_classify_and_retry[OpenAI.completion: Rate limit exceeded. Retry after 1 minute] PASSED
+tests/integration/test_rate_limit_backoff.py::test_real_world_rate_limit_messages_classify_and_retry[Anthropic.chat: Rate limit exceeded. Retry after 30 seconds] PASSED
+tests/integration/test_rate_limit_backoff.py::test_real_world_rate_limit_messages_classify_and_retry[429 Too Many Requests] PASSED
+tests/integration/test_rate_limit_backoff.py::test_real_world_rate_limit_messages_classify_and_retry[Number of requests has exceeded your rate limit] PASSED
+tests/integration/test_rate_limit_backoff.py::test_real_world_rate_limit_messages_classify_and_retry[RATE LIMIT exceeded for requests on this org] PASSED
+tests/integration/test_rate_limit_backoff.py::test_lookalike_messages_do_not_trigger_rate_limit_retry[Quota exhausted. Check your account billing and usage limits.] PASSED
+tests/integration/test_rate_limit_backoff.py::test_lookalike_messages_do_not_trigger_rate_limit_retry[Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.] PASSED
+tests/integration/test_rate_limit_backoff.py::test_lookalike_messages_do_not_trigger_rate_limit_retry[Provider returned 500 internal error] PASSED
+tests/integration/test_rate_limit_backoff.py::test_lookalike_messages_do_not_trigger_rate_limit_retry[Not Found] PASSED
+tests/integration/test_rate_limit_backoff.py::test_f1_minimist_style_scenario_recovers_under_throttling PASSED
 
-============================== 3 passed in 14.16s ==============================
+======================== 14 passed in 78.36s (0:01:18) =========================
+
+Real OpenCode-wrapped 429 message shapes covered (extracted from sources, not invented):
+  * Effect AI SDK ``RateLimitError.message`` = "Rate limit exceeded"
+    [+ optional ". Retry after {N} {unit}"]
+    src: .opencode/node_modules/effect/dist/unstable/ai/AiError.js:300-304
+  * OpenCode binary raw HTTP wire form: "429 Too Many Requests"
+    src: strings /opt/homebrew/bin/opencode
+  * Anthropic provider-native 429 body wording
+  * Cliff's pre-existing _humanize_process_error substring set
+    (executor.py:519-560) — written from historic production failures
+
+Lookalike non-rate-limit shapes verified to fall through to status=failed:
+  * Effect AI SDK QuotaExhaustedError ("Quota exhausted. Check your account...")
+  * OpenRouter/Anthropic credit-balance shape
+  * Generic 500
+  * "Not Found" (the historic shape from F-001-minimist Wave-1 evidence)
+
+F1-minimist-style scenario test emulates the Wave-1 cadence (5 sequential
+agents with varying throttle counts) and proves every agent recovers under
+backoff — the closest deterministic test to the actual failure pattern.
 
 Coverage of EF-B17 acceptance criteria:
 

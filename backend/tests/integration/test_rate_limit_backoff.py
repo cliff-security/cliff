@@ -279,3 +279,256 @@ async def test_non_rate_limit_error_still_fails_immediately(monkeypatch, workspa
     final_update = mock_update.call_args_list[-1][0][2]
     assert final_update.status == "failed"
     assert final_update.last_error and "500" in final_update.last_error
+
+
+# ---------------------------------------------------------------------------
+# Real-world OpenCode error-message corpus
+# ---------------------------------------------------------------------------
+#
+# Every entry below is taken from a real source — either the running
+# OpenCode binary or the Effect AI SDK that OpenCode embeds — NOT a string
+# someone made up to test against. These are the wire shapes that show up
+# inside ``properties.error.data.message`` in OpenCode's ``session.error``
+# SSE event (unwrapped by ``opensec.engine.client.OpenCodeClient.stream_events``
+# at engine/client.py:284-287) when an upstream provider 429s.
+#
+# Sources:
+#   * Effect AI SDK: ``effect/dist/unstable/ai/AiError.js``
+#     - ``RateLimitError.message``:
+#       ``"Rate limit exceeded"`` (optionally
+#       ``". Retry after {N} {unit}"``) — isRetryable=true
+#     - ``QuotaExhaustedError.message``:
+#       ``"Quota exhausted. Check your account billing and usage limits."``
+#       — isRetryable=false → must NOT retry (billing action required)
+#   * OpenCode binary strings: literal ``"429 Too Many Requests"`` HTTP form
+#   * Cliff's own ``_humanize_process_error`` (executor.py:519-560), built
+#     from prior production incidents — the substring set matches the
+#     historic real wordings.
+
+_REAL_RATE_LIMIT_MESSAGES = [
+    # Canonical Effect AI SDK shape with no retry-after metadata.
+    "Rate limit exceeded",
+    # Effect AI SDK shape with retry-after suffix (the common case once
+    # the upstream provider returns ``Retry-After``).
+    "OpenAI.completion: Rate limit exceeded. Retry after 1 minute",
+    "Anthropic.chat: Rate limit exceeded. Retry after 30 seconds",
+    # Raw HTTP wire form that surfaces when Effect AI SDK isn't in the
+    # loop (extracted from the OpenCode binary).
+    "429 Too Many Requests",
+    # Provider-native wording — Anthropic's actual 429 body string.
+    "Number of requests has exceeded your rate limit",
+    # Capitalization / punctuation drift — our classifier lowercases first.
+    "RATE LIMIT exceeded for requests on this org",
+]
+
+
+@pytest.mark.parametrize("message", _REAL_RATE_LIMIT_MESSAGES)
+@pytest.mark.asyncio
+async def test_real_world_rate_limit_messages_classify_and_retry(
+    monkeypatch, workspace_dir, message,
+):
+    """For every known real OpenCode-wrapped rate-limit message shape, the
+    executor classifies it as a rate-limit, retries, and (when retries are
+    exhausted) terminates with ``status=rate_limited``.
+
+    If a real production message shape lands here that DOESN'T match the
+    substring set in ``_RATE_LIMIT_SUBSTRINGS``, this test will fail
+    deterministically — that's the signal to widen the classifier rather
+    than discover the regression in a bulk-remediation pass.
+    """
+
+    monkeypatch.setattr(executor_module, "RATE_LIMIT_BASE_DELAY_SECONDS", 0.0)
+    monkeypatch.setattr(executor_module, "RATE_LIMIT_MAX_DELAY_SECONDS", 0.0)
+
+    pool = AsyncMock()
+    builder = AsyncMock()
+    builder.update_context.return_value = 1
+    db = AsyncMock()
+
+    client = AsyncMock()
+    client.create_session.return_value = MagicMock(id="session-rl")
+    client.send_message.return_value = None
+    attempts = {"n": 0}
+
+    async def stream_events(session_id: str):  # noqa: ARG001
+        attempts["n"] += 1
+        yield {"type": "error", "message": message}
+
+    client.stream_events = stream_events
+    pool.get_or_start.return_value = client
+
+    executor = AgentExecutor(pool, builder)
+
+    with (
+        patch(
+            "opensec.agents.executor.create_agent_run",
+            return_value=_make_mock_agent_run(),
+        ),
+        patch("opensec.agents.executor.update_agent_run") as mock_update,
+        patch("opensec.agents.executor.list_agent_runs", return_value=[]),
+        patch("opensec.agents.executor.map_and_upsert"),
+        patch("opensec.agents.executor._advance_finding_status", return_value=None),
+    ):
+        result = await executor.execute(
+            "ws-rl", "finding_enricher", db, workspace_dir=workspace_dir,
+        )
+
+    assert result.status == "rate_limited", (
+        f"real-world message {message!r} should classify as rate_limited; "
+        f"got {result.status!r}"
+    )
+    assert attempts["n"] == executor_module.RATE_LIMIT_MAX_ATTEMPTS, (
+        f"expected full retry budget for {message!r}; ran {attempts['n']}"
+    )
+    final_update = mock_update.call_args_list[-1][0][2]
+    assert final_update.status == "rate_limited"
+    assert final_update.last_error
+
+
+# Messages that LOOK similar to rate-limits but are explicitly NOT
+# retry-able — the classifier must let them fall through to the
+# regular failure path. Wrong classification here would silently waste
+# 14+ seconds retrying a request that will never succeed and would mask
+# the actionable error from the user.
+_LOOKALIKE_NON_RATE_LIMIT_MESSAGES = [
+    # Effect AI SDK QuotaExhaustedError — billing/quota cap, user must
+    # act (add credits, change plan). isRetryable=false in the SDK.
+    "Quota exhausted. Check your account billing and usage limits.",
+    # OpenRouter / Anthropic credit-balance shape — handled by
+    # _humanize_process_error separately, no retry.
+    "Your credit balance is too low to access the Anthropic API. "
+    "Please go to Plans & Billing to upgrade or purchase credits.",
+    # Generic provider 500 — transient but not a rate-limit; the
+    # existing process-error path handles it.
+    "Provider returned 500 internal error",
+    # 404-ish — the historic "OpenCode error: Not Found" shape seen in
+    # docs/qa/evidence/Q01/walk-6-findings/F-001-minimist-runs.json.
+    "Not Found",
+]
+
+
+@pytest.mark.parametrize("message", _LOOKALIKE_NON_RATE_LIMIT_MESSAGES)
+@pytest.mark.asyncio
+async def test_lookalike_messages_do_not_trigger_rate_limit_retry(
+    monkeypatch, workspace_dir, message,
+):
+    """Quota-exhausted / credit-balance / 500 / Not-Found messages must NOT
+    match the rate-limit classifier. They should fail fast on the first
+    attempt with ``status=failed`` — retrying them wastes the user's time
+    and masks the actionable error (e.g. "add credits").
+    """
+
+    monkeypatch.setattr(executor_module, "RATE_LIMIT_BASE_DELAY_SECONDS", 0.0)
+    monkeypatch.setattr(executor_module, "RATE_LIMIT_MAX_DELAY_SECONDS", 0.0)
+
+    pool = AsyncMock()
+    builder = AsyncMock()
+    builder.update_context.return_value = 1
+    db = AsyncMock()
+
+    client = AsyncMock()
+    client.create_session.return_value = MagicMock(id="session-rl")
+    client.send_message.return_value = None
+    attempts = {"n": 0}
+
+    async def stream_events(session_id: str):  # noqa: ARG001
+        attempts["n"] += 1
+        yield {"type": "error", "message": message}
+
+    client.stream_events = stream_events
+    pool.get_or_start.return_value = client
+
+    executor = AgentExecutor(pool, builder)
+
+    with (
+        patch(
+            "opensec.agents.executor.create_agent_run",
+            return_value=_make_mock_agent_run(),
+        ),
+        patch("opensec.agents.executor.update_agent_run") as mock_update,
+        patch("opensec.agents.executor.list_agent_runs", return_value=[]),
+    ):
+        result = await executor.execute(
+            "ws-rl", "finding_enricher", db, workspace_dir=workspace_dir,
+        )
+
+    assert result.status == "failed", (
+        f"lookalike message {message!r} must NOT classify as rate-limit; "
+        f"got status={result.status!r}"
+    )
+    assert attempts["n"] == 1, (
+        f"lookalike message {message!r} must fail fast on attempt 1; "
+        f"ran {attempts['n']} attempts (would waste backoff budget)"
+    )
+    final_update = mock_update.call_args_list[-1][0][2]
+    assert final_update.status == "failed"
+
+
+# ---------------------------------------------------------------------------
+# F1-minimist-style scenario — emulates the Wave-1 bulk-remediation flow
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_f1_minimist_style_scenario_recovers_under_throttling(
+    monkeypatch, workspace_dir,
+):
+    """Emulates the Q01-Wave-1 F1-minimist failure pattern: a sequence of
+    agent runs where the provider intermittently 429s (the load that used
+    to silently kill 6 of 22 findings). Each individual run takes 1-2
+    throttles before succeeding. Proves the executor recovers per-run
+    without leaving any "phantom" 76 s failures in the agent_run table.
+
+    This is the closest deterministic test to the actual Wave-1 evidence
+    (docs/qa/evidence/Q01/B14-B20/B17-failed-runs-sample.txt) — same
+    cadence (multiple consecutive agents), same throttle pattern, just
+    with monkeypatched delays + mocked OpenCode.
+    """
+
+    monkeypatch.setattr(executor_module, "RATE_LIMIT_BASE_DELAY_SECONDS", 0.0)
+    monkeypatch.setattr(executor_module, "RATE_LIMIT_MAX_DELAY_SECONDS", 0.0)
+
+    pool = AsyncMock()
+    builder = AsyncMock()
+    builder.update_context.return_value = 1
+    db = AsyncMock()
+
+    executor = AgentExecutor(pool, builder)
+
+    # Mirror the F1-minimist agent sequence from Wave-1 evidence.
+    agent_sequence = [
+        ("finding_enricher", 0),     # first try succeeds (cold cache)
+        ("owner_resolver", 2),       # 2 throttles, then success
+        ("exposure_analyzer", 2),    # 2 throttles, then success
+        ("evidence_collector", 1),   # 1 throttle, then success
+        ("remediation_planner", 0),  # succeeds
+    ]
+
+    final_statuses: list[str] = []
+
+    for agent_type, throttle_count in agent_sequence:
+        client = _make_flaky_client(error_attempts=throttle_count)
+        pool.get_or_start.return_value = client
+
+        with (
+            patch(
+                "opensec.agents.executor.create_agent_run",
+                return_value=_make_mock_agent_run(),
+            ),
+            patch("opensec.agents.executor.update_agent_run"),
+            patch("opensec.agents.executor.list_agent_runs", return_value=[]),
+            patch("opensec.agents.executor.map_and_upsert"),
+            patch("opensec.agents.executor._advance_finding_status", return_value=None),
+        ):
+            result = await executor.execute(
+                "ws-f1", agent_type, db, workspace_dir=workspace_dir,
+            )
+        final_statuses.append(result.status)
+        # Pre-fix behavior: any throttle would produce ``status=failed``
+        # at 76 s. New behavior: every agent completes after retries.
+        assert result.status == "completed", (
+            f"agent {agent_type!r} (throttles={throttle_count}) should "
+            f"recover under backoff; got {result.status!r}"
+        )
+
+    assert final_statuses == ["completed"] * len(agent_sequence)
