@@ -36,6 +36,7 @@ from cliff.integrations.github_app.flow import (
 from cliff.integrations.github_app.models import (
     DeviceFlowConnectResponse,
     DeviceFlowDisconnectResponse,
+    DeviceFlowManualSetupRequest,
     DeviceFlowStatusResponse,
 )
 from cliff.models import IntegrationConfigCreate
@@ -426,6 +427,33 @@ async def connect(
     )
 
 
+async def _register_installation(
+    *,
+    request: Request,
+    db: aiosqlite.Connection,
+    state: str,
+    installation_id: int,
+) -> None:
+    """Shared registration path for both ``GET /setup`` and ``POST /setup/manual``.
+
+    Wraps :py:meth:`DeviceFlowOrchestrator.attach_installation` so the
+    route layer has one — and only one — way to bind an
+    ``installation_id`` to a CSRF state. The GET callback turns the
+    :class:`InstallationCsrfMismatchError` into a redirect; the POST
+    recovery endpoint turns it into a 400. Either way the underlying
+    validation is identical, which is the load-bearing property that
+    keeps the recovery flow from being a CSRF-bypass.
+
+    Raises :class:`InstallationCsrfMismatchError` on a state we never
+    issued or a replay with a different installation_id (SR-2).
+    """
+    vault, audit = _require_vault_and_audit(request)
+    orchestrator = _get_orchestrator(request, db, vault, audit)
+    await orchestrator.attach_installation(
+        csrf_state=state, installation_id=installation_id
+    )
+
+
 @router.get("/setup")
 async def setup_callback(
     request: Request,
@@ -443,15 +471,16 @@ async def setup_callback(
     db: aiosqlite.Connection = Depends(get_db),
 ) -> RedirectResponse:
     _require_app_configured()
-    vault, audit = _require_vault_and_audit(request)
-    orchestrator = _get_orchestrator(request, db, vault, audit)
     return_path = _pop_return_path(request, state)
 
     redirect_status = "updated" if setup_action == "update" else "complete"
 
     try:
-        await orchestrator.attach_installation(
-            csrf_state=state, installation_id=installation_id
+        await _register_installation(
+            request=request,
+            db=db,
+            state=state,
+            installation_id=installation_id,
         )
     except InstallationCsrfMismatchError:
         return RedirectResponse(
@@ -461,6 +490,70 @@ async def setup_callback(
     return RedirectResponse(
         _frontend_redirect(return_path, status=redirect_status),
         status_code=302,
+    )
+
+
+@router.post("/setup/manual", response_model=DeviceFlowStatusResponse)
+async def setup_manual(
+    request: Request,
+    payload: DeviceFlowManualSetupRequest,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> DeviceFlowStatusResponse:
+    """Manual recovery for B33 — accept an ``installation_id`` posted from
+    the SPA when the GET callback never fired.
+
+    The shared ``opensec-local-test`` GitHub App's Setup URL is globally
+    hardcoded to ``http://localhost:8000/api/integrations/github/setup``
+    on github.com. Any Cliff deployment bound to a different host port
+    (Docker remap, parallel dev stack, reverse proxy) never receives
+    the GET callback. This endpoint lets the user paste the
+    ``installation_id`` from the redirect URL they ended up on — Cliff
+    then drives the same registration code path as the GET callback,
+    *including the CSRF state check* that prevents an attacker who
+    tricks the user into pasting a hostile ``installation_id`` from
+    binding it.
+    """
+    _require_app_configured()
+    # SR-1 parity with the rest of the mutating routes — block browser-
+    # initiated cross-origin POSTs. The GET callback is intentionally
+    # exempt (it's a github.com redirect, no Origin); the manual path is
+    # a same-origin browser action and gets the full guard.
+    _require_same_origin(request)
+
+    # Drain the stashed return-path entry for this state — the SPA
+    # already knows where it is (it's calling us from the recovery
+    # card), so we just want to keep the in-memory map from leaking
+    # this entry. _pop_return_path is safe on unknown states.
+    _pop_return_path(request, payload.state)
+
+    try:
+        await _register_installation(
+            request=request,
+            db=db,
+            state=payload.state,
+            installation_id=payload.installation_id,
+        )
+    except InstallationCsrfMismatchError as exc:
+        # 400 (not redirect) — the SPA shows an inline error on the
+        # recovery card. The wording matters: don't echo the state
+        # value, since it's user-supplied and may end up in logs.
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "csrf state mismatch — the installation_id was not bound "
+                "to a state this Cliff instance issued"
+            ),
+        ) from exc
+
+    record = await gh_repo.get_by_csrf(db, payload.state)
+    assert record is not None  # _register_installation just bound this row
+    return DeviceFlowStatusResponse(
+        status=record.polling_status,
+        user_code=record.user_code,
+        expires_at=record.device_code_expires_at,
+        installation_id=record.installation_id,
+        github_login=record.github_login,
+        error=record.polling_error,
     )
 
 
