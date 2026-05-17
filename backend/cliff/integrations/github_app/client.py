@@ -21,6 +21,7 @@ DEVICE_CODE_PATH = "/login/device/code"
 TOKEN_PATH = "/login/oauth/access_token"  # noqa: S105 — URL path, not a credential
 USER_PATH = "/user"
 REPO_PATH_TEMPLATE = "/repos/{owner}/{repo}"
+REPO_INSTALLATION_PATH_TEMPLATE = "/repos/{owner}/{repo}/installation"
 DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 
 
@@ -324,22 +325,40 @@ async def check_repo_push_access(
 ) -> RepoPushAccess:
     """Verify that ``token`` can push to ``owner/repo`` before triggering work.
 
-    On a definitive negative (404 / 401 / 403 / 200 with ``push=false``)
-    we return ``can_push=False`` with a UI-safe reason pointing at the
-    actual remediation. On a *transient* failure (network error, 429,
-    5xx) we ``can_push=True`` with a reason annotating that the check
-    was skipped — the executor will run and surface GitHub's real error
-    if the push genuinely can't proceed. Rationale: a flaky preflight
-    must never become a hard gate; that's worse than no preflight.
+    Two-step preflight:
+
+    1. ``GET /repos/{owner}/{repo}`` — the user-OAuth-token's effective
+       repo permissions (intersection of App declared perms × user repo
+       perms). A ``push=false`` here is definitive.
+    2. ``GET /repos/{owner}/{repo}/installation`` — the GitHub App
+       installation's declared permissions on this repo. When the user
+       perms say push=true we still need to confirm the *installation*
+       has ``contents:write`` (Q01R-W2 / B35a). The intersection
+       semantics mean an installation with ``contents:read`` blocks the
+       push even if the user owns the repo. Step 2 closes that gap.
+
+    On a definitive negative (404 / 401 / 403 / 200 with push=false /
+    install perms missing write) we return ``can_push=False`` with a
+    UI-safe reason pointing at the actual remediation. On a *transient*
+    failure (network error, 429, 5xx) on the user-perms step we
+    ``can_push=True`` with a reason annotating that the check was
+    skipped. Step 2 failures fall back to step 1's verdict so the
+    preflight stays useful for tokens that can't call the App-only
+    endpoint (e.g. a stock user OAuth token may receive 403/404 on
+    ``/installation`` — that's expected and not a regression).
     """
-    url = f"{api_base_url.rstrip('/')}{REPO_PATH_TEMPLATE.format(owner=owner, repo=repo)}"
+    base = api_base_url.rstrip("/")
     kwargs: dict = {"timeout": timeout}
     if transport is not None:
         kwargs["transport"] = transport
+
     async with httpx.AsyncClient(**kwargs) as client:
+        user_perms_url = (
+            f"{base}{REPO_PATH_TEMPLATE.format(owner=owner, repo=repo)}"
+        )
         try:
             resp = await client.get(
-                url,
+                user_perms_url,
                 headers={
                     "Authorization": f"Bearer {token}",
                     "Accept": "application/vnd.github+json",
@@ -357,84 +376,166 @@ async def check_repo_push_access(
                 ),
             )
 
-    # Transient HTTP failures (rate limit, server error) — also fail OPEN.
-    # GitHub returns 429 with rate-limit headers; treating that as "no
-    # push access" would silently block every executor run during a
-    # spike. The executor will retry GitHub itself and either succeed or
-    # surface a real 4xx.
-    if resp.status_code == 429 or 500 <= resp.status_code < 600:
-        return RepoPushAccess(
-            can_push=True,
-            reason=(
-                f"Skipped push preflight: GitHub returned HTTP "
-                f"{resp.status_code} (transient)."
-            ),
-        )
+        # Transient HTTP failures (rate limit, server error) — also fail
+        # OPEN. GitHub returns 429 with rate-limit headers; treating
+        # that as "no push access" would silently block every executor
+        # run during a spike. The executor will retry GitHub itself and
+        # either succeed or surface a real 4xx.
+        if resp.status_code == 429 or 500 <= resp.status_code < 600:
+            return RepoPushAccess(
+                can_push=True,
+                reason=(
+                    f"Skipped push preflight: GitHub returned HTTP "
+                    f"{resp.status_code} (transient)."
+                ),
+            )
 
-    if resp.status_code == 404:
-        return RepoPushAccess(
-            can_push=False,
-            reason=(
-                f"Repo {owner}/{repo} is not visible to this GitHub token. "
-                "The Cliff GitHub App may not be installed on this "
-                "organization, or the installation was removed."
-            ),
-        )
-    if resp.status_code == 401:
-        return RepoPushAccess(
-            can_push=False,
-            reason=(
-                "GitHub rejected the auth token (HTTP 401). The token has "
-                "likely expired or been revoked — reconnect GitHub from "
-                "Settings → Integrations."
-            ),
-        )
-    if resp.status_code == 403:
-        return RepoPushAccess(
-            can_push=False,
-            reason=(
-                "GitHub denied access to this repo (HTTP 403). Check that "
-                "the Cliff GitHub App is installed on this org/repo and "
-                "declares Contents:write + Pull requests:write permissions."
-            ),
-        )
-    if resp.status_code != 200:
-        return RepoPushAccess(
-            can_push=False,
-            reason=(
-                f"Unexpected response from GitHub when checking push "
-                f"access (HTTP {resp.status_code})."
-            ),
-        )
+        if resp.status_code == 404:
+            return RepoPushAccess(
+                can_push=False,
+                reason=(
+                    f"Repo {owner}/{repo} is not visible to this GitHub "
+                    "token. The Cliff GitHub App may not be installed "
+                    "on this organization, or the installation was "
+                    "removed."
+                ),
+            )
+        if resp.status_code == 401:
+            return RepoPushAccess(
+                can_push=False,
+                reason=(
+                    "GitHub rejected the auth token (HTTP 401). The "
+                    "token has likely expired or been revoked — "
+                    "reconnect GitHub from Settings → Integrations."
+                ),
+            )
+        if resp.status_code == 403:
+            return RepoPushAccess(
+                can_push=False,
+                reason=(
+                    "GitHub denied access to this repo (HTTP 403). "
+                    "Check that the Cliff GitHub App is installed on "
+                    "this org/repo and declares Contents:write + Pull "
+                    "requests:write permissions."
+                ),
+            )
+        if resp.status_code != 200:
+            return RepoPushAccess(
+                can_push=False,
+                reason=(
+                    f"Unexpected response from GitHub when checking "
+                    f"push access (HTTP {resp.status_code})."
+                ),
+            )
 
-    try:
-        body = resp.json()
-    except ValueError:
-        return RepoPushAccess(
-            can_push=False,
-            reason="GitHub returned an unparseable response for the repo.",
-        )
+        try:
+            body = resp.json()
+        except ValueError:
+            return RepoPushAccess(
+                can_push=False,
+                reason=(
+                    "GitHub returned an unparseable response for the repo."
+                ),
+            )
 
-    perms = body.get("permissions") if isinstance(body, dict) else None
-    if not isinstance(perms, dict):
-        return RepoPushAccess(
-            can_push=False,
-            reason=(
-                "GitHub did not return a permissions block for this repo. "
-                "Update the Cliff GitHub App to declare Contents:write "
-                "and Pull requests:write."
-            ),
-        )
+        perms = body.get("permissions") if isinstance(body, dict) else None
+        if not isinstance(perms, dict):
+            return RepoPushAccess(
+                can_push=False,
+                reason=(
+                    "GitHub did not return a permissions block for this "
+                    "repo. Update the Cliff GitHub App to declare "
+                    "Contents:write and Pull requests:write."
+                ),
+            )
 
-    can_push = bool(perms.get("push"))
-    if can_push:
+        user_can_push = bool(perms.get("push"))
+        if not user_can_push:
+            return RepoPushAccess(
+                can_push=False,
+                reason=(
+                    f"GitHub reports this token has no push permission "
+                    f"on {owner}/{repo}. The Cliff GitHub App likely "
+                    "declares Contents:read only — update it to "
+                    "Contents:write + Pull requests:write so the "
+                    "device-flow token can create a PR."
+                ),
+            )
+
+        # User-perms say push=true. Cross-check the App installation's
+        # declared permissions — the effective git-push capability is
+        # the intersection of (user × App installation), and we've seen
+        # B30/B35a where user perms read green but the install still
+        # carries Contents:read because the org admin hasn't approved
+        # the App's newer requested permissions yet. The executor would
+        # then waste ~4 minutes only to fail at git-push time.
+        install_url = (
+            f"{base}{REPO_INSTALLATION_PATH_TEMPLATE.format(owner=owner, repo=repo)}"
+        )
+        try:
+            install_resp = await client.get(
+                install_url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+        except httpx.HTTPError:
+            # Network blip on the install lookup → fall back to the
+            # user-perms verdict (push=true here). Don't degrade the
+            # preflight just because one of the two endpoints was
+            # transiently unreachable.
+            return RepoPushAccess(can_push=True, reason="")
+
+        # The ``/installation`` endpoint is documented as App-JWT-only
+        # in some places and accessible to user-to-server tokens in
+        # others; in practice GitHub returns 403/404 for user OAuth
+        # tokens that don't have install visibility. Treat any non-200
+        # as "fall back to user-perms verdict" rather than escalating
+        # into a hard block.
+        if install_resp.status_code != 200:
+            return RepoPushAccess(can_push=True, reason="")
+
+        try:
+            install_body = install_resp.json()
+        except ValueError:
+            return RepoPushAccess(can_push=True, reason="")
+
+        install_perms = (
+            install_body.get("permissions")
+            if isinstance(install_body, dict)
+            else None
+        )
+        if not isinstance(install_perms, dict):
+            # No permissions block on the response — can't make a
+            # confident negative judgement, fall back to the user-perms
+            # verdict.
+            return RepoPushAccess(can_push=True, reason="")
+
+        # The ``/installation`` permissions block is keyed by App-scope
+        # names (``contents``, ``metadata``, ``pull_requests``, …) with
+        # ``read``/``write``/``admin`` values. If ``contents`` is
+        # missing entirely the response shape probably isn't an install
+        # perms doc at all (some endpoints / shims return a repo-perms
+        # block under the same field name) — fall back rather than
+        # mislabel.
+        if "contents" not in install_perms:
+            return RepoPushAccess(can_push=True, reason="")
+
+        contents_perm = install_perms.get("contents")
+        if contents_perm != "write":
+            return RepoPushAccess(
+                can_push=False,
+                reason=(
+                    f"The Cliff GitHub App's installation on "
+                    f"{owner}/{repo} declares Contents:"
+                    f"{contents_perm or 'none'}, not Contents:write. An "
+                    "org admin needs to approve the App's updated "
+                    "permissions before pushes can succeed — open the "
+                    "App in GitHub's org settings and click "
+                    "“Review request” to approve the new permissions."
+                ),
+            )
+
         return RepoPushAccess(can_push=True, reason="")
-    return RepoPushAccess(
-        can_push=False,
-        reason=(
-            f"GitHub reports this token has no push permission on "
-            f"{owner}/{repo}. The Cliff GitHub App likely declares "
-            "Contents:read only — update it to Contents:write + "
-            "Pull requests:write so the device-flow token can create a PR."
-        ),
-    )
