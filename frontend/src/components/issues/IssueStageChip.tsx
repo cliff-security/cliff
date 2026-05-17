@@ -30,13 +30,21 @@ export type IssueStage =
   | 'pr_awaiting_val'
   | 'awaiting_permission'
   | 'failed'
+  | 'executor_failed'
   | 'fixed'
   | 'false_positive'
   | 'wont_fix'
   | 'accepted'
   | 'deferred'
 
-type Tone = 'in_flight' | 'ready' | 'awaiting' | 'positive' | 'neutral' | 'error'
+type Tone =
+  | 'in_flight'
+  | 'ready'
+  | 'awaiting'
+  | 'positive'
+  | 'neutral'
+  | 'error'
+  | 'warning'
 
 interface StageVisual {
   label: string
@@ -55,6 +63,14 @@ const STAGE_VISUALS: Record<IssueStage, StageVisual> = {
   pr_awaiting_val: { label: 'Awaiting validation', tone: 'awaiting' },
   awaiting_permission: { label: 'Awaiting approval', tone: 'awaiting' },
   failed:          { label: 'Error',               tone: 'error',    icon: 'block' },
+  // Q01R-W2 / B35b — distinct from ``failed``: the underlying run
+  // returned status='completed' but its structured_output carries
+  // ``error_details`` (the executor produced a local branch, then the
+  // push died). Surface this as warning-tinted "Needs attention" so the
+  // user lands on the retry/fix path instead of waiting on a stuck
+  // "Pushing branch…" spinner. Generic enough to cover any future agent
+  // that reports error_details — not push-specific.
+  executor_failed: { label: 'Needs attention',     tone: 'warning',  icon: 'block' },
   fixed:           { label: 'Fixed',               tone: 'positive', icon: 'check' },
   false_positive:  { label: 'False positive',      tone: 'positive', icon: 'check' },
   accepted:        { label: 'Accepted',            tone: 'neutral',  icon: 'check' },
@@ -70,6 +86,11 @@ const TONE_CHIP: Record<Tone, string> = {
   positive:  'cd-chip cd-chip--green',
   neutral:   'cd-chip cd-chip--ink',
   error:     'cd-chip cd-chip--red',
+  // Warning shares the amber/yellow family used elsewhere for
+  // "attention-needed but not destructive" affordances. Falls back to
+  // an inline color when the Cyberdeck token isn't defined so legacy
+  // themes don't render unstyled.
+  warning:   'cd-chip cd-chip--amber',
 }
 
 const TONE_DOT_COLOR: Record<Tone, string> = {
@@ -79,6 +100,7 @@ const TONE_DOT_COLOR: Record<Tone, string> = {
   positive:  'var(--cd-green)',
   neutral:   'var(--cd-fg-4)',
   error:     'var(--cd-red, #ef6464)',
+  warning:   'var(--cd-amber, #f5b54a)',
 }
 
 const HAS_PULSE_DOT: Record<Tone, boolean> = {
@@ -88,6 +110,7 @@ const HAS_PULSE_DOT: Record<Tone, boolean> = {
   positive: false,
   neutral: false,
   error: false,
+  warning: false,
 }
 
 interface IssueStageChipProps {

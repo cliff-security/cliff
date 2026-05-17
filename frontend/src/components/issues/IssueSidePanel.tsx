@@ -76,10 +76,13 @@ function sectionsForStage(stage: IssueStage): SectionKey[] {
   // the plan itself is the supporting context — they already approved it
   // earlier, the decision now is about ONE command.
   if (stage === 'awaiting_permission') return ['activity', 'plan', 'finding']
-  // Failed: surface the most recent error context (activity) at the top so
-  // the user lands on the actual reason, with the plan still available
-  // below if they want to retry. No PR exists in this state by definition.
-  if (stage === 'failed') return ['activity', 'plan', 'finding']
+  // Failed / executor_failed: surface the most recent error context
+  // (activity) at the top so the user lands on the actual reason, with
+  // the plan still available below if they want to retry. No PR exists
+  // in either state by definition.
+  if (stage === 'failed' || stage === 'executor_failed') {
+    return ['activity', 'plan', 'finding']
+  }
   if (stage === 'pr_ready' || stage === 'pr_awaiting_val') {
     return ['pr', 'plan', 'activity', 'finding']
   }
@@ -111,8 +114,19 @@ export function IssueSidePanel({
   onStart,
   starting,
 }: IssueSidePanelProps) {
-  const stage: IssueStage = finding.derived?.stage ?? 'todo'
+  const serverStage: IssueStage = finding.derived?.stage ?? 'todo'
   const workspaceId = finding.derived?.workspace_id ?? null
+  // Q01R-W2 / B35b — derive the effective stage from the latest
+  // remediation_executor run. The backend stage derivation can land on
+  // ``pushing`` when the executor returned status='completed' but its
+  // structured_output reports ``error_details`` (the local branch was
+  // created but the actual git-push failed); the run never flips to
+  // status='failed', so the backend never reaches the ``failed``
+  // branch. We override the stage in the FRONTEND so the header pill,
+  // top widget, and footer button surface a terminal-error treatment
+  // instead of an indefinite "Pushing branch / Thinking…" spinner.
+  const { data: agentRunsForStage } = useAgentRuns(workspaceId ?? undefined)
+  const stage = useEffectiveStage(serverStage, agentRunsForStage ?? null)
   const sections = useMemo(() => sectionsForStage(stage), [stage])
 
   const [refining, setRefining] = useState(false)
@@ -787,6 +801,60 @@ function errorDetailsOf(run: AgentRun): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
+/**
+ * Q01R-W2 / B35b — frontend stage override.
+ *
+ * The backend stage derivation maps a remediation_executor run with
+ * status='completed' + ``structured_output.error_details`` to whatever
+ * the sidebar's ``pull_request.status`` field implies (typically
+ * ``pushing`` when only the branch_name is set) — which leaves the
+ * panel sitting on "Pushing branch / Thinking…" indefinitely while the
+ * activity log already shows the failure. We override here so the
+ * user-facing stage matches the actual state of the world.
+ *
+ * Kept narrow on purpose: only fires when the MOST RECENT
+ * remediation_executor run is in this terminal-error shape. A
+ * successful re-run replaces the latest run and the override switches
+ * off automatically. Other agent failures (planner, validator) keep
+ * the existing ``failed`` path because the backend already maps them
+ * correctly.
+ */
+function useEffectiveStage(
+  serverStage: IssueStage,
+  runs: AgentRun[] | null,
+): IssueStage {
+  return useMemo(() => {
+    if (!runs || runs.length === 0) return serverStage
+    // ``failed`` is already a terminal-error stage — no need to override.
+    if (serverStage === 'failed' || serverStage === 'executor_failed') {
+      return serverStage
+    }
+    // Find the latest remediation_executor run by started_at. A run
+    // with status='completed' will always have started_at set (the
+    // backend writes it before the run reaches a terminal status), so
+    // we don't need a separate created_at fallback for the override
+    // case below.
+    let latestExecutor: AgentRun | null = null
+    let latestTs = -Infinity
+    for (const r of runs) {
+      if (r.agent_type !== 'remediation_executor') continue
+      const ts = r.started_at ? Date.parse(r.started_at) : 0
+      if (Number.isFinite(ts) && ts > latestTs) {
+        latestTs = ts
+        latestExecutor = r
+      }
+    }
+    if (
+      latestExecutor &&
+      latestExecutor.status === 'completed' &&
+      errorDetailsOf(latestExecutor) != null
+    ) {
+      return 'executor_failed'
+    }
+    return serverStage
+  }, [serverStage, runs])
+}
+
 function ActivityRunCard({ run }: { run: AgentRun }) {
   const label = agentLabel(run.agent_type)
   const duration = durationLabel(run.started_at, run.completed_at)
@@ -1095,11 +1163,20 @@ function DefaultFooter({
     )
   }
 
-  if (stage === 'failed') {
-    // Latest agent run failed (timeout, engine unavailable, credits exhausted,
-    // failed PR push, etc.). The actual reason is rendered by SPActivity right
-    // above this footer — we just offer the two reasonable next steps: retry
-    // the executor, or reject the finding entirely.
+  if (stage === 'failed' || stage === 'executor_failed') {
+    // Latest agent run failed (timeout, engine unavailable, credits
+    // exhausted, failed PR push, etc.) OR — for ``executor_failed`` —
+    // the executor returned with ``error_details`` set after a partial
+    // success (local branch created, push died at git-protocol level).
+    // The actual reason is rendered by SPActivity right above this
+    // footer; we just offer the two reasonable next steps: retry the
+    // executor, or reject the finding entirely.
+    //
+    // ``executor_failed`` re-runs the executor through the same
+    // approve-then-execute chain the plan_ready button uses so the
+    // run-all loop's gate sees an approved plan (the plan was already
+    // approved earlier — calling approvePlan again is idempotent).
+    const retryPending = approvePlan.isPending || executeAgent.isPending
     return (
       <div className="flex items-center gap-2 w-full">
         <PrimaryButton
@@ -1111,12 +1188,20 @@ function DefaultFooter({
               return
             }
             if (!workspaceId) return
-            executeAgent.mutate({ agentType: 'remediation_executor' })
+            if (stage === 'executor_failed') {
+              approvePlan.mutate(undefined, {
+                onSuccess: () => {
+                  executeAgent.mutate({ agentType: 'remediation_executor' })
+                },
+              })
+            } else {
+              executeAgent.mutate({ agentType: 'remediation_executor' })
+            }
           }}
-          disabled={!workspaceId || executeAgent.isPending}
+          disabled={!workspaceId || retryPending}
           title={blockedByAI ? aiRequired.tooltip ?? undefined : undefined}
         >
-          {executeAgent.isPending ? 'Retrying…' : 'Retry fix'}
+          {retryPending ? 'Retrying…' : stage === 'executor_failed' ? 'Retry' : 'Retry fix'}
         </PrimaryButton>
         <span className="ml-auto" />
         <ErrorButton icon="block" kbd="X" onClick={onRejectStart}>
