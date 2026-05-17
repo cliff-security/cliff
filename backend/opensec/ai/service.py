@@ -3,7 +3,8 @@
 One place to read+write AI provider state. Encrypts the key via the existing
 ``CredentialVault`` (ADR-0016) — the GitHub App work uses the same pattern
 (ADR-0035 / IMPL-0010). Workspace callers consume ``resolve_env_for_workspace``
-to merge the right ``*_API_KEY`` into per-workspace OpenCode env vars.
+to merge the right ``*_API_KEY`` (and, where applicable, ``*_BASE_URL``) into
+per-workspace OpenCode env vars.
 
 Provider state lives in two tables that are kept in lockstep:
 
@@ -18,6 +19,13 @@ The single-row-per-provider invariant from ADR-0036 is enforced at the DB
 layer (unique index on ``provider``). Save methods clean up any prior row
 for the same provider before creating the new one so a user can "reconnect"
 without errors.
+
+**ADR-0037**: Active model is the canonical ``app_setting(key="model")`` row.
+Every write path (BYOK, OAuth, autodetect) sets it atomically alongside the
+provider; the dedicated :meth:`set_model` lets the UI picker change it
+without re-saving the key. ``resolve_model_for_workspace`` reads the
+canonical setting first and falls back to the catalog default only when
+no setting exists or its prefix is stale.
 """
 
 from __future__ import annotations
@@ -25,15 +33,18 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from opensec.ai import catalog
+from opensec.ai import catalog, validators
 from opensec.ai import repo as ai_repo
 from opensec.ai.models import (
     AIIntegration,
     AIProvider,
     AISource,
     AIStatus,
+    ValidationResult,
 )
+from opensec.config import settings as app_settings
 from opensec.db import repo_integration
+from opensec.db.repo_setting import delete_setting, get_setting, upsert_setting
 from opensec.integrations.audit import AuditEvent
 from opensec.models import IntegrationConfigCreate
 
@@ -49,6 +60,22 @@ logger = logging.getLogger(__name__)
 
 
 CREDENTIAL_KEY_NAME = "api_key"
+MODEL_SETTING_KEY = "model"
+
+# Providers OpenCode authenticates against via its /auth store. The
+# OpenCode provider id is identical to our literal in every case, so we
+# just need the *set* of authenticating providers — ``custom`` ships its
+# own provider config and ``ollama`` doesn't authenticate.
+_OPENCODE_AUTH_PROVIDERS: frozenset[AIProvider] = frozenset(
+    {"openrouter", "anthropic", "openai", "google"}
+)
+
+class ModelPrefixMismatchError(ValueError):
+    """Raised when a model id's prefix doesn't match the active provider."""
+
+
+class NoActiveProviderError(RuntimeError):
+    """Raised when set_model is called without an active integration."""
 
 
 class AIIntegrationService:
@@ -69,11 +96,12 @@ class AIIntegrationService:
     ) -> None:
         """Construct the service.
 
-        ``on_key_change`` (IMPL-0011 Phase F3) — optional async callable
-        invoked after every save / disconnect with the new env-var dict
-        (or ``{}`` after disconnect). Used by ``main.py`` lifespan to
-        push fresh env into the singleton OpenCode process and restart
-        it. Kept optional so unit tests don't need the engine wired up.
+        ``on_key_change`` (IMPL-0011 Phase F3 / ADR-0037) — optional async
+        callable invoked after every save / disconnect / model change
+        with the new env-var dict (or ``{}`` after disconnect). Used by
+        ``main.py`` lifespan to push fresh env into the singleton
+        OpenCode process and restart it. Kept optional so unit tests
+        don't need the engine wired up.
         """
         self._db = db
         self._vault = vault
@@ -88,19 +116,25 @@ class AIIntegrationService:
         return await ai_repo.get_active(self._db)
 
     async def get_status(self) -> AIStatus:
+        """Compose the wire-shape status payload.
+
+        Returns the canonical model (the value workspace spawns use).
+        Per ADR-0037 / architect health-check M9, this is the **one**
+        read: the on_key_change hook restarts the singleton OpenCode
+        synchronously on every write, so a separate live probe + drift
+        signal added complexity without changing product behavior.
+        """
         record = await self.get_active()
         if record is None:
             return AIStatus(state="unconfigured")
-        active_model = catalog.resolve_model(record.provider)
-        override = active_model if catalog.has_override(record.provider) else None
+        canonical_model = await self._resolve_canonical_model(record.provider)
         return AIStatus(
             state="connected",
             provider=record.provider,
             source=record.source,
             connected_at=record.connected_at,
             metadata=record.metadata,
-            override_model=override,
-            model=active_model,
+            model=canonical_model,
         )
 
     async def sync_to_opencode(self) -> None:
@@ -128,36 +162,143 @@ class AIIntegrationService:
         Empty dict when unconfigured — the caller treats that as "no AI key
         injected" and the agent-button gate keeps the UI from launching
         agents anyway.
+
+        For providers that dispatch by base URL (``ollama``, ``custom``)
+        the base URL is also injected so OpenCode reaches the right host.
+        Stored base URL (in ``ai_integration.metadata.base_url``) wins
+        over the catalog's default.
         """
         record = await self.get_active()
         if record is None:
             return {}
+
+        env: dict[str, str] = {}
+
+        # API key (skip for keyless providers like Ollama).
+        key_env_var = catalog.env_var_name(record.provider)
+        if key_env_var is not None:
+            try:
+                raw_key = await self._vault.retrieve(
+                    record.integration_id, CREDENTIAL_KEY_NAME
+                )
+            except KeyError:
+                logger.warning(
+                    "AI integration row exists but credential missing for provider %s",
+                    record.provider,
+                )
+                return {}
+            # Empty credential → treat as unconfigured. Injecting an empty
+            # env var still routes through OpenCode and fails with an
+            # opaque 401, and would flip the readiness gate to a falsely
+            # usable state.
+            if not raw_key:
+                logger.error(
+                    "AI integration credential for provider %s decrypted to "
+                    "an empty value — treating provider as unconfigured",
+                    record.provider,
+                )
+                return {}
+            env[key_env_var] = raw_key
+
+        # Base URL: explicit ``base_url_env_var`` for providers that
+        # dispatch by URL (Ollama, Custom); else the implicit
+        # ``*_API_KEY → *_BASE_URL`` rename when the user pinned a proxy.
+        # Stored value wins; catalog default fills in for base-URL-required
+        # providers without a stored override.
+        stored_base_url = (record.metadata or {}).get("base_url")
+        explicit_base_url_env = catalog.base_url_env_var(record.provider)
+        if explicit_base_url_env is not None:
+            resolved = stored_base_url or catalog.default_base_url(
+                record.provider
+            )
+            if resolved:
+                env[explicit_base_url_env] = resolved
+        elif stored_base_url and key_env_var is not None:
+            env[key_env_var.replace("_API_KEY", "_BASE_URL")] = stored_base_url
+
+        return env
+
+    async def resolve_model_for_workspace(self) -> str | None:
+        """Return the canonical active model id for workspace spawn.
+
+        Reads ``app_setting(model)`` first (the value the UI picker
+        writes); falls back to the catalog default for the active
+        provider if no setting exists. Returns ``None`` when no provider
+        is connected — caller treats that as "not configured."
+        """
+        record = await self.get_active()
+        if record is None:
+            return None
+        return await self._resolve_canonical_model(record.provider)
+
+    async def verify_active_credential(self) -> ValidationResult | None:
+        """Live-probe the active provider's stored credential.
+
+        Returns ``None`` when no provider is configured. Otherwise fires the
+        same cheap auth probe the BYOK connect flow uses
+        (:mod:`opensec.ai.validators`) and, on a clean pass, stamps
+        ``last_validated_at`` on the integration row.
+
+        This is the signal behind ``ai_provider_ready`` / ``opensec status``
+        (Q01-B02): a credential that is *present and decrypts* is not the
+        same as one that *authenticates* — a revoked or wrong key resolves
+        into the workspace env just fine and only 401s at agent-run time.
+        """
+        record = await self.get_active()
+        if record is None:
+            return None
+        metadata = record.metadata or {}
+
+        # Ollama (no key) — just probe the runtime.
+        if catalog.env_var_name(record.provider) is None:
+            base_url = metadata.get("base_url") or catalog.default_base_url(
+                record.provider
+            )
+            result = await validators.validate(
+                record.provider, "local", base_url=base_url
+            )
+            if result.ok:
+                await ai_repo.update_last_validated(
+                    self._db, record.integration_id
+                )
+            return result
+
         try:
             raw_key = await self._vault.retrieve(
                 record.integration_id, CREDENTIAL_KEY_NAME
             )
         except KeyError:
-            logger.warning(
-                "AI integration row exists but credential missing for provider %s",
-                record.provider,
+            return ValidationResult(
+                ok=False,
+                error_code="auth_failed",
+                error_message="No stored credential for the active provider.",
             )
-            return {}
-        env_var = catalog.env_var_name(record.provider)
-        return {env_var: raw_key}
+        if not raw_key:
+            return ValidationResult(
+                ok=False,
+                error_code="auth_failed",
+                error_message="Stored credential is empty.",
+            )
+        result = await validators.validate(
+            record.provider,
+            raw_key,
+            base_url=metadata.get("base_url"),
+            model=metadata.get("model"),
+        )
+        if result.ok:
+            await ai_repo.update_last_validated(
+                self._db, record.integration_id
+            )
+        return result
 
     # ------------------------------------------------------------------
-    # Public writes
+    # Public writes — connect a provider
     # ------------------------------------------------------------------
 
     async def adopt_detected(
         self, provider: AIProvider, raw_key: str, source_path: str
     ) -> AIIntegration:
-        """Persist an auto-detected key. Audit-logs the source path.
-
-        Source path is recorded in both the ai_integration metadata
-        (``metadata.source_path``) and the audit row (via
-        ``parameters_hash``-style provider_name field for fast queries).
-        """
+        """Persist an auto-detected key. Audit-logs the source path."""
         record = await self._save_internal(
             provider=provider,
             raw_key=raw_key,
@@ -170,6 +311,7 @@ class AIIntegrationService:
             integration_id=record.integration_id,
             verb=source_path,
         )
+        await self._sync_canonical_model(provider, None)
         await self._fire_key_change()
         return record
 
@@ -179,8 +321,16 @@ class AIIntegrationService:
         raw_key: str,
         *,
         base_url: str | None = None,
+        model: str | None = None,
     ) -> AIIntegration:
-        """Persist a BYOK-supplied key. No validation here — caller validated."""
+        """Persist a BYOK-supplied key. No validation here — caller validated.
+
+        If *model* is supplied it becomes the canonical active model;
+        otherwise the catalog default for *provider* is used. The
+        canonical write is atomic with the provider/key write — they
+        can never disagree on which provider's namespace the model id
+        is in.
+        """
         metadata: dict | None = None
         if base_url:
             metadata = {"base_url": base_url}
@@ -196,6 +346,7 @@ class AIIntegrationService:
             integration_id=record.integration_id,
             verb="byok",
         )
+        await self._sync_canonical_model(provider, model)
         await self._fire_key_change()
         return record
 
@@ -218,6 +369,7 @@ class AIIntegrationService:
             integration_id=record.integration_id,
             verb="openrouter-oauth",
         )
+        await self._sync_canonical_model(provider, None)
         await self._fire_key_change()
         return record
 
@@ -250,8 +402,107 @@ class AIIntegrationService:
         return deleted
 
     # ------------------------------------------------------------------
+    # Public writes — change the model
+    # ------------------------------------------------------------------
+
+    async def set_model(self, model_full_id: str) -> str:
+        """Write *model_full_id* as the canonical active model.
+
+        Rejects with :class:`ModelPrefixMismatchError` when the id's
+        ``<provider>/...`` prefix doesn't match the currently active
+        provider — that catches the "stored anthropic/... but switched to
+        OpenRouter" footgun before workspace spawn tries to use it.
+
+        Returns the model id that was persisted. Fires the key-change
+        hook so the singleton OpenCode restarts with the new model in
+        its config; workspaces pick it up at next spawn via the model
+        resolver.
+        """
+        if "/" not in model_full_id:
+            raise ModelPrefixMismatchError(
+                f"Model id must be 'provider/model', got {model_full_id!r}."
+            )
+        record = await self.get_active()
+        if record is None:
+            raise NoActiveProviderError(
+                "Cannot set a model without an active AI provider."
+            )
+        expected_prefix = record.provider
+        actual_prefix = model_full_id.split("/", 1)[0]
+        if actual_prefix != expected_prefix:
+            raise ModelPrefixMismatchError(
+                f"Model prefix {actual_prefix!r} does not match active "
+                f"provider {expected_prefix!r}. Connect a different "
+                f"provider first or pick a {expected_prefix}/* model."
+            )
+        await upsert_setting(
+            self._db, MODEL_SETTING_KEY, {"full_id": model_full_id}
+        )
+        _safe_write_opencode_config(model_full_id)
+        await self._fire_key_change()
+        logger.info("AI model set to %s", model_full_id)
+        return model_full_id
+
+    # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    async def _resolve_canonical_model(self, provider: AIProvider) -> str | None:
+        """Read ``app_setting(model)`` if its prefix matches *provider*.
+
+        Falls back to ``catalog.resolve_model(provider)`` (catalog default
+        or env override) only when no canonical setting exists or its
+        prefix is stale.
+        """
+        stored = await get_setting(self._db, MODEL_SETTING_KEY)
+        if stored and isinstance(stored.value, dict):
+            full_id = stored.value.get("full_id")
+            if (
+                isinstance(full_id, str)
+                and full_id
+                and full_id.startswith(f"{provider}/")
+            ):
+                return full_id
+        return catalog.resolve_model(provider)
+
+    async def _sync_canonical_model(
+        self, provider: AIProvider, explicit_model: str | None
+    ) -> None:
+        """Write ``app_setting(model)`` to match the newly connected provider.
+
+        Resolution priority:
+          1. ``explicit_model`` (caller-supplied via BYOK form's model
+             field, etc.) — only honored if its provider prefix matches.
+          2. ``_resolve_canonical_model`` (existing setting if its
+             prefix matches; else catalog default).
+        Writes a row only if a non-empty model id resolves. For Ollama on
+        a fresh connect with no explicit model and no prior setting, the
+        canonical row is wiped — the picker will land on /api/tags and
+        the user picks before spawning a workspace. (M12: this used to
+        re-implement ``_resolve_canonical_model`` inline.)
+        """
+        if explicit_model:
+            if "/" not in explicit_model:
+                explicit_model = f"{provider}/{explicit_model}"
+            elif not explicit_model.startswith(f"{provider}/"):
+                logger.warning(
+                    "Ignoring explicit model %s — prefix doesn't match provider %s",
+                    explicit_model,
+                    provider,
+                )
+                explicit_model = None
+
+        chosen = explicit_model or await self._resolve_canonical_model(provider)
+
+        if not chosen:
+            # No default and no explicit pick (Ollama on fresh connect).
+            # Remove any stale row so spawn-time resolution doesn't leak
+            # the previous provider's model into the new context.
+            await delete_setting(self._db, MODEL_SETTING_KEY)
+            return
+
+        await upsert_setting(self._db, MODEL_SETTING_KEY, {"full_id": chosen})
+        _safe_write_opencode_config(chosen)
 
     async def _save_internal(
         self,
@@ -261,10 +512,11 @@ class AIIntegrationService:
         source: AISource,
         metadata: dict | None,
     ) -> AIIntegration:
-        # If the same provider was previously connected, delete the prior
-        # row (and its credential) so the unique-on-provider index stays
-        # satisfied. Cascade does the work.
-        existing = await ai_repo.get_by_provider(self._db, provider)
+        # Enforce the single-active-row invariant by deleting whatever's
+        # currently active before inserting. The unique index on
+        # ``provider`` means a same-provider reconnect would otherwise
+        # fail; cascade cleans the credential.
+        existing = await self.get_active()
         if existing is not None:
             await repo_integration.delete_integration(
                 self._db, existing.integration_id
@@ -282,8 +534,12 @@ class AIIntegrationService:
             ),
         )
 
-        # 2. Encrypt the key into the vault.
-        await self._vault.store(integration.id, CREDENTIAL_KEY_NAME, raw_key)
+        # 2. Encrypt the key into the vault (Ollama uses a placeholder so
+        #    disconnect's cascade-clean has a single shape to wipe).
+        key_to_store = (
+            raw_key if catalog.env_var_name(provider) is not None else "local"
+        )
+        await self._vault.store(integration.id, CREDENTIAL_KEY_NAME, key_to_store)
 
         # 3. Insert the ai_integration row.
         record = await ai_repo.create(
@@ -319,23 +575,20 @@ class AIIntegrationService:
 
         ``opencode_client`` talks to the singleton on port 4096; auth.json
         is global so workspace subprocesses pick the change up at their
-        next spawn. Failures are warning-logged; the env-var path
-        remains as a fallback for any OpenCode build that honors it.
+        next spawn. OpenCode 1.3.x consults auth.json in preference to env
+        vars on the outbound request — without this push the subprocesses
+        get "Missing Authentication header" even though ``*_API_KEY`` is
+        injected. Failures are warning-logged; the env-var path remains as
+        a fallback. ``custom`` + ``ollama`` skip this — neither uses
+        OpenCode's /auth store.
         """
-        # Map my literal to OpenCode's provider id. `custom` users
-        # supply their own provider config; we don't push for them.
-        opencode_id = {
-            "openrouter": "openrouter",
-            "anthropic": "anthropic",
-            "openai": "openai",
-        }.get(provider)
-        if opencode_id is None:
+        if provider not in _OPENCODE_AUTH_PROVIDERS:
             return
         try:
             from opensec.engine.client import opencode_client
 
             await opencode_client.set_auth(
-                opencode_id, {"type": "api", "key": raw_key}
+                provider, {"type": "api", "key": raw_key}
             )
         except Exception:  # noqa: BLE001
             logger.warning(
@@ -345,26 +598,15 @@ class AIIntegrationService:
             )
 
     async def _clear_opencode_auth(self, provider: AIProvider) -> None:
-        """Best-effort overwrite of OpenCode's auth.json entry with an empty
-        key, so the disconnected provider can't continue authenticating.
-
-        OpenCode's HTTP API has PUT /auth/<id> but not a delete; pushing
-        ``{"type": "api", "key": ""}`` makes the upstream call fail
-        with a clear "missing credentials" error rather than silently
-        succeed with stale state.
-        """
-        opencode_id = {
-            "openrouter": "openrouter",
-            "anthropic": "anthropic",
-            "openai": "openai",
-        }.get(provider)
-        if opencode_id is None:
+        """Overwrite OpenCode's auth.json entry with an empty key so the
+        disconnected provider can't continue authenticating."""
+        if provider not in _OPENCODE_AUTH_PROVIDERS:
             return
         try:
             from opensec.engine.client import opencode_client
 
             await opencode_client.set_auth(
-                opencode_id, {"type": "api", "key": ""}
+                provider, {"type": "api", "key": ""}
             )
         except Exception:  # noqa: BLE001
             logger.warning(
@@ -375,7 +617,10 @@ class AIIntegrationService:
         """Call the on_key_change hook with the current env, if any.
 
         Never raises — singleton restart failures are non-fatal for the
-        save path; the user can retry from the UI.
+        save path; the user can retry from the UI. Post-M9, this hook
+        IS the consistency boundary between canonical state and the
+        singleton OpenCode (the prior live-probe + drift signal was
+        redundant and has been removed).
         """
         if self._on_key_change is None:
             return
@@ -408,3 +653,36 @@ class AIIntegrationService:
                 status="success",
             )
         )
+
+
+# ---------------------------------------------------------------------------
+# Module-level helpers
+# ---------------------------------------------------------------------------
+
+
+def _safe_write_opencode_config(model_full_id: str) -> None:
+    """Reconcile the singleton ``opencode.json`` model; warn but never raise.
+
+    Skips the file write when the current on-disk value already matches
+    so a redundant ``set_model(X)`` after the connect path wrote the same
+    X doesn't trigger a needless rewrite + restart cycle. Invalidates the
+    live-probe cache so the next ``get_status`` reflects the new model.
+    """
+    if app_settings.opencode_model == model_full_id:
+        return
+    try:
+        app_settings.write_opencode_config(model_full_id)
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "Could not write opencode.json for %s", model_full_id, exc_info=True
+        )
+        return
+
+
+__all__ = [
+    "AIIntegrationService",
+    "ModelPrefixMismatchError",
+    "NoActiveProviderError",
+    "CREDENTIAL_KEY_NAME",
+    "MODEL_SETTING_KEY",
+]

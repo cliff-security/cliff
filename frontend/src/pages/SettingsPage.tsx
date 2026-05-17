@@ -113,73 +113,6 @@ function SectionHeading({
   )
 }
 
-/**
- * Recommended models hint card — sits below the AIProviderStatus card
- * and gives the otherwise-empty AI tab a second beat of useful detail.
- * Static copy for now; could be made dynamic once the provider
- * registry exposes a "recommended models" surface.
- */
-function RecommendedModelsHint() {
-  return (
-    <div style={{ marginTop: 24 }}>
-      <div
-        className="cd-section-label cd-section-label--quiet"
-        style={{ marginBottom: 10 }}
-      >
-        Recommended for security work
-      </div>
-      <div
-        className="cd-card"
-        style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}
-      >
-        <ModelRow
-          name="anthropic/claude-sonnet-4.6"
-          note="Default. Strong code understanding and a calm voice."
-        />
-        <ModelRow
-          name="anthropic/claude-opus-4.1"
-          note="Pricier; pull in when finding context is dense (large diffs, deep stack traces)."
-        />
-        <ModelRow
-          name="openai/gpt-5"
-          note="Solid backup. Slightly chattier in remediation plans."
-        />
-        <p
-          style={{
-            marginTop: 4,
-            fontSize: 12,
-            color: 'var(--cd-fg-4)',
-            lineHeight: 1.5,
-          }}
-        >
-          Switch the active model in the provider above. Cliff defaults to
-          Sonnet 4.6 — you can override via{' '}
-          <span className="font-mono" style={{ color: 'var(--cd-cyan)' }}>
-            OPENSEC_AI_MODEL_OVERRIDE_&lt;PROVIDER&gt;
-          </span>{' '}
-          on the host process.
-        </p>
-      </div>
-    </div>
-  )
-}
-
-function ModelRow({ name, note }: { name: string; note: string }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-      <span
-        className="font-mono"
-        style={{ fontSize: 12.5, color: 'var(--cd-cyan)', minWidth: 220 }}
-      >
-        {name}
-      </span>
-      <span style={{ fontSize: 13, color: 'var(--cd-fg-3)', flex: 1 }}>
-        {note}
-      </span>
-    </div>
-  )
-}
-
 function tabIdForHash(hash: string): TabId {
   const match = TABS.find((t) => t.hash === hash)
   return match?.id ?? 'ai'
@@ -250,7 +183,6 @@ export default function SettingsPage() {
                   onConnect={openAIProvider}
                   onSwitchProvider={openAIProvider}
                 />
-                <RecommendedModelsHint />
               </section>
             )}
 

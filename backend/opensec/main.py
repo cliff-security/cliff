@@ -78,7 +78,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # model is in use).
     ai_catalog.log_override_warnings_once()
     # Initialize persistence layer.
-    db_path = settings.resolve_data_dir() / "opensec.db"
+    data_dir = settings.resolve_data_dir()
+    # macOS Spotlight guard (EF-B15). Empty marker file tells mds_stores
+    # to skip this whole tree — Spotlight indexing of per-workspace
+    # node_modules was pinning load average ~17 under concurrent
+    # workspaces. Harmless on Linux (just an unused dot-file).
+    spotlight_marker = data_dir / ".metadata_never_index"
+    if not spotlight_marker.exists():
+        spotlight_marker.touch()
+    db_path = data_dir / "opensec.db"
     first_run = not db_path.exists()
     if first_run:
         logger.info("First run detected — no existing database at %s", db_path)
@@ -169,35 +177,104 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # refreshes it on every connect/disconnect. Avoids a DB query +
     # vault decrypt on every workspace spawn.
     app.state.ai_env_cache = {}
+    app.state.ai_model_cache = None
+    # Whether the resolved AI credential actually authenticates. A present,
+    # decryptable credential is not the same as a working one — a revoked or
+    # wrong key resolves into the workspace env fine and only 401s at
+    # agent-run time. ``/health`` and ``opensec status`` gate readiness on
+    # this so ``ready: true`` means agents will genuinely run. (Q01-B02.)
+    app.state.ai_provider_credential_ok = False
 
-    async def _refresh_ai_env_cache() -> None:
+    async def _refresh_ai_env_cache(*, verify: bool = True) -> None:
+        """Refresh ``app.state`` AI caches.
+
+        ``verify=False`` skips the upstream credential probe so the
+        on-key-change hook (which runs after every save) doesn't block
+        the mutation on a second auth round-trip — the BYOK route's own
+        validator just confirmed the key works, and a re-run would
+        re-issue the same upstream call. Boot keeps ``verify=True``.
+        """
         from opensec.ai.service import AIIntegrationService
 
         vault = app.state.vault
         db = db_connection._db
         if vault is None or db is None:
             app.state.ai_env_cache = {}
+            app.state.ai_model_cache = None
+            app.state.ai_provider_credential_ok = False
             return
         service = AIIntegrationService(
             db, vault, audit_logger=app.state.audit_logger
         )
         try:
             app.state.ai_env_cache = await service.resolve_env_for_workspace()
+            app.state.ai_model_cache = (
+                await service.resolve_model_for_workspace()
+            )
         except Exception:
             logger.warning(
                 "AI integration env refresh failed", exc_info=True
             )
             app.state.ai_env_cache = {}
+            app.state.ai_model_cache = None
+            app.state.ai_provider_credential_ok = False
+            return
+
+        if not app.state.ai_env_cache:
+            app.state.ai_provider_credential_ok = False
+            return
+
+        if not verify:
+            # Trust the caller — the BYOK / autodetect-adopt routes
+            # validated the key before invoking the save path, so a
+            # second probe here would just duplicate that call.
+            app.state.ai_provider_credential_ok = True
+            return
+
+        # Boot path: live-probe the resolved credential so readiness reflects
+        # "this key authenticates", not just "a key is present" (Q01-B02).
+        # Only a definitive auth rejection (401/403 → ``auth_failed``) flips
+        # readiness off; network blips, rate limits and billing errors leave
+        # the prior readiness value untouched so the signal doesn't flap on
+        # a transient probe (L6).
+        prior_ok = getattr(app.state, "ai_provider_credential_ok", False)
+        try:
+            verdict = await service.verify_active_credential()
+        except Exception:
+            logger.warning(
+                "AI credential verification raised (likely transient); "
+                "keeping prior readiness=%s",
+                prior_ok,
+                exc_info=True,
+            )
+            app.state.ai_provider_credential_ok = prior_ok
+            return
+        app.state.ai_provider_credential_ok = (
+            verdict is not None and verdict.error_code != "auth_failed"
+        )
 
     # Warm the cache once at boot so the very first workspace spawn
     # doesn't pay the DB + decrypt round-trip on the critical path,
     # AND so the singleton OpenCode (started just below) inherits the
     # current AI provider key from boot zero rather than waiting for
     # the first connect / disconnect hook.
-    await _refresh_ai_env_cache()
+    #
+    # Skip the live-probe on the boot path (M5): the upstream HTTPS
+    # round-trip would block ``lifespan`` for up to 5s, hanging the
+    # first post-Docker-restart request. The probe runs as a background
+    # task so /healthz answers immediately; readiness flips when it
+    # completes.
+    await _refresh_ai_env_cache(verify=False)
+    asyncio.create_task(_refresh_ai_env_cache(verify=True))
 
     async def _ai_env_resolver() -> dict[str, str]:
         return dict(app.state.ai_env_cache)
+
+    async def _ai_model_resolver() -> str | None:
+        # The OpenCode model id for the active AI provider. The pool writes
+        # it into each workspace's opencode.json at spawn time so OpenCode
+        # routes calls through the same provider whose key was injected.
+        return app.state.ai_model_cache
 
     # Start AI engine (non-fatal if unavailable). Seed the singleton
     # with the current AI provider env BEFORE start() so the very
@@ -252,16 +329,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.context_builder = context_builder
 
     # Layer 3: Per-workspace process pool, reading from the warm cache.
-    pool = WorkspaceProcessPool(env_resolver=_ai_env_resolver)
+    pool = WorkspaceProcessPool(
+        env_resolver=_ai_env_resolver,
+        model_resolver=_ai_model_resolver,
+    )
     app.state.process_pool = pool
 
     # IMPL-0011 Phase F3: register the singleton-restart hook on app.state
     # so AIIntegrationService instances built per-request can push the
     # new env into the singleton OpenCode without coupling to main.
     async def _ai_on_key_change(env: dict[str, str]) -> None:
-        # Refresh the cached env for the workspace pool — single source
-        # of truth keyed off the service's freshly written state.
-        app.state.ai_env_cache = dict(env)
+        # ``verify=False`` skips a second upstream auth probe — the
+        # caller (BYOK / adopt / set_model route) already validated and
+        # we'd just duplicate that call inside the mutation latency.
+        await _refresh_ai_env_cache(verify=False)
         try:
             opencode_process.set_extra_env(env)
             if opencode_process.is_running:

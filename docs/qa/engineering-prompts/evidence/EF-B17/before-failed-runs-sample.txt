@@ -1,0 +1,23 @@
+EF-B17 BEFORE — pre-fix state, copied from Wave-1 evidence:
+  docs/qa/evidence/Q01/B14-B20/B17-failed-runs-sample.txt
+
+F1-minimist workspace cf242d31 — agent_run history (note 76s failures + retries):
+  finding_enricher       completed  dur=   12s started=2026-05-14T16:40:20.098589Z
+  owner_resolver         failed     dur=   76s started=2026-05-14T16:40:32.027561Z
+  owner_resolver         completed  dur=   24s started=2026-05-14T16:41:48.081092Z
+  exposure_analyzer      failed     dur=   76s started=2026-05-14T16:42:12.107878Z
+  exposure_analyzer      completed  dur=   48s started=2026-05-14T16:43:28.173114Z
+  evidence_collector     failed     dur=   76s started=2026-05-14T16:44:16.237064Z
+  evidence_collector     failed     dur=   76s started=2026-05-14T16:45:32.317144Z
+  evidence_collector     completed  dur=   34s started=2026-05-14T16:46:48.407126Z
+  remediation_planner    completed  dur=   38s started=2026-05-14T16:47:22.449015Z
+  remediation_executor   failed     dur= 1202s started=2026-05-14T17:30:29.587949Z
+  remediation_executor   failed     dur=  244s started=2026-05-14T17:50:31.111538Z
+  remediation_executor   failed     dur=    2s started=2026-05-14T17:54:34.820244Z
+  ... [9 more 2s failures]
+
+Pattern: every "failed" row at exactly 76s is the upstream provider rate-limit
+classified as a fatal AgentProcessError with no retry. Six findings of 22 in
+Q01's bulk-remediation pass were lost to this silent failure mode at pool=5.
+status='failed' covers both genuine engine errors and transient throttles —
+the dashboard cannot distinguish them.

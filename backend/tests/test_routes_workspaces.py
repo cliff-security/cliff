@@ -133,6 +133,125 @@ async def test_resolve_workspace_idempotent_on_already_done_finding(
     assert post["derived"]["stage"] == "false_positive"
 
 
+async def test_resolve_workspace_http_reconciles_pr_url_from_executor_run(
+    db_client, finding_id
+):
+    """EF-B14 HTTP-level — PATCH /api/workspaces state=closed must reconcile
+    Finding.pr_url from the latest remediation_executor AgentRun before the
+    response returns, so the UI sees the link instead of pr_url=null."""
+    import opensec.db.connection as conn_module
+    from opensec.db.repo_agent_run import create_agent_run, update_agent_run
+    from opensec.models import AgentRunCreate, AgentRunUpdate
+
+    pr_url = "https://github.com/cliff-security/NodeGoat/pull/6"
+
+    ws = (
+        await db_client.post("/api/workspaces", json={"finding_id": finding_id})
+    ).json()
+
+    # Seed a completed remediation_executor run whose structured_output
+    # carries the pr_url. This mirrors what AgentExecutor writes after the
+    # PR-verification step succeeds.
+    db = conn_module._db
+    assert db is not None
+    run = await create_agent_run(
+        db, ws["id"], AgentRunCreate(agent_type="remediation_executor")
+    )
+    await update_agent_run(
+        db,
+        run.id,
+        AgentRunUpdate(
+            status="completed",
+            summary_markdown="opened pr",
+            confidence=0.9,
+            structured_output={"status": "pr_created", "pr_url": pr_url},
+        ),
+    )
+
+    # Sanity: before close, Finding.pr_url is null (legacy orphan path).
+    pre = (await db_client.get(f"/api/findings/{finding_id}")).json()
+    assert pre["pr_url"] is None
+
+    resp = await db_client.patch(
+        f"/api/workspaces/{ws['id']}", json={"state": "closed"}
+    )
+    assert resp.status_code == 200
+
+    post = (await db_client.get(f"/api/findings/{finding_id}")).json()
+    assert post["status"] == "validated"
+    assert post["pr_url"] == pr_url, (
+        "PATCH /api/workspaces state=closed must reconcile pr_url from the "
+        "latest remediation_executor AgentRun before flipping the finding."
+    )
+
+
+async def test_resolve_workspace_http_close_with_no_executor_run_leaves_pr_url_null(
+    db_client, finding_id,
+):
+    """Posture finding (no executor ever ran) — close still flips status,
+    pr_url stays null. The fix must not break this path."""
+    ws = (
+        await db_client.post("/api/workspaces", json={"finding_id": finding_id})
+    ).json()
+
+    resp = await db_client.patch(
+        f"/api/workspaces/{ws['id']}", json={"state": "closed"}
+    )
+    assert resp.status_code == 200
+
+    post = (await db_client.get(f"/api/findings/{finding_id}")).json()
+    assert post["status"] == "validated"
+    assert post["pr_url"] is None
+
+
+async def test_resolve_workspace_http_does_not_clobber_user_supplied_pr_url(
+    db_client, finding_id,
+):
+    """If a user explicitly set pr_url via PATCH /api/findings/{id}, the
+    close-handler's reconciliation must not overwrite it with a stale URL
+    from an old AgentRun."""
+    import opensec.db.connection as conn_module
+    from opensec.db.repo_agent_run import create_agent_run, update_agent_run
+    from opensec.models import AgentRunCreate, AgentRunUpdate
+
+    user_url = "https://github.com/example/repo/pull/42"
+    stale_url = "https://github.com/example/repo/pull/1"
+
+    ws = (
+        await db_client.post("/api/workspaces", json={"finding_id": finding_id})
+    ).json()
+
+    # User explicitly sets pr_url via the finding-update route.
+    await db_client.patch(
+        f"/api/findings/{finding_id}", json={"pr_url": user_url}
+    )
+
+    # Stale executor run carrying a different URL.
+    db = conn_module._db
+    assert db is not None
+    run = await create_agent_run(
+        db, ws["id"], AgentRunCreate(agent_type="remediation_executor")
+    )
+    await update_agent_run(
+        db,
+        run.id,
+        AgentRunUpdate(
+            status="completed",
+            structured_output={"status": "pr_created", "pr_url": stale_url},
+        ),
+    )
+
+    resp = await db_client.patch(
+        f"/api/workspaces/{ws['id']}", json={"state": "closed"}
+    )
+    assert resp.status_code == 200
+
+    post = (await db_client.get(f"/api/findings/{finding_id}")).json()
+    assert post["pr_url"] == user_url, (
+        "User-supplied pr_url must survive close-handler reconciliation."
+    )
+
+
 async def test_create_workspace_flips_finding_to_in_progress(db_client, finding_id):
     """PRD-0006 Story 2 / IMPL-0006 root-cause fix.
 

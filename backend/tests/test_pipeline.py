@@ -9,6 +9,13 @@ from opensec.agents.pipeline import (
     suggest_next,
 )
 
+# Sections that come before exposure in the forward walk — tests targeting a
+# later pipeline stage set these so suggest_next steps past them.
+_PRE_EXPOSURE = {
+    "enrichment": {"normalized_title": "Test"},
+    "ownership": {"recommended_owner": "platform-team"},
+}
+
 
 def _base_snapshot(**overrides):
     """Build a context snapshot with all sections defaulting to None."""
@@ -27,19 +34,25 @@ def _base_snapshot(**overrides):
 
 
 class TestPipelineOrder:
-    def test_pipeline_order_is_5_agent(self):
+    def test_pipeline_order_is_6_agent(self):
         assert PIPELINE_ORDER == [
             "finding_enricher",
+            "owner_resolver",
             "exposure_analyzer",
             "evidence_collector",
             "remediation_planner",
             "remediation_executor",
         ]
 
-    def test_owner_resolver_not_in_pipeline_order(self):
-        assert "owner_resolver" not in PIPELINE_ORDER
+    def test_owner_resolver_in_pipeline_order(self):
+        """Q01-B09 — owner resolution is part of the forward walk so run-all
+        populates sidebar.owner; it sits right after the enricher."""
+        assert "owner_resolver" in PIPELINE_ORDER
+        assert PIPELINE_ORDER.index("owner_resolver") == 1
 
     def test_validation_checker_not_in_pipeline_order(self):
+        """Validation runs on-demand after remediation, never in the forward
+        walk — it verifies a fix that does not exist yet."""
         assert "validation_checker" not in PIPELINE_ORDER
 
     def test_valid_agent_types_includes_all_agents(self):
@@ -60,18 +73,22 @@ class TestSuggestNext:
         assert result.priority == "recommended"
         assert result.action_type == "run_agent"
 
-    def test_enrichment_done_suggests_exposure(self):
-        """After enrichment, skip ownership and suggest exposure."""
-        snapshot = _base_snapshot(
-            enrichment={"normalized_title": "Test"},
-        )
+    def test_enrichment_done_suggests_owner_resolver(self):
+        """Q01-B09 — after enrichment, the forward walk resolves ownership."""
+        snapshot = _base_snapshot(enrichment={"normalized_title": "Test"})
+        result = suggest_next(snapshot)
+        assert result is not None
+        assert result.agent_type == "owner_resolver"
+
+    def test_ownership_done_suggests_exposure(self):
+        snapshot = _base_snapshot(**_PRE_EXPOSURE)
         result = suggest_next(snapshot)
         assert result is not None
         assert result.agent_type == "exposure_analyzer"
 
     def test_enrichment_and_exposure_done_suggests_evidence(self):
         snapshot = _base_snapshot(
-            enrichment={"normalized_title": "Test"},
+            **_PRE_EXPOSURE,
             exposure={"recommended_urgency": "high"},
         )
         result = suggest_next(snapshot)
@@ -80,7 +97,7 @@ class TestSuggestNext:
 
     def test_evidence_done_suggests_planner(self):
         snapshot = _base_snapshot(
-            enrichment={"normalized_title": "Test"},
+            **_PRE_EXPOSURE,
             exposure={"recommended_urgency": "high"},
             evidence={"affected_files": [], "fix_safety": "safe_bump"},
         )
@@ -93,7 +110,7 @@ class TestSuggestNext:
         until the user explicitly approves. The run-all loop terminates on
         ``action_type='await_approval'``."""
         snapshot = _base_snapshot(
-            enrichment={"normalized_title": "Test"},
+            **_PRE_EXPOSURE,
             exposure={"recommended_urgency": "high"},
             evidence={"affected_files": [], "fix_safety": "safe_bump"},
             plan={"plan_steps": ["Step 1"]},
@@ -107,7 +124,7 @@ class TestSuggestNext:
         """When the user approves (sidebar.plan.approved=True), the gate
         releases and the executor is suggested as normal."""
         snapshot = _base_snapshot(
-            enrichment={"normalized_title": "Test"},
+            **_PRE_EXPOSURE,
             exposure={"recommended_urgency": "high"},
             evidence={"affected_files": [], "fix_safety": "safe_bump"},
             plan={"plan_steps": ["Step 1"], "approved": True},
@@ -119,7 +136,7 @@ class TestSuggestNext:
 
     def test_plan_with_explicit_false_approval_still_pauses(self):
         snapshot = _base_snapshot(
-            enrichment={"normalized_title": "Test"},
+            **_PRE_EXPOSURE,
             exposure={"recommended_urgency": "high"},
             evidence={"affected_files": [], "fix_safety": "safe_bump"},
             plan={"plan_steps": ["Step 1"], "approved": False},
@@ -131,7 +148,7 @@ class TestSuggestNext:
     def test_executor_pr_created_suggests_review_pr(self):
         """After executor creates PR, suggest review (not another agent)."""
         snapshot = _base_snapshot(
-            enrichment={"normalized_title": "Test"},
+            **_PRE_EXPOSURE,
             exposure={"recommended_urgency": "high"},
             evidence={"affected_files": [], "fix_safety": "safe_bump"},
             plan={"plan_steps": ["Step 1"]},
@@ -145,7 +162,7 @@ class TestSuggestNext:
     def test_executor_incomplete_stays_on_executor(self):
         """If remediation exists but status is not pr_created, don't suggest review."""
         snapshot = _base_snapshot(
-            enrichment={"normalized_title": "Test"},
+            **_PRE_EXPOSURE,
             exposure={"recommended_urgency": "high"},
             evidence={"affected_files": [], "fix_safety": "safe_bump"},
             plan={"plan_steps": ["Step 1"]},
@@ -159,7 +176,7 @@ class TestSuggestNext:
     def test_validation_checker_not_suggested_by_default(self):
         """Even with validation missing, suggest_next does NOT suggest it."""
         snapshot = _base_snapshot(
-            enrichment={"normalized_title": "Test"},
+            **_PRE_EXPOSURE,
             exposure={"recommended_urgency": "high"},
             evidence={"affected_files": [], "fix_safety": "safe_bump"},
             plan={"plan_steps": ["Step 1"]},
@@ -173,7 +190,7 @@ class TestSuggestNext:
     def test_all_complete_pipeline_done(self):
         """Pipeline complete when remediation has pr_created + review_pr returned."""
         snapshot = _base_snapshot(
-            enrichment={"normalized_title": "Test"},
+            **_PRE_EXPOSURE,
             exposure={"recommended_urgency": "high"},
             evidence={"affected_files": [], "fix_safety": "safe_bump"},
             plan={"plan_steps": ["Step 1"]},
@@ -188,7 +205,7 @@ class TestSuggestNext:
     def test_validation_not_fixed_retries_planner(self):
         """On-demand validation with not_fixed verdict re-suggests planner."""
         snapshot = _base_snapshot(
-            enrichment={"normalized_title": "Test"},
+            **_PRE_EXPOSURE,
             exposure={"recommended_urgency": "high"},
             evidence={"affected_files": [], "fix_safety": "safe_bump"},
             plan={"plan_steps": ["Step 1"]},
@@ -205,7 +222,7 @@ class TestSuggestNext:
 
     def test_validation_partially_fixed_retries(self):
         snapshot = _base_snapshot(
-            enrichment={"normalized_title": "Test"},
+            **_PRE_EXPOSURE,
             exposure={"recommended_urgency": "high"},
             evidence={"affected_files": [], "fix_safety": "safe_bump"},
             plan={"plan_steps": ["Step 1"]},
@@ -219,7 +236,7 @@ class TestSuggestNext:
     def test_retry_limit_reached_returns_review_pr(self):
         """After max retries, fall back to review_pr (not None)."""
         snapshot = _base_snapshot(
-            enrichment={"normalized_title": "Test"},
+            **_PRE_EXPOSURE,
             exposure={"recommended_urgency": "high"},
             evidence={"affected_files": [], "fix_safety": "safe_bump"},
             plan={"plan_steps": ["Step 1"]},

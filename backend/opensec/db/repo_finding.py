@@ -19,6 +19,7 @@ Type-conditional preservation rule (CEO direction, 2026-04-26):
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -30,6 +31,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
     import aiosqlite
+
+logger = logging.getLogger(__name__)
 
 # Wire-shape "user lifecycle" preserved statuses for non-posture findings.
 _USER_LIFECYCLE_STATUSES = (
@@ -311,7 +314,10 @@ async def mark_started_on_workspace_create(
 
 
 async def mark_resolved_on_workspace_close(
-    db: aiosqlite.Connection, finding_id: str
+    db: aiosqlite.Connection,
+    finding_id: str,
+    *,
+    workspace_id: str | None = None,
 ) -> bool:
     """Flip ``Finding.status`` to ``validated`` when the user resolves a workspace.
 
@@ -320,22 +326,85 @@ async def mark_resolved_on_workspace_close(
     Story 5; Phase 1 stand-in for the validator until webhook-driven
     auto-validation lands).
 
+    When ``workspace_id`` is provided, additionally reconcile ``Finding.pr_url``
+    from the most recent successful ``remediation_executor`` run for that
+    workspace (EF-B14). The executor's pr_url already survives in
+    ``AgentRun.structured_output`` and ``SidebarState.pull_request`` but was
+    never persisted onto the Finding row itself — so the dashboard would
+    silently close a finding while leaving the actual PR orphaned.
+
     Idempotent — only flips findings that are mid-flight
     (``new`` / ``triaged`` / ``in_progress`` / ``remediated``). Already-
     terminal statuses (``validated`` / ``closed`` / ``exception`` / ``passed``)
     are left untouched, so re-resolving a workspace can't silently overwrite a
-    user's prior False-positive / Won't-fix decision.
+    user's prior False-positive / Won't-fix decision. ``pr_url`` reconciliation
+    only overwrites when the existing value is null, so an explicit
+    ``PATCH /findings/{id}`` with a user-supplied ``pr_url`` is never clobbered.
 
     Returns ``True`` if a row was updated, ``False`` otherwise.
     """
+    reconciled_pr_url: str | None = None
+    if workspace_id is not None:
+        reconciled_pr_url = await _reconcile_pr_url_from_runs(
+            db, finding_id=finding_id, workspace_id=workspace_id
+        )
+
     now_iso = datetime.now(UTC).isoformat()
-    cursor = await db.execute(
-        "UPDATE finding SET status = 'validated', updated_at = ?"
-        " WHERE id = ? AND status IN ('new', 'triaged', 'in_progress', 'remediated')",
-        (now_iso, finding_id),
-    )
+    if reconciled_pr_url is not None:
+        cursor = await db.execute(
+            "UPDATE finding SET status = 'validated', pr_url = ?, updated_at = ?"
+            " WHERE id = ? AND status IN ('new', 'triaged', 'in_progress', 'remediated')",
+            (reconciled_pr_url, now_iso, finding_id),
+        )
+    else:
+        cursor = await db.execute(
+            "UPDATE finding SET status = 'validated', updated_at = ?"
+            " WHERE id = ? AND status IN ('new', 'triaged', 'in_progress', 'remediated')",
+            (now_iso, finding_id),
+        )
     await db.commit()
     return cursor.rowcount > 0
+
+
+async def _reconcile_pr_url_from_runs(
+    db: aiosqlite.Connection, *, finding_id: str, workspace_id: str
+) -> str | None:
+    """Pull pr_url off the latest successful ``remediation_executor`` run.
+
+    Returns the URL to write onto the Finding, or ``None`` if (a) the Finding
+    already has a pr_url (we don't overwrite user-supplied values) or (b) no
+    executor run carrying a usable pr_url exists. In the second case, if any
+    executor run exists at all, logs a WARNING so reviewers can spot the
+    fsevents-style "PR opened on GitHub but lost to a timeout" residual.
+    """
+    existing = await get_finding(db, finding_id)
+    if existing is None or existing.pr_url:
+        return None
+
+    # Lazy import to avoid widening repo_finding's module-level deps.
+    from opensec.db.repo_agent_run import list_agent_runs
+
+    runs = await list_agent_runs(db, workspace_id, limit=50)
+    executor_runs = [r for r in runs if r.agent_type == "remediation_executor"]
+    if not executor_runs:
+        return None
+
+    # list_agent_runs returns newest-first.
+    for run in executor_runs:
+        structured = run.structured_output or {}
+        candidate = structured.get("pr_url") if isinstance(structured, dict) else None
+        if candidate:
+            return candidate
+
+    logger.warning(
+        "EF-B14: finding=%s workspace=%s — executor ran %d time(s) but "
+        "pr_url could not be reconciled from any AgentRun.structured_output. "
+        "An orphaned PR may exist on GitHub; please verify before closing.",
+        finding_id,
+        workspace_id,
+        len(executor_runs),
+    )
+    return None
 
 
 async def update_finding(
