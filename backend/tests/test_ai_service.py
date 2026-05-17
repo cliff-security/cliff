@@ -593,7 +593,7 @@ async def test_switching_providers_falls_to_new_provider_default(
     await service.save_byok("openrouter", "sk-or-key")
     stored = await get_setting(db, "model")
     assert stored is not None
-    assert stored.value == {"full_id": "openrouter/tencent/hy3-preview"}
+    assert stored.value == {"full_id": "openrouter/anthropic/claude-haiku-4.5"}
 
 
 async def test_set_model_rejects_unprefixed_id(

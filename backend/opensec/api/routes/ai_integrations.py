@@ -290,96 +290,16 @@ async def set_active_model(
     return await service.get_status()
 
 
-# Suggested model lists per provider. Static for cloud providers (the live
-# catalog from OpenCode is huge and noisy for the picker); the Ollama tile
-# proxies /api/tags so the picker reflects what's actually installed on the
-# host machine.
-_SUGGESTED_MODELS: dict[AIProvider, list[ProviderModelOption]] = {
-    # OpenRouter uses dots between version components in Anthropic slugs
-    # (``claude-haiku-4.5``), not dashes. Picking from this list MUST yield
-    # an id that OpenRouter actually accepts — a wrong slug surfaces only
-    # at agent-run time when the session 500s with no assistant reply.
-    "openrouter": [
-        ProviderModelOption(
-            id="openrouter/tencent/hy3-preview",
-            label="Tencent Hy3 (preview)",
-            description="262K context, $0.07 / $0.26 per 1M tokens — default.",
-        ),
-        ProviderModelOption(
-            id="openrouter/anthropic/claude-haiku-4.5",
-            label="Claude Haiku 4.5",
-            description="Anthropic via OpenRouter — fast, cheap, broad coverage.",
-        ),
-        ProviderModelOption(
-            id="openrouter/anthropic/claude-sonnet-4.5",
-            label="Claude Sonnet 4.5",
-            description="Anthropic's current flagship for security reasoning.",
-        ),
-        ProviderModelOption(
-            id="openrouter/openai/gpt-5",
-            label="GPT-5",
-            description="OpenAI's flagship via OpenRouter.",
-        ),
-        ProviderModelOption(
-            id="openrouter/google/gemini-2.5-flash",
-            label="Gemini 2.5 Flash",
-            description="Google's cheap workhorse via OpenRouter.",
-        ),
-        ProviderModelOption(
-            id="openrouter/deepseek/deepseek-chat",
-            label="DeepSeek Chat",
-            description="Strong open-weight model at very low cost.",
-        ),
-    ],
-    "anthropic": [
-        ProviderModelOption(
-            id="anthropic/claude-haiku-4-5",
-            label="Claude Haiku 4.5",
-            description="Default — cheapest current-generation Claude.",
-        ),
-        ProviderModelOption(
-            id="anthropic/claude-sonnet-4-6",
-            label="Claude Sonnet 4.6",
-            description="Best security reasoning. ~5× cost of Haiku.",
-        ),
-        ProviderModelOption(
-            id="anthropic/claude-opus-4-1",
-            label="Claude Opus 4.1",
-            description="Highest quality, highest cost.",
-        ),
-    ],
-    "openai": [
-        ProviderModelOption(
-            id="openai/gpt-5",
-            label="GPT-5",
-            description="Default flagship.",
-        ),
-        ProviderModelOption(
-            id="openai/gpt-5-mini",
-            label="GPT-5 Mini",
-            description="Smaller, cheaper variant.",
-        ),
-        ProviderModelOption(
-            id="openai/gpt-4.1-mini",
-            label="GPT-4.1 Mini",
-            description="Solid all-rounder.",
-        ),
-    ],
-    "google": [
-        ProviderModelOption(
-            id="google/gemini-2.5-flash",
-            label="Gemini 2.5 Flash",
-            description="Default — fast and on the AI Studio free tier.",
-        ),
-        ProviderModelOption(
-            id="google/gemini-2.5-pro",
-            label="Gemini 2.5 Pro",
-            description="Higher quality, paid tier.",
-        ),
-    ],
-    "ollama": [],
-    "custom": [],
-}
+# Picker options for cloud providers live in ``ai/catalog.py`` next to
+# ``ProviderInfo`` (M10). Ollama is fetched live from ``/api/tags``;
+# Custom is user-supplied.
+
+
+def _picker_models(provider: AIProvider) -> list[ProviderModelOption]:
+    return [
+        ProviderModelOption(id=o.id, label=o.label, description=o.description)
+        for o in catalog.picker_options(provider)
+    ]
 
 
 @router.get("/models", response_model=ProviderModelsResponse)
@@ -414,7 +334,7 @@ async def list_provider_models(
     return ProviderModelsResponse(
         provider=provider,
         default_model=default_model,
-        models=list(_SUGGESTED_MODELS.get(provider, [])),
+        models=_picker_models(provider),
         source="catalog",
     )
 

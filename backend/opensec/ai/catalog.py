@@ -47,14 +47,14 @@ class ProviderInfo:
 _CATALOG: dict[AIProvider, ProviderInfo] = {
     "openrouter": ProviderInfo(
         env_var_name="OPENROUTER_API_KEY",
-        # Tencent Hy3 preview — high-context (262K) MoE model designed for
-        # agentic workflows. ~50× cheaper per output token than Claude
-        # Sonnet 4.6 ($0.066/$0.26 per 1M input/output vs Sonnet's
-        # ~$3/$15), which keeps low-budget OpenRouter accounts from
-        # hitting the credit-exhaustion failure. OpenCode-prefixed because
-        # OpenRouter is routed via the ``openrouter/`` provider, then the
-        # OpenRouter slug ``tencent/hy3-preview`` follows.
-        default_model="openrouter/tencent/hy3-preview",
+        # Claude Haiku 4.5 via OpenRouter — Anthropic's cheapest
+        # current-generation model, broad coverage, and *stable* (not a
+        # preview tag that can be pulled or renamed by the provider).
+        # L5 (architect review): defaulting to a preview model was a
+        # single point of failure for first-run UX — if Tencent pulled
+        # ``tencent/hy3-preview`` every new install would 404. Tencent
+        # Hy3 stays available via the picker for cost-sensitive users.
+        default_model="openrouter/anthropic/claude-haiku-4.5",
         console_url="https://openrouter.ai/keys",
         key_hint="sk-or-",
         docs_label="OpenRouter",
@@ -192,6 +192,111 @@ def resolve_model(provider: AIProvider) -> str | None:
 def has_override(provider: AIProvider) -> bool:
     """True if a model-override env var is set for *provider*."""
     return bool(os.environ.get(_override_env_var(provider), "").strip())
+
+
+# ---------------------------------------------------------------------------
+# Picker entries (M10) — static suggestion list per provider.
+#
+# This used to live in ``api/routes/ai_integrations.py``; it's identical-
+# kind metadata to ``ProviderInfo.default_model`` so it belongs next to
+# the catalog. The Ollama and Custom entries stay empty here because the
+# picker fetches Ollama's live ``/api/tags`` and Custom is user-supplied.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PickerOption:
+    """One row in the model picker."""
+
+    id: str
+    label: str
+    description: str | None
+
+
+_PICKER: dict[AIProvider, list[PickerOption]] = {
+    "openrouter": [
+        # Claude Haiku 4.5 is the new default (L5 — see catalog entry).
+        PickerOption(
+            id="openrouter/anthropic/claude-haiku-4.5",
+            label="Claude Haiku 4.5",
+            description="Anthropic via OpenRouter — fast, cheap, broad coverage. Default.",
+        ),
+        PickerOption(
+            id="openrouter/tencent/hy3-preview",
+            label="Tencent Hy3 (preview)",
+            description="262K context, ~50× cheaper than Sonnet. Preview tag — may move.",
+        ),
+        PickerOption(
+            id="openrouter/anthropic/claude-sonnet-4.5",
+            label="Claude Sonnet 4.5",
+            description="Anthropic's current flagship for security reasoning.",
+        ),
+        PickerOption(
+            id="openrouter/openai/gpt-5",
+            label="GPT-5",
+            description="OpenAI's flagship via OpenRouter.",
+        ),
+        PickerOption(
+            id="openrouter/google/gemini-2.5-flash",
+            label="Gemini 2.5 Flash",
+            description="Google's cheap workhorse via OpenRouter.",
+        ),
+        PickerOption(
+            id="openrouter/deepseek/deepseek-chat",
+            label="DeepSeek Chat",
+            description="Strong open-weight model at very low cost.",
+        ),
+    ],
+    "anthropic": [
+        PickerOption(
+            id="anthropic/claude-haiku-4-5",
+            label="Claude Haiku 4.5",
+            description="Default — cheapest current-generation Claude.",
+        ),
+        PickerOption(
+            id="anthropic/claude-sonnet-4-6",
+            label="Claude Sonnet 4.6",
+            description="Best security reasoning. ~5× cost of Haiku.",
+        ),
+        PickerOption(
+            id="anthropic/claude-opus-4-1",
+            label="Claude Opus 4.1",
+            description="Highest quality, highest cost.",
+        ),
+    ],
+    "openai": [
+        PickerOption(id="openai/gpt-5", label="GPT-5", description="Default flagship."),
+        PickerOption(
+            id="openai/gpt-5-mini",
+            label="GPT-5 Mini",
+            description="Smaller, cheaper variant.",
+        ),
+        PickerOption(
+            id="openai/gpt-4.1-mini",
+            label="GPT-4.1 Mini",
+            description="Solid all-rounder.",
+        ),
+    ],
+    "google": [
+        PickerOption(
+            id="google/gemini-2.5-flash",
+            label="Gemini 2.5 Flash",
+            description="Default — fast and on the AI Studio free tier.",
+        ),
+        PickerOption(
+            id="google/gemini-2.5-pro",
+            label="Gemini 2.5 Pro",
+            description="Higher quality, paid tier.",
+        ),
+    ],
+    "ollama": [],  # picker queries /api/tags live
+    "custom": [],  # user supplies
+}
+
+
+def picker_options(provider: AIProvider) -> list[PickerOption]:
+    """Return the static picker rows for *provider* (Ollama/Custom are empty)."""
+    return list(_PICKER.get(provider, []))
 
 
 # ---------------------------------------------------------------------------

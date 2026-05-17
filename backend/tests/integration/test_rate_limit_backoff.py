@@ -20,6 +20,7 @@ fixture from ``tests/integration/conftest.py`` is reused.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from pathlib import Path  # noqa: TC003 — runtime use in fixture annotation
@@ -534,3 +535,49 @@ async def test_f1_minimist_style_scenario_recovers_under_throttling(
         )
 
     assert final_statuses == ["completed"] * len(agent_sequence)
+
+
+# ---------------------------------------------------------------------------
+# H3 — Concurrent backoff under pool>=2 (EF-B17 root cause)
+# ---------------------------------------------------------------------------
+
+
+def test_backoff_jitter_desynchronizes_concurrent_retries(monkeypatch):
+    """The jitter in ``_rate_limit_backoff_delay`` exists exclusively
+    to break coincident wakes when pool>=2 concurrent agents all hit
+    the same provider quota and retry on the same exponential
+    schedule. Without jitter every executor would sleep for
+    ``base * 2**(attempt-1)`` exactly and wake in lockstep — the
+    retry-storm shape EF-B17 was meant to prevent.
+
+    Architect test-coverage gap H3: the original 6 backoff tests are
+    all serial; this directly exercises the jitter math. The test
+    samples 50 delays at the same ``attempt`` and asserts:
+      1. They are NOT all equal (jitter is doing something).
+      2. The spread covers at least 25% of the base delay (jitter is
+         the documented "up to one base-delay" range).
+      3. Every delay respects the documented MAX cap.
+    """
+    monkeypatch.setattr(executor_module, "RATE_LIMIT_BASE_DELAY_SECONDS", 1.0)
+    monkeypatch.setattr(executor_module, "RATE_LIMIT_MAX_DELAY_SECONDS", 16.0)
+
+    delays = [
+        executor_module._rate_limit_backoff_delay(attempt=2)
+        for _ in range(50)
+    ]
+    assert len(set(delays)) > 1, (
+        "jitter is gone — every retry would wake at the same instant"
+    )
+    spread = max(delays) - min(delays)
+    assert spread >= 0.25, (
+        f"jitter spread {spread:.3f}s is too narrow; concurrent retries "
+        "would still bunch up under load"
+    )
+    assert all(d <= 16.0 for d in delays), (
+        f"jitter pushed a retry above MAX_DELAY: {max(delays)}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Architect test-coverage gap: pipeline halts on rate_limited
+# ---------------------------------------------------------------------------

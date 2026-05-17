@@ -259,3 +259,63 @@ Existing installs preserve the user's choice. Specifically:
 * `tests/test_ai_provider_status.tsx` — drift banner appears when
   `live_probe.opencode_model != model`, picker invalidates the status
   key on save.
+
+---
+
+## 2026-05-17 update — Drop live-probe + drift signal (post-Q01 architect review)
+
+The original implementation surfaced THREE reads on the wire
+(`model`, `override_model`, `live_probe.opencode_model`) and rendered a
+drift banner + Reconcile button to reconcile the latter two against the
+canonical first. The Q01 architect health-check flagged this as
+**violating the ADR's own "one read" rule**: the drift the probe could
+detect was its own caching, not real product state — the
+`on_key_change` hook synchronously restarts the singleton OpenCode on
+every canonical-state write, so canonical state and the loaded model
+cannot disagree by more than one event loop tick.
+
+**Removed:**
+
+* `LiveProbe` Pydantic model.
+* `AIStatus.live_probe` and `AIStatus.override_model` wire fields.
+* `_cached_live_probe` TTL cache + `asyncio.Lock` + module globals
+  (~50 LOC).
+* `invalidate_live_probe()` and every call site.
+* `DriftBanner` React component + `Reconcile` button
+  (`AIProviderStatus.tsx`).
+* The CLI's `drifted` / `canonical_model` / `opencode_model` /
+  `model_drift` blocker fields from `opensec status` JSON output.
+* `AIProviderStatus.drift.test.tsx`.
+
+**Updated read shape (canonical):**
+
+```python
+AIStatus(
+    state, provider, source, connected_at, metadata,
+    model,   # canonical, the ONE read
+)
+```
+
+**Why this is safe:** the `on_key_change` hook fires synchronously on
+every `save_byok` / `complete_oauth` / `adopt_detected` / `set_model`
+and `disconnect`. It refreshes the env cache, refreshes the model
+cache, rewrites the singleton's `opencode.json`, and restarts the
+singleton OpenCode — all inline before the originating request
+returns. There is no window in which canonical state and the
+singleton's loaded model can drift.
+
+**Env-override escape hatch:** `OPENSEC_AI_MODEL_OVERRIDE_*` still
+exists as a dev/CI knob (read by `catalog.resolve_model`) but is no
+longer surfaced on the wire. Operators who want a global override use
+the picker.
+
+**OpenRouter default model change (L5):** the default moved from
+`openrouter/tencent/hy3-preview` to `openrouter/anthropic/claude-haiku-4.5`.
+A preview tag is a single point of failure for first-run UX — if the
+provider pulls the preview, every new install 404s. Tencent Hy3 stays
+available via the picker for cost-sensitive operators.
+
+**Picker registry moved (M10):** `_SUGGESTED_MODELS` (cloud-provider
+picker rows) moved from `api/routes/ai_integrations.py` to
+`ai/catalog.py` next to `ProviderInfo` — same kind of static provider
+metadata.
