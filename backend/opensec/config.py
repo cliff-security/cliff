@@ -63,6 +63,16 @@ class Settings(BaseSettings):
     # OPENSEC_FRONTEND_BASE_URL when neither default fits.
     frontend_base_url: str = ""
 
+    # OAuth callback listener bind host. The OpenRouter PKCE flow runs a
+    # one-shot HTTP server on port 3000 that catches the redirect. On a
+    # host install the loopback default keeps the listener unreachable
+    # from outside the machine. Inside Docker the listener must bind
+    # 0.0.0.0 so the host-published port forwards into the container —
+    # the entrypoint sets ``OPENSEC_OAUTH_CALLBACK_HOST=0.0.0.0`` there.
+    # State-mismatch rejection still gates every callback, so a wider
+    # bind doesn't weaken the CSRF guard.
+    oauth_callback_host: str = "127.0.0.1"
+
     # Audit logging
     audit_retention_days: int = 90
 

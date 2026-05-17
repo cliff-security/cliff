@@ -35,6 +35,8 @@ from typing import TYPE_CHECKING, Literal
 
 import httpx
 
+from opensec.config import settings
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
@@ -48,9 +50,17 @@ logger = logging.getLogger(__name__)
 
 OPENROUTER_AUTH_URL = "https://openrouter.ai/auth"
 OPENROUTER_TOKEN_URL = "https://openrouter.ai/api/v1/auth/keys"
+# Default bind host for the OAuth callback listener. Docker entrypoint
+# overrides this to ``0.0.0.0`` via ``OPENSEC_OAUTH_CALLBACK_HOST`` so the
+# container-published port reaches the in-container listener.
 CALLBACK_HOST = "127.0.0.1"
 CALLBACK_PORT = 3000
 CALLBACK_PATH = "/callback"
+
+
+def resolve_callback_host() -> str:
+    """Return the configured bind host for the OAuth callback listener."""
+    return settings.oauth_callback_host or CALLBACK_HOST
 
 STATE_TTL_SECONDS = 600  # 10 minutes
 LISTENER_TTL_SECONDS = 300  # 5 minutes
@@ -289,13 +299,15 @@ async def start_listener(
     *,
     on_callback: Callable[[OAuthSession, str, str], Awaitable[None]],
     port: int | None = None,
+    host: str | None = None,
     timeout_seconds: float = LISTENER_TTL_SECONDS,
 ) -> asyncio.base_events.Server:
     """Start a one-shot HTTP listener for the OAuth callback.
 
     Returns the bound server. Raises ``Port3000UnavailableError`` if the
     port is already in use. The listener auto-cancels after
-    ``timeout_seconds`` even if no callback arrives.
+    ``timeout_seconds`` even if no callback arrives. ``host`` defaults to
+    ``resolve_callback_host()`` so the Docker override flows through.
     """
     # The handler closes over `session` and the callback.
     async def _handle(
@@ -325,9 +337,10 @@ async def start_listener(
                 writer.close()
 
     resolved_port = CALLBACK_PORT if port is None else port
+    resolved_host = resolve_callback_host() if host is None else host
     try:
         server = await asyncio.start_server(
-            _handle, host=CALLBACK_HOST, port=resolved_port
+            _handle, host=resolved_host, port=resolved_port
         )
     except OSError as exc:
         # EADDRINUSE = 48 on macOS / 98 on Linux. We classify by errno.
