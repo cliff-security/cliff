@@ -197,10 +197,13 @@ async def run_pipeline(
         if on_agent_complete:
             on_agent_complete(result)
 
-        if result.status == "failed":
+        # EF-B17 — ``rate_limited`` is a terminal non-success state, same
+        # pipeline-stop semantics as ``failed``.
+        if result.status in ("failed", "rate_limited"):
             logger.warning(
-                "Pipeline stopped: %s failed in workspace %s",
+                "Pipeline stopped: %s ended %s in workspace %s",
                 suggestion.agent_type,
+                result.status,
                 workspace_id,
             )
             break

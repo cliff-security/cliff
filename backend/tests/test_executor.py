@@ -276,13 +276,18 @@ class TestAgentExecutor:
     @pytest.mark.asyncio
     async def test_opencode_error_event(self, mock_pool, mock_context_builder,
         mock_db, workspace_dir):
-        """OpenCode returns an error event → status=failed."""
+        """OpenCode returns a non-rate-limit error event → status=failed."""
+        # EF-B17 — message intentionally avoids the rate-limit substrings
+        # (``rate limit`` / ``429`` / ``too many requests``); those now
+        # route through the retry loop and end as ``rate_limited`` rather
+        # than ``failed``. Rate-limit semantics are covered separately by
+        # ``backend/tests/integration/test_rate_limit_backoff.py``.
         client = AsyncMock()
         client.create_session.return_value = MagicMock(id="session-1")
         client.send_message.return_value = None
 
         async def error_stream(session_id):
-            yield {"type": "error", "message": "Model rate limited"}
+            yield {"type": "error", "message": "Provider returned 500 internal error"}
 
         client.stream_events = error_stream
         mock_pool.get_or_start.return_value = client
@@ -302,7 +307,7 @@ class TestAgentExecutor:
             )
 
         assert result.status == "failed"
-        assert "rate limited" in (result.error or "").lower()
+        assert "500" in (result.error or "")
 
     @pytest.mark.asyncio
     async def test_progress_callback_called(self, mock_pool, mock_context_builder,

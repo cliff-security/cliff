@@ -29,13 +29,35 @@ export default function AgentRunCard({ run }: { run: AgentRun }) {
     )
   }
 
+  if (run.status === 'rate_limited') {
+    // EF-B17 — terminal state when the AI provider throttled us and the
+    // executor's backoff retry budget was exhausted. Distinct from
+    // ``failed`` because it's a transient/throttle condition, not a bug —
+    // amber/warning tonal instead of red.
+    return (
+      <div className="max-w-3xl">
+        <div className="bg-warning-container/40 rounded-xl p-4 flex flex-col gap-1.5">
+          <p className="text-sm text-on-warning-container font-medium">
+            {label} hit the AI provider rate limit
+          </p>
+          {run.last_error && (
+            <p className="text-xs text-on-surface-variant">{run.last_error}</p>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   if (run.status === 'failed' || run.status === 'cancelled') {
     return (
       <div className="max-w-3xl">
-        <div className="bg-error-container/20 border border-error/20 rounded-xl p-4">
+        <div className="bg-error-container/20 border border-error/20 rounded-xl p-4 flex flex-col gap-1.5">
           <p className="text-sm text-error font-medium">
             {label} {run.status === 'failed' ? 'failed' : 'was cancelled'}
           </p>
+          {run.last_error && (
+            <p className="text-xs text-on-surface-variant">{run.last_error}</p>
+          )}
         </div>
       </div>
     )

@@ -189,6 +189,17 @@
             ],
             "title": "Input Json"
           },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
           "next_action_hint": {
             "anyOf": [
               {
@@ -219,7 +230,8 @@
               "running",
               "completed",
               "failed",
-              "cancelled"
+              "cancelled",
+              "rate_limited"
             ],
             "title": "Status",
             "type": "string"
@@ -285,7 +297,8 @@
               "running",
               "completed",
               "failed",
-              "cancelled"
+              "cancelled",
+              "rate_limited"
             ],
             "title": "Status",
             "type": "string"
@@ -322,6 +335,17 @@
             ],
             "title": "Evidence Json"
           },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
           "next_action_hint": {
             "anyOf": [
               {
@@ -341,7 +365,8 @@
                   "running",
                   "completed",
                   "failed",
-                  "cancelled"
+                  "cancelled",
+                  "rate_limited"
                 ],
                 "type": "string"
               },

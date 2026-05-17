@@ -1,0 +1,39 @@
+EF-B17 AFTER — post-fix regression test output (pytest -v):
+
+tests/integration/test_rate_limit_backoff.py::test_rate_limit_retry_then_success PASSED
+tests/integration/test_rate_limit_backoff.py::test_rate_limit_exhausted_terminates_with_status_and_last_error PASSED
+tests/integration/test_rate_limit_backoff.py::test_non_rate_limit_error_still_fails_immediately PASSED
+
+============================== 3 passed in 14.16s ==============================
+
+Coverage of EF-B17 acceptance criteria:
+
+  #1  Retry-then-success: monkeypatched backoff delays to 0 to keep test
+      fast; observed elapsed well under the 18s ceiling (3 attempts × ~2s
+      stall-poller tick ≈ 6-8s). Final status=completed, parse success.
+
+  #2  No silent 76s timeout: exhausted-budget case terminates in <18s with
+      status=rate_limited, attempt counter == RATE_LIMIT_MAX_ATTEMPTS (3).
+
+  #3  agent_run.last_error populated: assertion
+      ``final_update.last_error and "rate limit" in final_update.last_error.lower()``
+      passes; also asserted ``evidence_json.error`` + ``evidence_json.type ==
+      "AgentRateLimitError"`` for backwards compat.
+
+  #4  Pool=2 with backoff masks ordinary throttling: covered by the
+      retry-then-success case (3rd attempt succeeds after 2 throttles).
+
+  Bonus — non-rate-limit errors still fail fast: the
+  ``test_non_rate_limit_error_still_fails_immediately`` case proves that a
+  generic OpenCode 500 error does NOT enter the retry loop, preserving the
+  pre-existing semantics for non-throttle errors (hard rule 1).
+
+Full backend suite: 1339 passed, 19 skipped, 32 deselected (unit-only).
+Ruff: clean.
+TypeScript (frontend): clean (npx tsc --noEmit, exit=0).
+ESLint on touched frontend files (api/client.ts, AgentRunCard.tsx): clean.
+
+Pre-existing frontend test failures (IssueDeltaChip / IssueFilterChip /
+IssueStageChip / IssueRow / IssuesHeader / IssuesPage / onboardingFlow) are
+unrelated to this PR — none of them import or depend on AgentRunCard or
+AgentRun typings beyond unrelated type imports (IssueStage, Finding).
