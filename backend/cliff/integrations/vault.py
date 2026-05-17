@@ -22,6 +22,7 @@ methods (workspace config generation) can decrypt.
 from __future__ import annotations
 
 import base64
+import binascii
 import logging
 import os
 from typing import TYPE_CHECKING
@@ -93,11 +94,27 @@ def _try_keyring() -> bytes | None:
 
 
 def _try_env_var() -> bytes | None:
-    """Read a base64-encoded key from CLIFF_CREDENTIAL_KEY."""
+    """Read a base64-encoded key from CLIFF_CREDENTIAL_KEY.
+
+    Accepts BOTH URL-safe (``-``/``_``) and standard (``+``/``/``) base64
+    alphabets. ``secrets.token_urlsafe(32)`` — the natural Python idiom — emits
+    URL-safe output, but plain ``base64.b64decode`` silently strips ``-``/``_``
+    chars (its default ``validate=False`` behaviour), yielding the wrong byte
+    length and a misleading "must decode to 32 bytes" error. We try URL-safe
+    first and fall back to strict standard base64 so operators get a precise
+    error on real garbage instead of a length-mismatch red herring (B31).
+    """
     raw = os.environ.get("CLIFF_CREDENTIAL_KEY", "").strip()
     if not raw:
         return None
-    key = base64.b64decode(raw)
+    try:
+        key = base64.urlsafe_b64decode(raw)
+    except (ValueError, binascii.Error):
+        try:
+            key = base64.b64decode(raw, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            msg = f"CLIFF_CREDENTIAL_KEY is not valid base64: {exc}"
+            raise CredentialKeyError(msg) from exc
     if len(key) != _KEY_LENGTH:
         msg = f"CLIFF_CREDENTIAL_KEY must decode to {_KEY_LENGTH} bytes, got {len(key)}"
         raise CredentialKeyError(msg)

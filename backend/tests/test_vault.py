@@ -135,6 +135,50 @@ def test_key_must_be_32_bytes(monkeypatch: pytest.MonkeyPatch):
         resolve_key()
 
 
+def test_env_var_accepts_urlsafe_base64(monkeypatch: pytest.MonkeyPatch):
+    """B31: ``secrets.token_urlsafe(32)``-style keys must decode successfully.
+
+    URL-safe base64 uses ``-``/``_`` in place of ``+``/``/``. The standard
+    ``base64.b64decode`` silently strips those chars, yielding the wrong byte
+    length and a misleading "must decode to 32 bytes" error. The fix accepts
+    both encodings.
+    """
+    from cliff.integrations.vault import _try_env_var
+
+    monkeypatch.setattr("cliff.integrations.vault._try_keyring", lambda: None)
+    raw_bytes = os.urandom(32)
+    urlsafe_key = base64.urlsafe_b64encode(raw_bytes).decode()
+    # Sanity: a URL-safe encoding of 32 random bytes is overwhelmingly likely
+    # to include at least one ``-`` or ``_`` distinct from standard base64.
+    monkeypatch.setenv("CLIFF_CREDENTIAL_KEY", urlsafe_key)
+    decoded = _try_env_var()
+    assert decoded == raw_bytes
+
+
+def test_env_var_accepts_standard_base64_regression(monkeypatch: pytest.MonkeyPatch):
+    """B31 regression: the legacy standard-base64 path must still work."""
+    from cliff.integrations.vault import _try_env_var
+
+    monkeypatch.setattr("cliff.integrations.vault._try_keyring", lambda: None)
+    raw_bytes = os.urandom(32)
+    standard_key = base64.b64encode(raw_bytes).decode()
+    monkeypatch.setenv("CLIFF_CREDENTIAL_KEY", standard_key)
+    decoded = _try_env_var()
+    assert decoded == raw_bytes
+
+
+def test_env_var_raises_on_garbage(monkeypatch: pytest.MonkeyPatch):
+    """B31: garbage input raises ``CredentialKeyError`` with a useful message
+    (not silent corruption that gets reported as a length mismatch elsewhere).
+    """
+    from cliff.integrations.vault import _try_env_var
+
+    monkeypatch.setattr("cliff.integrations.vault._try_keyring", lambda: None)
+    monkeypatch.setenv("CLIFF_CREDENTIAL_KEY", "!!! not base64 at all !!!")
+    with pytest.raises(CredentialKeyError, match="CLIFF_CREDENTIAL_KEY"):
+        _try_env_var()
+
+
 def test_file_provider_auto_generates_on_first_run(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ):
