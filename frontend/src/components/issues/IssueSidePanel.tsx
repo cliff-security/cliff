@@ -23,6 +23,7 @@ import { api } from '../../api/client'
 import type { AgentRun, ExceptionReason, Finding, IssueStage } from '../../api/client'
 import {
   useAgentRuns,
+  useApprovePlan,
   useCancelAgentRun,
   useExecuteAgent,
   useRejectFinding,
@@ -885,6 +886,7 @@ function DefaultFooter({
 }) {
   const workspaceId = finding.derived?.workspace_id ?? null
   const executeAgent = useExecuteAgent(workspaceId ?? undefined)
+  const approvePlan = useApprovePlan(workspaceId ?? undefined)
   const cancelAgentRun = useCancelAgentRun(workspaceId ?? undefined)
   const respondToPermission = useRespondToPermission(workspaceId ?? undefined)
   const updateFinding = useUpdateFinding()
@@ -986,6 +988,7 @@ function DefaultFooter({
   }
 
   if (stage === 'plan_ready') {
+    const approvePending = approvePlan.isPending || executeAgent.isPending
     return (
       <div className="flex items-center gap-2 w-full">
         <PrimaryButton
@@ -997,12 +1000,21 @@ function DefaultFooter({
               return
             }
             if (!workspaceId) return
-            executeAgent.mutate({ agentType: 'remediation_executor' })
+            // Q01R / B29 — flip ``plan.approved=true`` BEFORE kicking
+            // the executor so the run-all loop's gate sees the approval
+            // and the executor reads an approved plan from the sidebar.
+            // Without the approve call first the executor either no-ops
+            // (run-all path) or races against an un-approved plan.
+            approvePlan.mutate(undefined, {
+              onSuccess: () => {
+                executeAgent.mutate({ agentType: 'remediation_executor' })
+              },
+            })
           }}
-          disabled={!workspaceId || executeAgent.isPending}
+          disabled={!workspaceId || approvePending}
           title={blockedByAI ? aiRequired.tooltip ?? undefined : undefined}
         >
-          Approve & generate fix
+          {approvePending ? 'Approving…' : 'Approve & generate fix'}
         </PrimaryButton>
         <TextButton kbd="R" onClick={onRefine}>
           Refine

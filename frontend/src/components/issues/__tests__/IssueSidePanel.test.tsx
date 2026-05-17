@@ -111,6 +111,52 @@ describe('IssueSidePanel — sticky footer (F4)', () => {
   })
 })
 
+describe('IssueSidePanel — Approve & generate fix (Q01R / B29)', () => {
+  it('clicking Approve chains POST /plan/approve THEN POST /agents/remediation_executor/execute', async () => {
+    const calls: string[] = []
+    server.use(
+      http.post('/api/workspaces/:wsId/plan/approve', () => {
+        calls.push('approve')
+        return HttpResponse.json({
+          workspace_id: 'ws-1',
+          summary: null,
+          evidence: null,
+          owner: null,
+          plan: { approved: true, sections: [] },
+          ticket: null,
+          validation: null,
+        })
+      }),
+      http.post(
+        '/api/workspaces/:wsId/agents/:type/execute',
+        ({ params }) => {
+          calls.push(`execute:${params.type}`)
+          return HttpResponse.json(
+            {
+              agent_run_id: 'r-1',
+              agent_type: params.type as string,
+              status: 'running',
+            },
+            { status: 202 },
+          )
+        },
+      ),
+      // Q01R approve-plan hook invalidates the agent-runs query → MSW
+      // handler must exist for the refetch to succeed (otherwise the
+      // panel re-renders mid-test and unmounts the button).
+      http.get('/api/workspaces/:wsId/agent-runs', () =>
+        HttpResponse.json([]),
+      ),
+    )
+    renderPanel(findingForStage('plan_ready'))
+    fireEvent.click(
+      screen.getByRole('button', { name: /Approve & generate fix/i }),
+    )
+    await waitFor(() => expect(calls).toContain('execute:remediation_executor'))
+    expect(calls).toEqual(['approve', 'execute:remediation_executor'])
+  })
+})
+
 describe('IssueSidePanel — Refine inline state (F5)', () => {
   it('clicking Refine reveals an autofocused textarea inside the Plan section', async () => {
     renderPanel(findingForStage('plan_ready'))

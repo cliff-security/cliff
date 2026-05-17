@@ -141,6 +141,27 @@ export function useExecuteAgent(workspaceId: string | undefined) {
   })
 }
 
+// Q01R / B29 — approve the planner's output. The side panel's
+// "Approve & generate fix" footer button chains this BEFORE the
+// remediation_executor execute call so the executor sees
+// ``plan.approved=true`` in the sidebar (the run-all loop also checks
+// the same flag). Returns the updated SidebarState; we invalidate the
+// sidebar + agent-runs caches so any consumer re-renders with the
+// approved plan immediately.
+export function useApprovePlan(workspaceId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.approvePlan(workspaceId!),
+    onSuccess: () => {
+      if (workspaceId) {
+        qc.invalidateQueries({ queryKey: ['sidebar', workspaceId] })
+        qc.invalidateQueries({ queryKey: ['agent-runs', workspaceId] })
+      }
+      qc.invalidateQueries({ queryKey: ['findings'] })
+    },
+  })
+}
+
 // Cancel the currently-running agent run for a workspace. The backend
 // flips the agent_run to status='cancelled'; the issue-derivation then
 // surfaces the finding as 'failed' (recoverable via Retry) rather than
