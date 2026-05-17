@@ -23,7 +23,10 @@ def _is_running(run: AgentRun | None) -> bool:
 
 
 def _is_failed(run: AgentRun | None) -> bool:
-    return run is not None and run.status == "failed"
+    # EF-B17 — ``rate_limited`` is a terminal non-success state; the UI
+    # surfaces the same "retry" affordance for both, so the derivation
+    # rules that key off "exec failed" also fire for "exec rate-limited".
+    return run is not None and run.status in ("failed", "rate_limited")
 
 
 def _has_plan(sidebar: SidebarState | None) -> bool:

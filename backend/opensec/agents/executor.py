@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +22,7 @@ import httpx
 from opensec.agents.errors import (
     AgentBusyError,
     AgentProcessError,
+    AgentRateLimitError,
     AgentTimeoutError,
 )
 from opensec.agents.output_parser import ParseResult, parse_agent_response
@@ -63,6 +65,50 @@ DEFAULT_TIMEOUT: float = 150.0
 # The real timeout is enforced by stall detection, which accounts for
 # time spent waiting for user permission decisions.
 PERMISSION_WAIT_BUFFER: float = 600.0
+
+# ---------------------------------------------------------------------------
+# Provider rate-limit backoff (EF-B17)
+# ---------------------------------------------------------------------------
+# Upstream LLM providers (Anthropic, OpenRouter, OpenAI) start returning 429
+# when the workspace pool runs more than one concurrent agent. OpenCode wraps
+# the upstream 429 into a ``session.error`` SSE event that surfaces to the
+# executor as an ``AgentRateLimitError``. Under pool>=2 (the Wave-2 cap)
+# this used to fail the run on the first throttle; we now retry with
+# exponential backoff + jitter up to ``RATE_LIMIT_MAX_ATTEMPTS`` before
+# terminating the run with status ``rate_limited``.
+#
+# Tests monkey-patch these to 0.0 to avoid sleeping in unit suites.
+RATE_LIMIT_MAX_ATTEMPTS: int = 3
+RATE_LIMIT_BASE_DELAY_SECONDS: float = 2.0
+RATE_LIMIT_MAX_DELAY_SECONDS: float = 16.0
+
+# Substring signals that an OpenCode error message wraps an upstream
+# provider rate-limit. Single source of truth — ``_humanize_process_error``
+# below uses the same set to render the user-facing copy.
+_RATE_LIMIT_SUBSTRINGS: tuple[str, ...] = (
+    "rate limit",
+    "429",
+    "too many requests",
+)
+
+
+def _looks_like_rate_limit(message: str) -> bool:
+    """Return True if ``message`` carries any of the rate-limit signals."""
+    lowered = message.lower()
+    return any(s in lowered for s in _RATE_LIMIT_SUBSTRINGS)
+
+
+def _rate_limit_backoff_delay(attempt: int) -> float:
+    """Exponential backoff with full jitter for retry ``attempt`` (1-based).
+
+    attempt=1 -> base, attempt=2 -> 2*base, attempt=3 -> 4*base, capped at
+    ``RATE_LIMIT_MAX_DELAY_SECONDS``. Adds up to one base-delay of jitter
+    so concurrent workspaces don't all wake at the same instant.
+    """
+    base = RATE_LIMIT_BASE_DELAY_SECONDS
+    exp = base * (2 ** max(attempt - 1, 0))
+    jitter = random.uniform(0.0, base) if base > 0 else 0.0
+    return min(exp, RATE_LIMIT_MAX_DELAY_SECONDS) + jitter
 
 # ---------------------------------------------------------------------------
 # Permission tier classification for tool-use approval.
@@ -566,7 +612,10 @@ class AgentExecutionResult:
 
     agent_run_id: str
     agent_type: str
-    status: Literal["completed", "failed"]
+    # EF-B17 — ``rate_limited`` joins ``failed`` as a non-success terminal
+    # state. Callers that key off ``status == 'failed'`` should also treat
+    # ``rate_limited`` as terminal-non-success; see ``pipeline.run_pipeline``.
+    status: Literal["completed", "failed", "rate_limited"]
     parse_result: ParseResult
     sidebar_updated: bool = False
     context_version: int | None = None
@@ -760,13 +809,38 @@ class AgentExecutor:
                 else timeout
             )
 
-            response_text = await self._send_and_collect(
-                client, session.id, prompt,
-                timeout=effective_timeout, on_progress=on_progress,
-                on_permission=on_permission,
-                agent_run_id=agent_run.id,
-                agent_type=agent_type,
-            )
+            # EF-B17 — provider rate-limit retry with exponential backoff.
+            # Each attempt uses a fresh OpenCode session because the previous
+            # one already consumed the prompt that triggered the throttle.
+            # ``session`` is reassigned so downstream code (parse-failure
+            # retry below) keeps targeting the session that produced the
+            # eventually-successful response.
+            response_text = ""
+            for attempt in range(1, RATE_LIMIT_MAX_ATTEMPTS + 1):
+                try:
+                    response_text = await self._send_and_collect(
+                        client, session.id, prompt,
+                        timeout=effective_timeout, on_progress=on_progress,
+                        on_permission=on_permission,
+                        agent_run_id=agent_run.id,
+                        agent_type=agent_type,
+                    )
+                    break
+                except AgentRateLimitError as exc:
+                    if attempt >= RATE_LIMIT_MAX_ATTEMPTS:
+                        # Out of budget — let the outer handler convert to
+                        # status=rate_limited with last_error populated.
+                        raise
+                    delay = _rate_limit_backoff_delay(attempt)
+                    logger.warning(
+                        "Agent %s rate-limited on attempt %d/%d; "
+                        "sleeping %.1fs before retry: %s",
+                        agent_type, attempt, RATE_LIMIT_MAX_ATTEMPTS,
+                        delay, exc,
+                    )
+                    await asyncio.sleep(delay)
+                    # Fresh session for the next try.
+                    session = await client.create_session()
 
             # 7. Parse response
             parse_result = parse_agent_response(
@@ -962,6 +1036,7 @@ class AgentExecutor:
                     structured_output=parse_result.structured_output,
                     next_action_hint=parse_result.suggested_next_action,
                     evidence_json=evidence_json,
+                    last_error=verification_error,
                 ),
             )
 
@@ -980,12 +1055,15 @@ class AgentExecutor:
         except AgentTimeoutError:
             self._cleanup_workspace_state(workspace_id, agent_run.id)
             duration = time.monotonic() - start_time
+            timeout_error = f"Agent timed out after {timeout:.0f}s"
             await update_agent_run(
                 db,
                 agent_run.id,
                 AgentRunUpdate(
                     status="failed",
                     summary_markdown="Agent timed out. Partial response may be available.",
+                    evidence_json={"error": timeout_error, "type": "AgentTimeoutError"},
+                    last_error=timeout_error,
                 ),
             )
             return AgentExecutionResult(
@@ -995,7 +1073,47 @@ class AgentExecutor:
                 parse_result=ParseResult(
                     success=False, raw_text="", error="timeout"
                 ),
-                error=f"Agent timed out after {timeout:.0f}s",
+                error=timeout_error,
+                duration_seconds=duration,
+            )
+
+        # EF-B17 — must precede ``AgentProcessError`` because
+        # ``AgentRateLimitError`` is a subclass of it.
+        except AgentRateLimitError as exc:
+            self._cleanup_workspace_state(workspace_id, agent_run.id)
+            duration = time.monotonic() - start_time
+            next_delay = _rate_limit_backoff_delay(RATE_LIMIT_MAX_ATTEMPTS)
+            last_error = (
+                f"Provider rate limit reached after "
+                f"{RATE_LIMIT_MAX_ATTEMPTS} attempts; retry in "
+                f"~{next_delay:.0f}s. Upstream: {exc}"
+            )
+            logger.warning(
+                "Agent %s terminated rate_limited after %d attempts: %s",
+                agent_type, RATE_LIMIT_MAX_ATTEMPTS, exc,
+            )
+            await update_agent_run(
+                db,
+                agent_run.id,
+                AgentRunUpdate(
+                    status="rate_limited",
+                    summary_markdown=_humanize_process_error(str(exc)),
+                    evidence_json={
+                        "error": str(exc),
+                        "type": "AgentRateLimitError",
+                        "attempts": RATE_LIMIT_MAX_ATTEMPTS,
+                    },
+                    last_error=last_error,
+                ),
+            )
+            return AgentExecutionResult(
+                agent_run_id=agent_run.id,
+                agent_type=agent_type,
+                status="rate_limited",
+                parse_result=ParseResult(
+                    success=False, raw_text="", error=str(exc)
+                ),
+                error=last_error,
                 duration_seconds=duration,
             )
 
@@ -1009,6 +1127,7 @@ class AgentExecutor:
                     status="failed",
                     summary_markdown=_humanize_process_error(str(exc)),
                     evidence_json={"error": str(exc)},
+                    last_error=str(exc),
                 ),
             )
             return AgentExecutionResult(
@@ -1033,6 +1152,7 @@ class AgentExecutor:
                     status="failed",
                     summary_markdown=f"Unexpected error: {exc}",
                     evidence_json={"error": str(exc), "type": type(exc).__name__},
+                    last_error=str(exc),
                 ),
             )
             return AgentExecutionResult(
@@ -1234,9 +1354,14 @@ class AgentExecutor:
                     if on_progress:
                         on_progress(event["content"])
                 elif event["type"] == "error":
-                    raise AgentProcessError(
-                        f"OpenCode error: {event.get('message', 'unknown')}"
-                    )
+                    message = event.get("message", "unknown")
+                    wrapped = f"OpenCode error: {message}"
+                    # EF-B17 — classify provider rate-limit early so the
+                    # executor retry loop can apply exponential backoff
+                    # instead of treating it as a fatal process error.
+                    if _looks_like_rate_limit(message):
+                        raise AgentRateLimitError(wrapped)
+                    raise AgentProcessError(wrapped)
                 elif event["type"] == "done":
                     return collected_text
                 elif event["type"] == "permission_request":

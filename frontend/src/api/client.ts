@@ -145,7 +145,10 @@ export interface MessageCreate {
 }
 
 export type AgentRunStatus =
-  | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+  | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+  // EF-B17 — terminal state when the upstream AI provider rate-limited
+  // the request and the executor's backoff retry budget was exhausted.
+  | 'rate_limited';
 
 export interface AgentRun {
   id: string;
@@ -158,6 +161,7 @@ export interface AgentRun {
   evidence_json: Record<string, unknown> | null;
   structured_output: Record<string, unknown> | null;
   next_action_hint: string | null;
+  last_error: string | null;
   started_at: string | null;
   completed_at: string | null;
 }
@@ -175,6 +179,7 @@ export interface AgentRunUpdate {
   evidence_json?: Record<string, unknown>;
   structured_output?: Record<string, unknown>;
   next_action_hint?: string;
+  last_error?: string;
 }
 
 // ---------------------------------------------------------------------------
