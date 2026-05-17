@@ -291,6 +291,15 @@ class WorkspaceProcessPool:
         # instead of silently operating on the parent repo.
         merged_env_vars["GIT_CEILING_DIRECTORIES"] = str(workspace_dir)
 
+        # Per-workspace npm cache (EF-B15). Multiple workspaces sharing
+        # ~/.npm contend on the same lockfile + cache dir under concurrent
+        # `npm install`, which was a root cause of the pool>=4 retry storm
+        # (load average 17-20, OpenCode timeouts, retry amplification).
+        # Giving each workspace its own cache eliminates the contention.
+        npm_cache = workspace_dir / ".npm-cache"
+        npm_cache.mkdir(parents=True, exist_ok=True)
+        merged_env_vars["NPM_CONFIG_CACHE"] = str(npm_cache)
+
         # Reconcile the workspace's opencode.json model with the active AI
         # provider before spawn — see ``_reconcile_opencode_model``. Kept
         # next to the env injection above so the model and the provider key

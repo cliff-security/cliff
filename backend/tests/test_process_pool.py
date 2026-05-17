@@ -390,6 +390,33 @@ async def test_empty_env_vars_still_injects_git_ceiling(
     assert passed_env["GIT_CEILING_DIRECTORIES"] == "/tmp/ws-empty-env"
 
 
+async def test_start_injects_npm_cache(
+    pool: WorkspaceProcessPool, tmp_path: Path
+):
+    """Each workspace gets ``NPM_CONFIG_CACHE=<workspace>/.npm-cache``
+    so concurrent ``npm install`` invocations don't contend on ~/.npm
+    (EF-B15). The cache dir is created on disk too."""
+    mock_proc = _make_mock_subprocess()
+    mock_httpx = _make_mock_httpx_healthy()
+
+    ws_dir = tmp_path / "ws-npm"
+    ws_dir.mkdir()
+
+    with (
+        patch(
+            "opensec.engine.pool.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=mock_proc),
+        ) as mock_exec,
+        patch("opensec.engine.pool.httpx.AsyncClient", return_value=mock_httpx),
+    ):
+        await pool.start("ws-npm", ws_dir)
+
+    passed_env = mock_exec.call_args.kwargs.get("env")
+    assert passed_env is not None
+    assert passed_env["NPM_CONFIG_CACHE"] == str(ws_dir / ".npm-cache")
+    assert (ws_dir / ".npm-cache").is_dir()
+
+
 # ---------------------------------------------------------------------------
 # opencode.json model reconciliation (QA Q01 B06b)
 # ---------------------------------------------------------------------------
