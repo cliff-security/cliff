@@ -278,6 +278,240 @@ describe('IssueSidePanel — Activity error_details (B30)', () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// Stage override: ``executor_failed`` (Q01R-W2 / B35b / IMPL-0017)
+//
+// When the latest remediation_executor run lands with
+// ``status='completed'`` + ``structured_output.error_details``, the
+// backend stage derivation can still report ``pushing`` (the executor
+// created the branch locally before the git-push died). The panel must
+// override that to a terminal-error stage so the header pill, top
+// widget, and footer button all surface a "needs attention / retry"
+// treatment instead of an indefinite spinner.
+// ---------------------------------------------------------------------------
+
+describe('IssueSidePanel — executor_failed stage override (B35b)', () => {
+  function withAgentRuns(workspaceId: string, runs: unknown[]) {
+    server.use(
+      // AI provider status is read by every footer-button gate
+      // (``blockedByAI``). The default session-handler mock returns
+      // ``state='unconfigured'``, which would route every Retry click
+      // into the AI-provider modal instead of the approve→execute
+      // chain. The override below mirrors a configured provider so
+      // these tests exercise the actual stage-derivation behavior
+      // rather than the AI-gate.
+      http.get('/api/integrations/ai/status', () =>
+        HttpResponse.json({
+          state: 'connected',
+          provider: 'anthropic',
+          source: 'byok',
+          connected_at: '2026-05-17T11:00:00Z',
+          metadata: null,
+          model: 'anthropic/claude-haiku-4-5',
+        }),
+      ),
+      http.get(`/api/workspaces/${workspaceId}/agent-runs`, () =>
+        HttpResponse.json(runs),
+      ),
+    )
+  }
+
+  const failedExecutorRun = {
+    id: 'run-fail',
+    workspace_id: 'ws-1',
+    agent_type: 'remediation_executor',
+    status: 'completed',
+    input_json: null,
+    summary_markdown: 'Patch applied locally',
+    confidence: 0.9,
+    evidence_json: null,
+    structured_output: {
+      status: 'needs_approval',
+      pr_url: null,
+      error_details:
+        'Push to remote failed: Permission to cliff-security/NodeGoat.git denied to galanko.',
+    },
+    next_action_hint: null,
+    started_at: '2026-05-17T12:00:00Z',
+    completed_at: '2026-05-17T12:05:00Z',
+  }
+
+  it('renders Needs-attention pill when latest executor run has error_details', async () => {
+    withAgentRuns('ws-1', [failedExecutorRun])
+    // Server-derived stage is ``pushing`` — the panel must override it.
+    renderPanel(findingForStage('pushing'))
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('stage-chip-executor_failed'),
+      ).toBeInTheDocument(),
+    )
+    expect(
+      screen.getByText(/Needs attention/i),
+    ).toBeInTheDocument()
+  })
+
+  it('does NOT show the "Pushing branch / Thinking…" widget for executor_failed', async () => {
+    withAgentRuns('ws-1', [failedExecutorRun])
+    renderPanel(findingForStage('pushing'))
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('stage-chip-executor_failed'),
+      ).toBeInTheDocument(),
+    )
+    // The Plan-drafting widget renders this label for stage='pushing'.
+    // After the override it must not appear.
+    expect(
+      screen.queryByText(/Pushing the branch to GitHub/i),
+    ).toBeNull()
+    expect(screen.queryByText(/Cliff is thinking/i)).toBeNull()
+  })
+
+  it('footer shows a Retry button (not Cancel run) for executor_failed', async () => {
+    withAgentRuns('ws-1', [failedExecutorRun])
+    renderPanel(findingForStage('pushing'))
+    const retryBtn = await screen.findByRole('button', { name: /^Retry/i })
+    expect(retryBtn).toBeInTheDocument()
+    expect(retryBtn).not.toBeDisabled()
+    expect(screen.queryByRole('button', { name: /Cancel run/i })).toBeNull()
+  })
+
+  it('Retry chains POST /plan/approve THEN POST /agents/remediation_executor/execute', async () => {
+    const calls: string[] = []
+    server.use(
+      http.get('/api/integrations/ai/status', () =>
+        HttpResponse.json({
+          state: 'connected',
+          provider: 'anthropic',
+          source: 'byok',
+          connected_at: '2026-05-17T11:00:00Z',
+          metadata: null,
+          model: 'anthropic/claude-haiku-4-5',
+        }),
+      ),
+      http.get('/api/workspaces/:wsId/agent-runs', () =>
+        HttpResponse.json([failedExecutorRun]),
+      ),
+      http.post('/api/workspaces/:wsId/plan/approve', () => {
+        calls.push('approve')
+        return HttpResponse.json({
+          workspace_id: 'ws-1',
+          summary: null,
+          evidence: null,
+          owner: null,
+          plan: { approved: true, sections: [] },
+          ticket: null,
+          validation: null,
+        })
+      }),
+      http.post(
+        '/api/workspaces/:wsId/agents/:type/execute',
+        ({ params }) => {
+          calls.push(`execute:${params.type}`)
+          return HttpResponse.json(
+            {
+              agent_run_id: 'r-1',
+              agent_type: params.type as string,
+              status: 'running',
+            },
+            { status: 202 },
+          )
+        },
+      ),
+    )
+    renderPanel(findingForStage('pushing'))
+    const retryBtn = await screen.findByRole('button', { name: /^Retry/i })
+    fireEvent.click(retryBtn)
+    await waitFor(() =>
+      expect(calls).toContain('execute:remediation_executor'),
+    )
+    expect(calls).toEqual(['approve', 'execute:remediation_executor'])
+  })
+
+  it('Retry button is disabled while the mutation is pending (no double-fire)', async () => {
+    // Block the approve call on a never-resolving promise so we can
+    // observe the disabled state mid-flight.
+    let releaseApprove: (() => void) = () => {}
+    const approvePromise = new Promise<void>((resolve) => {
+      releaseApprove = resolve
+    })
+    server.use(
+      http.get('/api/integrations/ai/status', () =>
+        HttpResponse.json({
+          state: 'connected',
+          provider: 'anthropic',
+          source: 'byok',
+          connected_at: '2026-05-17T11:00:00Z',
+          metadata: null,
+          model: 'anthropic/claude-haiku-4-5',
+        }),
+      ),
+      http.get('/api/workspaces/:wsId/agent-runs', () =>
+        HttpResponse.json([failedExecutorRun]),
+      ),
+      http.post('/api/workspaces/:wsId/plan/approve', async () => {
+        await approvePromise
+        return HttpResponse.json({
+          workspace_id: 'ws-1',
+          summary: null,
+          evidence: null,
+          owner: null,
+          plan: { approved: true, sections: [] },
+          ticket: null,
+          validation: null,
+        })
+      }),
+    )
+    renderPanel(findingForStage('pushing'))
+    const retryBtn = await screen.findByRole('button', { name: /^Retry/i })
+    fireEvent.click(retryBtn)
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /Retrying…/i }),
+      ).toBeDisabled(),
+    )
+    // Release so the test cleans up.
+    releaseApprove()
+  })
+
+  it('does NOT override stage when there is no remediation_executor run', async () => {
+    withAgentRuns('ws-1', [
+      {
+        ...failedExecutorRun,
+        id: 'planner-run',
+        agent_type: 'remediation_planner',
+      },
+    ])
+    renderPanel(findingForStage('pushing'))
+    // Wait for the panel to settle so the stage chip is stable.
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('stage-chip-pushing'),
+      ).toBeInTheDocument(),
+    )
+    expect(
+      screen.queryByTestId('stage-chip-executor_failed'),
+    ).toBeNull()
+  })
+
+  it('does NOT override stage when executor run has no error_details', async () => {
+    withAgentRuns('ws-1', [
+      {
+        ...failedExecutorRun,
+        structured_output: { status: 'pr_created', pr_url: 'https://x' },
+      },
+    ])
+    renderPanel(findingForStage('pushing'))
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('stage-chip-pushing'),
+      ).toBeInTheDocument(),
+    )
+    expect(
+      screen.queryByTestId('stage-chip-executor_failed'),
+    ).toBeNull()
+  })
+})
+
 describe('IssueSidePanel — Reject reason picker (F6)', () => {
   it('clicking Reject swaps the footer to a reason picker (still 72px)', () => {
     renderPanel(findingForStage('plan_ready'))

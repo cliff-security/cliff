@@ -341,12 +341,16 @@ def _push_handler(payload: dict, status: int = 200):
 
 @pytest.mark.asyncio
 async def test_check_repo_push_access_returns_can_push_true_when_permission_is_true():
-    captured: dict = {}
+    captured: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        captured["url"] = str(request.url)
-        captured["auth"] = request.headers.get("authorization")
-        captured["accept"] = request.headers.get("accept")
+        captured.append(
+            {
+                "url": str(request.url),
+                "auth": request.headers.get("authorization"),
+                "accept": request.headers.get("accept"),
+            }
+        )
         return httpx.Response(
             200,
             json={
@@ -374,11 +378,16 @@ async def test_check_repo_push_access_returns_can_push_true_when_permission_is_t
     assert isinstance(result, RepoPushAccess)
     assert result.can_push is True
     assert result.reason == ""
-    assert captured["url"] == (
+    # The first call must be the user-perms endpoint. A second call to
+    # ``/installation`` is also issued (Q01R-W2 / B35a) but the handler
+    # above shares one response shape between both endpoints — the
+    # ``contents`` key is absent, which is the install-perms-fallback
+    # signal in client.py.
+    assert captured[0]["url"] == (
         "https://api.example.invalid/repos/cliff-security/NodeGoat"
     )
-    assert captured["auth"] == "Bearer ghu_abc"
-    assert captured["accept"] == "application/vnd.github+json"
+    assert captured[0]["auth"] == "Bearer ghu_abc"
+    assert captured[0]["accept"] == "application/vnd.github+json"
 
 
 @pytest.mark.asyncio
@@ -554,3 +563,257 @@ async def test_check_repo_push_access_does_not_echo_token_in_reason():
     assert result.can_push is False
     assert "ghu_secret_token" not in result.reason
     assert "Bearer" not in result.reason
+
+
+# ---------------------------------------------------------------------------
+# check_repo_push_access — App installation perms (Q01R-W2 / B35a / IMPL-0017)
+#
+# Even when the user OAuth token reports ``permissions.push=true`` on the
+# repo, the App-issued user-to-server token may still fail to push because
+# the App's *installation* declares ``contents:read`` — the effective
+# write capability is the intersection of (user repo perms) ∩ (App
+# installation perms). Preflight needs to consult both surfaces and refuse
+# the run when the installation lacks ``contents:write``, with a message
+# pointing at the org-admin remediation rather than the user's repo role.
+#
+# When the ``/installation`` endpoint isn't reachable (e.g. GitHub returns
+# 403/404 because the user OAuth token can't call that endpoint), we fall
+# back to the legacy user-perms check so the preflight stays useful even
+# in environments where install-perm visibility isn't granted to the
+# token kind we hold.
+# ---------------------------------------------------------------------------
+
+
+def _routed_handler(routes: dict[str, tuple[int, dict]]):
+    """Return a handler that maps URL path -> (status, json_body).
+
+    Keyed by the request path (no host) so callers can express the
+    multi-endpoint flow that ``check_repo_push_access`` walks.
+    """
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path not in routes:
+            return httpx.Response(500, json={"message": f"unrouted: {path}"})
+        status, payload = routes[path]
+        return httpx.Response(status, json=payload)
+
+    return _handler
+
+
+@pytest.mark.asyncio
+async def test_check_uses_install_perms_when_user_says_push_true_but_install_contents_read():
+    """User perms say push=true but the App installation only declares
+    ``contents:read`` — preflight must surface this BEFORE the executor
+    waits 4 minutes to fail at git-push time."""
+
+    routes = {
+        "/repos/cliff-security/NodeGoat": (
+            200,
+            {
+                "full_name": "cliff-security/NodeGoat",
+                "permissions": {"push": True, "pull": True},
+            },
+        ),
+        "/repos/cliff-security/NodeGoat/installation": (
+            200,
+            {
+                "id": 133122855,
+                "permissions": {
+                    "contents": "read",
+                    "metadata": "read",
+                    "pull_requests": "read",
+                },
+            },
+        ),
+    }
+    transport = httpx.MockTransport(_routed_handler(routes))
+    result = await check_repo_push_access(
+        token="ghu_abc",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    assert isinstance(result, RepoPushAccess)
+    assert result.can_push is False
+    # The reason needs to point at the org-admin remediation (approve the
+    # App's newer permissions) rather than the user's repo role.
+    reason_lower = result.reason.lower()
+    assert "admin" in reason_lower or "approve" in reason_lower
+    assert "app" in reason_lower
+    # Must not promise a fix the user can do themselves — this requires
+    # the org owner to approve the App's updated declared permissions.
+    assert "permission" in reason_lower or "contents" in reason_lower
+
+
+@pytest.mark.asyncio
+async def test_check_passes_when_install_perms_contents_write():
+    """Belt-and-suspenders: install perms grant contents:write AND user
+    perms grant push — preflight returns can_push=True with no reason."""
+
+    routes = {
+        "/repos/cliff-security/NodeGoat": (
+            200,
+            {
+                "full_name": "cliff-security/NodeGoat",
+                "permissions": {"push": True, "pull": True},
+            },
+        ),
+        "/repos/cliff-security/NodeGoat/installation": (
+            200,
+            {
+                "id": 133122855,
+                "permissions": {
+                    "contents": "write",
+                    "pull_requests": "write",
+                    "metadata": "read",
+                },
+            },
+        ),
+    }
+    transport = httpx.MockTransport(_routed_handler(routes))
+    result = await check_repo_push_access(
+        token="ghu_abc",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    assert result.can_push is True
+    assert result.reason == ""
+
+
+@pytest.mark.asyncio
+async def test_check_falls_back_when_install_lookup_unavailable():
+    """User OAuth tokens cannot call the App-only ``/installation``
+    endpoint — GitHub returns 404/403 in that case. The preflight must
+    fall back to the existing user-perms-only check so we don't regress
+    the W1 behavior in environments where the install perms aren't
+    visible to the token kind we hold."""
+
+    routes = {
+        "/repos/cliff-security/NodeGoat": (
+            200,
+            {
+                "full_name": "cliff-security/NodeGoat",
+                "permissions": {"push": True, "pull": True},
+            },
+        ),
+        "/repos/cliff-security/NodeGoat/installation": (
+            404,
+            {"message": "Not Found"},
+        ),
+    }
+    transport = httpx.MockTransport(_routed_handler(routes))
+    result = await check_repo_push_access(
+        token="ghu_abc",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    # Falls back to user-perms-only: user push=true → can_push=True.
+    assert result.can_push is True
+
+
+@pytest.mark.asyncio
+async def test_check_falls_back_when_install_lookup_returns_403():
+    """403 is the more common response for user OAuth tokens calling
+    App-only endpoints. Must be treated the same as 404 — fall back to
+    the user-perms-only check."""
+
+    routes = {
+        "/repos/cliff-security/NodeGoat": (
+            200,
+            {
+                "full_name": "cliff-security/NodeGoat",
+                "permissions": {"push": False, "pull": True},
+            },
+        ),
+        "/repos/cliff-security/NodeGoat/installation": (
+            403,
+            {"message": "Forbidden"},
+        ),
+    }
+    transport = httpx.MockTransport(_routed_handler(routes))
+    result = await check_repo_push_access(
+        token="ghu_abc",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    # User perms say push=false → can_push=False with the legacy reason.
+    assert result.can_push is False
+    assert "push" in result.reason.lower()
+
+
+@pytest.mark.asyncio
+async def test_check_falls_back_when_install_lookup_5xx_or_network():
+    """A transient failure on the ``/installation`` lookup must not
+    poison the preflight — fall back to the user-perms check so a
+    GitHub hiccup on one endpoint doesn't silently block every executor
+    run."""
+
+    routes = {
+        "/repos/cliff-security/NodeGoat": (
+            200,
+            {
+                "full_name": "cliff-security/NodeGoat",
+                "permissions": {"push": True, "pull": True},
+            },
+        ),
+        "/repos/cliff-security/NodeGoat/installation": (
+            503,
+            {"message": "Service unavailable"},
+        ),
+    }
+    transport = httpx.MockTransport(_routed_handler(routes))
+    result = await check_repo_push_access(
+        token="ghu_abc",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    assert result.can_push is True
+    assert result.reason == ""
+
+
+@pytest.mark.asyncio
+async def test_check_install_perms_missing_block_treated_as_fallback():
+    """If the ``/installation`` response is 200 but omits the
+    ``permissions`` block, treat it like an unavailable lookup and fall
+    back to user-perms — don't block on a malformed payload we can't
+    interpret."""
+
+    routes = {
+        "/repos/cliff-security/NodeGoat": (
+            200,
+            {
+                "full_name": "cliff-security/NodeGoat",
+                "permissions": {"push": True, "pull": True},
+            },
+        ),
+        "/repos/cliff-security/NodeGoat/installation": (
+            200,
+            {"id": 1, "account": {"login": "cliff-security"}},
+        ),
+    }
+    transport = httpx.MockTransport(_routed_handler(routes))
+    result = await check_repo_push_access(
+        token="ghu_abc",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    assert result.can_push is True
+    assert result.reason == ""

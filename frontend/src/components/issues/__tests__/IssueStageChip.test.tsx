@@ -13,6 +13,7 @@ describe('IssueStageChip', () => {
     'plan_ready',
     'pr_ready',
     'pr_awaiting_val',
+    'executor_failed',
     'fixed',
     'false_positive',
     'wont_fix',

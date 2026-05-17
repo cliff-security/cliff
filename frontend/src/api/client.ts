@@ -64,6 +64,15 @@ export type IssueStage =
   // run (see migration 022).
   | 'awaiting_permission'
   | 'failed'
+  // Q01R-W2 / B35b — derived in the FRONTEND only. The backend can still
+  // report stage='pushing' when the remediation_executor has set up the
+  // local branch but the actual git-push died; the executor's run lands
+  // with status='completed' (it returned cleanly) but
+  // ``structured_output.error_details`` carries the failure string.
+  // IssueSidePanel detects this and overrides the stage so the header
+  // pill, top widget, and footer all show a terminal-error treatment
+  // instead of an indefinite "Pushing branch / Thinking…" spinner.
+  | 'executor_failed'
   | 'fixed' | 'false_positive' | 'wont_fix' | 'accepted' | 'deferred';
 
 export interface IssueDerived {
