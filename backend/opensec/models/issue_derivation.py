@@ -29,6 +29,17 @@ def _is_failed(run: AgentRun | None) -> bool:
     return run is not None and run.status in ("failed", "rate_limited")
 
 
+def _permission_pending(run: AgentRun | None) -> bool:
+    """True when the run is parked on an ``ask``-tier tool-use approval.
+
+    Set by ``executor._handle_permission`` and cleared when the asyncio
+    event resolves; also force-cleared by ``reconcile_orphaned_agent_runs``
+    on backend startup so a crashed-mid-wait row can't surface a stale
+    ``awaiting_permission`` after restart.
+    """
+    return run is not None and run.permission_pending
+
+
 def _has_plan(sidebar: SidebarState | None) -> bool:
     return sidebar is not None and bool(sidebar.plan)
 
@@ -98,6 +109,13 @@ def derive(
         # PR existence dominates planner re-runs (edge case 18 in IMPL plan).
         if pr_url:
             return out("review", "pr_ready")
+        # Agent-permission approval gate — a running executor parked on an
+        # ``ask``-tier tool-use request must surface in Review under the
+        # new ``awaiting_permission`` stage, not the in-flight ``generating``
+        # bucket. Placed before the ``running → generating`` branch by
+        # design.
+        if _is_running(executor_run) and _permission_pending(executor_run):
+            return out("review", "awaiting_permission")
         if _is_running(executor_run):
             return out("in_progress", "generating")
         # Failed PR push — the executor recorded its work in sidebar

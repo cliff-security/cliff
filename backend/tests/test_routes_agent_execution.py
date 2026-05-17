@@ -249,3 +249,95 @@ class TestCancelEndpoint:
             )
 
         assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Permission approval endpoint — wires user click → executor.approve_tool /
+# deny_tool. Trust-critical: if approve/deny don't reach the parked
+# ``_PendingApproval``, the agent stalls forever.
+# ---------------------------------------------------------------------------
+
+
+class TestPermissionEndpoint:
+    @pytest.mark.asyncio
+    async def test_approve_calls_executor_approve_tool(self, app, client):
+        executor = app.state.agent_executor
+        executor.approve_tool = lambda run_id: True
+
+        resp = await client.post(
+            "/api/workspaces/ws-1/agent-runs/run-1/permission",
+            json={"approved": True},
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "approved"
+        assert body["agent_run_id"] == "run-1"
+
+    @pytest.mark.asyncio
+    async def test_deny_calls_executor_deny_tool(self, app, client):
+        executor = app.state.agent_executor
+        executor.deny_tool = lambda run_id: True
+
+        resp = await client.post(
+            "/api/workspaces/ws-1/agent-runs/run-1/permission",
+            json={"approved": False},
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "denied"
+        assert body["agent_run_id"] == "run-1"
+
+    @pytest.mark.asyncio
+    async def test_no_pending_returns_404(self, app, client):
+        executor = app.state.agent_executor
+        executor.approve_tool = lambda run_id: False
+        executor.deny_tool = lambda run_id: False
+
+        resp = await client.post(
+            "/api/workspaces/ws-1/agent-runs/gone/permission",
+            json={"approved": True},
+        )
+
+        assert resp.status_code == 404
+        assert "No pending permission request" in resp.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_approve_routed_to_approve_not_deny(self, app, client):
+        """Trust guard — make sure ``approved=true`` doesn't accidentally
+        wire to deny_tool. Regression catcher for the conditional in
+        ``respond_to_permission``."""
+        approve_calls = []
+        deny_calls = []
+
+        executor = app.state.agent_executor
+        executor.approve_tool = lambda run_id: approve_calls.append(run_id) or True
+        executor.deny_tool = lambda run_id: deny_calls.append(run_id) or True
+
+        resp = await client.post(
+            "/api/workspaces/ws-1/agent-runs/run-77/permission",
+            json={"approved": True},
+        )
+
+        assert resp.status_code == 200
+        assert approve_calls == ["run-77"]
+        assert deny_calls == []
+
+    @pytest.mark.asyncio
+    async def test_deny_routed_to_deny_not_approve(self, app, client):
+        approve_calls = []
+        deny_calls = []
+
+        executor = app.state.agent_executor
+        executor.approve_tool = lambda run_id: approve_calls.append(run_id) or True
+        executor.deny_tool = lambda run_id: deny_calls.append(run_id) or True
+
+        resp = await client.post(
+            "/api/workspaces/ws-1/agent-runs/run-88/permission",
+            json={"approved": False},
+        )
+
+        assert resp.status_code == 200
+        assert deny_calls == ["run-88"]
+        assert approve_calls == []

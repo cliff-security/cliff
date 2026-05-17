@@ -82,6 +82,7 @@ const PROVIDERS: Record<AIProvider, ProviderInfo> = {
 const TILES: { id: AIProvider; subtitle: string }[] = [
   { id: 'anthropic', subtitle: 'Recommended' },
   { id: 'openai', subtitle: 'Tuned for Claude' },
+  { id: 'openrouter', subtitle: 'Many models, one key' },
   { id: 'google', subtitle: 'Gemini, free tier' },
   { id: 'ollama', subtitle: 'Local, no key' },
   { id: 'custom', subtitle: 'OpenAI-compatible' },

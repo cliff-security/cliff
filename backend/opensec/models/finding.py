@@ -82,6 +82,10 @@ IssueStage = Literal[
     "plan_ready",
     "pr_ready",
     "pr_awaiting_val",
+    # Remediation executor is parked on an ``ask``-tier tool request (e.g.
+    # ``rm -rf …``, ``git reset --hard …``). The persisted flag on the
+    # latest ``remediation_executor`` run drives this — see migration 022.
+    "awaiting_permission",
     # Error — latest agent run failed (timeout, parse error, engine
     # unavailable, failed PR push, etc.) and no recovery into a PR exists.
     # Sits under section='review' so the user lands on it as an action item

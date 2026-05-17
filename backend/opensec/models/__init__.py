@@ -168,6 +168,8 @@ class AgentRunUpdate(BaseModel):
     structured_output: dict[str, Any] | None = None
     next_action_hint: str | None = None
     last_error: str | None = None
+    permission_pending: bool | None = None
+    permission_request: dict[str, Any] | None = None
 
 
 class AgentRun(BaseModel):
@@ -188,6 +190,12 @@ class AgentRun(BaseModel):
     last_error: str | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    # Agent-permission approval gate (migration 022). Set by the executor
+    # while a ``_PendingApproval`` is parked, cleared when the asyncio
+    # event resolves. Read by ``issue_derivation.derive`` to route the
+    # finding into Review / awaiting_permission.
+    permission_pending: bool = False
+    permission_request: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------
