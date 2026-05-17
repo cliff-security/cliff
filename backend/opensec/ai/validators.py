@@ -397,9 +397,19 @@ async def validate_ollama(base_url: str | None = None) -> ValidationResult:
             error_code="no_access",
             error_message=str(exc),
         )
+    # CodeQL py/full-ssrf is suppressed here intentionally. ``url`` IS
+    # user-influenced — Ollama is *designed* to accept user-supplied
+    # base URLs including loopback (the local runtime) and RFC1918
+    # (SSH-tunnel and remote-Ollama-on-LAN deployments, codified in
+    # ADR-0038 as the "loose policy"). ``safe_ollama_tags_url`` already
+    # applies the partial defense: reject link-local (incl. cloud
+    # metadata 169.254.169.254), multicast, reserved, unspecified, and
+    # rebuild the URL via ``urlunparse`` from validated parts. The
+    # CodeQL alert is reviewed and dismissed per ADR-0038; suppressing
+    # inline so the alert doesn't re-fire on every push.
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
-            resp = await client.get(url)
+            resp = await client.get(url)  # codeql[py/full-ssrf]
     except (httpx.TimeoutException, httpx.HTTPError):
         return ValidationResult(
             ok=False,

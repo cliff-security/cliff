@@ -356,9 +356,14 @@ async def _ollama_tags(base_url: str) -> list[ProviderModelOption]:
         url = await safe_ollama_tags_url(base_url)
     except CustomEndpointRejectedError:
         return []
+    # See validate_ollama for the matching suppression rationale: this is
+    # the live-picker counterpart of the same deliberate-loose-policy
+    # outbound call (ADR-0038, M2). safe_ollama_tags_url has already
+    # rejected obviously-malicious targets and rebuilt the URL from
+    # validated parts; loopback + RFC1918 stay allowed by design.
     try:
         async with httpx.AsyncClient(timeout=4.0) as client:
-            resp = await client.get(url)
+            resp = await client.get(url)  # codeql[py/full-ssrf]
     except httpx.HTTPError:
         return []
     if resp.status_code >= 300:
