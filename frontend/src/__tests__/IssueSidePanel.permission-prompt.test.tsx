@@ -186,10 +186,17 @@ describe('<IssueSidePanel /> permission prompt', () => {
     await waitFor(() =>
       expect(screen.getByTestId('permission-prompt')).toBeInTheDocument(),
     )
-    expect(screen.getByText('Approval needed')).toBeInTheDocument()
-    expect(
-      screen.getByTestId('permission-prompt-detail'),
-    ).toHaveTextContent('bash · rm -rf build/')
+    // Eyebrow label replaced the bland "Approval needed" — same role,
+    // gentler copy that frames this as a pause-for-your-input moment.
+    expect(screen.getByText(/Awaiting your call/i)).toBeInTheDocument()
+    // The tool name (``bash`` / ``edit`` / …) is now its own eyebrow
+    // tag and the command lives in the code block — searchable separately.
+    expect(screen.getByText('bash')).toBeInTheDocument()
+    // The command block carries only the command itself (with a ``$``
+    // prefix from the shell-style code-block treatment).
+    const detail = screen.getByTestId('permission-prompt-detail')
+    expect(detail).toHaveTextContent('rm -rf build/')
+    expect(detail.textContent).toMatch(/\$\s+rm -rf build\//)
     expect(screen.getByTestId('permission-approve')).not.toBeDisabled()
     expect(screen.getByTestId('permission-deny')).not.toBeDisabled()
   })
