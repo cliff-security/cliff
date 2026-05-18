@@ -75,7 +75,7 @@ The installer fetches `uv`, a managed Python 3.11, the OpenCode binary, and the 
 curl -fsSL https://github.com/galanko/Cliff/releases/latest/download/install.sh | sh
 ```
 
-Manual install, image verification, and platform notes are in [docs/install.md](docs/install.md).
+Verify the image by checksum or build it yourself from this repo. See [`docker/`](docker/) for the Dockerfile and compose config.
 
 ## Use Cliff inside Claude Code
 
@@ -100,16 +100,12 @@ Cliff scores your repo against a posture rubric — closed criticals, no committ
 
 The full public Cliff badge — a live, continuously-scored README badge — ships in v1.2, once enough maintainers have earned one that it actually means something. We're not rushing that. The point of a security badge is that it's credible, not that it exists.
 
-[Read the rubric](docs/guides/badge.md)
+## Project info
 
-## Architecture and docs
-
-- [Architecture overview](docs/architecture/overview.md)
-- [Connect a GitHub repo](docs/guides/setup-github-app.md) — one-click GitHub App + device flow
-- [ADRs](docs/adr/) — every significant decision, with the trade-offs
 - [Roadmap](ROADMAP.md)
-- [Contributing](.github/CONTRIBUTING.md)
+- [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md) · [License](LICENSE)
+- [Changelog](CHANGELOG.md) · [Known issues](KNOWN_ISSUES.md)
 
 ## About
 
