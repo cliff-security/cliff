@@ -16,11 +16,13 @@
 
 ---
 
+## Earn the trust. Without speaking security.
+
 The security industry was built for companies with security teams. The next ten years won't have those companies.
 
-Cliff is the AI security teammate every team without a security team needs. Drop in a finding — from Snyk, Trivy, your own scanner, or a CSV — and Cliff opens a workspace, enriches the context, finds the owner, drafts the plan, files the ticket, and validates the close. The whole loop runs in a single chat thread — no dashboards to flip between, no per-CVE retracing. You steer; Cliff does the legwork.
+Cliff is the open-source security teammate your repo doesn't have. Point it at your code — it scans with bundled Trivy and Semgrep, explains every finding in plain English, and remediates with your approval at every step. Or pipe in findings from your existing scanner. The whole loop runs in a single chat thread — no dashboards to flip between, no per-CVE retracing.
 
-Built on [OpenCode](https://github.com/anomalyco/opencode). Self-hosted, AGPL-3.0, runs natively on macOS and Linux or in a single Docker container.
+Built on [OpenCode](https://github.com/anomalyco/opencode). Self-hosted, AGPL-3.0, BYOK. Runs natively on macOS and Linux, or in a single Docker container.
 
 > Alpha. Single-user. Expect rough edges — see [ROADMAP.md](ROADMAP.md).
 
@@ -31,11 +33,53 @@ Built on [OpenCode](https://github.com/anomalyco/opencode). Self-hosted, AGPL-3.
   </p>
 -->
 
+## What Cliff does
+
+Two findings. Same workflow.
+
+### Case A — dismissed, with the reasoning on record
+
+**Finding** · CVSS 7.5 · `braces` — transitive in `package-lock.json`
+
+> *A library you depend on has a flaw that could crash your app.*
+
+> **You:** is this even real?
+
+```
+cliff is reasoning
+✓ evidence        pulled CVE detail, mapped braces usage in lockfile
+✓ reachability    matchBase() — the vulnerable function — is never called from your code
+— exploitability  skipped, not reachable
+→ verdict         dismiss. logged with reasoning, trust score unchanged.
+```
+
+> **Cliff:** Not for you. Dismissed, with the reasoning on record. Your trust score didn't move.
+
+### Case B — remediated, with a draft PR awaiting your approval
+
+**Finding** · CVSS 8.7 · `axios` — direct dep in `package.json`
+
+> *A library you depend on could let attackers reach internal services.*
+
+> **You:** is this real or noise?
+
+```
+cliff is reasoning
+✓ evidence        pulled CVE detail, mapped axios calls in source and lockfile
+✓ reachability    called from your /webhook handler with a user-supplied URL
+! exploitability  untrusted input flows directly into axios.get — confirmed exploitable
+→ verdict         remediate. fix prepared, awaiting your approval.
+```
+
+> **Cliff:** Real exploit path. Remediating now — fix is on its way as PR #142. You approve, it ships.
+
+Same loop for every finding. Cliff drives; you check the work.
+
 ## Who Cliff is for
 
-- **OSS maintainers** with a backlog of Dependabot PRs they don't have time to read.
-- **Founders at AI-native startups** answering a 200-question security questionnaire that landed Friday.
-- **Solo security engineers** at growing companies, tired of being the bottleneck between detection and remediation.
+- **OSS maintainers** with a backlog of Dependabot PRs they don't have time to read. *(V1 wedge.)*
+- **Founder-engineers at AI-native startups** answering a 200-question security questionnaire that landed Friday.
+- **Fractional security leads** serving a handful of small teams who need self-hosted, source-available tooling.
 
 If you don't have a security team — or you *are* the security team — Cliff is for you.
 
@@ -79,26 +123,42 @@ Verify the image by checksum or build it yourself from this repo. See [`docker/`
 
 ## Use Cliff inside Claude Code
 
-Already in [Claude Code](https://claude.com/claude-code)? You can skip the web UI. After running the installer above, register the plugin marketplace and install `secure-repo`:
+Already in [Claude Code](https://claude.com/claude-code)? Skip the web UI. After running the installer above, register the plugin marketplace and install `secure-repo`:
 
 ```text
 /plugin marketplace add cliff-security/cliff
 /plugin install secure-repo@cliff
 ```
 
-Then in any git repo, ask:
+Then, in any git repo, ask:
 
 > *Hey Cliff, take care of this repo.*
 
 Cliff scans the codebase, opens a workspace per finding, and walks you from plan to PR to merge to close. You approve the plan. You approve the merge. You mark closed. Cliff handles the rest.
 
-## Earn the badge
+## Road to A
 
-What if your security posture was as legible as your build status?
+What if your security posture were as legible as your build status?
 
-Cliff scores your repo against a posture rubric — closed criticals, no committed secrets, posture checks passing — and writes a completion summary you can paste in your README and share. The grade in the hero is the one Cliff issued for itself.
+Cliff scores your repo against a posture rubric and walks you to grade A:
 
-The full public Cliff badge — a live, continuously-scored README badge — ships in v1.2, once enough maintainers have earned one that it actually means something. We're not rushing that. The point of a security badge is that it's credible, not that it exists.
+- No critical issues
+- High-severity backlog under control
+- No secrets in code
+- Posture checks passing
+- Lockfile up to date
+
+When the rubric clears, Cliff writes a completion summary you can paste in your README and share. The grade in the hero is the one Cliff issued for itself.
+
+The live, continuously-scored Cliff badge — the kind that lives next to your build badge and updates on every commit — ships in v1.2, once enough maintainers have earned one that it actually means something. The point of a security badge is that it's credible, not that it exists.
+
+## Who built this
+
+Cliff is built by **Gal Ankonina**, a twelve-year security generalist. The stack spans **Unit 8200**, defensive engineering at a Fortune-50, security startups, and ongoing OSS bug-bounty research — Chrome VRP among the credits.
+
+Cliff exists because the founder was the security person for his own projects and got tired of being it. The category had a thousand tools that told you you had a problem and almost none that helped you fix it.
+
+The marketing site lives at [cliffsecurity.ai](https://cliffsecurity.ai).
 
 ## Project info
 
@@ -115,14 +175,8 @@ Cliff bundles three third-party programs as subprocesses: [OpenCode](https://git
 
 The default scan invokes Semgrep's hosted **registry rule packs** `p/security-audit` and `p/owasp-top-ten`. Those rules are governed by the [Semgrep Rules License v1.0](https://semgrep.dev/legal/rules-license/) — source-available, separate from the LGPL-2.1 engine. They are free for **internal business use only**: not for SaaS, paid products, or products that compete with Semgrep. Teams considering a commercial deployment of Cliff should consult counsel before relying on these rule packs; [OpenGrep](https://github.com/opengrep/opengrep) is a license-clean drop-in alternative.
 
-## About
-
-Cliff is built by Cliff Security — a small team that runs a bug-bounty research practice and publishes the methodology behind it. The research finds the bugs in production browsers and other major targets; Cliff helps maintainers fix theirs.
-
-Cliff exists because the founder was the security person for his own projects and got tired of being it.
-
 ---
 
 <div align="center">
-  <sub>AGPL-3.0 · built by <a href="https://github.com/galanko">@galanko</a> · security should feel like shipping, not filing tickets.</sub>
+  <sub>AGPL-3.0 · <a href="https://cliffsecurity.ai">cliffsecurity.ai</a> · take care of security.</sub>
 </div>
