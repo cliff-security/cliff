@@ -36,7 +36,7 @@ Backend (V2):
 
 - `backend/cliff/integrations/github_app/client.py` — add a `_probe_git_push(token, repo_url) -> ProbeResult` helper that runs:
 
-  ```
+  ```bash
   git push --dry-run https://x-access-token:{token}@github.com/{owner}/{repo}.git HEAD:refs/heads/cliff-push-probe
   ```
 
