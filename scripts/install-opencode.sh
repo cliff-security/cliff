@@ -89,6 +89,20 @@ if [[ "$OS" == "darwin" ]] && command -v xattr >/dev/null 2>&1; then
   xattr -dr com.apple.quarantine "$INSTALL_DIR/opencode" 2>/dev/null || true
 fi
 
+# Preserve OpenCode's upstream LICENSE alongside the binary so the
+# distribution carries MIT attribution forward. Failure to obtain the
+# LICENSE is a hard error — shipping the binary without its required
+# MIT notice would violate the MIT terms, and silently warning here
+# means the failure only surfaces at audit time.
+LICENSE_URL="https://raw.githubusercontent.com/anomalyco/opencode/v${VERSION}/LICENSE"
+if ! curl -fsSL "$LICENSE_URL" -o "$INSTALL_DIR/opencode.LICENSE"; then
+  echo "Error: failed to fetch OpenCode LICENSE from $LICENSE_URL" >&2
+  echo "  The MIT license requires the LICENSE text to ship alongside the binary." >&2
+  rm -f "$INSTALL_DIR/opencode.LICENSE"
+  exit 1
+fi
+echo "Fetched OpenCode LICENSE -> $INSTALL_DIR/opencode.LICENSE"
+
 # Verify
 echo "Installed: $("$INSTALL_DIR/opencode" --version 2>/dev/null || echo "$INSTALL_DIR/opencode")"
 echo "Location: $INSTALL_DIR/opencode"

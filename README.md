@@ -107,6 +107,14 @@ The full public Cliff badge — a live, continuously-scored README badge — shi
 - [Security policy](SECURITY.md) · [License](LICENSE)
 - [Changelog](CHANGELOG.md) · [Known issues](KNOWN_ISSUES.md)
 
+## Licensing
+
+Cliff is licensed under [AGPL-3.0-only](LICENSE). Operating Cliff over a network for users other than yourself triggers AGPL §13 (corresponding-source disclosure); see [NOTICE](NOTICE) and [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
+
+Cliff bundles three third-party programs as subprocesses: [OpenCode](https://github.com/anomalyco/opencode) (MIT), [Trivy](https://github.com/aquasecurity/trivy) (Apache-2.0), and the [Semgrep CE](https://github.com/semgrep/semgrep) engine (LGPL-2.1). Their license texts ship alongside each binary in the install directory and are inventoried in [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
+
+The default scan invokes Semgrep's hosted **registry rule packs** `p/security-audit` and `p/owasp-top-ten`. Those rules are governed by the [Semgrep Rules License v1.0](https://semgrep.dev/legal/rules-license/) — source-available, separate from the LGPL-2.1 engine. They are free for **internal business use only**: not for SaaS, paid products, or products that compete with Semgrep. Teams considering a commercial deployment of Cliff should consult counsel before relying on these rule packs; [OpenGrep](https://github.com/opengrep/opengrep) is a license-clean drop-in alternative.
+
 ## About
 
 Cliff is built by Cliff Security — a small team that runs a bug-bounty research practice and publishes the methodology behind it. The research finds the bugs in production browsers and other major targets; Cliff helps maintainers fix theirs.

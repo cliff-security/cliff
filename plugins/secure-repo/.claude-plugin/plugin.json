@@ -8,6 +8,6 @@
   },
   "homepage": "https://github.com/galanko/Cliff",
   "repository": "https://github.com/galanko/Cliff",
-  "license": "AGPL-3.0",
+  "license": "AGPL-3.0-only",
   "keywords": ["security", "remediation", "cliff", "vibe-security"]
 }
