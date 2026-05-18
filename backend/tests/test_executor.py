@@ -175,33 +175,15 @@ class TestAgentExecutor:
         the closing ``done``. The SSE endpoint forwards these so the
         side panel can refresh ``agent-runs`` the instant a pipeline
         step flips, without waiting for the 5s idle poll.
+
+        ``_cleanup_workspace_state`` pops the queue at end-of-run, so we
+        intercept ``push_permission_event`` (the single publish funnel)
+        rather than draining the queue post-hoc.
         """
         response_text = _make_agent_response()
         mock_pool.get_or_start.return_value = _make_mock_client(response_text)
 
         executor = AgentExecutor(mock_pool, mock_context_builder)
-
-        with (
-            patch(
-                "cliff.agents.executor.create_agent_run",
-                return_value=_make_mock_agent_run(),
-            ),
-            patch("cliff.agents.executor.update_agent_run"),
-            patch("cliff.agents.executor.list_agent_runs", return_value=[]),
-            patch("cliff.agents.executor.map_and_upsert"),
-            patch("cliff.agents.executor._advance_finding_status", return_value=None),
-        ):
-            result = await executor.execute(
-                "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
-            )
-
-        # _cleanup_workspace_state pops the queue at end-of-run. To inspect
-        # what was pushed we drain the queue BEFORE the cleanup pop —
-        # which is gone by the time control returns to the test. Instead,
-        # re-run a parallel scenario that captures events via push_permission_event.
-        assert result.status == "completed"
-        # The queue is popped on cleanup, so we re-run with an interceptor
-        # on push_permission_event to assert the event sequence.
         captured: list[dict] = []
         original = executor.push_permission_event
 
@@ -221,9 +203,11 @@ class TestAgentExecutor:
             patch("cliff.agents.executor.map_and_upsert"),
             patch("cliff.agents.executor._advance_finding_status", return_value=None),
         ):
-            await executor.execute(
+            result = await executor.execute(
                 "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
             )
+
+        assert result.status == "completed"
 
         types = [evt.get("type") for evt in captured]
         assert "agent_run_started" in types
