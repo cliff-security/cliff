@@ -111,7 +111,7 @@ This tarball is the Cliff native install payload.
 
 If you got here directly, you almost certainly want the installer instead:
 
-    curl -fsSL https://github.com/galanko/cliff/releases/latest/download/install-local.sh | sh
+    curl -fsSL https://github.com/cliff-security/cliff/releases/latest/download/install-local.sh | sh
 
 The installer downloads this tarball, extracts it under ~/.cliff/app/,
 sets up a uv-managed Python venv, installs the opencode/trivy/semgrep

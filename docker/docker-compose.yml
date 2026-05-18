@@ -3,7 +3,7 @@ services:
     # Production: pull the signed, multi-arch image from GHCR.
     # Verify the digest before deploying — see docs/verify-release.md.
     # Override the tag via CLIFF_VERSION (e.g. CLIFF_VERSION=0.1.0-alpha).
-    image: ghcr.io/galanko/cliff:${CLIFF_VERSION:-latest}
+    image: ghcr.io/cliff-security/cliff:${CLIFF_VERSION:-latest}
     # Local dev: comment out `image:` above and uncomment this block to
     # build from source.
     # build:

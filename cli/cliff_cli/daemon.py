@@ -202,7 +202,8 @@ def start_cmd(detach: bool, port: int | None, host: str | None) -> None:
             code="not_installed",
             hint=(
                 "Run the installer: curl -fsSL "
-                "https://github.com/galanko/cliff/releases/latest/download/install-local.sh | sh"
+                "https://github.com/cliff-security/cliff"
+                "/releases/latest/download/install-local.sh | sh"
             ),
             exit_code=EXIT_ERROR,
         )

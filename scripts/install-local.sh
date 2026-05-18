@@ -4,16 +4,16 @@
 # This is the recommended path for new users; Docker stays available as the
 # secondary path (Windows + advanced users). Run it like this:
 #
-#   curl -fsSL https://github.com/galanko/cliff/releases/latest/download/install-local.sh | sh
+#   curl -fsSL https://github.com/cliff-security/cliff/releases/latest/download/install-local.sh | sh
 #
 # Pin a specific version:
 #
-#   curl -fsSL https://github.com/galanko/cliff/releases/latest/download/install-local.sh | CLIFF_VERSION=0.1.6 sh
+#   curl -fsSL https://github.com/cliff-security/cliff/releases/latest/download/install-local.sh | CLIFF_VERSION=0.1.6 sh
 #
 # Environment overrides:
 #   CLIFF_HOME            Install root (default: $HOME/.cliff)
 #   CLIFF_VERSION         Pin to a specific release tag (default: latest)
-#   CLIFF_REPO            github owner/name (default: galanko/cliff)
+#   CLIFF_REPO            github owner/name (default: cliff-security/cliff)
 #   CLIFF_LOCAL_TARBALL   Path to a local tarball (skip download — for CI/dev)
 #
 # Idempotent: re-running upgrades the install without touching ~/.cliff/data
@@ -21,7 +21,7 @@
 
 set -eu
 
-CLIFF_REPO="${CLIFF_REPO:-galanko/cliff}"
+CLIFF_REPO="${CLIFF_REPO:-cliff-security/cliff}"
 CLIFF_HOME="${CLIFF_HOME:-$HOME/.cliff}"
 APP_DIR="${CLIFF_HOME}/app"
 BACKEND_DIR="${APP_DIR}/backend"

@@ -8,7 +8,7 @@ Cliff is a self-hosted cybersecurity remediation copilot. It ingests vulnerabili
 
 Built on the [OpenCode](https://github.com/anomalyco/opencode) engine. Single-user community edition. AGPL-3.0 licensed.
 
-> **Historical name — Cliff was called OpenSec.** Until May 2026 this project was named "OpenSec" and lived at `github.com/galanko/OpenSec` (now `galanko/cliff`, with GitHub redirects). Any mention of "OpenSec" you encounter — in commit history, old branch names like `chore/cliff-os-restructure` referencing OpenSec snapshots, archived ADRs, third-party content, environment variables prefixed `OPENSEC_*`, Python modules named `opensec.*`, or the `cliff-os` private umbrella's pre-rename docs — refers to this same project. Treat "OpenSec" and "Cliff" as the same thing; the rename was cosmetic.
+> **Historical names — Cliff was called OpenSec, then briefly at `galanko/cliff`.** Until May 2026 this project was named "OpenSec" and lived at `github.com/galanko/OpenSec`. It was renamed to Cliff (briefly at `github.com/galanko/cliff`) and then transferred to a dedicated org at `github.com/cliff-security/cliff` in May 2026 (GitHub redirects from both old URLs). Any mention of "OpenSec", `galanko/OpenSec`, or `galanko/cliff` you encounter — in commit history, old branch names like `chore/cliff-os-restructure` referencing OpenSec snapshots, archived ADRs, third-party content, environment variables prefixed `OPENSEC_*`, Python modules named `opensec.*`, or the `cliff-os` private umbrella's pre-rename docs — refers to this same project. Treat all three as the same thing; the renames were cosmetic and organizational.
 
 ## Where to find architecture context
 

@@ -99,7 +99,7 @@ After both are present, re-run `cliff status` — `ready: true` → continue to 
 The README is the single source of truth for the install one-liner. Do **not** hardcode a URL.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/galanko/Cliff/main/README.md \
+curl -fsSL https://raw.githubusercontent.com/cliff-security/cliff/main/README.md \
   | awk '/<!-- install:start -->/{f=1;next}/<!-- install:end -->/{f=0}f'
 ```
 
@@ -300,12 +300,12 @@ Engage when: the table didn't match, the fix didn't work, doctor flagged somethi
 
 Tell the user:
 
-> "I can't fix this from here — it looks like a real bug in Cliff. Want me to draft a GitHub issue against `galanko/Cliff` with the diagnostic context I collected? It'll open in your browser pre-filled, so you can review and edit before submitting."
+> "I can't fix this from here — it looks like a real bug in Cliff. Want me to draft a GitHub issue against `cliff-security/cliff` with the diagnostic context I collected? It'll open in your browser pre-filled, so you can review and edit before submitting."
 
 If yes, build a single `gh` command that opens the GitHub compose page in the browser with the body pre-filled. **Always use `--web`.** Never auto-submit.
 
 ```bash
-gh issue create --repo galanko/Cliff --web \
+gh issue create --repo cliff-security/cliff --web \
   --title "[CLI] <one-line summary>" \
   --body "$(cat <<'EOF'
 ## What happened

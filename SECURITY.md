@@ -47,7 +47,7 @@ upgrade path. Reporters are credited unless they request otherwise.
 
 ## Supply chain
 
-Every published image at `ghcr.io/galanko/cliff` is signed with
+Every published image at `ghcr.io/cliff-security/cliff` is signed with
 Sigstore keyless OIDC and carries SLSA v1 build provenance plus a
 CycloneDX SBOM, all attached as transparency-log-backed attestations.
 The image runs as a non-root user (UID 10001). Releases are gated by a

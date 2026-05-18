@@ -6,8 +6,8 @@ The same `docs/assets/` tree lives in:
 
 | Repo | Path | Visibility |
 |------|------|------------|
-| `galanko/cliff` (this one — public OSS) | `docs/assets/` | public |
-| `galanko/cliff-os` (private umbrella) | `docs/assets/` | private |
+| `cliff-security/cliff` (this one — public OSS) | `docs/assets/` | public |
+| `cliff-security/cliff-os` (private umbrella) | `docs/assets/` | private |
 
 ## Why both
 

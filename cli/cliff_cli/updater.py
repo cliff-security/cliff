@@ -34,7 +34,7 @@ from packaging.version import InvalidVersion, Version
 
 from cliff_cli.output import EXIT_AWAITING_HUMAN, EXIT_ERROR, EXIT_OK, emit_error
 
-GITHUB_REPO = "galanko/cliff"
+GITHUB_REPO = "cliff-security/cliff"
 GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 GITHUB_API_TAG = f"https://api.github.com/repos/{GITHUB_REPO}/releases/tags/{{tag}}"
 

@@ -477,11 +477,11 @@ def posture_finding_dict() -> dict:
     f = Finding(
         id="finding-posture-001",
         source_type="cliff-posture",
-        source_id="https://github.com/galanko/Cliff:trusted_action_sources",
+        source_id="https://github.com/cliff-security/cliff:trusted_action_sources",
         title="trusted_action_sources",
         type="posture",
         status="new",
-        asset_label="https://github.com/galanko/Cliff",
+        asset_label="https://github.com/cliff-security/cliff",
         raw_payload={
             "check_name": "trusted_action_sources",
             "scanner_status": "fail",
