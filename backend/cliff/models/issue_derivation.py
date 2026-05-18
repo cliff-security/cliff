@@ -138,10 +138,15 @@ def derive(
             _is_failed(planner_run) and not _has_plan(sidebar)
         ):
             return out("review", "failed")
-        if _has_plan(sidebar):
-            return out("review", "plan_ready")
+        # A running planner wins over an existing plan so a Refine re-run
+        # surfaces ``planning`` (the side panel renders the "Reviewing the
+        # advisory…" drafting widget). Without this ordering the prior
+        # plan keeps the stage pinned at ``plan_ready`` and the user gets
+        # no visible feedback that the agent is working.
         if _is_running(planner_run):
             return out("in_progress", "planning")
+        if _has_plan(sidebar):
+            return out("review", "plan_ready")
         # Status=in_progress with no agent activity yet (e.g. the user just
         # clicked Start and the planner hasn't reported back). Show as
         # in_progress / planning rather than falling back to todo so the
