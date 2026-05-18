@@ -7,6 +7,177 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-18
+
+The first non-alpha cut. The project is now **Cliff**, lives at
+`github.com/cliff-security/cliff`, and ships with the production
+GitHub App + Device Flow onboarding. The big themes of this release are
+**identity** (rename + repo move), **trust** (real GitHub App, signed
+images, ask-tier tool approvals, agent safety guardrails), and a long
+list of QA-driven hardening fixes that take Cliff from "alpha that
+works on the happy path" to "self-hosted tool you can sit down with on
+a Monday morning and use without surprises."
+
+> If you're upgrading from 0.1.7-alpha: pull the new image
+> (`ghcr.io/cliff-security/cliff:0.2.0`) or re-run the installer. Your
+> `~/.cliff/data` and `~/.cliff/config` directories are preserved; the
+> installer is idempotent. PAT-based GitHub installs keep working —
+> the new Device Flow path is additive.
+
+### Changed
+
+- **Renamed OpenSec → Cliff and moved to `cliff-security/cliff`
+  (PRs #172, #182, #205).** Every user-visible surface — README,
+  installer, CLI commands, env-var prefixes (`OPENSEC_*` → `CLIFF_*`),
+  Python module (`opensec.*` → `cliff.*`), data dir (`~/.opensec/` →
+  `~/.cliff/`) — was migrated. The GitHub redirect from the old
+  `galanko/OpenSec` URL keeps existing clones working, and the
+  installer transparently picks up the new release-asset names. CLI
+  binary is now `cliff`; the old `opensec` binary is removed by
+  re-running the installer.
+- **OpenRouter default model swapped from `tencent/hy3-preview` to
+  `anthropic/claude-haiku-4.5` (PR #212).** The Tencent preview was
+  served by a single upstream provider (SiliconFlow) and serialised
+  concurrent agent calls into a single queue, causing 600 s wall-clock
+  timeouts when the user kicked off multiple remediations at once.
+  Claude Haiku 4.5 is multi-provider (Anthropic, AWS Bedrock, Google
+  Vertex through OpenRouter) and parallelises cleanly. Tencent Hy3
+  stays in the picker for cost-sensitive single-finding flows.
+- **Internal architecture docs (ADRs, IMPL plans, PRDs, QA evidence)
+  split into a private `cliff-os` umbrella (PR #182).** The public
+  repo now carries only end-user-facing docs (`README.md`,
+  `ROADMAP.md`, `CONTRIBUTING.md`, `docs/guides/`, `docs/assets/`).
+  Architecture decisions still happen — they live alongside the code
+  in a private sibling repo per `CLAUDE.md`.
+
+### Added
+
+- **Production GitHub App + Device Flow onboarding (ADR-0035,
+  IMPL-0010; PRs #168, #173, #174, #175, #176, #179, #180, #206).**
+  Cliff now ships with a real public GitHub App
+  ([github.com/apps/cliff-security](https://github.com/apps/cliff-security))
+  and uses GitHub's Device Flow to authorise per-instance — the same
+  pattern `gh auth login`, the Vercel CLI, and the npm CLI use. No
+  PAT to copy and paste, no scope picker to reason about, no
+  `client_secret` ever shipped to a self-hosted instance. The
+  Integrations page renders a **Connect GitHub** button, an authorise
+  modal with an 8-character device code and a 15-minute countdown,
+  and a manual `installation_id` recovery field for non-default
+  deployments. PAT flow continues to work for legacy installs.
+- **Ask-tier tool-use approval for destructive agent actions
+  (PR #165).** When the `remediation_executor` requests a "user"-tier
+  tool (e.g. `rm -rf`, `git reset --hard`, `git push --force`), the
+  agent pauses, the issue lands in a new `awaiting_permission` stage,
+  and the side panel prompts the user to **Approve (A)** or **Deny
+  (X)** the exact command before the agent proceeds. Auto-approved
+  commands (routine `git`, `gh`, build runners) still flow through
+  unattended.
+- **Push-access preflight + diagnose surface (PRs #168, #180; #176).**
+  Before the executor runs, Cliff probes whether the device-flow token
+  can actually `git push --dry-run` to the target repo. On 403 from
+  GitHub the API returns 412 with a deep-link to the App-permissions
+  doc, and Settings → Integrations shows a red "Push blocked" badge
+  with a one-click "How to fix" link — so a missing App permission
+  surfaces before the agent burns 10 minutes on a doomed run.
+
+### Fixed
+
+- **Agent safety guardrails — no history rewrites on leaked-secret
+  findings (PR #209).** The planner used to default to *"use BFG
+  Repo-Cleaner to scrub the key from git history"* for
+  `type='secret'` findings — a wrong instinct that doesn't un-leak
+  the secret (it's already cloned/mirrored/cached), force-pushes a
+  multi-thousand-file diff over the default branch, and destroys
+  shared history. Real failure surfaced in QA: a NodeGoat PR came in
+  at **+22,839 / -2,119 across 139 files** for a single `server.key`
+  removal. The planner template now hard-bans BFG, `git filter-repo`,
+  `git filter-branch`, and force-push-over-main for secret findings,
+  pins the repo plan to `git rm` + `.gitignore` + commit + PR, and
+  requires `plan_steps` to include an explicit "rotate the leaked
+  credential with the owner" step so the user can't miss the real fix.
+- **Agent safety guardrails — no scope creep on dependency bumps
+  (PR #214).** The executor used to "be helpful" by mass-upgrading
+  adjacent packages when an `npm install` for a single-package bump
+  hit peer-dep conflicts. Real failure surfaced in QA: a remediation
+  asked to bump `braces` to `^3.0.3` shipped a PR with **14
+  packages** touched in `package.json` (mongodb 2→7, cypress 3→15,
+  mocha 2→11, …) plus five downgrades to thread the needle — and
+  claimed in its `changes_summary` that only `braces` was touched.
+  New hard rule #7 in the executor template forbids editing any
+  package in the manifest that isn't named in the plan; names the
+  per-ecosystem "accept-the-conflict" escapes (`npm install
+  --legacy-peer-deps`, `pnpm install --no-strict-peer-dependencies`,
+  `cargo update -p`, `go get <name>@<version>`); and exits cleanly to
+  `status="needs_approval"` if the conflict can't be resolved without
+  scope expansion.
+- **Pipeline fails fast on LLM errors and surfaces the failure in the
+  UI (PR #210).** Three coupled bugs made out-of-credits errors look
+  like "stuck" issues: the pipeline route only treated Python
+  exceptions as failures (LLM errors were caught and returned as
+  `status='failed'`, so the loop kept retrying — burning credits and
+  producing 10+ duplicate `agent_run` rows per workspace); a failed
+  pre-plan agent (enricher / owner / exposure / evidence) fell
+  through the derivation rules and stayed pinned at `in_progress /
+  planning` instead of surfacing as `failed`; and the Retry button
+  for `failed` stage hard-coded the executor agent even when the
+  failure happened pre-plan, so retry re-failed immediately. All
+  three are fixed: out-of-credits → one failed run → issue lands in
+  Review with the "Add credits" card and a working Retry.
+- **Permission prompt no longer truncates destructive commands
+  (PR #208).** The agent-permission card clipped `bash · git push -f
+  origin <long-branch>` mid-branch-name with only a hover `title` for
+  the full text — unsafe for destructive ops. Command now sits on its
+  own full-width row below the title with `break-all` wrapping so the
+  user always sees the entire string before deciding.
+- **Permission prompt redesigned as a deliberate "pause" moment
+  (PR #213).** Three-band editorial composition replaces the cramped
+  inline row: amber eyebrow chip frames the moment as a pause, the
+  command sits in a tonally-recessed code block with a 2-px amber
+  rail down the left edge, and the Approve / Deny actions live at
+  the foot right-aligned where the eye lands after reading.
+- **Refine flow now visibly tracks the re-run (PR #207).** When the
+  user refined the planner's output, the issue-derivation kept the
+  stage pinned at `plan_ready` (because the old plan was still in
+  the sidebar) and the "Reviewing the advisory…" drafting widget
+  never appeared — so refining looked like clicking a button into the
+  void. The derivation rule now lets a running planner win over an
+  existing plan; the drafting widget renders immediately.
+- **Timeout error label reports the real ceiling, not the input arg
+  (PR #212).** Tool-agent runs that hit the 600-second wall-clock
+  ceiling reported `"Agent timed out after 150s"` because the error
+  formatter printed the caller-supplied `timeout` arg instead of the
+  `effective_timeout` ceiling the run actually used.
+- **"How to fix" link in the executor error card now resolves
+  (PR #211).** The link pointed at `/docs/guides/setup-github-app.md`
+  — a path the backend doesn't serve and a file extension browsers
+  don't render. The doc has been restored to the public repo
+  (rebranded Cliff, anchor heading aligned to the link constant) and
+  all three call sites (backend 412 preflight, `PushAccessBadge`,
+  `IssueSidePanel`) now point at the GitHub-rendered URL. The link is
+  also gated on push/permission-shaped error text — non-perm errors
+  no longer get a misleading CTA.
+- **GitHub App config defaults to the production `cliff-security` app
+  (PR #206).** Self-hosted installs ship with the real public
+  client_id / slug so the **Connect GitHub** button works on first
+  boot; operators can still override via `CLIFF_GITHUB_APP_CLIENT_ID`
+  / `CLIFF_GITHUB_APP_SLUG`.
+- **QA-driven hardening (PRs #157, #158, #159, #161, #162, #163,
+  #167, #169, #170, #171, #173, #175).** Workspace-isolation guard,
+  per-workspace npm cache, Spotlight-on-macOS guard, BYOK credential
+  propagation into per-workspace OpenCode processes, vault accepts
+  URL-safe base64, finding-status reconciliation on PR close, Issues
+  UX reactivity polish, posture-severity model fixes — twelve PRs of
+  the "found in QA, fixed before ship" pattern that pre-1.0 software
+  needs to absorb before it stops embarrassing the maintainer.
+
+### Legal
+
+- **Legal-readiness paperwork (PR #181).** `NOTICE` file with
+  attribution, third-party-licenses bundle generated at build time,
+  Developer Certificate of Origin (DCO) on contributions, and
+  install-time LICENSE preservation so the AGPL-3.0 text travels
+  with every deployment.
+
 ## [0.1.7-alpha] - 2026-05-06
 
 A stability and lifecycle release. The CLI gains owner-safe daemon
