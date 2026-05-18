@@ -90,7 +90,7 @@ derivative works. For Cliff this applies to:
 | Package | Upstream NOTICE |
 |---|---|
 | `cryptography` | <https://github.com/pyca/cryptography/blob/main/LICENSE> (Apache-2.0 OR BSD-3-Clause; no separate NOTICE file as of upstream main) |
-| `importlib-metadata` | <https://github.com/python/importlib_metadata/blob/main/LICENSE> |
+| `importlib-metadata` | <https://pypi.org/project/importlib-metadata/> (Apache-2.0; upstream `python/importlib_metadata` does not ship a separate `LICENSE` or `NOTICE` file — license is declared via wheel metadata) |
 | `packaging` | <https://github.com/pypa/packaging/blob/main/LICENSE> (Apache-2.0 OR BSD-2-Clause) |
 | `uvloop` | <https://github.com/MagicStack/uvloop/blob/master/LICENSE-APACHE> (MIT OR Apache-2.0) |
 | `pytest-asyncio` | <https://github.com/pytest-dev/pytest-asyncio/blob/main/LICENSE> *(dev only)* |

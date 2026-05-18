@@ -211,7 +211,7 @@ EOF
   semgrep_license="$(find "${prefix}/lib" -maxdepth 4 \
     -path '*/semgrep-*.dist-info/LICENSE*' -type f 2>/dev/null | head -n1)"
   if [[ -z "${semgrep_license}" || ! -f "${semgrep_license}" ]]; then
-    echo "error: semgrep ${version} wheel did not ship a LICENSE under ${prefix}/lib/*/site-packages/semgrep-*.dist-info/ — refusing to install without LGPL-2.1 attribution" >&2
+    echo "error: semgrep ${version} wheel did not ship a LICENSE matching '${prefix}/lib/**/semgrep-*.dist-info/LICENSE*' — refusing to install without LGPL-2.1 attribution" >&2
     exit 1
   fi
   install -m 0644 "${semgrep_license}" "${BIN_DIR}/semgrep.LICENSE"
