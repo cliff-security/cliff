@@ -83,6 +83,18 @@ This means two operational realities must be documented in code as well as docs:
 
 The original decision still stands — **user OAuth tokens for git operations** — but the operational story now includes these two enforcement points.
 
+## Amendment — 2026-05-18 (Q01R Wave 3)
+
+Wave 3 QA verified that PR-C's `check_repo_push_access` extension behaves exactly as IMPL-0017's Risks section anticipated: when the user-OAuth token can't call `GET /repos/{}/{}/installation` (401), the fallback path returns `can_push=true` based on the user's direct repo permissions. The Settings push-access badge (PR-D) showed green. The executor was cleared to run. But the actual `git push` over HTTPS failed — the user-to-server token doesn't carry `repo` scope at the git-protocol layer, only at the GitHub-REST-API layer.
+
+This is the same shape of trap as the Wave 1.5 / Wave 2 root cause: **the App's declared permissions, the installation's effective permissions, and what `git push` will actually accept are three different surfaces.** Static or REST-API-derived signals continue to under-predict failure at the wire level.
+
+**Decision:** runtime push-access verification must be ground-truth at the git-protocol layer. The preflight invokes `git ls-remote --push <https-with-token-url>` against the configured repo before reporting `can_push=true`. If the wire-level handshake fails, the verdict downgrades regardless of what REST API responses claim. Implemented by IMPL-0019 (push-access runtime probe).
+
+This supersedes the Wave 2 amendment's "consult installation perms" rule when the two disagree — wire truth wins.
+
+**Future structural fix:** mint installation access tokens via App JWT for executor git operations (originally hinted at as "IMPL-0019 ADR work" in IMPL-0017). Reassigned to **IMPL-0021** because the runtime probe is shipping under the IMPL-0019 number. Installation tokens remain valuable independently of the probe (they avoid the `user × App × Installation × OAuth scopes` intersection entirely on the write path) but the probe is the cheaper unblocker and remains useful even after installation tokens land.
+
 ## References
 
 - ADR-0024 — Repo cloning and agentic remediation
