@@ -34,14 +34,22 @@ We pick the probe. `git push --dry-run` is the non-destructive form: it never wr
 
 Backend (V2):
 
-- `backend/cliff/integrations/github_app/client.py` — add a `_probe_git_push(token, repo_url) -> ProbeResult` helper that runs:
+- `backend/cliff/integrations/github_app/client.py` — add a `_probe_git_push(token, repo_url) -> ProbeResult` helper. Implementation notes:
 
-  ```bash
-  git push --dry-run https://x-access-token:{token}@github.com/{owner}/{repo}.git HEAD:refs/heads/cliff-push-probe
-  ```
+  **Probe must run in an isolated, ephemeral git repo** — not from the API server's cwd (which is not a git repo and would make `git push HEAD:…` fail with `fatal: not a git repository`, getting misclassified). Steps:
 
-  via `asyncio.create_subprocess_exec` with a configurable timeout (default 5 s, read from `settings.push_probe_timeout_seconds` — add this to `backend/cliff/config.py` so operators can tune via `CLIFF_PUSH_PROBE_TIMEOUT_SECONDS`). Returns a small result object with `ok: bool` and a classified `reason` string derived from stderr: `"credentials rejected"` on auth failure (403, "permission denied", "unauthorized"), `"repository not found"` on 404, `"timeout"` on hang, `"git binary not available"` on FileNotFoundError, `"probe ok"` on exit 0. Wrap `check_repo_push_access`'s currently-permissive return paths (those that say `can_push=True, reason=""`) so they invoke the probe and downgrade to `can_push=False, reason="git push probe failed: <classified-reason>"` if it fails. Stderr is parsed for classification but NEVER echoed verbatim into the response (it can contain the remote URL with the embedded token).
-- `backend/tests/test_github_app_client.py` — three new tests: probe succeeds → can_push=True; probe fails with auth error → can_push=False with reason mentioning credentials; probe times out → can_push=False with reason mentioning timeout.
+  1. `mkdir` a temp directory under `tempfile.mkdtemp(prefix="cliff-push-probe-")`.
+  2. Run `git init -q` in it.
+  3. Run `git commit --allow-empty -q -m probe --author "Cliff Probe <probe@cliff.local>"` so HEAD points at a valid commit (no working-tree changes, no objects of consequence).
+  4. Run the actual probe — note: `cwd` of `asyncio.create_subprocess_exec` is set to the temp dir, not inherited from the caller:
+
+     ```bash
+     git push --dry-run https://x-access-token:{token}@github.com/{owner}/{repo}.git HEAD:refs/heads/cliff-push-probe
+     ```
+  5. Whatever the exit code, clean up the temp dir in a `finally` (use `shutil.rmtree(..., ignore_errors=True)`).
+
+  Configurable timeout (default 5 s, read from `settings.push_probe_timeout_seconds` — add to `backend/cliff/config.py` so operators can tune via `CLIFF_PUSH_PROBE_TIMEOUT_SECONDS`). Returns a small result object with `ok: bool` and a classified `reason` string derived from stderr: `"credentials rejected"` on auth failure (403, "permission denied", "unauthorized"), `"repository not found"` on 404, `"timeout"` on hang, `"git binary not available"` on FileNotFoundError, **`"verified"` on exit 0**. Wrap `check_repo_push_access`'s currently-permissive return paths (those that say `can_push=True, reason=""`) so they invoke the probe; on success return `can_push=True, reason="verified by runtime probe"`; on failure downgrade to `can_push=False, reason="git push probe failed: <classified-reason>"`. Stderr is parsed for classification but NEVER echoed verbatim into the response (it can contain the remote URL with the embedded token).
+- `backend/tests/test_github_app_client.py` — four new tests: probe succeeds → can_push=True with `"verified"` in reason; probe fails with auth error → can_push=False with reason mentioning credentials; probe times out → can_push=False with reason mentioning timeout; **probe creates and tears down its temp git repo** even when stderr is empty (regression test for the cwd-not-a-repo case — without the temp-repo bootstrap, `git push HEAD:…` would fail with `fatal: not a git repository` from the API server's cwd and produce a confusing misclassification).
 
 Frontend (V2): **none.** The Settings push-access badge (PR-D) and the executor's preflight both consume `check_repo_push_access` — both surfaces inherit the new ground truth for free.
 
@@ -71,6 +79,23 @@ async def test_probe_timeout_returns_can_push_false_with_specific_reason(monkeyp
     result = await check_repo_push_access(...)
     assert result.can_push is False
     assert "timeout" in result.reason.lower()
+
+async def test_probe_bootstraps_its_own_repo(monkeypatch, tmp_path):
+    # Regression: probe must NOT depend on the API server's cwd being a git repo.
+    # Force the test's cwd to a non-repo directory; the probe should still
+    # complete (succeed or fail with a proper auth-class reason, never with
+    # "not a git repository").
+    monkeypatch.chdir(tmp_path)  # tmp_path is not a git repo
+    # mock subprocess to capture the cwd it was invoked with
+    captured_cwd = {}
+    async def fake_exec(*args, cwd=None, **kw):
+        captured_cwd["cwd"] = cwd
+        return _make_fake_proc(returncode=0, stderr=b"")
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+    result = await check_repo_push_access(...)
+    assert captured_cwd["cwd"] is not None
+    assert captured_cwd["cwd"] != str(tmp_path)  # probe used its own temp dir
+    assert result.can_push is True
 ```
 
 Then implement. Run lint + existing test suite — must stay green.
@@ -86,6 +111,7 @@ E2E (Wave 4 QA, manual):
 - **Default 5 s timeout might be too short for slow corporate networks.** Configurable via `CLIFF_PUSH_PROBE_TIMEOUT_SECONDS`.
 - **The probe leaks the token to the local git process.** Already happens — `git clone` and `git push` in the executor use the same pattern. No new exposure. Stderr classification strips the URL before any value reaches the response.
 - **`git` binary may not be present in some deployment environments.** It IS present in our Docker image (we already use it for clone). Fail closed (`can_push=False, reason="git binary not available"`) if subprocess spawn fails.
+- **API server cwd is not a git repo.** Without the temp-repo bootstrap step, `git push HEAD:refs/heads/…` would fail with `fatal: not a git repository` from the server's working directory, get misclassified as a credentials failure, and incorrectly downgrade `can_push`. The probe creates its own ephemeral repo (`git init` + `git commit --allow-empty`) under `tempfile.mkdtemp()`, runs the probe with `cwd=<temp>`, and cleans up in a `finally`. Regression-tested by `test_probe_bootstraps_its_own_repo`.
 
 ## ADR
 
