@@ -39,6 +39,14 @@ backend/tests/
 # Dev files
 *.md
 !.opencode-version
-LICENSE
+# Re-include legal manifests the runtime image must carry. Adding them
+# back here (after the ``*.md`` blanket) restores them to the build
+# context so the Dockerfile's ``COPY LICENSE`` / ``COPY NOTICE`` /
+# ``COPY THIRD-PARTY-LICENSES.md`` all resolve. AGPL-3.0 + bundled
+# third-party attribution have to travel with every deployment per the
+# legal-readiness paperwork in PR #181 — and the build silently broke
+# for THIRD-PARTY-LICENSES.md when that file landed without a matching
+# ``.dockerignore`` exemption (caught by the v0.2.0 release run).
+!THIRD-PARTY-LICENSES.md
 .env
 .env.*
