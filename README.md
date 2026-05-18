@@ -10,7 +10,7 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-6FE3B5?labelColor=0B101B)](LICENSE)
 [![Status: alpha](https://img.shields.io/badge/status-alpha-F0BF7E?labelColor=0B101B)](ROADMAP.md)
 
-<a href="docs/guides/badge.md"><img src="docs/assets/cliff-badge-A.svg" alt="Cliff verified — Grade A" /></a>
+<img src="docs/assets/cliff-badge-A.svg" alt="Cliff verified — Grade A" />
 
 </div>
 
@@ -75,7 +75,7 @@ The installer fetches `uv`, a managed Python 3.11, the OpenCode binary, and the 
 curl -fsSL https://github.com/galanko/Cliff/releases/latest/download/install.sh | sh
 ```
 
-Manual install, image verification, and platform notes are in [docs/install.md](docs/install.md).
+Verify the image by checksum or build it yourself from this repo. See [`docker/`](docker/) for the Dockerfile and compose config.
 
 ## Use Cliff inside Claude Code
 
@@ -100,16 +100,12 @@ Cliff scores your repo against a posture rubric — closed criticals, no committ
 
 The full public Cliff badge — a live, continuously-scored README badge — ships in v1.2, once enough maintainers have earned one that it actually means something. We're not rushing that. The point of a security badge is that it's credible, not that it exists.
 
-[Read the rubric](docs/guides/badge.md)
+## Project info
 
-## Architecture and docs
-
-- [Architecture overview](docs/architecture/overview.md)
-- [Connect a GitHub repo](docs/guides/setup-github-app.md) — one-click GitHub App + device flow
-- [ADRs](docs/adr/) — every significant decision, with the trade-offs
 - [Roadmap](ROADMAP.md)
-- [Contributing](.github/CONTRIBUTING.md)
+- [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md) · [License](LICENSE)
+- [Changelog](CHANGELOG.md) · [Known issues](KNOWN_ISSUES.md)
 
 ## Licensing
 

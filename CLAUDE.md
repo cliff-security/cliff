@@ -8,6 +8,19 @@ Cliff is a self-hosted cybersecurity remediation copilot. It ingests vulnerabili
 
 Built on the [OpenCode](https://github.com/anomalyco/opencode) engine. Single-user community edition. AGPL-3.0 licensed.
 
+> **Historical name — Cliff was called OpenSec.** Until May 2026 this project was named "OpenSec" and lived at `github.com/galanko/OpenSec` (now `galanko/cliff`, with GitHub redirects). Any mention of "OpenSec" you encounter — in commit history, old branch names like `chore/cliff-os-restructure` referencing OpenSec snapshots, archived ADRs, third-party content, environment variables prefixed `OPENSEC_*`, Python modules named `opensec.*`, or the `cliff-os` private umbrella's pre-rename docs — refers to this same project. Treat "OpenSec" and "Cliff" as the same thing; the rename was cosmetic.
+
+## Where to find architecture context
+
+This repo is the public app code only. Architecture decisions (ADRs), system diagrams, implementation plans, product specs (PRDs), design specs, QA evidence, and strategy memos live in the **private `cliff-os` umbrella repo** alongside this one (typically cloned as a sibling at `~/projects/cliff-os/`, with the public `cliff` repo at `~/projects/cliff-os/cliff/` or `~/projects/OpenSec/`).
+
+When working on this codebase:
+
+- Before any non-trivial architectural change, read the relevant ADRs and architecture docs in the private `cliff-os/docs/` tree.
+- When you change behavior that an ADR or IMPL plan documents, update that doc in the same change (in `cliff-os`, not here).
+- If you can't access the private docs, ask the maintainer rather than making the call without them.
+- The `docs/assets/` directory in this repo is **mirrored** from `cliff-os/docs/assets/` — see [`docs/assets/README.md`](docs/assets/README.md) for the sync rule.
+
 ## Architecture
 
 | Layer | Technology | Location |
@@ -19,11 +32,11 @@ Built on the [OpenCode](https://github.com/anomalyco/opencode) engine. Single-us
 | Database | SQLite (single file) | `data/cliff.db` |
 | Deployment | Single Docker container, port 8000 | `docker/` |
 
-See `docs/architecture/overview.md` for the full system diagram and `docs/adr/0014-workspace-runtime-architecture.md` for the workspace isolation architecture.
+See `cliff-os/docs/architecture/overview.md` (private) for the full system diagram and `cliff-os/docs/adr/0014-workspace-runtime-architecture.md` (private) for the workspace isolation architecture.
 
 ## Design System: "The Serene Sentinel"
 
-The UI follows the Stitch-generated "Ethos Security" design system (Stitch project `12683083125265338263`). See `docs/adr/0011-stitch-design-system.md` for the decision record.
+The UI follows the Stitch-generated "Ethos Security" design system (Stitch project `12683083125265338263`). See `cliff-os/docs/adr/0011-stitch-design-system.md` (private) for the decision record.
 
 | Aspect | Choice |
 |--------|--------|
@@ -66,9 +79,8 @@ frontend/             React SPA (TypeScript + Vite + Tailwind)
   tailwind.config.ts  Full Stitch color tokens
 docker/               Dockerfile, docker-compose, supervisord config
 docs/
-  adr/                Architecture Decision Records
-  architecture/       System diagrams, domain model, adapter specs, agent pipeline
-  guides/             Developer setup, Docker build, adding adapters
+  assets/             Public images: wordmark, badge, demo gif, screenshots
+                      (mirrored from cliff-os/docs/assets/ — see README there)
 scripts/              dev.sh, install-opencode.sh
 fixtures/             Mock/demo data for adapters
 tests/                Cross-stack integration tests
@@ -85,7 +97,7 @@ opencode.json         OpenCode project config
 - **SidebarState** — Persistent structured context per workspace (summary, evidence, owner, plan, ticket, validation)
 - **Adapter** — Interface to an external system. Four types: FindingSource, OwnershipContext, Ticketing, Validation
 
-See `docs/architecture/domain-model.md` for entity details and state machines.
+See `cliff-os/docs/architecture/domain-model.md` (private) for entity details and state machines.
 
 ## Pages
 
@@ -105,7 +117,7 @@ See `docs/architecture/domain-model.md` for entity details and state machines.
 4. **Remediation Planner** — Fix plan, mitigations, definition of done -> updates `plan`
 5. **Validation Checker** — Confirms fix, recommends close/reopen -> updates `validation`
 
-See `docs/architecture/agent-pipeline.md` for I/O contracts.
+See `cliff-os/docs/architecture/agent-pipeline.md` (private) for I/O contracts.
 
 ## Build & Development
 
@@ -203,8 +215,8 @@ Never commit directly to `main`. Never force-push to `main`. If tests or lint fa
 
 ## Development Conventions
 
-- **ADRs:** Every architectural decision gets a record in `docs/adr/`. Use the template in `docs/adr/README.md`
-- **Adapters:** Mock-first. Real integrations implement the same interface. See `docs/architecture/adapter-interfaces.md`
+- **ADRs:** Every architectural decision gets a record in `cliff-os/docs/adr/` (private). Use the template in `cliff-os/docs/adr/README.md`.
+- **Adapters:** Mock-first. Real integrations implement the same interface. See `cliff-os/docs/architecture/adapter-interfaces.md` (private).
 - **Agent output rule:** Every agent result must persist into both the chat timeline AND the SidebarState. Never only chat
 - **Commits:** Conventional commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`)
 - **Python style:** ruff for linting/formatting, strict type hints, Pydantic models
@@ -213,7 +225,7 @@ Never commit directly to `main`. Never force-push to `main`. If tests or lint fa
 
 ## Workspace Runtime Architecture (ADR-0014)
 
-Each workspace gets an isolated environment. See `docs/adr/0014-workspace-runtime-architecture.md`.
+Each workspace gets an isolated environment. See `cliff-os/docs/adr/0014-workspace-runtime-architecture.md` (private).
 
 | Layer | Component | Status |
 |-------|-----------|--------|
@@ -262,7 +274,7 @@ and `cliff status` reports `drifted: true` with both values.
 
 Key files: `backend/cliff/ai/`, `backend/cliff/api/routes/ai_integrations.py`,
 `frontend/src/components/ai-provider/`. User-facing guide:
-`docs/guides/setup-ai-provider.md`.
+`cliff-os/docs/guides/setup-ai-provider.md` (private).
 
 ## Development Workflow
 
@@ -293,15 +305,17 @@ Individual skills can also be invoked directly (e.g., `/product-manager` for a s
 
 ### Where things live
 
-| What | Where |
-|------|-------|
+All knowledge-base artifacts (PRDs, UX specs, IMPL plans, ADRs, BACKLOG) live in the **private `cliff-os` umbrella** — not in this public repo.
+
+| What | Where (in `cliff-os/`) |
+|------|------------------------|
 | PRDs | `docs/product/prds/PRD-XXXX-slug.md` |
 | PRD template | `docs/product/templates/prd-template.md` |
 | UX specs | `docs/design/specs/UX-XXXX-slug.md` |
 | UX language guide | `docs/design/ux-language.md` |
 | Implementation plans | `docs/architecture/plans/IMPL-XXXX-slug.md` |
 | ADRs | `docs/adr/NNNN-slug.md` |
-| Task tracking | Notion (primary) + `docs/BACKLOG.md` (agent-readable mirror) |
+| Task tracking | Notion (primary) + `cliff-os/docs/BACKLOG.md` (agent-readable mirror) |
 
 ### Quality gates
 

@@ -8,18 +8,21 @@ Be respectful and constructive. We follow the [Contributor Covenant](https://www
 
 ## Development setup
 
-See [docs/guides/development-setup.md](docs/guides/development-setup.md) for the full local development guide.
-
-Quick start:
+Prerequisites: Python 3.11+ with [`uv`](https://docs.astral.sh/uv/), Node.js 20+, and a clone of this repo.
 
 ```bash
+# Install OpenCode binary (pinned in .opencode-version)
+scripts/install-opencode.sh
+
 # Install dependencies
 cd backend && uv sync
-cd frontend && npm install
+cd ../frontend && npm install
 
-# Start dev environment
-scripts/dev.sh
+# Start dev environment (backend on :8000, frontend on :5173)
+cd .. && scripts/dev.sh
 ```
+
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173) and paste an Anthropic or OpenAI key in Settings.
 
 ## Branching and pull requests
 
@@ -36,7 +39,7 @@ The `main` branch has "Require signed commits" enabled. Unsigned commits will be
 
 Before your first contribution:
 
-1. Set up commit signing — see [docs/guides/setup-signed-commits.md](docs/guides/setup-signed-commits.md).
+1. Set up commit signing — GitHub's [signing commits guide](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits) covers GPG, SSH, and S/MIME.
 2. Upload your public key to your GitHub account under **Settings → SSH and GPG keys**.
 3. Verify your setup: `git log --show-signature -1` should show `Good signature from …`.
 
