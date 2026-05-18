@@ -678,7 +678,7 @@ class TestAgentExecutionStream:
         queue.put_nowait({"type": "done"})
 
         executor = app.state.agent_executor
-        executor.get_permission_queue = lambda ws_id: queue
+        executor.ensure_permission_queue = lambda ws_id: queue
         executor.get_active_run_id = lambda ws_id: None
 
         resp = await client.get(
@@ -709,7 +709,7 @@ class TestAgentExecutionStream:
         queue.put_nowait({"type": "done"})
 
         executor = app.state.agent_executor
-        executor.get_permission_queue = lambda ws_id: queue
+        executor.ensure_permission_queue = lambda ws_id: queue
         executor.get_active_run_id = lambda ws_id: None
 
         resp = await client.get(
@@ -744,7 +744,7 @@ class TestAgentExecutionStream:
         queue.put_nowait({"type": "done"})
 
         executor = app.state.agent_executor
-        executor.get_permission_queue = lambda ws_id: queue
+        executor.ensure_permission_queue = lambda ws_id: queue
         executor.get_active_run_id = lambda ws_id: None
 
         resp = await client.get(
@@ -761,15 +761,50 @@ class TestAgentExecutionStream:
         }
 
     @pytest.mark.asyncio
-    async def test_stream_returns_done_immediately_when_no_active_queue(
+    async def test_stream_does_not_close_on_initially_empty_queue(
         self, app, client
     ):
-        """Existing early-yield path (line ~540) must keep working."""
-        executor = app.state.agent_executor
-        executor.get_permission_queue = lambda ws_id: None
+        """IMPL-0020 — the stream must NOT short-circuit to ``done`` when
+        the workspace has no queue yet. The frontend opens the EventSource
+        as soon as the side panel mounts (before Start is clicked), so the
+        old early-exit raced the very ``agent_run_started`` event the
+        stream was meant to surface. The fix auto-vivifies a queue via
+        ``ensure_permission_queue`` so the stream waits for the executor
+        to publish its first event.
+        """
+        # Start with an empty queue (simulates "panel mounted, no run yet")
+        queue: asyncio.Queue = asyncio.Queue()
 
-        resp = await client.get(
-            "/api/workspaces/ws-1/agent-execution/stream"
-        )
+        executor = app.state.agent_executor
+        # The route now calls ``ensure_permission_queue`` — stub it to
+        # return our queue (no fallback to ``get_permission_queue``).
+        executor.ensure_permission_queue = lambda ws_id: queue
+        executor.get_active_run_id = lambda ws_id: None
+
+        async def publish_later():
+            # Give the generator a tick to enter the wait-loop.
+            await asyncio.sleep(0.05)
+            queue.put_nowait({
+                "type": "agent_run_started",
+                "agent_type": "finding_enricher",
+                "run_id": "r1",
+                "status": "running",
+            })
+            queue.put_nowait({"type": "done"})
+
+        publisher = asyncio.create_task(publish_later())
+        try:
+            resp = await client.get(
+                "/api/workspaces/ws-1/agent-execution/stream"
+            )
+        finally:
+            await publisher
+
+        assert resp.status_code == 200
         frames = _parse_sse_frames(resp.text)
-        assert frames and frames[0].get("event") == "done"
+        events = [f.get("event") for f in frames]
+        # The stream stayed open long enough to surface the started event.
+        assert "agent_run_started" in events
+        # And we did NOT yield a ``done`` before the started event fired.
+        started_idx = events.index("agent_run_started")
+        assert "done" not in events[:started_idx]

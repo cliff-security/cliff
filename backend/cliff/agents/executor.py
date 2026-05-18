@@ -693,6 +693,22 @@ class AgentExecutor:
         """Get the permission event queue for a workspace (for SSE streaming)."""
         return self._permission_queues.get(workspace_id)
 
+    def ensure_permission_queue(self, workspace_id: str) -> asyncio.Queue:
+        """Return the workspace's SSE queue, creating an empty one if absent.
+
+        IMPL-0020 / B36 — the side panel opens the EventSource as soon as
+        ``workspaceId`` is set (BEFORE the user clicks Start), so the
+        stream generator must auto-vivify a queue or it races the very
+        ``agent_run_started`` event it was meant to surface. Queue
+        lifetime is bounded by the workspace process; ``_cleanup_workspace_state``
+        pops the entry once the executor signals ``done``.
+        """
+        q = self._permission_queues.get(workspace_id)
+        if q is None:
+            q = asyncio.Queue()
+            self._permission_queues[workspace_id] = q
+        return q
+
     def get_active_run_id(self, workspace_id: str) -> str | None:
         """Get the currently active agent run ID for a workspace."""
         return self._active_runs.get(workspace_id)

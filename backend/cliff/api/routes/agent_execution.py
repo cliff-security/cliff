@@ -532,8 +532,10 @@ async def stream_agent_execution(
       invalidate the ``agent-runs`` query and re-render the activity
       feed without waiting for the 5s idle poll. B36 / IMPL-0020.
     - ``permission_request``: agent needs user approval for a tool.
-    - ``done``: the workspace's queue is closed — no more events will
-      arrive on this stream until another execute() kicks off.
+    - ``done``: signals the executor has finished its terminal run for
+      this workspace. The stream will close. Until then the stream stays
+      open even if no events are flowing — it's safe to open the
+      EventSource as soon as the side panel mounts (B36 / IMPL-0020).
 
     If the client disconnects while a permission is pending, the pending
     approval is auto-denied to unblock the executor.
@@ -541,11 +543,13 @@ async def stream_agent_execution(
     executor = request.app.state.agent_executor
 
     async def event_generator():
-        queue = executor.get_permission_queue(workspace_id)
-        if not queue:
-            # No active execution — send done immediately
-            yield {"event": "done", "data": "{}"}
-            return
+        # IMPL-0020 / B36 — auto-vivify the workspace's SSE queue so the
+        # generator always enters the wait-loop. The frontend opens the
+        # EventSource before Start is clicked; if we early-exit on an
+        # empty dict-entry the very first ``agent_run_started`` event is
+        # published to no listener. The loop exits cleanly on a real
+        # ``done`` event or client disconnect, so the queue can't leak.
+        queue = executor.ensure_permission_queue(workspace_id)
 
         try:
             while True:
