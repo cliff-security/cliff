@@ -14,11 +14,13 @@ documented response.
 
 from __future__ import annotations
 
+import asyncio
 from urllib.parse import parse_qs
 
 import httpx
 import pytest
 
+from cliff.integrations.github_app import client as ghapp_client
 from cliff.integrations.github_app.client import (
     DeviceCodeResponse,
     GitHubDeviceFlowClient,
@@ -42,6 +44,47 @@ def _client_with_handler(
         api_base_url=api_base,
         oauth_base_url=oauth_base,
         transport=transport,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _stub_probe_succeeds(monkeypatch):
+    """Default the runtime git push probe to "succeeded" for every test in
+    this file.
+
+    Why autouse: Q01R-W3 wired ``check_repo_push_access`` to invoke a
+    real ``git push --dry-run`` subprocess on every code path that
+    previously returned ``can_push=True``. Pre-W3 tests assert the
+    API-derived verdict (user perms / install perms shape) and don't care
+    about the wire-level probe. Without this stub each of those tests
+    would shell out to ``git init``/``git commit``/``git push`` against
+    github.com and fail.
+
+    The probe spawns multiple subprocesses (``git init``, ``git commit
+    --allow-empty``, then the actual ``git push --dry-run``). All three
+    return success here.
+
+    Probe-specific tests below override this with their own monkeypatch.
+    """
+
+    class _ProbeOK:
+        returncode: int = 0
+        killed: bool = False
+
+        async def communicate(self):
+            return b"", b""
+
+        async def wait(self):
+            return 0
+
+        def kill(self):
+            self.killed = True
+
+    async def _fake_exec(*_args, **_kwargs):
+        return _ProbeOK()
+
+    monkeypatch.setattr(
+        ghapp_client.asyncio, "create_subprocess_exec", _fake_exec
     )
 
 
@@ -377,7 +420,10 @@ async def test_check_repo_push_access_returns_can_push_true_when_permission_is_t
 
     assert isinstance(result, RepoPushAccess)
     assert result.can_push is True
-    assert result.reason == ""
+    # Q01R-W3: success path now annotates the reason with the probe's
+    # ``"verified by runtime probe"`` marker rather than leaving it empty,
+    # so operators can confirm push access was checked at the wire.
+    assert "verified" in result.reason.lower()
     # The first call must be the user-perms endpoint. A second call to
     # ``/installation`` is also issued (Q01R-W2 / B35a) but the handler
     # above shares one response shape between both endpoints — the
@@ -683,7 +729,10 @@ async def test_check_passes_when_install_perms_contents_write():
     )
 
     assert result.can_push is True
-    assert result.reason == ""
+    # Q01R-W3: success path now annotates the reason with the probe's
+    # ``"verified by runtime probe"`` marker rather than leaving it empty,
+    # so operators can confirm push access was checked at the wire.
+    assert "verified" in result.reason.lower()
 
 
 @pytest.mark.asyncio
@@ -783,7 +832,10 @@ async def test_check_falls_back_when_install_lookup_5xx_or_network():
     )
 
     assert result.can_push is True
-    assert result.reason == ""
+    # Q01R-W3: success path now annotates the reason with the probe's
+    # ``"verified by runtime probe"`` marker rather than leaving it empty,
+    # so operators can confirm push access was checked at the wire.
+    assert "verified" in result.reason.lower()
 
 
 @pytest.mark.asyncio
@@ -816,4 +868,537 @@ async def test_check_install_perms_missing_block_treated_as_fallback():
     )
 
     assert result.can_push is True
-    assert result.reason == ""
+    # Q01R-W3: success path now annotates the reason with the probe's
+    # ``"verified by runtime probe"`` marker rather than leaving it empty,
+    # so operators can confirm push access was checked at the wire.
+    assert "verified" in result.reason.lower()
+
+
+# ---------------------------------------------------------------------------
+# check_repo_push_access — runtime git push --dry-run probe (Q01R-W3 /
+# B37 / IMPL-0019)
+#
+# All API-derived signals (user perms, install perms) can lie at the
+# wire-protocol layer. Wave 3 QA hit the worst case: user-perms fallback
+# said push=true, the executor's clone+push then failed at git-push time.
+# The probe runs ``git push --dry-run <https-with-token-url>
+# HEAD:refs/heads/cliff-push-probe`` from an ephemeral bootstrap repo to
+# verify the token can actually push BEFORE we return ``can_push=True``.
+# Probe failure downgrades to ``can_push=False`` with a precise reason.
+# ---------------------------------------------------------------------------
+
+
+class _FakeProc:
+    """Mimic the slice of asyncio subprocess we use: ``communicate()`` +
+    ``returncode``. ``kill()`` is a no-op so the timeout path's cleanup
+    doesn't blow up.
+    """
+
+    def __init__(
+        self,
+        *,
+        returncode: int,
+        stderr: bytes = b"",
+        hang: bool = False,
+    ) -> None:
+        self._returncode = returncode
+        self._stderr = stderr
+        self._hang = hang
+        self.returncode: int | None = None
+        self.killed = False
+
+    async def communicate(self) -> tuple[bytes, bytes]:
+        if self._hang:
+            # Long enough that the wait_for() wrapper trips its timeout
+            # well before this finishes.
+            await asyncio.sleep(60)
+        self.returncode = self._returncode
+        return b"", self._stderr
+
+    async def wait(self) -> int:
+        self.returncode = self._returncode
+        return self._returncode
+
+    def kill(self) -> None:
+        self.killed = True
+
+
+def _git_subcommand(argv: tuple) -> str | None:
+    """Extract the git subcommand from a captured argv tuple.
+
+    ``git -c foo=bar -c baz=qux commit ...`` and ``git push ...`` both
+    appear in our subprocess captures. The subcommand is the first
+    argv element after ``git`` that isn't a ``-c`` flag (or its value).
+    """
+    args = list(argv)
+    if not args or args[0] != "git":
+        return None
+    i = 1
+    while i < len(args):
+        if args[i] == "-c":
+            i += 2  # skip the flag value
+            continue
+        return args[i]
+    return None
+
+
+def _stub_subprocess(proc: _FakeProc):
+    """Return an awaitable factory that resolves to ``proc`` for the actual
+    ``git push`` call, and to a generic exit-0 stub for the temp-repo
+    bootstrap calls (``git init`` and ``git commit --allow-empty``).
+
+    The probe spawns 3 subprocesses in sequence:
+      1. ``git init -q`` in the temp dir
+      2. ``git commit --allow-empty -q -m probe``
+      3. ``git push --dry-run <url> HEAD:refs/heads/cliff-push-probe``
+
+    Tests care about (3) — its argv, its cwd, and its exit. Captured dict
+    holds the args/kwargs of the LAST call (the push) plus a ``calls``
+    list of all argv tuples (so a regression test can assert the bootstrap
+    actually ran).
+    """
+    captured: dict = {"calls": []}
+
+    class _BootstrapOK:
+        returncode: int = 0
+
+        async def communicate(self):
+            return b"", b""
+
+        async def wait(self):
+            return 0
+
+        def kill(self):  # pragma: no cover — bootstrap never times out
+            pass
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        captured["calls"].append(args)
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        # The git subcommand identifies the call. Bootstrap calls
+        # (``init``, ``commit``) get a generic success; the actual
+        # probe call (``push``) returns the parameterized ``proc``.
+        if _git_subcommand(args) == "push":
+            return proc
+        return _BootstrapOK()
+
+    return _fake_create_subprocess_exec, captured
+
+
+@pytest.mark.asyncio
+async def test_probe_runs_when_perms_say_push_true_and_succeeds(monkeypatch):
+    """User perms say push=true, install perms ok, and the runtime probe
+    confirms the token can push at the git protocol layer → can_push=True.
+    The probe MUST run — otherwise we regress to the pre-B37 state where
+    API signals alone decided the verdict.
+    """
+    routes = {
+        "/repos/cliff-security/NodeGoat": (
+            200,
+            {
+                "full_name": "cliff-security/NodeGoat",
+                "permissions": {"push": True, "pull": True},
+            },
+        ),
+        "/repos/cliff-security/NodeGoat/installation": (
+            200,
+            {
+                "id": 1,
+                "permissions": {
+                    "contents": "write",
+                    "pull_requests": "write",
+                    "metadata": "read",
+                },
+            },
+        ),
+    }
+    transport = httpx.MockTransport(_routed_handler(routes))
+
+    proc = _FakeProc(returncode=0)
+    fake_exec, captured = _stub_subprocess(proc)
+    monkeypatch.setattr(
+        ghapp_client.asyncio, "create_subprocess_exec", fake_exec
+    )
+
+    result = await check_repo_push_access(
+        token="ghu_test_token_xyz",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    assert result.can_push is True
+    # The probe must have been invoked exactly with ``git push --dry-run``
+    # and a URL that EMBEDS the token (the only way HTTPS git auth works
+    # over the protocol). ``git ls-remote --push`` is NOT a valid flag —
+    # ``ls-remote`` is read-only. We use ``push --dry-run`` because it
+    # performs the full ref-negotiation handshake (where the server
+    # enforces push permission) but skips the pack upload.
+    assert captured["args"][0] == "git"
+    assert captured["args"][1] == "push"
+    assert "--dry-run" in captured["args"]
+    # The probe pushes a fixed ref so we don't accidentally create branches.
+    assert any(
+        a == "HEAD:refs/heads/cliff-push-probe" for a in captured["args"]
+    )
+    # The URL is the second-to-last arg (followed by the refspec).
+    url_arg = next(
+        a for a in captured["args"] if isinstance(a, str) and a.startswith("https://")
+    )
+    assert "x-access-token:ghu_test_token_xyz@" in url_arg
+    # Bootstrap must have run — ``git init`` then ``git commit`` then the
+    # actual push. Without bootstrap, ``git push HEAD:…`` fails with
+    # "fatal: not a git repository" from the API server's cwd.
+    subcommands = [_git_subcommand(c) for c in captured["calls"]]
+    assert "init" in subcommands
+    assert "commit" in subcommands
+    assert "push" in subcommands
+    assert subcommands.index("init") < subcommands.index("push")
+    # The push call must have its ``cwd`` set to the bootstrap temp dir,
+    # not inherited from the test process.
+    assert captured["kwargs"].get("cwd") is not None
+    # Success reason is "verified" (canonical reason string per IMPL-0019).
+    assert "verified" in result.reason.lower()
+    # Reason text must NOT echo the token even when the probe succeeds.
+    assert "ghu_test_token_xyz" not in result.reason
+
+
+@pytest.mark.asyncio
+async def test_probe_failure_downgrades_to_can_push_false(monkeypatch):
+    """``git push --dry-run`` exits non-zero (permission denied / 403 on
+    the wire) → can_push=False, reason mentions credentials/permission.
+    This is the B37 path: API signals lie, probe is the ground truth.
+    """
+    routes = {
+        "/repos/cliff-security/NodeGoat": (
+            200,
+            {
+                "full_name": "cliff-security/NodeGoat",
+                "permissions": {"push": True, "pull": True},
+            },
+        ),
+        "/repos/cliff-security/NodeGoat/installation": (
+            200,
+            {
+                "id": 1,
+                "permissions": {"contents": "write", "metadata": "read"},
+            },
+        ),
+    }
+    transport = httpx.MockTransport(_routed_handler(routes))
+
+    proc = _FakeProc(
+        returncode=128,
+        stderr=(
+            b"remote: Permission to cliff-security/NodeGoat.git denied to "
+            b"x-access-token.\n"
+            b"fatal: unable to access 'https://github.com/...': The "
+            b"requested URL returned error: 403\n"
+        ),
+    )
+    fake_exec, _captured = _stub_subprocess(proc)
+    monkeypatch.setattr(
+        ghapp_client.asyncio, "create_subprocess_exec", fake_exec
+    )
+
+    result = await check_repo_push_access(
+        token="ghu_test_token_xyz",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    assert result.can_push is False
+    reason_lower = result.reason.lower()
+    assert "credentials" in reason_lower or "permission" in reason_lower
+    assert "probe" in reason_lower
+    # Reason must NOT echo raw stderr (which may contain remote URL with
+    # token embedded) and must NOT include the token directly.
+    assert "ghu_test_token_xyz" not in result.reason
+    assert "x-access-token" not in result.reason
+
+
+@pytest.mark.asyncio
+async def test_probe_timeout_returns_can_push_false_with_specific_reason(
+    monkeypatch,
+):
+    """``git push --dry-run`` hangs past the configured timeout →
+    can_push=False, reason mentions timeout. The probe shouldn't block
+    the preflight indefinitely on a stalled DNS or TLS handshake.
+    """
+    routes = {
+        "/repos/cliff-security/NodeGoat": (
+            200,
+            {
+                "full_name": "cliff-security/NodeGoat",
+                "permissions": {"push": True, "pull": True},
+            },
+        ),
+        "/repos/cliff-security/NodeGoat/installation": (
+            200,
+            {
+                "id": 1,
+                "permissions": {"contents": "write", "metadata": "read"},
+            },
+        ),
+    }
+    transport = httpx.MockTransport(_routed_handler(routes))
+
+    proc = _FakeProc(returncode=0, hang=True)
+    fake_exec, _captured = _stub_subprocess(proc)
+    monkeypatch.setattr(
+        ghapp_client.asyncio, "create_subprocess_exec", fake_exec
+    )
+
+    result = await check_repo_push_access(
+        token="ghu_test_token_xyz",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+        probe_timeout_seconds=0.05,
+    )
+
+    assert result.can_push is False
+    reason_lower = result.reason.lower()
+    assert "timeout" in reason_lower
+    assert "probe" in reason_lower
+    # The hung process must have been killed so we don't leak subprocess
+    # handles into the event loop on every preflight.
+    assert proc.killed is True
+
+
+@pytest.mark.asyncio
+async def test_probe_handles_missing_git_binary_as_failure(monkeypatch):
+    """If the ``git`` binary isn't on PATH, spawning the probe raises
+    ``FileNotFoundError``. The plan says: fail closed → can_push=False
+    with reason "git binary not available". Do NOT raise — preflight is
+    a UX surface, an unhandled exception 500s the diagnose endpoint.
+    """
+    routes = {
+        "/repos/cliff-security/NodeGoat": (
+            200,
+            {
+                "full_name": "cliff-security/NodeGoat",
+                "permissions": {"push": True, "pull": True},
+            },
+        ),
+        "/repos/cliff-security/NodeGoat/installation": (
+            200,
+            {
+                "id": 1,
+                "permissions": {"contents": "write", "metadata": "read"},
+            },
+        ),
+    }
+    transport = httpx.MockTransport(_routed_handler(routes))
+
+    async def _fake_exec(*_args, **_kwargs):
+        raise FileNotFoundError("git: command not found")
+
+    monkeypatch.setattr(
+        ghapp_client.asyncio, "create_subprocess_exec", _fake_exec
+    )
+
+    result = await check_repo_push_access(
+        token="ghu_test_token_xyz",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    assert result.can_push is False
+    assert "git binary not available" in result.reason.lower()
+
+
+@pytest.mark.asyncio
+async def test_probe_failure_overrides_install_lookup_fallback(monkeypatch):
+    """The install-lookup-fallback paths (network blip, 403 on
+    ``/installation``) historically returned ``can_push=True, reason=""``
+    purely on the user-perms signal. The runtime probe must STILL run for
+    those paths — they're exactly the paths B37 exploded on. Probe failure
+    downgrades the verdict even when the install lookup couldn't fire.
+    """
+    routes = {
+        "/repos/cliff-security/NodeGoat": (
+            200,
+            {
+                "full_name": "cliff-security/NodeGoat",
+                "permissions": {"push": True, "pull": True},
+            },
+        ),
+        # 403 here is the most common production path for user OAuth
+        # tokens that can't see the App-only /installation endpoint.
+        "/repos/cliff-security/NodeGoat/installation": (
+            403,
+            {"message": "Forbidden"},
+        ),
+    }
+    transport = httpx.MockTransport(_routed_handler(routes))
+
+    proc = _FakeProc(returncode=128, stderr=b"remote: Repository not found.\n")
+    fake_exec, _captured = _stub_subprocess(proc)
+    monkeypatch.setattr(
+        ghapp_client.asyncio, "create_subprocess_exec", fake_exec
+    )
+
+    result = await check_repo_push_access(
+        token="ghu_test_token_xyz",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    assert result.can_push is False
+    reason_lower = result.reason.lower()
+    assert "probe" in reason_lower
+    # "Repository not found" stderr maps to the not-found reason bucket.
+    assert "not found" in reason_lower or "repository" in reason_lower
+
+
+@pytest.mark.asyncio
+async def test_probe_bootstraps_its_own_repo(monkeypatch, tmp_path):
+    """Regression: the probe MUST NOT depend on the API server's cwd being a
+    git repository.
+
+    Background: ``git push HEAD:refs/heads/cliff-push-probe`` requires a
+    local HEAD pointing at a commit. The API server's cwd is generally
+    NOT a git repo (and even if it were, we wouldn't want to push from
+    it). Without the temp-repo bootstrap (``git init`` + ``git commit
+    --allow-empty`` in a ``tempfile.mkdtemp()`` dir), the push would fail
+    with ``fatal: not a git repository`` BEFORE ever reaching GitHub, and
+    the stderr classifier would (wrongly) bucket it as a credentials
+    failure.
+
+    Test: chdir the pytest process into a non-repo directory, mock the
+    subprocess to capture the ``cwd`` kwarg each call was invoked with,
+    and assert (a) the push call's cwd is NOT the test process's cwd —
+    it's a fresh temp dir — and (b) the bootstrap subprocesses ran before
+    the push.
+    """
+    routes = {
+        "/repos/cliff-security/NodeGoat": (
+            200,
+            {
+                "full_name": "cliff-security/NodeGoat",
+                "permissions": {"push": True, "pull": True},
+            },
+        ),
+        "/repos/cliff-security/NodeGoat/installation": (
+            200,
+            {
+                "id": 1,
+                "permissions": {"contents": "write", "metadata": "read"},
+            },
+        ),
+    }
+    transport = httpx.MockTransport(_routed_handler(routes))
+
+    monkeypatch.chdir(tmp_path)  # tmp_path is not a git repo
+
+    proc = _FakeProc(returncode=0)
+    fake_exec, captured = _stub_subprocess(proc)
+    monkeypatch.setattr(
+        ghapp_client.asyncio, "create_subprocess_exec", fake_exec
+    )
+
+    result = await check_repo_push_access(
+        token="ghu_test_token_xyz",
+        owner="cliff-security",
+        repo="NodeGoat",
+        api_base_url="https://api.example.invalid",
+        transport=transport,
+    )
+
+    # Probe must complete successfully (not misclassify as auth failure).
+    assert result.can_push is True
+    assert "verified" in result.reason.lower()
+
+    # Bootstrap ran: init then commit then push, all in the same temp dir.
+    subcommands = [_git_subcommand(c) for c in captured["calls"]]
+    assert subcommands.count("init") == 1
+    assert subcommands.count("commit") == 1
+    assert subcommands.count("push") == 1
+    assert subcommands.index("init") < subcommands.index("commit")
+    assert subcommands.index("commit") < subcommands.index("push")
+
+    # The push call's cwd is the bootstrap temp dir — NOT the test's cwd.
+    push_cwd = captured["kwargs"].get("cwd")
+    assert push_cwd is not None
+    assert str(push_cwd) != str(tmp_path)
+    # Bootstrap temp dir is namespaced with ``cliff-push-probe`` prefix.
+    assert "cliff-push-probe" in str(push_cwd)
+
+
+# ---------------------------------------------------------------------------
+# Cache invariant: GET /api/integrations/github/diagnose caches per (token,
+# repo). The runtime probe verdict must flow into that cache transparently.
+# This guards against a regression where the probe runs but the cached
+# entry retains the pre-probe (true) verdict.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_diagnose_cache_reflects_probe_verdict(db_client):
+    """End-to-end: when the probe says can_push=False, the cached
+    PushAccessDiagnoseResponse on a second call must also report False —
+    not stale True from a pre-probe lookup. Also verifies the helper is
+    invoked exactly once (cache invariant unchanged by the probe wiring).
+    """
+    from unittest.mock import AsyncMock, patch
+
+    from cliff.main import app
+
+    if hasattr(app.state, "github_diagnose_cache"):
+        app.state.github_diagnose_cache = {}
+
+    env_stub = AsyncMock(
+        return_value={
+            "GH_TOKEN": "ghu_test_token_xyz",
+            "CLIFF_REPO_URL": "https://github.com/cliff-security/NodeGoat",
+        }
+    )
+
+    # Patch ``check_repo_push_access`` at the route's import site to
+    # return the probe verdict directly. The route-level cache invariant
+    # is what we're testing — the helper's own probe wiring is covered
+    # by the tests above. Two calls; the second MUST hit the cache (so
+    # the helper is called exactly once) and report the same verdict.
+    call_count = {"n": 0}
+
+    async def _mock_check(**_kwargs):
+        call_count["n"] += 1
+        return RepoPushAccess(
+            can_push=False,
+            reason="git push probe failed: credentials rejected",
+        )
+
+    with (
+        patch(
+            "cliff.api.routes.github_app._resolve_repo_env_vars",
+            new=env_stub,
+        ),
+        patch(
+            "cliff.api.routes.github_app.check_repo_push_access",
+            new=_mock_check,
+        ),
+    ):
+        first = await db_client.get("/api/integrations/github/diagnose")
+        second = await db_client.get("/api/integrations/github/diagnose")
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert first.json()["can_push"] is False
+    assert second.json()["can_push"] is False
+    assert first.json()["reason"] == second.json()["reason"]
+    # Cache invariant: second call must NOT have re-invoked the helper.
+    assert call_count["n"] == 1
+    assert "ghu_test_token_xyz" not in first.text
+    assert "ghu_test_token_xyz" not in second.text
+
+    if hasattr(app.state, "github_diagnose_cache"):
+        app.state.github_diagnose_cache = {}

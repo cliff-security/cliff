@@ -11,7 +11,11 @@ https://docs.github.com/en/apps/creating-github-apps/writing-code-with-the-rest-
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
+import shutil
+import tempfile
 from dataclasses import dataclass
 from typing import Literal
 
@@ -314,6 +318,257 @@ class RepoPushAccess:
     reason: str = ""
 
 
+# Default timeout for the runtime ``git push --dry-run`` probe
+# (Q01R-W3 / IMPL-0019). The caller passes ``probe_timeout_seconds``
+# explicitly; this default is used only when the caller doesn't override
+# it AND the settings import fails. ``settings.push_probe_timeout_seconds``
+# is the operator-facing knob.
+_DEFAULT_PROBE_TIMEOUT_SECONDS = 5.0
+
+# Canonical success reason for a probe that returned exit-0. Surfaces in
+# the diagnose response body and in the executor preflight's success log
+# line so operators can confirm push access was verified at the wire
+# (not just inferred from API signals).
+_PROBE_REASON_VERIFIED = "verified by runtime probe"
+
+# Short bootstrap timeout: ``git init`` and ``git commit --allow-empty``
+# touch only the local filesystem. Anything past a few seconds means
+# something is seriously wrong (slow disk, fsync stall) — fail closed
+# rather than hang the preflight indefinitely.
+_BOOTSTRAP_TIMEOUT_SECONDS = 5.0
+
+
+# Reason strings for probe failures. Kept as a small constant table so
+# (a) tests can grep for the exact bucket without false positives on
+# user-perms or install-perms messages, and (b) the strings stay free of
+# the token / remote URL / raw stderr. Operators see these in the diagnose
+# response body and in the executor's 412 error_details.
+_PROBE_REASON_CREDENTIALS = (
+    "git push probe failed: credentials rejected. The stored token cannot "
+    "push to this repo at the git protocol layer — reconnect GitHub or "
+    "update the Cliff GitHub App's installation permissions to declare "
+    "Contents:write."
+)
+_PROBE_REASON_NOT_FOUND = (
+    "git push probe failed: repository not found at the git protocol "
+    "layer. The Cliff GitHub App may not be installed on this repo, or "
+    "the repo was renamed/deleted since the integration was configured."
+)
+_PROBE_REASON_TIMEOUT = (
+    "git push probe failed: timeout after {seconds}s. The network path to "
+    "github.com may be slow — raise CLIFF_PUSH_PROBE_TIMEOUT_SECONDS if "
+    "this is expected for your environment."
+)
+_PROBE_REASON_GIT_MISSING = (
+    "git push probe failed: git binary not available on this Cliff host."
+)
+_PROBE_REASON_GENERIC = (
+    "git push probe failed: git protocol handshake rejected the token. "
+    "Reconnect GitHub or have the org admin approve the App's updated "
+    "permissions."
+)
+
+
+def _classify_probe_stderr(stderr: bytes) -> str:
+    """Map ``git`` stderr into one of a few well-known reason buckets.
+
+    We never echo raw stderr — it may contain the remote URL with the
+    token embedded (``https://x-access-token:<token>@github.com/...``)
+    and it certainly contains noise that's useless to a user. Instead we
+    classify into a handful of buckets the UI can reason about.
+    """
+    text = stderr.decode("utf-8", errors="replace").lower()
+    if "permission" in text or "403" in text or "denied" in text:
+        return _PROBE_REASON_CREDENTIALS
+    if (
+        "not found" in text
+        or "could not read" in text
+        or "repository" in text
+        or "404" in text
+    ):
+        return _PROBE_REASON_NOT_FOUND
+    return _PROBE_REASON_GENERIC
+
+
+async def _run_git(
+    *args: str,
+    cwd: str,
+    timeout_seconds: float,
+) -> tuple[int | None, bytes, bool]:
+    """Spawn ``git <args>`` with ``cwd`` set, wait up to ``timeout_seconds``.
+
+    Returns ``(returncode, stderr, timed_out)``. ``returncode`` is
+    ``None`` only when ``timed_out`` is True. ``FileNotFoundError`` on
+    spawn (``git`` missing from PATH) is propagated to the caller — the
+    probe wants to bucket it as ``git binary not available``.
+
+    Stdout is discarded (the probe never reads it). Stderr is captured
+    for classification — the caller MUST strip / bucket it before any
+    value reaches a response body (the HTTPS URL contains the token).
+    """
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        *args,
+        cwd=cwd,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        _stdout, stderr = await asyncio.wait_for(
+            proc.communicate(), timeout=timeout_seconds
+        )
+    except TimeoutError:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        with contextlib.suppress(BaseException):
+            await proc.wait()
+        return None, b"", True
+    return proc.returncode, stderr or b"", False
+
+
+async def _probe_git_push(
+    *,
+    token: str,
+    owner: str,
+    repo: str,
+    timeout_seconds: float,
+    git_host: str = "github.com",
+) -> RepoPushAccess:
+    """Run ``git push --dry-run <https-with-token-url> HEAD:refs/heads/cliff-push-probe``
+    against the repo from an ephemeral temp git repo.
+
+    ``git push --dry-run`` performs the full ref-negotiation handshake
+    (which is where the server enforces push permission) but skips the
+    pack upload. It's the cheapest wire-level probe that observes the
+    same server-side decision the executor's real ``git push`` will hit.
+
+    An earlier revision of this code used ``git ls-remote --push`` — that
+    flag does NOT exist; ``ls-remote`` is read-only and authenticates on
+    the fetch path, so it cannot distinguish ``Contents:read`` from
+    ``Contents:write``. Do NOT regress to it.
+
+    Why the temp-repo bootstrap (``git init`` + ``git commit --allow-empty``):
+    ``git push HEAD:refs/heads/<name>`` requires a local HEAD pointing at
+    a commit. The API server's cwd is not a git repo, so without a
+    bootstrap step ``git push`` would fail with ``fatal: not a git
+    repository`` before reaching the network. The classifier would then
+    bucket that local error as a credentials failure, incorrectly
+    downgrading ``can_push``. The bootstrap is fast (touch-only, no
+    objects of consequence) and the temp dir is cleaned up in a
+    ``finally`` regardless of probe outcome.
+
+    Returns ``can_push=True, reason="verified by runtime probe"`` on
+    exit-code 0. Anything else → ``can_push=False`` with a bucketed
+    reason. Stderr is parsed for classification but NEVER echoed —
+    it may contain the remote URL with the embedded token.
+
+    Token exposure: same surface as the executor's ``git clone`` —
+    ``/proc/<pid>/cmdline`` for the duration of the probe. No NEW
+    exposure. We do NOT log the URL or the token anywhere.
+    """
+    remote_url = (
+        f"https://x-access-token:{token}@{git_host}/{owner}/{repo}.git"
+    )
+    refspec = "HEAD:refs/heads/cliff-push-probe"
+
+    tmp_dir = tempfile.mkdtemp(prefix="cliff-push-probe-")
+    try:
+        # Step 1: bootstrap an empty repo so HEAD exists. ``-q`` keeps
+        # stderr quiet on success so we don't pollute the classifier on
+        # the off-chance it's invoked on a bootstrap error.
+        try:
+            rc, _err, timed_out = await _run_git(
+                "init",
+                "-q",
+                cwd=tmp_dir,
+                timeout_seconds=_BOOTSTRAP_TIMEOUT_SECONDS,
+            )
+        except FileNotFoundError:
+            return RepoPushAccess(
+                can_push=False, reason=_PROBE_REASON_GIT_MISSING
+            )
+        except OSError:
+            return RepoPushAccess(
+                can_push=False, reason=_PROBE_REASON_GENERIC
+            )
+        if timed_out or rc != 0:
+            # Local disk / config problem — fail closed but do NOT
+            # claim "credentials": the network was never reached.
+            return RepoPushAccess(
+                can_push=False, reason=_PROBE_REASON_GENERIC
+            )
+
+        # Step 2: create an empty commit so HEAD points at an object.
+        # Inline ``-c user.email`` / ``-c user.name`` so the commit
+        # succeeds even on a clean container without ``git config
+        # --global`` set.
+        try:
+            rc, _err, timed_out = await _run_git(
+                "-c",
+                "user.email=probe@cliff.local",
+                "-c",
+                "user.name=Cliff Probe",
+                "commit",
+                "--allow-empty",
+                "-q",
+                "-m",
+                "probe",
+                cwd=tmp_dir,
+                timeout_seconds=_BOOTSTRAP_TIMEOUT_SECONDS,
+            )
+        except FileNotFoundError:
+            return RepoPushAccess(
+                can_push=False, reason=_PROBE_REASON_GIT_MISSING
+            )
+        except OSError:
+            return RepoPushAccess(
+                can_push=False, reason=_PROBE_REASON_GENERIC
+            )
+        if timed_out or rc != 0:
+            return RepoPushAccess(
+                can_push=False, reason=_PROBE_REASON_GENERIC
+            )
+
+        # Step 3: the actual probe. Negotiates push perms with GitHub
+        # but skips the pack upload.
+        try:
+            rc, stderr, timed_out = await _run_git(
+                "push",
+                "--dry-run",
+                remote_url,
+                refspec,
+                cwd=tmp_dir,
+                timeout_seconds=timeout_seconds,
+            )
+        except FileNotFoundError:
+            return RepoPushAccess(
+                can_push=False, reason=_PROBE_REASON_GIT_MISSING
+            )
+        except OSError:
+            # Any other spawn failure — fail closed. Don't echo the
+            # exception message (it may contain the remote URL).
+            return RepoPushAccess(
+                can_push=False, reason=_PROBE_REASON_GENERIC
+            )
+
+        if timed_out:
+            return RepoPushAccess(
+                can_push=False,
+                reason=_PROBE_REASON_TIMEOUT.format(
+                    seconds=timeout_seconds
+                ),
+            )
+        if rc == 0:
+            return RepoPushAccess(
+                can_push=True, reason=_PROBE_REASON_VERIFIED
+            )
+        return RepoPushAccess(
+            can_push=False, reason=_classify_probe_stderr(stderr)
+        )
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 async def check_repo_push_access(
     *,
     token: str,
@@ -322,6 +577,7 @@ async def check_repo_push_access(
     api_base_url: str = "https://api.github.com",
     transport: httpx.BaseTransport | None = None,
     timeout: float = 10.0,
+    probe_timeout_seconds: float | None = None,
 ) -> RepoPushAccess:
     """Verify that ``token`` can push to ``owner/repo`` before triggering work.
 
@@ -351,6 +607,31 @@ async def check_repo_push_access(
     kwargs: dict = {"timeout": timeout}
     if transport is not None:
         kwargs["transport"] = transport
+
+    # Resolve the probe timeout. Explicit override wins (tests). Otherwise
+    # pick up the operator-tunable setting. Import locally so importing
+    # this module doesn't drag the full settings tree in at import time.
+    if probe_timeout_seconds is None:
+        try:
+            from cliff.config import settings as _settings
+
+            probe_timeout_seconds = _settings.push_probe_timeout_seconds
+        except Exception:
+            probe_timeout_seconds = _DEFAULT_PROBE_TIMEOUT_SECONDS
+
+    async def _verify_with_probe() -> RepoPushAccess:
+        """Run the runtime probe and return its verdict. The 6
+        previously-permissive return paths below funnel through here —
+        the probe is the wire-level ground truth that the API-derived
+        signals (user perms, install perms) sometimes misreport
+        (Q01R-W3 / B37 / IMPL-0019).
+        """
+        return await _probe_git_push(
+            token=token,
+            owner=owner,
+            repo=repo,
+            timeout_seconds=probe_timeout_seconds,
+        )
 
     async with httpx.AsyncClient(**kwargs) as client:
         user_perms_url = (
@@ -485,8 +766,10 @@ async def check_repo_push_access(
             # Network blip on the install lookup → fall back to the
             # user-perms verdict (push=true here). Don't degrade the
             # preflight just because one of the two endpoints was
-            # transiently unreachable.
-            return RepoPushAccess(can_push=True, reason="")
+            # transiently unreachable. Q01R-W3: STILL run the runtime
+            # probe — this fallback path was B37's worst case (signals
+            # said green, git push failed).
+            return await _verify_with_probe()
 
         # The ``/installation`` endpoint is documented as App-JWT-only
         # in some places and accessible to user-to-server tokens in
@@ -495,12 +778,12 @@ async def check_repo_push_access(
         # as "fall back to user-perms verdict" rather than escalating
         # into a hard block.
         if install_resp.status_code != 200:
-            return RepoPushAccess(can_push=True, reason="")
+            return await _verify_with_probe()
 
         try:
             install_body = install_resp.json()
         except ValueError:
-            return RepoPushAccess(can_push=True, reason="")
+            return await _verify_with_probe()
 
         install_perms = (
             install_body.get("permissions")
@@ -510,8 +793,8 @@ async def check_repo_push_access(
         if not isinstance(install_perms, dict):
             # No permissions block on the response — can't make a
             # confident negative judgement, fall back to the user-perms
-            # verdict.
-            return RepoPushAccess(can_push=True, reason="")
+            # verdict. Q01R-W3: runtime probe is the ground truth.
+            return await _verify_with_probe()
 
         # The ``/installation`` permissions block is keyed by App-scope
         # names (``contents``, ``metadata``, ``pull_requests``, …) with
@@ -521,7 +804,7 @@ async def check_repo_push_access(
         # block under the same field name) — fall back rather than
         # mislabel.
         if "contents" not in install_perms:
-            return RepoPushAccess(can_push=True, reason="")
+            return await _verify_with_probe()
 
         contents_perm = install_perms.get("contents")
         if contents_perm != "write":
@@ -538,4 +821,8 @@ async def check_repo_push_access(
                 ),
             )
 
-        return RepoPushAccess(can_push=True, reason="")
+        # All API-derived signals point to "can push". Confirm with the
+        # runtime probe before returning True — Q01R-W3 / B37: signals can
+        # lie at the wire-protocol layer (App declared write but installation
+        # still scoped Contents:read, etc.).
+        return await _verify_with_probe()
