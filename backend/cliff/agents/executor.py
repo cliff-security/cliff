@@ -833,8 +833,13 @@ class AgentExecutor:
             AgentRunCreate(agent_type=agent_type, status="running"),
         )
 
-        # Set up per-workspace state for permission event streaming
-        self._permission_queues[workspace_id] = asyncio.Queue()
+        # Set up per-workspace state for permission event streaming.
+        # Use ``ensure_permission_queue`` (not direct assignment) so that
+        # if the side panel already opened the SSE stream and auto-vivified
+        # a queue, we publish into the SAME queue the consumer is awaiting.
+        # Otherwise the ``agent_run_started`` push below goes to a fresh
+        # queue with no listener, defeating B36 / IMPL-0020.
+        self.ensure_permission_queue(workspace_id)
         self._active_runs[workspace_id] = agent_run.id
 
         # IMPL-0020 — fan an ``agent_run_started`` progress event out to

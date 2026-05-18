@@ -268,6 +268,46 @@ class TestAgentExecutor:
         assert completed[0]["status"] == "failed"
 
     @pytest.mark.asyncio
+    async def test_execute_preserves_preexisting_permission_queue(
+        self, mock_pool, mock_context_builder, mock_db, workspace_dir
+    ):
+        """B36 / IMPL-0020 — if the SSE consumer already auto-vivified a
+        queue (panel opened BEFORE Start was clicked), ``execute`` must
+        publish into THAT queue, not a fresh one. Otherwise the
+        ``agent_run_started`` event is delivered to a queue no one is
+        awaiting and the side panel never refreshes.
+        """
+        response_text = _make_agent_response()
+        mock_pool.get_or_start.return_value = _make_mock_client(response_text)
+
+        executor = AgentExecutor(mock_pool, mock_context_builder)
+        # Simulate the side panel having opened the SSE stream first.
+        preexisting = executor.ensure_permission_queue("ws-1")
+
+        with (
+            patch(
+                "cliff.agents.executor.create_agent_run",
+                return_value=_make_mock_agent_run(),
+            ),
+            patch("cliff.agents.executor.update_agent_run"),
+            patch("cliff.agents.executor.list_agent_runs", return_value=[]),
+            patch("cliff.agents.executor.map_and_upsert"),
+            patch("cliff.agents.executor._advance_finding_status", return_value=None),
+        ):
+            await executor.execute(
+                "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
+            )
+
+        # The pre-existing queue must have received the started event
+        # (the consumer's await on this queue is what we're protecting).
+        drained: list[dict] = []
+        while not preexisting.empty():
+            drained.append(preexisting.get_nowait())
+        types = [e.get("type") for e in drained]
+        assert "agent_run_started" in types
+        assert "done" in types  # ``_cleanup_workspace_state`` closes it
+
+    @pytest.mark.asyncio
     async def test_parse_failure_marks_failed(self, mock_pool, mock_context_builder,
         mock_db, workspace_dir):
         """When LLM returns text but no valid JSON, the run is FAILED.
