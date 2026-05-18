@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/cliff-wordmark.svg" alt="cliff" width="200" />
+<img src="docs/assets/cliff-wordmark.svg" alt="Cliff" width="200" />
 
 **Take care of security.**
 
@@ -45,7 +45,7 @@ Two findings. Same workflow.
 
 > **You:** is this even real?
 
-```
+```text
 cliff is reasoning
 ✓ evidence        pulled CVE detail, mapped braces usage in lockfile
 ✓ reachability    matchBase() — the vulnerable function — is never called from your code
@@ -63,7 +63,7 @@ cliff is reasoning
 
 > **You:** is this real or noise?
 
-```
+```text
 cliff is reasoning
 ✓ evidence        pulled CVE detail, mapped axios calls in source and lockfile
 ✓ reachability    called from your /webhook handler with a user-supplied URL
