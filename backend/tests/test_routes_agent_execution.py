@@ -470,7 +470,15 @@ class TestExecutorPushPreflight:
         detail = resp.json()["detail"]
         assert detail["error"] == "github_app_permissions"
         assert "push" in detail["reason"].lower()
-        assert detail["remediation_link"]
+        # Remediation link must be a real, browser-resolvable URL — the
+        # legacy ``/docs/guides/setup-github-app.md`` path didn't resolve
+        # at all (neither the FastAPI app nor any browser renders raw
+        # ``.md`` files). Pin the GitHub-hosted shape and the anchor.
+        link = detail["remediation_link"]
+        assert link.startswith("https://github.com/"), link
+        assert "cliff-security/cliff" in link
+        assert "docs/guides/setup-github-app.md" in link
+        assert link.endswith("#required-permissions")
         # The executor must NOT have been launched.
         assert executor.execute.await_count == 0
 

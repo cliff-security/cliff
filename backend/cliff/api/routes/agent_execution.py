@@ -25,7 +25,17 @@ from cliff.models import AgentRunUpdate, SidebarState
 # device-flow token lacks push access. Kept as a module-level constant so
 # the frontend and docs guide can stay in sync via a single edit. Refs
 # ADR-0037 / IMPL-0014 / B30.
-GITHUB_APP_PERMS_DOC_URL = "/docs/guides/setup-github-app.md#required-permissions"
+# Absolute GitHub-hosted URL because (a) the Cliff backend does not serve
+# the ``docs/`` tree, and (b) browsers won't render ``.md`` files as HTML
+# even if it did — GitHub's renderer is what makes the link useful at
+# all. Kept in sync with the duplicate constants in
+# ``frontend/src/components/issues/IssueSidePanel.tsx`` and
+# ``frontend/src/components/settings/PushAccessBadge.tsx`` (single edit
+# touches all three).
+GITHUB_APP_PERMS_DOC_URL = (
+    "https://github.com/cliff-security/cliff/blob/main/"
+    "docs/guides/setup-github-app.md#required-permissions"
+)
 
 # The single agent type that actually needs to push to GitHub. Other
 # agents read context, talk to the LLM, write files locally — they do
