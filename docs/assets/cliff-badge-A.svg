@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 28" width="108" height="28" role="img" aria-label="Cliff verified — Grade A">
-  <title>Cliff verified — Grade A</title>
-  <rect width="108" height="28" rx="4" fill="#0B101B"/>
-  <text x="8" y="19" font-family="Manrope, system-ui, sans-serif" font-weight="700" font-size="13" letter-spacing="-0.5" fill="#E8EEF8">cliff</text>
-  <circle cx="46" cy="16" r="2.5" fill="#6FE3B5"/>
-  <line x1="62" y1="6" x2="62" y2="22" stroke="#E8EEF8" stroke-opacity="0.15" stroke-width="1"/>
-  <text x="85" y="20" text-anchor="middle" font-family="Manrope, system-ui, sans-serif" font-weight="700" font-size="14" fill="#6FE3B5">A</text>
-</svg>
