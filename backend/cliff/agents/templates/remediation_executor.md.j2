@@ -148,7 +148,7 @@ rules are absolute — a violation can corrupt the operator's machine:
    ```
 2. **Apply the fix.** Make minimal, focused changes following the plan.
 {% if has_evidence and evidence.fix_safety == 'safe_bump' %}
-   This is a **dependency version bump** — update the version constraint in the manifest file and regenerate the lock file. No code changes needed.
+   This is a **dependency version bump.** Touch only the package(s) named in the plan steps. Edit the version constraint for those packages, then regenerate the lock file. Do not edit any other package's version in `package.json` / `Cargo.toml` / `go.mod` / `requirements.txt` / `pyproject.toml` / `Gemfile`, even if the package manager complains during install. See **Hard rule #7** below for the conflict-resolution escape; the short version is: pass the manager's "ignore peer/transitive conflicts" flag (e.g. `npm install --legacy-peer-deps`), or return `status="needs_approval"` with the blocking conflict described in `error_details`. **Never sweep-upgrade or downgrade adjacent packages to satisfy a conflict** — those are separate remediations with separate review.
 {% endif %}
 3. **Commit, push, and create a draft PR:**
    ```bash
@@ -219,6 +219,46 @@ to a real bug we shipped and had to back out.
    `changes_summary` must describe the actual diff. "Verified all
    workflows pin to SHAs" is acceptable only if you ran a verification
    command in this session and can name the workflows you verified.
+7. **For dependency-bump fixes, modify ONLY the package(s) named in the
+   plan.** This rule exists because a previous run was asked to upgrade
+   `braces` to ^3.0.3 and opened a PR that also bumped `mongodb` 2→7,
+   `cypress` 3→15, `mocha` 2→11, `selenium-webdriver` 2→4, `nodemon`
+   1→3, `forever` 2→4, and `zaproxy` 0→2 — and downgraded `csurf`,
+   `jshint`, `grunt-contrib-jshint`, `grunt-contrib-watch`, and
+   `grunt-retire` to thread the resulting peer-dep needle. Every one of
+   those was a breaking change with separate review surface, shipped
+   under a `changes_summary` that claimed only `braces` was touched.
+
+   **The constraints:**
+   - Edit version constraints in `package.json` (or `Cargo.toml` /
+     `go.mod` / `requirements.txt` / `pyproject.toml` / `Gemfile` /
+     equivalent) ONLY for the package(s) named in `plan_steps`.
+     Adjacent packages in the same manifest file: leave alone.
+   - The lock file (`package-lock.json` / `Cargo.lock` / `go.sum` /
+     `poetry.lock` / etc.) WILL change as a side-effect of regenerating
+     after the version bump — that's expected and fine, even if the
+     lockfile diff is large. The constraint applies to the **manifest**
+     (intent), not the **lockfile** (resolution output).
+   - If the package manager refuses to install because of a peer or
+     transitive conflict, use the manager's "accept the conflict"
+     escape:
+     - **npm:** `npm install --legacy-peer-deps`
+     - **pnpm:** `pnpm install --no-strict-peer-dependencies`
+     - **yarn (classic):** `yarn install --ignore-engines` (or pin a
+       resolution under `resolutions:` only for the package in plan)
+     - **pip:** use `--upgrade <only-the-named-package>` (do not pass
+       bare `pip install --upgrade -r requirements.txt`)
+     - **cargo / go:** the per-package update commands
+       (`cargo update -p <name>`, `go get <name>@<version>`) already
+       scope to one package; use them instead of bare `cargo update`
+       or `go get -u`.
+   - If the conflict cannot be resolved with the escape above, **STOP**
+     and emit `status="needs_approval"` with `error_details` describing
+     the specific blocking conflict (e.g. *"braces@^3 requires
+     node>=10, but mongodb@2 peer-deps node@<8 — manual review
+     needed"*). Do **not** sweep-upgrade or downgrade adjacent packages
+     to make the install succeed.
+   - Your `changes_summary` MUST name every package whose version constraint changed in the manifest. If the only manifest change is `braces`, say so. If you changed three packages because the plan named three, list all three. Disagreement between `changes_summary` and the actual manifest diff is a rule-#6 violation.
 
 ## Output contract
 
