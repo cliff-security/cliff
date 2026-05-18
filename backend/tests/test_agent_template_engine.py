@@ -547,6 +547,64 @@ def test_executor_includes_hard_rules(
     assert 'gh api "repos/<owner>/<repo>/commits/<ref>"' in agent.content
 
 
+def test_executor_constrains_dependency_bump_scope(
+    engine: AgentTemplateEngine, sample_finding_dict: dict
+):
+    """Regression for the sweep-upgrade failure: a remediation asked to bump
+    ``braces`` to ^3.0.3 shipped a PR that also touched 13 other packages
+    in ``package.json`` (mongodb 2→7, cypress 3→15, mocha 2→11, …) plus
+    downgrades to ``csurf`` / ``jshint`` / ``grunt-*`` to thread the
+    resulting peer-dep needle. The executor must instead modify only the
+    packages named in ``plan_steps`` and stop or escape on peer-dep
+    conflicts rather than expanding scope.
+    """
+    agent = engine.render_agent(
+        "remediation_executor", finding=sample_finding_dict
+    )
+
+    # The rule itself must render under the existing hard-rules block.
+    assert (
+        "For dependency-bump fixes, modify ONLY the package(s) named"
+        in agent.content
+    )
+    # Name the concrete escapes per ecosystem so the agent doesn't
+    # invent its own ("just upgrade everything").
+    assert "npm install --legacy-peer-deps" in agent.content
+    assert "pnpm install --no-strict-peer-dependencies" in agent.content
+    assert "cargo update -p" in agent.content
+    assert "go get <name>@<version>" in agent.content
+    # The needs-approval escape hatch is the alternative to scope-creep.
+    assert 'status="needs_approval"' in agent.content
+    # And the rule-#6 reinforcement: ``changes_summary`` must match
+    # the actual manifest diff, naming every package whose constraint
+    # changed.
+    assert (
+        "`changes_summary` MUST name every package whose version "
+        "constraint changed in the manifest" in agent.content
+    )
+
+
+def test_executor_safe_bump_block_includes_scope_constraint(
+    engine: AgentTemplateEngine, sample_finding_dict: dict
+):
+    """The ``fix_safety == 'safe_bump'`` evidence path is the most common
+    way a dependency-bump remediation gets framed — it must include the
+    "touch only the package(s) named in the plan steps" line so the agent
+    sees the constraint at the point of decision (not just buried in the
+    hard-rules block at the bottom)."""
+    finding = {**sample_finding_dict}
+    evidence = {
+        "affected_files": [{"path": "package.json", "line": 1, "context": "braces dep"}],
+        "fix_safety": "safe_bump",
+        "current_version": "2.3.2",
+    }
+    agent = engine.render_agent(
+        "remediation_executor", finding=finding, evidence=evidence
+    )
+    assert "Touch only the package(s) named in the plan steps" in agent.content
+    assert "Never sweep-upgrade or downgrade adjacent packages" in agent.content
+
+
 def test_planner_surfaces_posture_detail(
     engine: AgentTemplateEngine, posture_finding_dict: dict
 ):
