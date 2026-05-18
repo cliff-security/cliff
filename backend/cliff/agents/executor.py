@@ -698,11 +698,37 @@ class AgentExecutor:
         return self._active_runs.get(workspace_id)
 
     def _cleanup_workspace_state(
-        self, workspace_id: str, agent_run_id: str
+        self,
+        workspace_id: str,
+        agent_run_id: str,
+        *,
+        agent_type: str = "",
+        status: str = "completed",
     ) -> None:
-        """Clean up per-workspace state after execution completes."""
+        """Clean up per-workspace state after execution completes.
+
+        Before closing the queue with ``done``, push an
+        ``agent_run_completed`` progress event so the side-panel SSE
+        consumer can invalidate ``agent-runs`` the instant the row
+        flips. ``status`` reflects the run outcome (``completed``,
+        ``failed``, ``rate_limited``). B36 / IMPL-0020.
+        """
         self._pending_approvals.pop(agent_run_id, None)
         self._permission_pending.pop(agent_run_id, None)
+        # IMPL-0020 — emit the run-completed progress event BEFORE the
+        # terminal ``done`` so the SSE consumer sees the transition.
+        # Published via ``push_permission_event`` (vs. queue.put_nowait
+        # directly) so the publish surface stays single-funnel and is
+        # cleanly interceptable by tests.
+        self.push_permission_event(
+            workspace_id,
+            {
+                "type": "agent_run_completed",
+                "agent_type": agent_type,
+                "run_id": agent_run_id,
+                "status": status,
+            },
+        )
         self._active_runs.pop(workspace_id, None)
         queue = self._permission_queues.pop(workspace_id, None)
         if queue:
@@ -794,6 +820,20 @@ class AgentExecutor:
         # Set up per-workspace state for permission event streaming
         self._permission_queues[workspace_id] = asyncio.Queue()
         self._active_runs[workspace_id] = agent_run.id
+
+        # IMPL-0020 — fan an ``agent_run_started`` progress event out to
+        # any SSE listener so the side panel can flip the activity row
+        # the moment the pipeline advances, without waiting for the next
+        # poll tick (B36).
+        self.push_permission_event(
+            workspace_id,
+            {
+                "type": "agent_run_started",
+                "agent_type": agent_type,
+                "run_id": agent_run.id,
+                "status": "running",
+            },
+        )
 
         try:
             # 3. Get or start workspace OpenCode process
@@ -1106,7 +1146,12 @@ class AgentExecutor:
                 ),
             )
 
-            self._cleanup_workspace_state(workspace_id, agent_run.id)
+            self._cleanup_workspace_state(
+                workspace_id,
+                agent_run.id,
+                agent_type=agent_type,
+                status=run_status,
+            )
             return AgentExecutionResult(
                 agent_run_id=agent_run.id,
                 agent_type=agent_type,
@@ -1119,7 +1164,12 @@ class AgentExecutor:
             )
 
         except AgentTimeoutError:
-            self._cleanup_workspace_state(workspace_id, agent_run.id)
+            self._cleanup_workspace_state(
+                workspace_id,
+                agent_run.id,
+                agent_type=agent_type,
+                status="failed",
+            )
             duration = time.monotonic() - start_time
             timeout_error = f"Agent timed out after {timeout:.0f}s"
             await update_agent_run(
@@ -1145,7 +1195,12 @@ class AgentExecutor:
         # EF-B17 — must precede ``AgentProcessError`` because
         # ``AgentRateLimitError`` is a subclass of it.
         except AgentRateLimitError as exc:
-            self._cleanup_workspace_state(workspace_id, agent_run.id)
+            self._cleanup_workspace_state(
+                workspace_id,
+                agent_run.id,
+                agent_type=agent_type,
+                status="rate_limited",
+            )
             duration = time.monotonic() - start_time
             next_delay = _rate_limit_backoff_delay(RATE_LIMIT_MAX_ATTEMPTS)
             last_error = (
@@ -1178,7 +1233,12 @@ class AgentExecutor:
             )
 
         except AgentProcessError as exc:
-            self._cleanup_workspace_state(workspace_id, agent_run.id)
+            self._cleanup_workspace_state(
+                workspace_id,
+                agent_run.id,
+                agent_type=agent_type,
+                status="failed",
+            )
             duration = time.monotonic() - start_time
             await update_agent_run(
                 db,
@@ -1201,7 +1261,12 @@ class AgentExecutor:
             )
 
         except Exception as exc:
-            self._cleanup_workspace_state(workspace_id, agent_run.id)
+            self._cleanup_workspace_state(
+                workspace_id,
+                agent_run.id,
+                agent_type=agent_type,
+                status="failed",
+            )
             duration = time.monotonic() - start_time
             logger.exception("Unexpected error during agent execution")
             await update_agent_run(
