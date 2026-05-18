@@ -1031,6 +1031,12 @@ function SidePanelFooter({
   onStart?: () => void
   starting?: boolean
 }) {
+  // ``minHeight: 72`` — the single-row footer stages (todo, planning,
+  // plan_ready, pr_ready, fixed) sit at the 72-px design intent because
+  // their content fits in one row; the existing height tests target
+  // those. ``awaiting_permission`` is intentionally taller because its
+  // content is a code block plus a separate actions row — a deliberate
+  // pause moment that earns the extra vertical real estate.
   return (
     <footer
       data-testid="side-panel-footer"
@@ -1038,10 +1044,18 @@ function SidePanelFooter({
       style={{
         background: 'var(--cd-bg-1)',
         borderTop: '1px solid var(--cd-rule)',
-        height: 72,
-        padding: '0 20px',
+        minHeight: 72,
+        height:
+          stage === 'awaiting_permission' && !rejecting ? 'auto' : 72,
+        padding:
+          stage === 'awaiting_permission' && !rejecting
+            ? '0 20px'
+            : '0 20px',
         display: 'flex',
-        alignItems: 'center',
+        alignItems:
+          stage === 'awaiting_permission' && !rejecting
+            ? 'stretch'
+            : 'center',
       }}
     >
       {rejecting ? (
@@ -1435,51 +1449,161 @@ function PermissionPrompt({
   onApprove: () => void
   onDeny: () => void
 }) {
-  // Format the command as a single readable line. For bash this is the
-  // command-line; for edit it's the target path; for external_directory
-  // it's the directory the agent tried to reach. The detail is rendered
-  // on its own row below the title + buttons so destructive commands
-  // (e.g. ``git push -f origin <long-branch>``) are fully readable
-  // before the user decides — never truncated.
+  // "The pause" — editorial treatment of the destructive-action gate.
+  // Three vertical bands: eyebrow (we're paused), command (the hero — what
+  // will actually run), actions (the decision). The command sits in a
+  // tonally-recessed surface with a 2px amber rule down the left edge,
+  // because the entire purpose of this moment is to make the user read
+  // the command before clicking — so the command itself is the visual
+  // centerpiece, not chrome. Wraps cleanly for long branch names / paths
+  // / multi-command shell strings (a previous fix replaced ``truncate``
+  // with ``break-all whitespace-pre-wrap``; that contract holds here too).
   const detail = patterns.join(' ') || '(no detail)'
   return (
-    <div className="flex flex-col gap-2 w-full" data-testid="permission-prompt">
-      <div className="flex items-center gap-3 w-full">
-        <div className="flex-1 min-w-0 text-[12.5px] font-semibold text-on-surface">
-          Approval needed
-        </div>
-        <PrimaryButton
-          icon="check_circle"
-          kbd="A"
-          onClick={onApprove}
-          disabled={pending}
-          data-testid="permission-approve"
+    <div
+      className="flex flex-col w-full"
+      data-testid="permission-prompt"
+      style={{
+        gap: 12,
+        paddingTop: 14,
+        paddingBottom: 14,
+      }}
+    >
+      {/* Eyebrow row: amber pause chip on the left, tool name as a quiet
+          mono tag on the right. Reads as "we paused — here's the surface
+          we paused on" without competing with the command below. */}
+      <div className="flex items-center gap-2">
+        <span
+          className="inline-flex items-center gap-1.5 rounded-full"
+          style={{
+            padding: '3px 9px 3px 7px',
+            background: 'var(--cd-amber-soft)',
+            color: 'var(--cd-amber)',
+          }}
         >
-          {pending ? 'Working…' : 'Approve'}
-        </PrimaryButton>
-        <ErrorButton
-          icon="block"
-          kbd="X"
+          <span
+            className="material-symbols-outlined"
+            style={{ fontSize: 13, fontVariationSettings: "'FILL' 1" }}
+            aria-hidden
+          >
+            pause_circle
+          </span>
+          <span
+            className="font-semibold uppercase"
+            style={{
+              fontSize: 10,
+              letterSpacing: '0.14em',
+              lineHeight: 1,
+            }}
+          >
+            Awaiting your call
+          </span>
+        </span>
+        <span
+          className="ml-auto font-mono"
+          style={{
+            fontSize: 10.5,
+            color: 'var(--cd-fg-4)',
+            letterSpacing: '0.06em',
+          }}
+        >
+          {tool}
+        </span>
+      </div>
+
+      {/* The command — the hero. Code-block treatment with a left
+          amber rail. The ``$`` prefix sits in a faint color so the
+          actual command reads at full weight. */}
+      <div
+        className="relative overflow-hidden permission-cmd-enter"
+        data-testid="permission-prompt-detail"
+        style={{
+          background: 'var(--cd-bg)',
+          borderRadius: 'var(--cd-r-2)',
+        }}
+      >
+        <span
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            bottom: 0,
+            width: 2,
+            background: 'var(--cd-amber)',
+            opacity: 0.55,
+          }}
+        />
+        <pre
+          className="font-mono"
+          style={{
+            margin: 0,
+            paddingTop: 10,
+            paddingBottom: 10,
+            paddingLeft: 14,
+            paddingRight: 12,
+            fontSize: 12.5,
+            lineHeight: 1.55,
+            color: 'var(--cd-fg-1)',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-all',
+          }}
+        >
+          <span style={{ color: 'var(--cd-fg-4)', userSelect: 'none' }}>$ </span>
+          {detail}
+        </pre>
+      </div>
+
+      {/* Actions, right-aligned. The eye reaches them last, after
+          reading the command — that's the right order of operations. */}
+      <div className="flex items-center gap-2 justify-end">
+        <button
+          type="button"
           onClick={onDeny}
           disabled={pending}
           data-testid="permission-deny"
+          className="cd-btn cd-btn--ghost cd-btn--sm"
         >
+          <span
+            className="material-symbols-outlined"
+            style={{ fontSize: 14 }}
+            aria-hidden
+          >
+            block
+          </span>
           Deny
-        </ErrorButton>
+          <KbdHint label="X" />
+        </button>
+        <button
+          type="button"
+          onClick={onApprove}
+          disabled={pending}
+          data-testid="permission-approve"
+          className="cd-btn cd-btn--primary cd-btn--sm"
+        >
+          <span
+            className="material-symbols-outlined"
+            style={{ fontSize: 14 }}
+            aria-hidden
+          >
+            {pending ? 'progress_activity' : 'check_circle'}
+          </span>
+          {pending ? 'Working…' : 'Approve'}
+          <KbdHint label="A" />
+        </button>
       </div>
-      <div
-        className="text-[11.5px] text-on-surface font-mono whitespace-pre-wrap break-all rounded-md px-2 py-1.5"
-        style={{ background: 'var(--surface-container-lowest, rgba(255,255,255,0.04))' }}
-        data-testid="permission-prompt-detail"
-      >
-        {tool} · {detail}
-      </div>
+
       {errorMessage && (
         <div
           role="alert"
           data-testid="permission-error"
-          className="text-[11px]"
-          style={{ color: 'var(--cd-red, #ef6464)' }}
+          style={{
+            fontSize: 11,
+            color: 'var(--cd-red)',
+            padding: '6px 10px',
+            background: 'var(--cd-red-soft)',
+            borderRadius: 'var(--cd-r-2)',
+          }}
         >
           {errorMessage}
         </div>

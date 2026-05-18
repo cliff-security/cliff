@@ -573,3 +573,24 @@
     animation: none;
   }
 }
+
+/* Permission prompt entrance — a deliberate fade-in + 4px slide-up on the
+   code block, slightly delayed behind the eyebrow chip so the user reads
+   the pause label first, then the command. Honors reduced-motion. */
+@keyframes permission-cmd-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.permission-cmd-enter {
+  animation: permission-cmd-enter var(--cd-slow) var(--cd-ease) both;
+  animation-delay: 60ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .permission-cmd-enter { animation: none; }
+}
