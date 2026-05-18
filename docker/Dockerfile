@@ -13,7 +13,7 @@ ARG CLIFF_CREATED=unknown
 # ---------------------------------------------------------------------------
 # Stage 1: Frontend build
 # ---------------------------------------------------------------------------
-FROM node:20-slim AS frontend-builder
+FROM node:26-slim AS frontend-builder
 
 ARG CLIFF_VERSION
 ENV VITE_APP_VERSION=${CLIFF_VERSION}
