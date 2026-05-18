@@ -560,3 +560,58 @@ def test_planner_surfaces_posture_detail(
     assert "Scanner detail (posture)" in agent.content
     assert "aquasecurity/trivy-action" in agent.content
     assert "address the cited rows, not the policy" in agent.content
+
+
+def test_planner_blocks_history_rewrite_for_secret_findings(
+    engine: AgentTemplateEngine,
+):
+    """Leaked-secret findings (``type='secret'``) need explicit guardrails or
+    the planner defaults to "BFG-rewrite the entire history" — which doesn't
+    un-leak the secret (it's already cloned, cached, mirrored) but force-pushes
+    a multi-thousand-file diff over the default branch. The template must
+    instead tell the user to rotate the key AND remove it from the repo as
+    two separate halves of the remediation.
+    """
+    secret_finding = {
+        "id": "finding-secret-001",
+        "source_type": "trivy-secret",
+        "source_id": "artifacts/cert/server.key:2:private-key",
+        "title": "Asymmetric Private Key",
+        "type": "secret",
+        "raw_severity": "HIGH",
+        "raw_payload": {
+            "rule_id": "private-key",
+            "category": "AsymmetricPrivateKey",
+            "path": "artifacts/cert/server.key",
+            "start_line": 2,
+            "end_line": 14,
+        },
+    }
+    agent = engine.render_agent("remediation_planner", finding=secret_finding)
+
+    # The dedicated section must render.
+    assert "Special case: leaked secret / credential" in agent.content
+
+    # Hard "no history rewrite" line — name the tools the LLM would otherwise
+    # reach for so a regex-style scan won't miss any of them.
+    assert "Do NOT propose rewriting git history" in agent.content
+    assert "BFG" in agent.content
+    assert "git filter-repo" in agent.content
+    assert "git filter-branch" in agent.content
+
+    # Both halves of the remediation must surface in plan_steps, not just DoD.
+    assert "Rotate the leaked" in agent.content
+    assert "Cliff cannot do this for you" in agent.content
+    assert "`git rm" in agent.content
+    assert ".gitignore" in agent.content
+
+
+def test_planner_omits_secret_guidance_for_non_secret_findings(
+    engine: AgentTemplateEngine, sample_finding_dict: dict
+):
+    """The secret-finding section is gated on ``finding.type == 'secret'``;
+    a dependency finding must not get the BFG warning (it'd be irrelevant
+    noise and could confuse the planner)."""
+    agent = engine.render_agent("remediation_planner", finding=sample_finding_dict)
+    assert "Special case: leaked secret / credential" not in agent.content
+    assert "BFG" not in agent.content

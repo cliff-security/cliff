@@ -86,6 +86,22 @@ The user reviewed an earlier plan and asked you to revise it with the following 
 > {{ user_note }}
 
 {% endif %}
+{% if finding.type == 'secret' %}
+## Special case: leaked secret / credential
+
+This finding is a leaked secret in the repository (private key, API token, password, credential, etc.). Plan under these hard constraints:
+
+1. **The repo change is NOT the real fix — rotation is.** Once a secret is committed it must be assumed compromised: anyone with read access, a fork, a clone, a backup, a CI cache, or a search-engine snapshot already has it. The plan must say so explicitly and list **rotation by the credential owner** as its own definition-of-done item, distinct from the repo cleanup.
+
+2. **Do NOT propose rewriting git history.** Specifically: no BFG Repo-Cleaner, no `git filter-repo`, no `git filter-branch`, no force-pushed history rewrite of `main` / `master`. History rewrites give a false sense of cleanup (see point 1), destroy shared history, break every collaborator's local clones, invalidate open PRs, and produce diffs of thousands of files that no human can review. They are out of scope for the default plan — never list them as a step.
+
+3. **The repo change is small and additive.** Exactly: `git rm <path>` to remove the file from HEAD, add the file / parent directory to `.gitignore` so it can't be re-committed, commit on a feature branch, open a PR against the default branch. That is the entire repo plan — three or four steps, single-digit files changed.
+
+4. **`plan_steps` must surface BOTH halves to the user.** The plan the user reads is `plan_steps` — bury rotation in `definition_of_done` and they may miss it. So `plan_steps` must include:
+   - The repo cleanup steps (`git rm` + `.gitignore` + commit + PR), AND
+   - An explicit step telling the user to **rotate the leaked credential and revoke the exposed copy** with the credential owner / issuing system. Phrase it as a directive Cliff is asking the user to do, e.g. "Rotate the leaked private key with the certificate authority and revoke the exposed copy — Cliff cannot do this for you." Mirror the same split in `definition_of_done`: one DoD item for the repo, one for the rotation.
+
+{% endif %}
 ## Your task
 
 Generate a step-by-step remediation plan. The plan must be concrete enough that an engineer can execute it without additional research.
