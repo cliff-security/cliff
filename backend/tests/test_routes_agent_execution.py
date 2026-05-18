@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
@@ -623,3 +625,151 @@ class TestPermissionEndpoint:
         assert resp.status_code == 200
         assert deny_calls == ["run-88"]
         assert approve_calls == []
+
+
+# ---------------------------------------------------------------------------
+# SSE stream — agent-pipeline progress events (B36 / IMPL-0020)
+# ---------------------------------------------------------------------------
+
+
+def _parse_sse_frames(body: str) -> list[dict[str, str]]:
+    """Tiny SSE parser for test bodies. Returns one dict per frame."""
+    frames: list[dict[str, str]] = []
+    current: dict[str, str] = {}
+    for raw in body.splitlines():
+        if not raw.strip():
+            if current:
+                frames.append(current)
+                current = {}
+            continue
+        if ":" not in raw:
+            continue
+        key, _, value = raw.partition(":")
+        key = key.strip()
+        value = value.lstrip(" ")
+        if key in {"event", "data", "id", "retry"}:
+            current[key] = value
+    if current:
+        frames.append(current)
+    return frames
+
+
+class TestAgentExecutionStream:
+    """B36 / IMPL-0020 — the SSE stream must surface pipeline progress.
+
+    Previously the stream only emitted ``permission_request`` and ``done``.
+    Background pipeline runs (enricher → … → planner) finished invisibly,
+    forcing users to F5 to see the next agent's row appear. The stream now
+    multiplexes ``agent_run_started`` and ``agent_run_completed`` so the
+    side panel can invalidate ``agent-runs`` the instant each run flips.
+    """
+
+    @pytest.mark.asyncio
+    async def test_stream_emits_agent_run_completed_event(self, app, client):
+        """Pushing ``agent_run_completed`` to the queue surfaces as a
+        named SSE frame (not folded into the permission_request default)."""
+        queue: asyncio.Queue = asyncio.Queue()
+        queue.put_nowait({
+            "type": "agent_run_completed",
+            "agent_type": "finding_enricher",
+            "run_id": "run-abc",
+            "status": "completed",
+        })
+        queue.put_nowait({"type": "done"})
+
+        executor = app.state.agent_executor
+        executor.get_permission_queue = lambda ws_id: queue
+        executor.get_active_run_id = lambda ws_id: None
+
+        resp = await client.get(
+            "/api/workspaces/ws-1/agent-execution/stream"
+        )
+        assert resp.status_code == 200
+        frames = _parse_sse_frames(resp.text)
+        events = [f.get("event") for f in frames]
+        assert "agent_run_completed" in events
+        completed = next(f for f in frames if f.get("event") == "agent_run_completed")
+        payload = json.loads(completed["data"])
+        assert payload["run_id"] == "run-abc"
+        assert payload["agent_type"] == "finding_enricher"
+        assert payload["status"] == "completed"
+
+    @pytest.mark.asyncio
+    async def test_stream_emits_agent_run_started_event(self, app, client):
+        """``agent_run_started`` is a separate named event from the same
+        queue. The frontend uses it to flip the stage chip the moment a
+        new agent kicks off."""
+        queue: asyncio.Queue = asyncio.Queue()
+        queue.put_nowait({
+            "type": "agent_run_started",
+            "agent_type": "owner_resolver",
+            "run_id": "run-xyz",
+            "status": "running",
+        })
+        queue.put_nowait({"type": "done"})
+
+        executor = app.state.agent_executor
+        executor.get_permission_queue = lambda ws_id: queue
+        executor.get_active_run_id = lambda ws_id: None
+
+        resp = await client.get(
+            "/api/workspaces/ws-1/agent-execution/stream"
+        )
+        assert resp.status_code == 200
+        frames = _parse_sse_frames(resp.text)
+        started = next(
+            (f for f in frames if f.get("event") == "agent_run_started"),
+            None,
+        )
+        assert started is not None
+        payload = json.loads(started["data"])
+        assert payload["run_id"] == "run-xyz"
+        assert payload["agent_type"] == "owner_resolver"
+
+    @pytest.mark.asyncio
+    async def test_stream_still_emits_permission_request_unchanged(
+        self, app, client
+    ):
+        """Backward-compat guard — the permission_request branch must
+        keep its current shape so the existing IssueSidePanel listener
+        keeps working."""
+        queue: asyncio.Queue = asyncio.Queue()
+        queue.put_nowait({
+            "type": "permission_request",
+            "id": "perm-1",
+            "tool": "bash",
+            "patterns": ["rm", "-rf"],
+            "run_id": "run-9",
+        })
+        queue.put_nowait({"type": "done"})
+
+        executor = app.state.agent_executor
+        executor.get_permission_queue = lambda ws_id: queue
+        executor.get_active_run_id = lambda ws_id: None
+
+        resp = await client.get(
+            "/api/workspaces/ws-1/agent-execution/stream"
+        )
+        frames = _parse_sse_frames(resp.text)
+        perm = next(f for f in frames if f.get("event") == "permission_request")
+        payload = json.loads(perm["data"])
+        assert payload == {
+            "id": "perm-1",
+            "tool": "bash",
+            "patterns": ["rm", "-rf"],
+            "run_id": "run-9",
+        }
+
+    @pytest.mark.asyncio
+    async def test_stream_returns_done_immediately_when_no_active_queue(
+        self, app, client
+    ):
+        """Existing early-yield path (line ~540) must keep working."""
+        executor = app.state.agent_executor
+        executor.get_permission_queue = lambda ws_id: None
+
+        resp = await client.get(
+            "/api/workspaces/ws-1/agent-execution/stream"
+        )
+        frames = _parse_sse_frames(resp.text)
+        assert frames and frames[0].get("event") == "done"
