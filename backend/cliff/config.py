@@ -81,6 +81,14 @@ class Settings(BaseSettings):
     opencode_port_range_end: int = 4199
     workspace_idle_timeout_seconds: int = 600
 
+    # Push-access runtime probe (Q01R-W3 / B37 / IMPL-0019). The probe spawns
+    # ``git push --dry-run <https-with-token-url> HEAD:refs/heads/cliff-push-probe``
+    # from an ephemeral bootstrapped git repo to verify at the wire level that
+    # the stored token can actually push. 5s covers GitHub p99 + TLS handshake
+    # comfortably; slow corporate networks can raise via
+    # ``CLIFF_PUSH_PROBE_TIMEOUT_SECONDS``.
+    push_probe_timeout_seconds: float = 5.0
+
     # Assessment watchdog (migration 015 — failure surfacing). The watchdog
     # ticks every ``interval`` seconds and reaps any pending/running row
     # whose ``started_at`` is older than ``stale_threshold``. Threshold is
