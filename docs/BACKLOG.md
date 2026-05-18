@@ -116,6 +116,25 @@ Per-bug reports: `docs/qa/QA-0001-Q01R-Wave2-rerun.md` + `docs/qa/evidence/Q01R-
 - [ ] Switch from user OAuth tokens to installation access tokens (the ADR-0037 alternative) — defer until a use case for non-user-bound execution emerges
 - [ ] Caching for `/diagnose` endpoint result (5 min) + a refresh button on the Settings badge
 
+### Q01R Wave 3 — preflight ground truth + SSE progress (PRs #178+, IMPL-0019/0020)
+
+**PR-Q01R-W3-A — IMPL-0019 (push-access runtime probe; B37)**
+
+- [ ] **Q29**: Add `_probe_git_push(token, repo_url)` helper in `backend/cliff/integrations/github_app/client.py` — runs `git ls-remote --push https://x-access-token:<token>@github.com/<owner>/<repo>` via `asyncio.create_subprocess_exec`, 5 s timeout. Wrap the permissive `can_push=True` return paths in `check_repo_push_access` to invoke the probe and downgrade to `can_push=False` with a specific reason on probe failure. Closes B37.
+- [ ] **Q30**: Tests: probe-success → can_push=True; probe-fail with auth error → can_push=False with credentials/permission reason; probe timeout → can_push=False with timeout reason. Add to `backend/tests/test_github_app_client.py`.
+
+**PR-Q01R-W3-B — IMPL-0020 (SSE stream emits progress events; B36)**
+
+- [ ] **Q31**: Backend — publish `agent_run_started` and `agent_run_completed` events to the workspace's permission queue from the pipeline orchestrator / executor (grep for existing `permission_queue.put` insertion points in `backend/cliff/agents/executor.py`). Extend the SSE dispatch in `backend/cliff/api/routes/agent_execution.py:564-577` to emit those events as their own named SSE frames instead of defaulting to `permission_request`.
+- [ ] **Q32**: Frontend — extend the SSE consumer in `frontend/src/components/issues/IssueSidePanel.tsx:191-204` to listen for `agent_run_started` and `agent_run_completed` events; both call `queryClient.invalidateQueries({queryKey: ['agent-runs', workspaceId]})` (and optionally `['sidebar', workspaceId]`).
+- [ ] **Q33**: Tests: backend stream test that pushing `{type: "agent_run_completed", ...}` to the queue emits an `event: agent_run_completed` SSE frame; frontend test that mocked `agent_run_completed` event triggers the invalidation.
+
+**Deferred (not Wave 3):**
+
+- [ ] **IMPL-0021**: switch executor's git operations to **installation access tokens** (mint via App JWT). Structural follow-up to IMPL-0019's runtime probe; remains useful independently as it avoids the user × App × Installation × OAuth-scope intersection entirely on the write path.
+- [ ] Reconcile React Query `refetchInterval` cadence under MCP-driven testing. IMPL-0020's SSE fix removes our dependency on poll reliability; only revisit if other surfaces show poll-cadence symptoms.
+- [ ] **B34** device-flow Authorize flakiness — still deferred, not exercised in Wave 3.
+
 ### Sidenav redesign follow-up (PRD-0006, IMPL-0008-sidenav-redesign) — shipped
 
 Closed by `feat/prd-0006-sidenav-redesign` (PR #134 / commit `b413e00`, merged 2026-05-04). 224px named rail with logo block, workspace switcher, Issues count badge, and labeled Settings footer per Claude Design's `IPSideNav`. Frontend-only, no backend, no migration.
