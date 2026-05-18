@@ -47,4 +47,4 @@ Re-run the UI-only QA flow that found B36 and B37. Ship when:
 
 ## Tracking
 
-Tasks land in `docs/BACKLOG.md` under App Builder (V2) as Q29-Q31 (continuing the Q1-Q28 numbering from Waves 1.5 and 2). Each PR closes its corresponding Q-tasks.
+Tasks land in `docs/BACKLOG.md` under App Builder (V2) as Q29-Q33 (continuing the Q1-Q28 numbering from Waves 1.5 and 2). PR-Q01R-W3-A closes Q29-Q30; PR-Q01R-W3-B closes Q31-Q33.
