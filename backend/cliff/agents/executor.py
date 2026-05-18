@@ -909,7 +909,11 @@ class AgentExecutor:
                 )
 
             # Tool agents (e.g. remediation_executor) need more time for
-            # git clone, push, and PR creation.
+            # git clone, push, and PR creation. ``effective_timeout`` is
+            # initialised pre-loop because the ``except AgentTimeoutError``
+            # handler reads it to render the user-facing error label —
+            # binding it inside the loop would leave it undefined on
+            # early-path timeouts.
             effective_timeout = (
                 max(timeout, 600.0)
                 if agent_type in _TOOL_AGENT_TYPES
@@ -1192,7 +1196,13 @@ class AgentExecutor:
                 status="failed",
             )
             duration = time.monotonic() - start_time
-            timeout_error = f"Agent timed out after {timeout:.0f}s"
+            # Use ``effective_timeout`` (the real wall-clock ceiling for
+            # this agent — 600s for tool agents, ``timeout`` otherwise),
+            # not the input ``timeout`` arg. Reporting "timed out after
+            # 150s" when the run actually went the full 600s sent users
+            # hunting for a phantom 150s misconfiguration when the real
+            # story was "tool agent burned its full 10-minute budget".
+            timeout_error = f"Agent timed out after {effective_timeout:.0f}s"
             await update_agent_run(
                 db,
                 agent_run.id,

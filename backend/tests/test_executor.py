@@ -427,6 +427,79 @@ class TestAgentExecutor:
 
         assert result.status == "failed"
         assert "timed out" in (result.error or "").lower()
+        # Regression for the misleading-label bug: the error must report
+        # the effective wall-clock ceiling (which equals ``timeout`` for
+        # non-tool agents like the enricher). Earlier code printed
+        # ``f"... after {timeout:.0f}s"`` literally, which for tool agents
+        # said "after 150s" while the run actually went 600s — sending
+        # users hunting for a phantom 150s ceiling.
+        assert "0s" in (result.error or "")
+
+    @pytest.mark.asyncio
+    async def test_timeout_label_reports_effective_timeout_for_tool_agent(
+        self, mock_pool, mock_context_builder, mock_db, workspace_dir,
+    ):
+        """For a tool agent (remediation_executor), the wall-clock ceiling
+        is bumped from the caller-supplied ``timeout`` to ``max(timeout, 600)``
+        — and the timeout error label must reflect that.
+
+        Real failure surfaced in QA: 3 executor runs timed out at the
+        actual 600s ceiling, but the label said "timed out after 150s"
+        (the default ``timeout`` arg). Users debugged a phantom 150s
+        misconfiguration when the real story was "tool agent burned its
+        full 10-minute budget". The fix swapped ``timeout`` for
+        ``effective_timeout`` in the label.
+
+        This test short-circuits the actual LLM call by patching
+        ``_send_and_collect`` to raise ``AgentTimeoutError`` synchronously,
+        so the assertion runs in milliseconds rather than waiting the
+        real 600s ceiling.
+        """
+        from cliff.agents.errors import AgentTimeoutError
+
+        client = AsyncMock()
+        client.create_session.return_value = MagicMock(id="session-1")
+        client.send_message.return_value = None
+        client.stream_events = AsyncMock()
+        mock_pool.get_or_start.return_value = client
+
+        executor = AgentExecutor(mock_pool, mock_context_builder)
+
+        async def _raise_timeout(*args, **kwargs):
+            raise AgentTimeoutError("simulated timeout")
+
+        with (
+            patch(
+                "cliff.agents.executor.create_agent_run",
+                return_value=_make_mock_agent_run(),
+            ),
+            patch("cliff.agents.executor.update_agent_run"),
+            patch("cliff.agents.executor.list_agent_runs", return_value=[]),
+            patch.object(executor, "_send_and_collect", _raise_timeout),
+        ):
+            result = await executor.execute(
+                "ws-1",
+                "remediation_executor",
+                mock_db,
+                workspace_dir=workspace_dir,
+                # Caller-supplied 150s is the legacy default — the
+                # executor bumps it to 600s internally for tool agents.
+                timeout=150.0,
+            )
+
+        assert result.status == "failed"
+        assert "timed out" in (result.error or "").lower()
+        # The bug: label said "after 150s". The fix: label must report
+        # the effective 600s ceiling.
+        assert "600s" in (result.error or ""), (
+            f"expected '600s' in error label, got: {result.error!r} "
+            f"(regression: label is reporting the input timeout instead "
+            f"of effective_timeout)"
+        )
+        assert "150s" not in (result.error or ""), (
+            f"label leaked the caller-supplied 150s instead of the "
+            f"effective 600s ceiling: {result.error!r}"
+        )
 
     @pytest.mark.asyncio
     async def test_opencode_error_event(self, mock_pool, mock_context_builder,

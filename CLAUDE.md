@@ -262,10 +262,12 @@ only — the UI picker is the canonical write path.
 - **Tier 3**: direct BYOK with deep-linked provider instructions
   (Anthropic, OpenAI, Google AI Studio, Local Ollama, Custom).
 
-**Defaults per provider:** OpenRouter → `tencent/hy3-preview`; Anthropic →
-`claude-haiku-4-5`; OpenAI → `gpt-5`; Google → `gemini-2.5-flash`;
-Ollama → user-picked from `/api/tags`. Users override via the picker in
-Settings.
+**Defaults per provider:** OpenRouter → `anthropic/claude-haiku-4.5`;
+Anthropic → `claude-haiku-4-5`; OpenAI → `gpt-5`; Google →
+`gemini-2.5-flash`; Ollama → user-picked from `/api/tags`. Users
+override via the picker in Settings. (Previously the OpenRouter default
+was `tencent/hy3-preview`; that was a single-upstream-provider model and
+broke under concurrent agent runs, so it was demoted to a picker option.)
 
 **Drift detection.** `GET /api/integrations/ai/status` returns both the
 canonical model and a live probe of OpenCode's `/config`. When they
