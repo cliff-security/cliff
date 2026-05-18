@@ -8,7 +8,7 @@
 [![Backend CI](https://img.shields.io/github/actions/workflow/status/cliff-security/cliff/backend.yml?branch=main&label=backend&color=6FE3B5&labelColor=0B101B)](https://github.com/cliff-security/cliff/actions/workflows/backend.yml)
 [![Frontend CI](https://img.shields.io/github/actions/workflow/status/cliff-security/cliff/frontend.yml?branch=main&label=frontend&color=6FE3B5&labelColor=0B101B)](https://github.com/cliff-security/cliff/actions/workflows/frontend.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-6FE3B5?labelColor=0B101B)](LICENSE)
-[![Status: alpha](https://img.shields.io/badge/status-alpha-F0BF7E?labelColor=0B101B)](ROADMAP.md)
+[![Status: beta](https://img.shields.io/badge/status-beta-6FE3B5?labelColor=0B101B)](ROADMAP.md)
 
 <img src="docs/assets/cliff-badge-A.svg" alt="Cliff verified — Grade A" />
 
@@ -24,7 +24,7 @@ Cliff is the open-source security teammate your repo doesn't have. Point it at y
 
 Built on [OpenCode](https://github.com/anomalyco/opencode). Self-hosted, AGPL-3.0, BYOK. Runs natively on macOS and Linux, or in a single Docker container.
 
-> Alpha. Single-user. Expect rough edges — see [ROADMAP.md](ROADMAP.md).
+> Beta. Single-user. Pre-1.0 — we're still hardening edges; see [ROADMAP.md](ROADMAP.md).
 
 <!--
   HERO PRODUCT SHOT — insert when the Cyberdeck UI ships:
