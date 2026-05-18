@@ -1380,22 +1380,16 @@ function PermissionPrompt({
 }) {
   // Format the command as a single readable line. For bash this is the
   // command-line; for edit it's the target path; for external_directory
-  // it's the directory the agent tried to reach.
+  // it's the directory the agent tried to reach. The detail is rendered
+  // on its own row below the title + buttons so destructive commands
+  // (e.g. ``git push -f origin <long-branch>``) are fully readable
+  // before the user decides — never truncated.
   const detail = patterns.join(' ') || '(no detail)'
   return (
-    <div className="flex flex-col gap-1.5 w-full" data-testid="permission-prompt">
+    <div className="flex flex-col gap-2 w-full" data-testid="permission-prompt">
       <div className="flex items-center gap-3 w-full">
-        <div className="flex-1 min-w-0">
-          <div className="text-[12.5px] font-semibold text-on-surface">
-            Approval needed
-          </div>
-          <div
-            className="text-[11px] text-on-surface-variant truncate font-mono"
-            title={`${tool} ${detail}`}
-            data-testid="permission-prompt-detail"
-          >
-            {tool} · {detail}
-          </div>
+        <div className="flex-1 min-w-0 text-[12.5px] font-semibold text-on-surface">
+          Approval needed
         </div>
         <PrimaryButton
           icon="check_circle"
@@ -1415,6 +1409,13 @@ function PermissionPrompt({
         >
           Deny
         </ErrorButton>
+      </div>
+      <div
+        className="text-[11.5px] text-on-surface font-mono whitespace-pre-wrap break-all rounded-md px-2 py-1.5"
+        style={{ background: 'var(--surface-container-lowest, rgba(255,255,255,0.04))' }}
+        data-testid="permission-prompt-detail"
+      >
+        {tool} · {detail}
       </div>
       {errorMessage && (
         <div
