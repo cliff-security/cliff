@@ -27,7 +27,8 @@ import { useGitHubPushDiagnose } from '@/api/githubApp'
  * change it in all three places.
  */
 const GITHUB_APP_PERMS_DOC_URL =
-  '/docs/guides/setup-github-app.md#required-permissions'
+  'https://github.com/cliff-security/cliff/blob/main/' +
+  'docs/guides/setup-github-app.md#required-permissions'
 
 export function PushAccessBadge() {
   const { data, isLoading } = useGitHubPushDiagnose()

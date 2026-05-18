@@ -794,7 +794,44 @@ function SPActivity({ workspaceId }: { workspaceId: string | null }) {
  * anchor in the setup guide.
  */
 const GITHUB_APP_PERMS_DOC_URL =
-  '/docs/guides/setup-github-app.md#required-permissions'
+  'https://github.com/cliff-security/cliff/blob/main/' +
+  'docs/guides/setup-github-app.md#required-permissions'
+
+/**
+ * Heuristic: does this error_details string look like a GitHub
+ * push / permission failure (the case the "How to fix" link actually
+ * helps with)? The remediation_executor reports a wide range of
+ * error_details — push denied, OAuth scope missing, but also unrelated
+ * shapes like "Tool usage prohibited by current instruction" that the
+ * permissions guide can't address. Showing the link blanket on every
+ * ``error_details`` sent users to a doc that didn't match their
+ * problem (and, until the URL fix that ships with this constant, to a
+ * dead link).
+ *
+ * Matching is intentionally permissive: any of the listed substrings
+ * triggers the link, lower-cased. False positives are cheaper than
+ * false negatives — a misleading help link is a less bad outcome than
+ * a real GitHub-App-perms failure with no guidance.
+ */
+function looksLikeGithubPermissionsError(errorDetails: string): boolean {
+  const haystack = errorDetails.toLowerCase()
+  return (
+    haystack.includes('push') ||
+    haystack.includes('permission') ||
+    haystack.includes('denied') ||
+    haystack.includes('403') ||
+    haystack.includes('forbidden') ||
+    haystack.includes('unauthorized') ||
+    haystack.includes('401') ||
+    haystack.includes('gh_token') ||
+    haystack.includes('github token') ||
+    haystack.includes('authentication') ||
+    haystack.includes('access denied') ||
+    haystack.includes('insufficient scope') ||
+    haystack.includes('write permission') ||
+    haystack.includes('write access')
+  )
+}
 
 /**
  * Read ``structured_output.error_details`` off an agent run if present.
@@ -928,9 +965,12 @@ function ActivityRunCard({ run }: { run: AgentRun }) {
       {errorDetails && (
         // Inline error surface for an agent run whose structured_output
         // reports ``error_details``. Tonal layering (no 1px borders, no
-        // pure black) + a "How to fix" deep link to the GitHub-App setup
-        // guide so the user lands on the actual remediation for the most
-        // common cause (B30 App-permissions mismatch).
+        // pure black). The "How to fix" deep-link is gated by
+        // ``looksLikeGithubPermissionsError`` because the link points
+        // at the GitHub-App setup guide — useful for the B30 push /
+        // permission case but misleading for unrelated error shapes
+        // (e.g. "Tool usage prohibited by current instruction"), so we
+        // only render it when the error text actually matches.
         <div
           className="mt-2 rounded-lg p-2.5"
           style={{
@@ -939,24 +979,26 @@ function ActivityRunCard({ run }: { run: AgentRun }) {
           }}
         >
           <div className="text-[11.5px] leading-relaxed">{errorDetails}</div>
-          <div className="mt-1.5">
-            <a
-              href={GITHUB_APP_PERMS_DOC_URL}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 text-[11.5px] font-semibold hover:underline"
-              style={{ color: 'var(--primary, #4d44e3)' }}
-            >
-              <span
-                className="material-symbols-outlined"
-                style={{ fontSize: 13 }}
-                aria-hidden
+          {looksLikeGithubPermissionsError(errorDetails) && (
+            <div className="mt-1.5">
+              <a
+                href={GITHUB_APP_PERMS_DOC_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-[11.5px] font-semibold hover:underline"
+                style={{ color: 'var(--primary, #4d44e3)' }}
               >
-                help
-              </span>
-              How to fix
-            </a>
-          </div>
+                <span
+                  className="material-symbols-outlined"
+                  style={{ fontSize: 13 }}
+                  aria-hidden
+                >
+                  help
+                </span>
+                How to fix
+              </a>
+            </div>
+          )}
         </div>
       )}
     </li>

@@ -276,6 +276,76 @@ describe('IssueSidePanel — Activity error_details (B30)', () => {
     await screen.findByText(/Patch applied and pushed/i)
     expect(screen.queryByRole('link', { name: /How to fix/i })).toBeNull()
   })
+
+  it('How to fix link is a GitHub-hosted absolute URL (not a local /docs path)', async () => {
+    // Until this fix the link pointed at ``/docs/guides/setup-github-app.md``
+    // — a path the backend doesn't serve and a file extension browsers
+    // don't render. The link must resolve to the GitHub-hosted markdown
+    // (with anchor) so the user actually lands on the permissions section.
+    withAgentRuns('ws-1', [
+      {
+        id: 'run-fail',
+        workspace_id: 'ws-1',
+        agent_type: 'remediation_executor',
+        status: 'completed',
+        input_json: null,
+        summary_markdown: null,
+        confidence: 0.9,
+        evidence_json: null,
+        structured_output: {
+          status: 'failed',
+          pr_url: null,
+          error_details: 'Push denied: 403 from GitHub on git push.',
+        },
+        next_action_hint: null,
+        started_at: '2026-05-17T12:00:00Z',
+        completed_at: '2026-05-17T12:05:00Z',
+      },
+    ])
+    renderPanel(findingForStage('failed'))
+    const link = await screen.findByRole('link', { name: /How to fix/i })
+    const href = link.getAttribute('href') ?? ''
+    expect(href).toMatch(/^https:\/\/github\.com\//)
+    expect(href).toContain('cliff-security/cliff')
+    expect(href).toContain('docs/guides/setup-github-app.md')
+    expect(href).toMatch(/#required-permissions$/)
+  })
+
+  it('does NOT show the How to fix link for non-permission error_details', async () => {
+    // Q01R / QA — the user hit a real "Tool usage prohibited by current
+    // instruction" error and the misleading "How to fix" link pointed
+    // them at a GitHub-App-permissions guide unrelated to the actual
+    // failure. The link must only render when error_details looks like
+    // a push / permission / auth problem.
+    withAgentRuns('ws-1', [
+      {
+        id: 'run-tool-block',
+        workspace_id: 'ws-1',
+        agent_type: 'remediation_executor',
+        status: 'completed',
+        input_json: null,
+        summary_markdown: null,
+        confidence: 0.9,
+        evidence_json: null,
+        structured_output: {
+          status: 'failed',
+          pr_url: null,
+          error_details:
+            'Tool usage prohibited by current instruction; unable to clone repository or apply fixes',
+        },
+        next_action_hint: null,
+        started_at: '2026-05-17T12:00:00Z',
+        completed_at: '2026-05-17T12:05:00Z',
+      },
+    ])
+    renderPanel(findingForStage('failed'))
+    // The error message itself must still render — we're only gating
+    // the "How to fix" CTA, not the error card.
+    expect(
+      await screen.findByText(/Tool usage prohibited by current instruction/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /How to fix/i })).toBeNull()
+  })
 })
 
 // ---------------------------------------------------------------------------
