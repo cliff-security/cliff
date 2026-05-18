@@ -2,10 +2,10 @@
 # Cliff one-line installer
 #
 # Usage:
-#   curl -fsSL https://github.com/galanko/cliff/releases/latest/download/install.sh | sh
+#   curl -fsSL https://github.com/cliff-security/cliff/releases/latest/download/install.sh | sh
 #
 # Or to install a specific version:
-#   curl -fsSL https://github.com/galanko/cliff/releases/latest/download/install.sh | CLIFF_VERSION=0.1.0-alpha sh
+#   curl -fsSL https://github.com/cliff-security/cliff/releases/latest/download/install.sh | CLIFF_VERSION=0.1.0-alpha sh
 #
 # Environment overrides:
 #   CLIFF_HOME            Install directory (default: $HOME/cliff)
@@ -250,7 +250,7 @@ while [ "${ATTEMPT}" -lt "${MAX_ATTEMPTS}" ]; do
     echo
     printf '  %sUsing Claude Code?%s Install the /secure-repo plugin (one-time):\n' \
       "${BOLD}" "${RESET}"
-    printf '    %s/plugin marketplace add galanko/Cliff%s\n' "${DIM}" "${RESET}"
+    printf '    %s/plugin marketplace add cliff-security/cliff%s\n' "${DIM}" "${RESET}"
     printf '    %s/plugin install secure-repo@cliff%s\n' "${DIM}" "${RESET}"
     printf '  Then ask Claude: %s"secure this repo with Cliff"%s\n' "${BOLD}" "${RESET}"
     echo

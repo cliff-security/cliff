@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  REGISTRY_IMAGE: ghcr.io/galanko/cliff
+  REGISTRY_IMAGE: ghcr.io/cliff-security/cliff
 
 jobs:
   # ------------------------------------------------------------------
@@ -27,7 +27,7 @@ jobs:
   #    pushes anything; safe to run before the environment gate.
   # ------------------------------------------------------------------
   validate:
-    if: github.repository == 'galanko/Cliff'
+    if: github.repository == 'cliff-security/cliff'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -112,7 +112,7 @@ jobs:
   # ------------------------------------------------------------------
   smoke-tests:
     needs: validate
-    if: github.repository == 'galanko/Cliff'
+    if: github.repository == 'cliff-security/cliff'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -168,11 +168,11 @@ jobs:
   # ------------------------------------------------------------------
   build-and-publish:
     needs: [validate, smoke-tests]
-    if: github.repository == 'galanko/Cliff'
+    if: github.repository == 'cliff-security/cliff'
     runs-on: ubuntu-latest
     environment:
       name: release
-      url: https://github.com/galanko/Cliff/pkgs/container/cliff
+      url: https://github.com/cliff-security/cliff/pkgs/container/cliff
     permissions:
       contents: read
       packages: write
@@ -366,7 +366,7 @@ jobs:
   # ------------------------------------------------------------------
   github-release:
     needs: [validate, build-and-publish]
-    if: github.repository == 'galanko/Cliff'
+    if: github.repository == 'cliff-security/cliff'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -405,31 +405,31 @@ jobs:
           Cliff ${VERSION} — release verification
           ==========================================
 
-          Image:  ghcr.io/galanko/cliff:${VERSION}
+          Image:  ghcr.io/cliff-security/cliff:${VERSION}
           Digest: ${DIGEST}
 
           1. Verify Sigstore keyless signature:
 
-             cosign verify ghcr.io/galanko/cliff@${DIGEST} \\
-               --certificate-identity-regexp 'https://github\\.com/galanko/Cliff/\\.github/workflows/release\\.yml@.*' \\
+             cosign verify ghcr.io/cliff-security/cliff@${DIGEST} \\
+               --certificate-identity-regexp 'https://github\\.com/cliff-security/cliff/\\.github/workflows/release\\.yml@.*' \\
                --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
           2. Verify SLSA build provenance (requires GitHub CLI):
 
-             gh attestation verify oci://ghcr.io/galanko/cliff@${DIGEST} \\
-               --owner galanko
+             gh attestation verify oci://ghcr.io/cliff-security/cliff@${DIGEST} \\
+               --owner cliff-security
 
           3. Inspect the published manifest list (amd64 + arm64):
 
-             docker buildx imagetools inspect ghcr.io/galanko/cliff:${VERSION}
+             docker buildx imagetools inspect ghcr.io/cliff-security/cliff:${VERSION}
 
           4. The CycloneDX SBOM is attached to this release. Verify it's
              the same one Sigstore signed:
 
              cosign verify-attestation --type cyclonedx \\
-               --certificate-identity-regexp 'https://github\\.com/galanko/Cliff/\\.github/workflows/release\\.yml@.*' \\
+               --certificate-identity-regexp 'https://github\\.com/cliff-security/cliff/\\.github/workflows/release\\.yml@.*' \\
                --certificate-oidc-issuer https://token.actions.githubusercontent.com \\
-               ghcr.io/galanko/cliff@${DIGEST}
+               ghcr.io/cliff-security/cliff@${DIGEST}
           EOF
 
       - name: Stage install assets for release
@@ -469,7 +469,7 @@ jobs:
       # asset so `install.sh` can pip-install it onto the user's host. The
       # `/secure-repo` Claude Code plugin lives in-tree (`.claude-plugin/`,
       # `plugins/secure-repo/`) and is consumed via `/plugin marketplace add
-      # galanko/Cliff` — Anthropic's documented plugin flow — so we don't
+      # cliff-security/cliff` — Anthropic's documented plugin flow — so we don't
       # publish it as a release asset.
       - name: Setup Python (CLI sdist)
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5

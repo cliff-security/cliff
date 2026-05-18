@@ -6,8 +6,8 @@
     "name": "galanko",
     "email": "galank@gmail.com"
   },
-  "homepage": "https://github.com/galanko/Cliff",
-  "repository": "https://github.com/galanko/Cliff",
+  "homepage": "https://github.com/cliff-security/cliff",
+  "repository": "https://github.com/cliff-security/cliff",
   "license": "AGPL-3.0-only",
   "keywords": ["security", "remediation", "cliff", "vibe-security"]
 }

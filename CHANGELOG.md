@@ -407,7 +407,7 @@ SLSA build provenance and a CycloneDX SBOM attestation.
   One-line migration:
   `docker run --rm --user 0 -v cliff_data:/data alpine chown -R 10001:10001 /data`.
 
-[Unreleased]: https://github.com/galanko/Cliff/compare/v0.1.2-alpha...HEAD
-[0.1.2-alpha]: https://github.com/galanko/Cliff/releases/tag/v0.1.2-alpha
-[0.1.1-alpha]: https://github.com/galanko/Cliff/releases/tag/v0.1.1-alpha
-[0.1.0-alpha]: https://github.com/galanko/Cliff/releases/tag/v0.1.0-alpha
+[Unreleased]: https://github.com/cliff-security/cliff/compare/v0.1.2-alpha...HEAD
+[0.1.2-alpha]: https://github.com/cliff-security/cliff/releases/tag/v0.1.2-alpha
+[0.1.1-alpha]: https://github.com/cliff-security/cliff/releases/tag/v0.1.1-alpha
+[0.1.0-alpha]: https://github.com/cliff-security/cliff/releases/tag/v0.1.0-alpha

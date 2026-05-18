@@ -525,7 +525,7 @@ def model_list(client: Client, provider: str) -> None:
 @main.command()
 @click.option(
     "--repo-url",
-    default="https://github.com/galanko/Cliff",
+    default="https://github.com/cliff-security/cliff",
     help="Repo URL to scan as part of the selftest.",
 )
 def selftest(repo_url: str) -> None:
