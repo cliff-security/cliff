@@ -41,10 +41,10 @@ ARG CLIFF_CREATED
 # OCI image labels — populated by the release workflow at build time.
 LABEL org.opencontainers.image.title="Cliff" \
       org.opencontainers.image.description="Self-hosted cybersecurity remediation copilot" \
-      org.opencontainers.image.source="https://github.com/galanko/Cliff" \
-      org.opencontainers.image.url="https://github.com/galanko/Cliff" \
-      org.opencontainers.image.documentation="https://github.com/galanko/Cliff/blob/main/README.md" \
-      org.opencontainers.image.vendor="galanko" \
+      org.opencontainers.image.source="https://github.com/cliff-security/cliff" \
+      org.opencontainers.image.url="https://github.com/cliff-security/cliff" \
+      org.opencontainers.image.documentation="https://github.com/cliff-security/cliff/blob/main/README.md" \
+      org.opencontainers.image.vendor="cliff-security" \
       org.opencontainers.image.licenses="AGPL-3.0-only" \
       org.opencontainers.image.version="${CLIFF_VERSION}" \
       org.opencontainers.image.revision="${CLIFF_REVISION}" \
