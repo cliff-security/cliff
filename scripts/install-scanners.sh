@@ -130,11 +130,19 @@ install_trivy() {
   install -m 0755 "${tmp}/trivy" "${BIN_DIR}/trivy"
   strip_quarantine "${BIN_DIR}/trivy"
 
-  # Preserve Trivy's LICENSE + NOTICE alongside the binary so the
-  # distribution carries Apache-2.0 §4(d) attribution forward.
-  if [[ -f "${tmp}/LICENSE" ]]; then
-    install -m 0644 "${tmp}/LICENSE" "${BIN_DIR}/trivy.LICENSE"
+  # Preserve Trivy's LICENSE alongside the binary so the distribution
+  # carries Apache-2.0 attribution forward. Missing LICENSE is fatal —
+  # without it we'd ship Trivy in violation of Apache §4(c).
+  if [[ ! -f "${tmp}/LICENSE" ]]; then
+    echo "error: trivy archive ${archive} did not contain LICENSE — refusing to install without Apache-2.0 attribution" >&2
+    rm -rf "${tmp}"
+    exit 1
   fi
+  install -m 0644 "${tmp}/LICENSE" "${BIN_DIR}/trivy.LICENSE"
+
+  # NOTICE is genuinely optional: upstream Trivy does not always ship one
+  # (e.g. v0.70.0 has no NOTICE), so a missing NOTICE is not an error.
+  # Apache §4(d) only fires when a NOTICE file exists upstream.
   if [[ -f "${tmp}/NOTICE" ]]; then
     install -m 0644 "${tmp}/NOTICE" "${BIN_DIR}/trivy.NOTICE"
   fi
@@ -197,13 +205,16 @@ EOF
   # Preserve Semgrep CE's LICENSE (LGPL-2.1) alongside the wrapper so the
   # distribution carries LGPL-2.1 attribution forward. The LICENSE file is
   # shipped inside the wheel's dist-info; find it without hard-coding the
-  # Python version path.
+  # Python version path. Missing LICENSE is fatal — silently shipping
+  # Semgrep without its LGPL-2.1 notice would breach LGPL §1.
   local semgrep_license
   semgrep_license="$(find "${prefix}/lib" -maxdepth 4 \
     -path '*/semgrep-*.dist-info/LICENSE*' -type f 2>/dev/null | head -n1)"
-  if [[ -n "${semgrep_license}" && -f "${semgrep_license}" ]]; then
-    install -m 0644 "${semgrep_license}" "${BIN_DIR}/semgrep.LICENSE"
+  if [[ -z "${semgrep_license}" || ! -f "${semgrep_license}" ]]; then
+    echo "error: semgrep ${version} wheel did not ship a LICENSE under ${prefix}/lib/*/site-packages/semgrep-*.dist-info/ — refusing to install without LGPL-2.1 attribution" >&2
+    exit 1
   fi
+  install -m 0644 "${semgrep_license}" "${BIN_DIR}/semgrep.LICENSE"
 }
 
 while read -r line; do

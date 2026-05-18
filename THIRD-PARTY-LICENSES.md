@@ -55,7 +55,7 @@ linked into the Python application process.
 `backend/cliff/assessment/scanners/runner.py` invokes the Semgrep CLI with
 the following rule-pack identifiers:
 
-```
+```python
 SEMGREP_CONFIGS = (
     "p/security-audit",
     "p/owasp-top-ten",
