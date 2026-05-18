@@ -44,8 +44,8 @@ class Settings(BaseSettings):
     # Override via CLIFF_GITHUB_APP_CLIENT_ID and CLIFF_GITHUB_APP_SLUG.
     # Leave empty to disable the App onboarding surface (PAT remains the
     # only path).
-    github_app_client_id: str = "Iv23lio5AYwdYwkcI90e"
-    github_app_slug: str = "cliff-local-test"
+    github_app_client_id: str = "Iv23liYEZbt97MuwfpAU"
+    github_app_slug: str = "cliff-security"
 
     # Public base URL of this Cliff instance. Used to construct the
     # GitHub App ``setup_url`` callback target. Honor with CLIFF_BASE_URL
