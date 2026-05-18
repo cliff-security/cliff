@@ -127,12 +127,10 @@ install_trivy() {
   echo "==> verified trivy archive against upstream checksums"
 
   tar -xzf "${tmp}/${archive}" -C "${tmp}"
-  install -m 0755 "${tmp}/trivy" "${BIN_DIR}/trivy"
-  strip_quarantine "${BIN_DIR}/trivy"
 
-  # Preserve Trivy's LICENSE alongside the binary so the distribution
-  # carries Apache-2.0 attribution forward. Missing LICENSE is fatal —
-  # without it we'd ship Trivy in violation of Apache §4(c).
+  # Validate and stage attribution BEFORE the binary. If LICENSE is
+  # missing we must not leave a half-installed trivy in ${BIN_DIR}
+  # without its Apache-2.0 notice.
   if [[ ! -f "${tmp}/LICENSE" ]]; then
     echo "error: trivy archive ${archive} did not contain LICENSE — refusing to install without Apache-2.0 attribution" >&2
     rm -rf "${tmp}"
@@ -146,6 +144,9 @@ install_trivy() {
   if [[ -f "${tmp}/NOTICE" ]]; then
     install -m 0644 "${tmp}/NOTICE" "${BIN_DIR}/trivy.NOTICE"
   fi
+
+  install -m 0755 "${tmp}/trivy" "${BIN_DIR}/trivy"
+  strip_quarantine "${BIN_DIR}/trivy"
 
   rm -rf "${tmp}"
 
@@ -178,6 +179,22 @@ install_semgrep() {
     echo "error: neither uv nor python3 found — cannot install semgrep" >&2
     exit 1
   fi
+
+  # Stage LICENSE attribution BEFORE creating the user-facing wrapper.
+  # The LICENSE file is shipped inside the wheel's dist-info; find it
+  # without hard-coding the Python version path. Missing LICENSE is
+  # fatal — silently shipping Semgrep without its LGPL-2.1 notice would
+  # breach LGPL §1, and we must not leave a wrapper in ${BIN_DIR}
+  # pointing at a Semgrep binary without its attribution.
+  local semgrep_license
+  semgrep_license="$(find "${prefix}/lib" -maxdepth 4 \
+    -path '*/semgrep-*.dist-info/LICENSE*' -type f 2>/dev/null | head -n1)"
+  if [[ -z "${semgrep_license}" || ! -f "${semgrep_license}" ]]; then
+    echo "error: semgrep ${version} wheel did not ship a LICENSE matching '${prefix}/lib/**/semgrep-*.dist-info/LICENSE*' — refusing to install without LGPL-2.1 attribution" >&2
+    exit 1
+  fi
+  install -m 0644 "${semgrep_license}" "${BIN_DIR}/semgrep.LICENSE"
+
   cat > "${BIN_DIR}/semgrep" <<EOF
 #!/usr/bin/env sh
 # Cliff wrapper — exec's the pinned semgrep venv at a known path so the
@@ -201,20 +218,6 @@ EOF
     exit 1
   fi
   echo "==> verified semgrep --version reports ${resolved}"
-
-  # Preserve Semgrep CE's LICENSE (LGPL-2.1) alongside the wrapper so the
-  # distribution carries LGPL-2.1 attribution forward. The LICENSE file is
-  # shipped inside the wheel's dist-info; find it without hard-coding the
-  # Python version path. Missing LICENSE is fatal — silently shipping
-  # Semgrep without its LGPL-2.1 notice would breach LGPL §1.
-  local semgrep_license
-  semgrep_license="$(find "${prefix}/lib" -maxdepth 4 \
-    -path '*/semgrep-*.dist-info/LICENSE*' -type f 2>/dev/null | head -n1)"
-  if [[ -z "${semgrep_license}" || ! -f "${semgrep_license}" ]]; then
-    echo "error: semgrep ${version} wheel did not ship a LICENSE matching '${prefix}/lib/**/semgrep-*.dist-info/LICENSE*' — refusing to install without LGPL-2.1 attribution" >&2
-    exit 1
-  fi
-  install -m 0644 "${semgrep_license}" "${BIN_DIR}/semgrep.LICENSE"
 }
 
 while read -r line; do
