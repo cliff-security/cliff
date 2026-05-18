@@ -559,3 +559,76 @@ describe('IssueSidePanel — Reject reason picker (F6)', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled())
   })
 })
+
+// ---------------------------------------------------------------------------
+// Retry CTA for the generic ``failed`` stage (pre-plan failures).
+//
+// When a forward-pipeline prerequisite agent fails (enricher / owner_resolver
+// / exposure_analyzer / evidence_collector — e.g. OpenRouter ran out of
+// credits during enrichment), the side panel surfaces stage='failed' (via
+// the derivation rule added alongside this test). Retry must NOT re-fire
+// the executor directly (there is no plan yet — it would re-fail). It must
+// re-launch the pipeline at /pipeline/run-all so suggest_next picks the
+// missing section and re-runs whichever agent failed.
+// ---------------------------------------------------------------------------
+
+describe('IssueSidePanel — Retry for generic failed stage (pre-plan)', () => {
+  function withConfiguredAI() {
+    server.use(
+      http.get('/api/integrations/ai/status', () =>
+        HttpResponse.json({
+          state: 'connected',
+          provider: 'anthropic',
+          source: 'byok',
+          connected_at: '2026-05-17T11:00:00Z',
+          metadata: null,
+          model: 'anthropic/claude-haiku-4-5',
+        }),
+      ),
+    )
+  }
+
+  it('Retry POSTs /pipeline/run-all (NOT /agents/remediation_executor/execute)', async () => {
+    withConfiguredAI()
+    const calls: string[] = []
+    server.use(
+      http.post('/api/workspaces/:wsId/pipeline/run-all', () => {
+        calls.push('run-all')
+        return HttpResponse.json(
+          { status: 'running', message: 'Pipeline started' },
+          { status: 202 },
+        )
+      }),
+      http.post('/api/workspaces/:wsId/agents/:type/execute', ({ params }) => {
+        calls.push(`execute:${params.type}`)
+        return HttpResponse.json(
+          {
+            agent_run_id: 'r-1',
+            agent_type: params.type as string,
+            status: 'running',
+          },
+          { status: 202 },
+        )
+      }),
+      http.post('/api/workspaces/:wsId/plan/approve', () => {
+        calls.push('approve')
+        return HttpResponse.json({
+          workspace_id: 'ws-1',
+          summary: null,
+          evidence: null,
+          owner: null,
+          plan: null,
+          ticket: null,
+          validation: null,
+        })
+      }),
+    )
+
+    renderPanel(findingForStage('failed'))
+    const retryBtn = await screen.findByRole('button', { name: /^Retry/i })
+    fireEvent.click(retryBtn)
+
+    await waitFor(() => expect(calls).toContain('run-all'))
+    expect(calls).toEqual(['run-all'])
+  })
+})

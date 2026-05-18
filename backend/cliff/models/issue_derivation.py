@@ -44,6 +44,32 @@ def _has_plan(sidebar: SidebarState | None) -> bool:
     return sidebar is not None and bool(sidebar.plan)
 
 
+# Forward-pipeline agents that must succeed before the planner can run.
+# ``remediation_planner`` and ``remediation_executor`` have their own
+# dedicated derivation rules above (with PR-state / plan-state nuance), so
+# they're intentionally excluded here.
+_PREREQUISITE_AGENT_TYPES: tuple[str, ...] = (
+    "finding_enricher",
+    "owner_resolver",
+    "exposure_analyzer",
+    "evidence_collector",
+)
+
+
+def _any_prerequisite_failed(
+    latest_runs_by_type: Mapping[str, AgentRun],
+) -> bool:
+    """True when any pre-plan pipeline agent's latest run failed.
+
+    Mirrors ``_is_failed`` semantics (``failed`` or ``rate_limited``) so the
+    same Retry CTA serves both shapes of LLM-side termination.
+    """
+    return any(
+        _is_failed(latest_runs_by_type.get(agent_type))
+        for agent_type in _PREREQUISITE_AGENT_TYPES
+    )
+
+
 def _pull_request(sidebar: SidebarState | None) -> dict:
     if sidebar is None or not sidebar.pull_request:
         return {}
@@ -137,6 +163,17 @@ def derive(
         if _is_failed(executor_run) or (
             _is_failed(planner_run) and not _has_plan(sidebar)
         ):
+            return out("review", "failed")
+        # Pipeline-prerequisite agent failed (enricher / owner / exposure /
+        # evidence). Without this rule, a failed enricher (e.g. OpenRouter
+        # out-of-credits — the run completes with ``status='failed'`` and a
+        # humanized error in ``summary_markdown``) leaves the issue silently
+        # pinned at ``in_progress / planning`` because the default
+        # fall-through below assumes "no agent activity yet." Surfacing it
+        # as ``failed`` lets the side panel render the actual error message
+        # plus a Retry CTA so the user can fix the upstream issue
+        # (top up credits, swap provider, …) and resume.
+        if not _has_plan(sidebar) and _any_prerequisite_failed(latest_runs_by_type):
             return out("review", "failed")
         # A running planner wins over an existing plan so a Refine re-run
         # surfaces ``planning`` (the side panel renders the "Reviewing the

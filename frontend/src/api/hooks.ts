@@ -141,6 +141,27 @@ export function useExecuteAgent(workspaceId: string | undefined) {
   })
 }
 
+// Run the full pipeline as a background task. The backend returns 202
+// immediately; agent progress arrives via the workspace SSE stream and
+// polled ``agent-runs``. The Retry CTA in the side-panel footer uses this
+// when the failure happened pre-plan (e.g. enricher hit "out of credits"
+// — re-running just the executor would fail since there is no plan; the
+// pipeline's ``suggest_next`` knows to re-fire whatever section is
+// missing in the sidebar).
+export function useRunAllPipeline(workspaceId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.runAllPipeline(workspaceId!),
+    onSuccess: () => {
+      if (workspaceId) {
+        qc.invalidateQueries({ queryKey: ['agent-runs', workspaceId] })
+        qc.invalidateQueries({ queryKey: ['sidebar', workspaceId] })
+      }
+      qc.invalidateQueries({ queryKey: ['findings'] })
+    },
+  })
+}
+
 // Q01R / B29 — approve the planner's output. The side panel's
 // "Approve & generate fix" footer button chains this BEFORE the
 // remediation_executor execute call so the executor sees
