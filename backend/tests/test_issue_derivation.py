@@ -403,6 +403,25 @@ def test_case_15_executor_running_beats_plan_ready() -> None:
     assert result.stage == "generating"
 
 
+def test_case_15b_running_planner_beats_existing_plan_on_refine() -> None:
+    """Refine re-run: a running ``remediation_planner`` must win over the
+    prior plan still sitting in the sidebar. Without this the stage stays
+    pinned at ``plan_ready`` and the side panel never renders the
+    "Reviewing the advisory…" drafting widget — the user gets no signal
+    that their refinement note has been picked up."""
+    result = derive(
+        make_finding(status="in_progress"),
+        workspace=make_workspace(),
+        sidebar=make_sidebar(plan={"steps": [{"title": "Bump dep"}]}),
+        latest_runs_by_type={
+            "remediation_planner": make_run("remediation_planner", "running"),
+        },
+    )
+
+    assert result.section == "in_progress"
+    assert result.stage == "planning"
+
+
 def test_case_16_missing_sidebar_dispatches_on_finding_status() -> None:
     """When sidebar is None we dispatch on Finding.status:
 
