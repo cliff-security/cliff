@@ -5,11 +5,15 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+
+if TYPE_CHECKING:
+    from collections.abc import Coroutine
 
 from cliff.agents.errors import AgentBusyError
 from cliff.agents.executor import AgentExecutionResult
@@ -161,7 +165,9 @@ class TestRunAllPipeline:
     """
 
     @pytest.mark.asyncio
-    async def test_run_all_breaks_on_first_failed_result(self, app, client):
+    async def test_run_all_breaks_on_first_failed_result(
+        self, app: FastAPI, client: AsyncClient
+    ) -> None:
         """A single ``status='failed'`` result must stop the loop. Without
         the fix, suggest_next would keep returning ``finding_enricher`` (no
         enrichment in the snapshot) and the loop would call ``execute`` up
@@ -192,10 +198,12 @@ class TestRunAllPipeline:
         # Capture the background task so we can await it deterministically
         # instead of sleeping. ``asyncio.create_task`` is what the route
         # uses to launch ``_run_pipeline``.
-        captured_tasks: list[asyncio.Task] = []
+        captured_tasks: list[asyncio.Task[Any]] = []
         real_create_task = asyncio.create_task
 
-        def _capturing_create_task(coro):
+        def _capturing_create_task(
+            coro: Coroutine[Any, Any, Any],
+        ) -> asyncio.Task[Any]:
             task = real_create_task(coro)
             captured_tasks.append(task)
             return task
@@ -229,7 +237,9 @@ class TestRunAllPipeline:
         )
 
     @pytest.mark.asyncio
-    async def test_run_all_breaks_on_rate_limited_result(self, app, client):
+    async def test_run_all_breaks_on_rate_limited_result(
+        self, app: FastAPI, client: AsyncClient
+    ) -> None:
         """``rate_limited`` is a terminal non-success state for the same
         reason ``failed`` is — the executor already exhausted its
         in-process exponential backoff, so a same-tick retry will just
@@ -254,10 +264,12 @@ class TestRunAllPipeline:
             }
         )
 
-        captured_tasks: list[asyncio.Task] = []
+        captured_tasks: list[asyncio.Task[Any]] = []
         real_create_task = asyncio.create_task
 
-        def _capturing_create_task(coro):
+        def _capturing_create_task(
+            coro: Coroutine[Any, Any, Any],
+        ) -> asyncio.Task[Any]:
             task = real_create_task(coro)
             captured_tasks.append(task)
             return task

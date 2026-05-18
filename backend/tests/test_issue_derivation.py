@@ -464,6 +464,7 @@ def test_failed_prerequisite_agent_with_plan_does_not_surface_failed() -> None:
             "finding_enricher": make_run("finding_enricher", "failed"),
         },
     )
+    assert result.section == "review"
     assert result.stage == "plan_ready"
 
 
@@ -480,6 +481,7 @@ def test_rate_limited_prerequisite_also_surfaces_failed() -> None:
             "finding_enricher": make_run("finding_enricher", "rate_limited"),
         },
     )
+    assert result.section == "review"
     assert result.stage == "failed"
 
 
