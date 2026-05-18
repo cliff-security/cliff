@@ -46,6 +46,7 @@ Backend (V2):
      ```bash
      git push --dry-run https://x-access-token:{token}@github.com/{owner}/{repo}.git HEAD:refs/heads/cliff-push-probe
      ```
+
   5. Whatever the exit code, clean up the temp dir in a `finally` (use `shutil.rmtree(..., ignore_errors=True)`).
 
   Configurable timeout (default 5 s, read from `settings.push_probe_timeout_seconds` — add to `backend/cliff/config.py` so operators can tune via `CLIFF_PUSH_PROBE_TIMEOUT_SECONDS`). Returns a small result object with `ok: bool` and a classified `reason` string derived from stderr: `"credentials rejected"` on auth failure (403, "permission denied", "unauthorized"), `"repository not found"` on 404, `"timeout"` on hang, `"git binary not available"` on FileNotFoundError, **`"verified"` on exit 0**. Wrap `check_repo_push_access`'s currently-permissive return paths (those that say `can_push=True, reason=""`) so they invoke the probe; on success return `can_push=True, reason="verified by runtime probe"`; on failure downgrade to `can_push=False, reason="git push probe failed: <classified-reason>"`. Stderr is parsed for classification but NEVER echoed verbatim into the response (it can contain the remote URL with the embedded token).
