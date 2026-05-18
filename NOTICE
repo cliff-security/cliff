@@ -1,0 +1,34 @@
+Cliff
+Copyright (C) 2026 galanko
+
+This product is licensed under the GNU Affero General Public License v3.0
+only (AGPL-3.0-only). See the LICENSE file for the full text.
+
+  SPDX-License-Identifier: AGPL-3.0-only
+
+================================================================================
+Bundled and runtime-fetched third-party software
+================================================================================
+
+This product bundles or downloads the following third-party software at
+install time. Their license texts and any NOTICE files are reproduced or
+referenced in THIRD-PARTY-LICENSES.md.
+
+  - OpenCode (anomalyco/opencode)              MIT
+        Downloaded by scripts/install-opencode.sh; baked into the Docker
+        image. Invoked as a subprocess.
+
+  - Trivy (aquasecurity/trivy)                 Apache-2.0
+        Downloaded by scripts/install-scanners.sh; baked into the Docker
+        image. Invoked as a subprocess. LICENSE preserved per Apache §4(c);
+        upstream does not currently ship a NOTICE file.
+
+  - Semgrep CE engine (semgrep/semgrep)        LGPL-2.1
+        Installed by scripts/install-scanners.sh into a private venv;
+        invoked as a subprocess (LGPL §6 dynamic-coupling boundary).
+
+The Semgrep rule packs `p/security-audit` and `p/owasp-top-ten` are NOT
+bundled with this distribution. They are fetched by the Semgrep CLI from
+the Semgrep registry at scan time and are governed by the separate
+Semgrep Rules License v1.0 (source-available; internal business use only).
+See README.md and THIRD-PARTY-LICENSES.md for details.

@@ -87,6 +87,13 @@ WORKDIR /app
 COPY VERSION /app/VERSION
 COPY .opencode-version ./
 
+# Ship the AGPL-3.0 LICENSE plus the NOTICE and third-party license
+# inventory inside the image so that distribution carries the required
+# attribution forward (AGPL §5(a); Apache-2.0 §4(d) for bundled scanners).
+COPY LICENSE /app/LICENSE
+COPY NOTICE /app/NOTICE
+COPY THIRD-PARTY-LICENSES.md /app/THIRD-PARTY-LICENSES.md
+
 # Copy and run OpenCode install script (non-fatal if download fails)
 COPY scripts/install-opencode.sh ./scripts/
 ENV CLIFF_BIN_DIR=/app/bin
@@ -104,12 +111,18 @@ RUN ARCH="$(dpkg --print-architecture)" \
        esac \
     && curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-${TRIVY_ARCH}.tar.gz" \
          -o /tmp/trivy.tar.gz \
-    && tar -xzf /tmp/trivy.tar.gz -C /app/bin trivy \
+    && tar -xzf /tmp/trivy.tar.gz -C /app/bin trivy LICENSE \
+    && mv /app/bin/LICENSE /app/bin/trivy.LICENSE \
     && rm /tmp/trivy.tar.gz \
     && chmod +x /app/bin/trivy \
     && /app/bin/trivy --version
-RUN pip install --no-cache-dir semgrep==1.70.0 \
+ARG SEMGREP_VERSION=1.70.0
+RUN pip install --no-cache-dir "semgrep==${SEMGREP_VERSION}" \
     && ln -sf "$(which semgrep)" /app/bin/semgrep \
+    && SEMGREP_LICENSE="$(python -c "from importlib.metadata import distribution; \
+        print(next(p for p in distribution('semgrep').files \
+        if p.name in ('LICENSE','LICENSE.txt','COPYING')).locate())")" \
+    && cp "$SEMGREP_LICENSE" /app/bin/semgrep.LICENSE \
     && /app/bin/semgrep --version
 
 # Install Python dependencies (cache layer)

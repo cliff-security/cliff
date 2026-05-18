@@ -129,6 +129,16 @@ install_trivy() {
   tar -xzf "${tmp}/${archive}" -C "${tmp}"
   install -m 0755 "${tmp}/trivy" "${BIN_DIR}/trivy"
   strip_quarantine "${BIN_DIR}/trivy"
+
+  # Preserve Trivy's LICENSE + NOTICE alongside the binary so the
+  # distribution carries Apache-2.0 §4(d) attribution forward.
+  if [[ -f "${tmp}/LICENSE" ]]; then
+    install -m 0644 "${tmp}/LICENSE" "${BIN_DIR}/trivy.LICENSE"
+  fi
+  if [[ -f "${tmp}/NOTICE" ]]; then
+    install -m 0644 "${tmp}/NOTICE" "${BIN_DIR}/trivy.NOTICE"
+  fi
+
   rm -rf "${tmp}"
 
   # Smoke-test the binary so a corrupted extract doesn't surface only at
@@ -183,6 +193,17 @@ EOF
     exit 1
   fi
   echo "==> verified semgrep --version reports ${resolved}"
+
+  # Preserve Semgrep CE's LICENSE (LGPL-2.1) alongside the wrapper so the
+  # distribution carries LGPL-2.1 attribution forward. The LICENSE file is
+  # shipped inside the wheel's dist-info; find it without hard-coding the
+  # Python version path.
+  local semgrep_license
+  semgrep_license="$(find "${prefix}/lib" -maxdepth 4 \
+    -path '*/semgrep-*.dist-info/LICENSE*' -type f 2>/dev/null | head -n1)"
+  if [[ -n "${semgrep_license}" && -f "${semgrep_license}" ]]; then
+    install -m 0644 "${semgrep_license}" "${BIN_DIR}/semgrep.LICENSE"
+  fi
 }
 
 while read -r line; do

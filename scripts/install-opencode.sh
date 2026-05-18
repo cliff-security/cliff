@@ -89,6 +89,16 @@ if [[ "$OS" == "darwin" ]] && command -v xattr >/dev/null 2>&1; then
   xattr -dr com.apple.quarantine "$INSTALL_DIR/opencode" 2>/dev/null || true
 fi
 
+# Preserve OpenCode's upstream LICENSE alongside the binary so the
+# distribution carries MIT attribution forward.
+LICENSE_URL="https://raw.githubusercontent.com/anomalyco/opencode/v${VERSION}/LICENSE"
+if curl -fsSL "$LICENSE_URL" -o "$INSTALL_DIR/opencode.LICENSE"; then
+  echo "Fetched OpenCode LICENSE -> $INSTALL_DIR/opencode.LICENSE"
+else
+  echo "Warning: could not fetch $LICENSE_URL; opencode.LICENSE not written" >&2
+  rm -f "$INSTALL_DIR/opencode.LICENSE"
+fi
+
 # Verify
 echo "Installed: $("$INSTALL_DIR/opencode" --version 2>/dev/null || echo "$INSTALL_DIR/opencode")"
 echo "Location: $INSTALL_DIR/opencode"
