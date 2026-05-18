@@ -142,6 +142,151 @@ class TestExecuteEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# Run-all pipeline endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestRunAllPipeline:
+    """The route's background ``_run_pipeline`` task drives the forward
+    pipeline (enricher → owner → exposure → evidence → planner → executor).
+
+    Regression test for the retry storm: ``executor.execute`` swallows the
+    LLM-side ``AgentProcessError`` (e.g. OpenRouter out-of-credits) and
+    returns ``status='failed'`` instead of re-raising. The route used to
+    only treat raised exceptions as failures, so a failed result spent
+    nine extra loop iterations re-invoking the same agent before stopping
+    — burning credits and producing duplicate ``agent_run`` rows. The
+    route now mirrors ``pipeline.run_pipeline`` and breaks on the first
+    ``failed`` / ``rate_limited`` result.
+    """
+
+    @pytest.mark.asyncio
+    async def test_run_all_breaks_on_first_failed_result(self, app, client):
+        """A single ``status='failed'`` result must stop the loop. Without
+        the fix, suggest_next would keep returning ``finding_enricher`` (no
+        enrichment in the snapshot) and the loop would call ``execute`` up
+        to ``len(VALID_AGENT_TYPES)+3`` times."""
+        executor = app.state.agent_executor
+        executor.check_not_busy = AsyncMock()
+        executor.execute = AsyncMock(
+            return_value=_make_execution_result(status="failed")
+        )
+        executor.push_permission_event = lambda ws_id, evt: None
+
+        # Snapshot: no enrichment → suggest_next will keep asking for the
+        # enricher every iteration. If the loop doesn't break on a failed
+        # result, we'd see ~10 calls.
+        app.state.context_builder.get_context_snapshot = AsyncMock(
+            return_value={
+                "finding": {"id": "f-1"},
+                "enrichment": None,
+                "ownership": None,
+                "exposure": None,
+                "evidence": None,
+                "plan": None,
+                "remediation": None,
+                "agent_run_history": [],
+            }
+        )
+
+        # Capture the background task so we can await it deterministically
+        # instead of sleeping. ``asyncio.create_task`` is what the route
+        # uses to launch ``_run_pipeline``.
+        captured_tasks: list[asyncio.Task] = []
+        real_create_task = asyncio.create_task
+
+        def _capturing_create_task(coro):
+            task = real_create_task(coro)
+            captured_tasks.append(task)
+            return task
+
+        with (
+            patch(
+                "cliff.api.routes.agent_execution.get_workspace",
+                return_value=_make_workspace(),
+            ),
+            patch(
+                "cliff.api.routes.agent_execution._resolve_repo_env_vars",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "cliff.api.routes.agent_execution.asyncio.create_task",
+                _capturing_create_task,
+            ),
+        ):
+            resp = await client.post(
+                "/api/workspaces/ws-1/pipeline/run-all"
+            )
+            assert resp.status_code == 202
+            # Drain the background pipeline task before asserting.
+            assert captured_tasks, "expected the route to create a background task"
+            await captured_tasks[0]
+
+        assert executor.execute.await_count == 1, (
+            f"expected exactly one execute() call after the first failed "
+            f"result, got {executor.execute.await_count} "
+            f"(this is the retry-storm regression)"
+        )
+
+    @pytest.mark.asyncio
+    async def test_run_all_breaks_on_rate_limited_result(self, app, client):
+        """``rate_limited`` is a terminal non-success state for the same
+        reason ``failed`` is — the executor already exhausted its
+        in-process exponential backoff, so a same-tick retry will just
+        re-hit the upstream 429."""
+        executor = app.state.agent_executor
+        executor.check_not_busy = AsyncMock()
+        executor.execute = AsyncMock(
+            return_value=_make_execution_result(status="rate_limited")
+        )
+        executor.push_permission_event = lambda ws_id, evt: None
+
+        app.state.context_builder.get_context_snapshot = AsyncMock(
+            return_value={
+                "finding": {"id": "f-1"},
+                "enrichment": None,
+                "ownership": None,
+                "exposure": None,
+                "evidence": None,
+                "plan": None,
+                "remediation": None,
+                "agent_run_history": [],
+            }
+        )
+
+        captured_tasks: list[asyncio.Task] = []
+        real_create_task = asyncio.create_task
+
+        def _capturing_create_task(coro):
+            task = real_create_task(coro)
+            captured_tasks.append(task)
+            return task
+
+        with (
+            patch(
+                "cliff.api.routes.agent_execution.get_workspace",
+                return_value=_make_workspace(),
+            ),
+            patch(
+                "cliff.api.routes.agent_execution._resolve_repo_env_vars",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "cliff.api.routes.agent_execution.asyncio.create_task",
+                _capturing_create_task,
+            ),
+        ):
+            resp = await client.post(
+                "/api/workspaces/ws-1/pipeline/run-all"
+            )
+            assert resp.status_code == 202
+            assert captured_tasks
+            await captured_tasks[0]
+
+        assert executor.execute.await_count == 1
+
+
+# ---------------------------------------------------------------------------
 # Suggest-next endpoint
 # ---------------------------------------------------------------------------
 

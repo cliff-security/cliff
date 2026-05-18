@@ -28,6 +28,7 @@ import {
   useExecuteAgent,
   useRejectFinding,
   useRespondToPermission,
+  useRunAllPipeline,
   useSidebar,
   useUpdateFinding,
 } from '../../api/hooks'
@@ -1039,6 +1040,7 @@ function DefaultFooter({
   const workspaceId = finding.derived?.workspace_id ?? null
   const executeAgent = useExecuteAgent(workspaceId ?? undefined)
   const approvePlan = useApprovePlan(workspaceId ?? undefined)
+  const runAllPipeline = useRunAllPipeline(workspaceId ?? undefined)
   const cancelAgentRun = useCancelAgentRun(workspaceId ?? undefined)
   const respondToPermission = useRespondToPermission(workspaceId ?? undefined)
   const updateFinding = useUpdateFinding()
@@ -1185,14 +1187,27 @@ function DefaultFooter({
     // the executor returned with ``error_details`` set after a partial
     // success (local branch created, push died at git-protocol level).
     // The actual reason is rendered by SPActivity right above this
-    // footer; we just offer the two reasonable next steps: retry the
-    // executor, or reject the finding entirely.
+    // footer; we just offer the two reasonable next steps: retry, or
+    // reject the finding entirely.
     //
-    // ``executor_failed`` re-runs the executor through the same
-    // approve-then-execute chain the plan_ready button uses so the
-    // run-all loop's gate sees an approved plan (the plan was already
-    // approved earlier — calling approvePlan again is idempotent).
-    const retryPending = approvePlan.isPending || executeAgent.isPending
+    // Retry semantics depend on WHERE the failure happened:
+    //
+    //  • ``executor_failed`` — plan already exists and was approved;
+    //    re-fire the executor through the same approve-then-execute
+    //    chain the plan_ready button uses (approvePlan is idempotent).
+    //
+    //  • ``failed`` — could be any forward-pipeline agent. If it's a
+    //    pre-plan failure (enricher / owner / exposure / evidence —
+    //    e.g. OpenRouter ran out of credits during enrichment) we
+    //    cannot just re-run the executor; there is no plan yet, so it
+    //    would re-fail immediately. Call ``runAllPipeline`` instead and
+    //    let the backend's ``suggest_next`` re-fire whichever section
+    //    is missing in the sidebar — works for both pre-plan and
+    //    post-plan failures.
+    const retryPending =
+      approvePlan.isPending ||
+      executeAgent.isPending ||
+      runAllPipeline.isPending
     return (
       <div className="flex items-center gap-2 w-full">
         <PrimaryButton
@@ -1211,13 +1226,13 @@ function DefaultFooter({
                 },
               })
             } else {
-              executeAgent.mutate({ agentType: 'remediation_executor' })
+              runAllPipeline.mutate()
             }
           }}
           disabled={!workspaceId || retryPending}
           title={blockedByAI ? aiRequired.tooltip ?? undefined : undefined}
         >
-          {retryPending ? 'Retrying…' : stage === 'executor_failed' ? 'Retry' : 'Retry fix'}
+          {retryPending ? 'Retrying…' : stage === 'executor_failed' ? 'Retry' : 'Retry'}
         </PrimaryButton>
         <span className="ml-auto" />
         <ErrorButton icon="block" kbd="X" onClick={onRejectStart}>

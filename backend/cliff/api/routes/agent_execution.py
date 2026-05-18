@@ -362,7 +362,7 @@ async def run_all_pipeline(
                 )
 
                 try:
-                    await executor.execute(
+                    result = await executor.execute(
                         workspace_id,
                         agent_type,
                         db,
@@ -372,7 +372,6 @@ async def run_all_pipeline(
                         ),
                         env_vars=env_vars,
                     )
-                    consecutive_failures = 0
                 except (AgentBusyError, AgentProcessError):
                     consecutive_failures += 1
                     logger.exception(
@@ -391,6 +390,29 @@ async def run_all_pipeline(
                             workspace_id,
                         )
                         break
+                    continue
+
+                # ``executor.execute`` swallows ``AgentProcessError`` (and the
+                # generic ``Exception`` path) and returns ``status='failed'``
+                # / ``'rate_limited'`` instead of re-raising — so the except
+                # block above will not fire for LLM-side failures (out of
+                # credits, parse errors, upstream 429 after the in-executor
+                # backoff is exhausted, etc). Without this check the loop
+                # kept retrying the same failing agent ``max_iterations``
+                # times, burning credits and producing 10+ duplicate failed
+                # ``agent_run`` rows per workspace. Mirror the contract of
+                # ``pipeline.run_pipeline`` and break immediately on a
+                # non-success status.
+                if result.status in ("failed", "rate_limited"):
+                    logger.warning(
+                        "Pipeline stopped: %s ended status=%s for workspace %s",
+                        agent_type,
+                        result.status,
+                        workspace_id,
+                    )
+                    break
+
+                consecutive_failures = 0
         except Exception:
             logger.exception(
                 "Unexpected error in pipeline run-all for workspace %s",

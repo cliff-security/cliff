@@ -422,6 +422,67 @@ def test_case_15b_running_planner_beats_existing_plan_on_refine() -> None:
     assert result.stage == "planning"
 
 
+def test_failed_prerequisite_agent_surfaces_failed_stage() -> None:
+    """A failed pipeline-prerequisite agent (enricher / owner / exposure /
+    evidence) with no plan yet must surface as ``failed`` so the side panel
+    renders the error message + Retry CTA. Without this rule the issue
+    falls through to the default ``in_progress / planning`` and the user
+    sees no signal — the classic "OpenRouter out-of-credits during
+    enrichment" stuck-issue path."""
+    for agent_type in (
+        "finding_enricher",
+        "owner_resolver",
+        "exposure_analyzer",
+        "evidence_collector",
+    ):
+        result = derive(
+            make_finding(status="in_progress"),
+            workspace=make_workspace(),
+            sidebar=make_sidebar(),  # no plan yet
+            latest_runs_by_type={agent_type: make_run(agent_type, "failed")},
+        )
+        assert result.section == "review", (
+            f"failed {agent_type} should land in Review, got {result.section}"
+        )
+        assert result.stage == "failed", (
+            f"failed {agent_type} should surface stage='failed', "
+            f"got {result.stage}"
+        )
+
+
+def test_failed_prerequisite_agent_with_plan_does_not_surface_failed() -> None:
+    """If a plan already exists (e.g. enricher failed on a refine attempt
+    after an earlier successful pipeline produced enrichment + a plan),
+    don't regress the user back to ``failed`` — keep the existing
+    ``plan_ready`` affordance. The "no plan yet" guard distinguishes
+    forward-pipeline failures from retry-side noise."""
+    result = derive(
+        make_finding(status="in_progress"),
+        workspace=make_workspace(),
+        sidebar=make_sidebar(plan={"steps": [{"title": "Bump dep"}]}),
+        latest_runs_by_type={
+            "finding_enricher": make_run("finding_enricher", "failed"),
+        },
+    )
+    assert result.stage == "plan_ready"
+
+
+def test_rate_limited_prerequisite_also_surfaces_failed() -> None:
+    """``rate_limited`` is treated as a terminal non-success state by the
+    same ``_is_failed`` helper used elsewhere. The retry-storm fix in the
+    route turns rate-limited upstreams into ``status='rate_limited'``
+    agent_run rows, and the derivation must surface those too."""
+    result = derive(
+        make_finding(status="in_progress"),
+        workspace=make_workspace(),
+        sidebar=make_sidebar(),
+        latest_runs_by_type={
+            "finding_enricher": make_run("finding_enricher", "rate_limited"),
+        },
+    )
+    assert result.stage == "failed"
+
+
 def test_case_16_missing_sidebar_dispatches_on_finding_status() -> None:
     """When sidebar is None we dispatch on Finding.status:
 
