@@ -10,7 +10,7 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-6FE3B5?labelColor=0B101B)](LICENSE)
 [![Status: alpha](https://img.shields.io/badge/status-alpha-F0BF7E?labelColor=0B101B)](ROADMAP.md)
 
-<a href="docs/guides/badge.md"><img src="docs/assets/cliff-badge-A.svg" alt="Cliff verified — Grade A" /></a>
+<img src="docs/assets/cliff-badge-A.svg" alt="Cliff verified — Grade A" />
 
 </div>
 
