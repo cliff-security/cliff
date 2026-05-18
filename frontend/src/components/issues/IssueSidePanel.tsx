@@ -174,11 +174,17 @@ export function IssueSidePanel({
 
   // SSE nudge — when the side panel is open on a workspace, subscribe to
   // the agent-execution stream and cache-bust ``agent-runs`` whenever the
-  // backend emits a ``permission_request`` event. The polled query (3s
-  // while a run is active) remains the source of truth for rendering the
-  // prompt; this just lets the row light up instantly when the panel is
-  // already open. On any SSE error we silently fall back to polling — no
-  // user-visible failure, no reconnection storm.
+  // backend emits a progress event. Three event types are handled today:
+  //   - ``permission_request`` (PR #165) — lights up the prompt row.
+  //   - ``agent_run_started`` (IMPL-0020, B36) — refreshes the activity
+  //     feed the instant the pipeline advances to the next agent.
+  //   - ``agent_run_completed`` (IMPL-0020, B36) — refreshes when a run
+  //     finishes (success or failure). The sidebar query is also
+  //     invalidated so the stage chip flips without the 5s idle poll.
+  // The polled ``agent-runs`` query (3s active / 5s idle) remains the
+  // source of truth; this just removes the F5 dependency. On any SSE
+  // error we silently fall back to polling — no user-visible failure,
+  // no reconnection storm.
   const queryClient = useQueryClient()
   useEffect(() => {
     if (!workspaceId) return
@@ -192,14 +198,24 @@ export function IssueSidePanel({
       queryClient.invalidateQueries({
         queryKey: ['agent-runs', workspaceId],
       })
+      // Sidebar reflects the most-recent agent output; the stage chip
+      // pulls from it. Cheap to invalidate — the query is per-workspace
+      // and React Query coalesces invalidations within a render cycle.
+      queryClient.invalidateQueries({
+        queryKey: ['sidebar', workspaceId],
+      })
     }
     es.addEventListener('permission_request', nudge)
+    es.addEventListener('agent_run_started', nudge)
+    es.addEventListener('agent_run_completed', nudge)
     es.addEventListener('error', () => {
       // EventSource auto-reconnects on transient errors; nothing to do
       // here. The poll fallback continues regardless.
     })
     return () => {
       es?.removeEventListener('permission_request', nudge)
+      es?.removeEventListener('agent_run_started', nudge)
+      es?.removeEventListener('agent_run_completed', nudge)
       es?.close()
     }
   }, [workspaceId, queryClient])

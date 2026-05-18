@@ -522,11 +522,20 @@ async def stream_agent_execution(
     workspace_id: str,
     request: Request,
 ):
-    """Stream permission_request and done events during agent execution.
+    """Stream agent-pipeline progress + permission events.
 
     The frontend connects to this while an agent is running. Events:
-    - permission_request: agent needs user approval for a tool
-    - done: agent execution has completed (success or failure)
+    - ``agent_run_started``: a new agent run was created
+      (``{run_id, agent_type, status}``).
+    - ``agent_run_completed``: an agent run finished — success OR failure
+      (``{run_id, agent_type, status}``). The side panel uses this to
+      invalidate the ``agent-runs`` query and re-render the activity
+      feed without waiting for the 5s idle poll. B36 / IMPL-0020.
+    - ``permission_request``: agent needs user approval for a tool.
+    - ``done``: signals the executor has finished its terminal run for
+      this workspace. The stream will close. Until then the stream stays
+      open even if no events are flowing — it's safe to open the
+      EventSource as soon as the side panel mounts (B36 / IMPL-0020).
 
     If the client disconnects while a permission is pending, the pending
     approval is auto-denied to unblock the executor.
@@ -534,11 +543,13 @@ async def stream_agent_execution(
     executor = request.app.state.agent_executor
 
     async def event_generator():
-        queue = executor.get_permission_queue(workspace_id)
-        if not queue:
-            # No active execution — send done immediately
-            yield {"event": "done", "data": "{}"}
-            return
+        # IMPL-0020 / B36 — auto-vivify the workspace's SSE queue so the
+        # generator always enters the wait-loop. The frontend opens the
+        # EventSource before Start is clicked; if we early-exit on an
+        # empty dict-entry the very first ``agent_run_started`` event is
+        # published to no listener. The loop exits cleanly on a real
+        # ``done`` event or client disconnect, so the queue can't leak.
+        queue = executor.ensure_permission_queue(workspace_id)
 
         try:
             while True:
@@ -565,16 +576,33 @@ async def stream_agent_execution(
                 if event_type == "done":
                     yield {"event": "done", "data": "{}"}
                     return
-                else:
+                if event_type in {
+                    "agent_run_started",
+                    "agent_run_completed",
+                }:
+                    # IMPL-0020 — pipeline progress fan-out. The side
+                    # panel invalidates ``agent-runs`` on either event;
+                    # the payload is the same shape for both so the
+                    # listener can be a single handler.
                     yield {
-                        "event": "permission_request",
+                        "event": event_type,
                         "data": json.dumps({
-                            "id": event.get("id", ""),
-                            "tool": event.get("tool", "unknown"),
-                            "patterns": event.get("patterns", []),
                             "run_id": event.get("run_id", ""),
+                            "agent_type": event.get("agent_type", ""),
+                            "status": event.get("status", ""),
                         }),
                     }
+                    continue
+                # Default: permission_request (existing shape).
+                yield {
+                    "event": "permission_request",
+                    "data": json.dumps({
+                        "id": event.get("id", ""),
+                        "tool": event.get("tool", "unknown"),
+                        "patterns": event.get("patterns", []),
+                        "run_id": event.get("run_id", ""),
+                    }),
+                }
         except Exception:
             logger.exception(
                 "Error in agent execution stream for workspace %s",

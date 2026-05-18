@@ -166,6 +166,148 @@ class TestAgentExecutor:
         mock_sidebar.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_execute_publishes_started_and_completed_events(
+        self, mock_pool, mock_context_builder, mock_db, workspace_dir
+    ):
+        """B36 / IMPL-0020 — every execute() must push an
+        ``agent_run_started`` event onto the workspace queue as soon as
+        the row is created and an ``agent_run_completed`` event before
+        the closing ``done``. The SSE endpoint forwards these so the
+        side panel can refresh ``agent-runs`` the instant a pipeline
+        step flips, without waiting for the 5s idle poll.
+
+        ``_cleanup_workspace_state`` pops the queue at end-of-run, so we
+        intercept ``push_permission_event`` (the single publish funnel)
+        rather than draining the queue post-hoc.
+        """
+        response_text = _make_agent_response()
+        mock_pool.get_or_start.return_value = _make_mock_client(response_text)
+
+        executor = AgentExecutor(mock_pool, mock_context_builder)
+        captured: list[dict] = []
+        original = executor.push_permission_event
+
+        def _capture(workspace_id: str, event: dict) -> None:
+            captured.append(event)
+            original(workspace_id, event)
+
+        executor.push_permission_event = _capture  # type: ignore[assignment]
+
+        with (
+            patch(
+                "cliff.agents.executor.create_agent_run",
+                return_value=_make_mock_agent_run(),
+            ),
+            patch("cliff.agents.executor.update_agent_run"),
+            patch("cliff.agents.executor.list_agent_runs", return_value=[]),
+            patch("cliff.agents.executor.map_and_upsert"),
+            patch("cliff.agents.executor._advance_finding_status", return_value=None),
+        ):
+            result = await executor.execute(
+                "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
+            )
+
+        assert result.status == "completed"
+
+        types = [evt.get("type") for evt in captured]
+        assert "agent_run_started" in types
+        assert "agent_run_completed" in types
+        # Started must precede completed.
+        assert types.index("agent_run_started") < types.index(
+            "agent_run_completed"
+        )
+
+        started = next(e for e in captured if e["type"] == "agent_run_started")
+        assert started["agent_type"] == "finding_enricher"
+        assert started["status"] == "running"
+        assert started["run_id"]  # non-empty
+
+        completed = next(
+            e for e in captured if e["type"] == "agent_run_completed"
+        )
+        assert completed["agent_type"] == "finding_enricher"
+        assert completed["status"] == "completed"
+        assert completed["run_id"] == started["run_id"]
+
+    @pytest.mark.asyncio
+    async def test_execute_publishes_completed_with_failed_status_on_parse_failure(
+        self, mock_pool, mock_context_builder, mock_db, workspace_dir
+    ):
+        """Failure path still publishes ``agent_run_completed`` so the
+        side panel can stop spinning. The status field reflects the run
+        outcome (``failed``)."""
+        response_text = "no JSON here"
+        mock_pool.get_or_start.return_value = _make_mock_client(response_text)
+
+        executor = AgentExecutor(mock_pool, mock_context_builder)
+        captured: list[dict] = []
+        original = executor.push_permission_event
+
+        def _capture(workspace_id: str, event: dict) -> None:
+            captured.append(event)
+            original(workspace_id, event)
+
+        executor.push_permission_event = _capture  # type: ignore[assignment]
+
+        with (
+            patch(
+                "cliff.agents.executor.create_agent_run",
+                return_value=_make_mock_agent_run(),
+            ),
+            patch("cliff.agents.executor.update_agent_run"),
+            patch("cliff.agents.executor.list_agent_runs", return_value=[]),
+            patch("cliff.agents.executor.map_and_upsert"),
+            patch("cliff.agents.executor._advance_finding_status", return_value=None),
+        ):
+            await executor.execute(
+                "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
+            )
+
+        completed = [e for e in captured if e["type"] == "agent_run_completed"]
+        assert len(completed) == 1
+        assert completed[0]["status"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_execute_preserves_preexisting_permission_queue(
+        self, mock_pool, mock_context_builder, mock_db, workspace_dir
+    ):
+        """B36 / IMPL-0020 — if the SSE consumer already auto-vivified a
+        queue (panel opened BEFORE Start was clicked), ``execute`` must
+        publish into THAT queue, not a fresh one. Otherwise the
+        ``agent_run_started`` event is delivered to a queue no one is
+        awaiting and the side panel never refreshes.
+        """
+        response_text = _make_agent_response()
+        mock_pool.get_or_start.return_value = _make_mock_client(response_text)
+
+        executor = AgentExecutor(mock_pool, mock_context_builder)
+        # Simulate the side panel having opened the SSE stream first.
+        preexisting = executor.ensure_permission_queue("ws-1")
+
+        with (
+            patch(
+                "cliff.agents.executor.create_agent_run",
+                return_value=_make_mock_agent_run(),
+            ),
+            patch("cliff.agents.executor.update_agent_run"),
+            patch("cliff.agents.executor.list_agent_runs", return_value=[]),
+            patch("cliff.agents.executor.map_and_upsert"),
+            patch("cliff.agents.executor._advance_finding_status", return_value=None),
+        ):
+            await executor.execute(
+                "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
+            )
+
+        # The pre-existing queue must have received the started event
+        # (the consumer's await on this queue is what we're protecting).
+        drained: list[dict] = []
+        while not preexisting.empty():
+            drained.append(preexisting.get_nowait())
+        types = [e.get("type") for e in drained]
+        assert "agent_run_started" in types
+        assert "done" in types  # ``_cleanup_workspace_state`` closes it
+
+    @pytest.mark.asyncio
     async def test_parse_failure_marks_failed(self, mock_pool, mock_context_builder,
         mock_db, workspace_dir):
         """When LLM returns text but no valid JSON, the run is FAILED.

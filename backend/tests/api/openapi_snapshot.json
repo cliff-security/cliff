@@ -8334,7 +8334,7 @@
     },
     "/api/workspaces/{workspace_id}/agent-execution/stream": {
       "get": {
-        "description": "Stream permission_request and done events during agent execution.\n\nThe frontend connects to this while an agent is running. Events:\n- permission_request: agent needs user approval for a tool\n- done: agent execution has completed (success or failure)\n\nIf the client disconnects while a permission is pending, the pending\napproval is auto-denied to unblock the executor.",
+        "description": "Stream agent-pipeline progress + permission events.\n\nThe frontend connects to this while an agent is running. Events:\n- ``agent_run_started``: a new agent run was created\n  (``{run_id, agent_type, status}``).\n- ``agent_run_completed``: an agent run finished \u2014 success OR failure\n  (``{run_id, agent_type, status}``). The side panel uses this to\n  invalidate the ``agent-runs`` query and re-render the activity\n  feed without waiting for the 5s idle poll. B36 / IMPL-0020.\n- ``permission_request``: agent needs user approval for a tool.\n- ``done``: signals the executor has finished its terminal run for\n  this workspace. The stream will close. Until then the stream stays\n  open even if no events are flowing \u2014 it's safe to open the\n  EventSource as soon as the side panel mounts (B36 / IMPL-0020).\n\nIf the client disconnects while a permission is pending, the pending\napproval is auto-denied to unblock the executor.",
         "operationId": "stream_agent_execution_api_workspaces__workspace_id__agent_execution_stream_get",
         "parameters": [
           {
