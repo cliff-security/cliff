@@ -44,9 +44,18 @@ def test_is_newer(latest, current, expected):
 
 
 def test_release_urls_uses_versioned_asset_name():
+    # Pre-rename tag → `cliff-` (downgrade flow still resolves).
     tar, sha = _release_urls("v0.1.7-alpha")
-    assert tar.endswith("/v0.1.7-alpha/cliffsec-0.1.7-alpha.tar.gz")
+    assert tar.endswith("/v0.1.7-alpha/cliff-0.1.7-alpha.tar.gz")
     assert sha == tar + ".sha256"
+
+    # The rename cutover release ships both names; we ask for the new one.
+    tar, _ = _release_urls("v0.2.1")
+    assert tar.endswith("/v0.2.1/cliffsec-0.2.1.tar.gz")
+
+    # Post-rename → `cliffsec-`.
+    tar, _ = _release_urls("v0.3.0")
+    assert tar.endswith("/v0.3.0/cliffsec-0.3.0.tar.gz")
 
 
 # ---------------------------------------------------------------------------

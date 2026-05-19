@@ -90,16 +90,24 @@ class Release:
     sha256_url: str  # `${tarball_url}.sha256`
 
 
+RENAME_CUTOVER = Version("0.2.1")
+
+
 def _release_urls(tag: str) -> tuple[str, str]:
     """Build the tarball + sha256 sidecar URLs for a tag, mirroring install-local.sh.
 
-    install-local.sh names the asset ``cliffsec-<version>.tar.gz`` for tagged
-    releases and ``cliffsec.tar.gz`` for the ``latest`` redirect. We always
-    pin to a tag here, so we use the versioned asset name.
+    Releases from 0.2.1 onward ship ``cliffsec-<version>.tar.gz`` (with
+    ``cliffsec.tar.gz`` as the ``latest`` redirect). Releases before 0.2.1
+    used ``cliff-<version>.tar.gz`` — so when the user pins ``--version`` to
+    a pre-rename tag (downgrade flow) we honour the old asset name. The
+    0.2.1 release itself ships both names as a one-time alias, so either
+    prefix resolves for that exact version.
     """
     version = _normalize(tag)
     base = f"https://github.com/{GITHUB_REPO}/releases/download/{tag}"
-    tar = f"{base}/cliffsec-{version}.tar.gz"
+    parsed = _parse(version)
+    prefix = "cliff" if parsed is not None and parsed < RENAME_CUTOVER else "cliffsec"
+    tar = f"{base}/{prefix}-{version}.tar.gz"
     return tar, tar + ".sha256"
 
 

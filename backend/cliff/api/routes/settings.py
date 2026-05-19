@@ -73,7 +73,7 @@ async def _emit_audit(request: Request, **kwargs) -> None:
 async def get_model(request: Request, db=Depends(get_db)):
     """Return the canonical active model (ADR-0037).
 
-    Thin shim over :class:`AIIntegrationService` so the CLI (``cliff
+    Thin shim over :class:`AIIntegrationService` so the CLI (``cliffsec
     model get``) and the new Settings UI agree byte-for-byte. Falls
     back to the old ``opencode.json``-derived value when no AI
     provider is connected so legacy users without an ``ai_integration``

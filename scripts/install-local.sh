@@ -141,17 +141,27 @@ if [ -n "${CLIFF_LOCAL_TARBALL:-}" ]; then
   say "Using local tarball ${CLIFF_LOCAL_TARBALL}"
   TARBALL="${CLIFF_LOCAL_TARBALL}"
 else
+  # The v0.2.0 -> v0.2.1 rename changed the release asset from
+  # `cliff-<ver>.tar.gz` to `cliffsec-<ver>.tar.gz`. Try the new name first;
+  # if a pre-rename tag is pinned via CLIFF_VERSION, fall back to the old
+  # name. POSIX shell can't semver-compare portably, so we let curl decide.
   if [ "${VERSION}" = "latest" ]; then
     URL="https://github.com/${CLIFF_REPO}/releases/latest/download/cliffsec.tar.gz"
+    FALLBACK_URL="https://github.com/${CLIFF_REPO}/releases/latest/download/cliff.tar.gz"
   else
     URL="https://github.com/${CLIFF_REPO}/releases/download/v${VERSION}/cliffsec-${VERSION}.tar.gz"
+    FALLBACK_URL="https://github.com/${CLIFF_REPO}/releases/download/v${VERSION}/cliff-${VERSION}.tar.gz"
   fi
   TMPDIR="$(mktemp -d)"
   trap 'rm -rf "${TMPDIR}"' EXIT
   TARBALL="${TMPDIR}/cliffsec.tar.gz"
   say "Downloading ${URL}"
-  curl -fsSL "${URL}" -o "${TARBALL}" \
-    || fail "Download failed. Check the URL or pass CLIFF_VERSION=<tag> for a specific release."
+  if ! curl -fsSL "${URL}" -o "${TARBALL}" 2>/dev/null; then
+    say "Asset not found at ${URL}; trying pre-rename name."
+    curl -fsSL "${FALLBACK_URL}" -o "${TARBALL}" \
+      || fail "Download failed (tried ${URL} and ${FALLBACK_URL}). Check the URL or pass CLIFF_VERSION=<tag> for a specific release."
+    URL="${FALLBACK_URL}"
+  fi
 
   # Best-effort SHA256 verification — the same release uploads
   # `cliffsec.tar.gz.sha256` next to the tarball.
