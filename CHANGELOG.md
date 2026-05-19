@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Renamed the Claude Code plugin from `secure-repo` to `cliff-security`,
+  and reshaped it from a monolithic SKILL into an action-dispatched skill
+  with versioned per-action playbooks.** The plugin now covers four
+  actions — `install`, `onboarding`, `secure-repo`, and `troubleshooting`
+  — each backed by a dedicated playbook in
+  `plugins/cliff-security/skills/cliff-security/knowledge/`. The top-level
+  `SKILL.md` is a thin dispatcher that picks the right playbook based on
+  user intent (or on `cliffsec status` exit code) and enforces the
+  cross-cutting hard rules (no auto-approve, no auto-merge, no
+  unapproved writes, no auto-submit issues). Each playbook carries a
+  `version:` field in its frontmatter that must match the SKILL's
+  `version` — a fail-loud integrity check against hand-edits or partial
+  upgrades.
+- **Plugin install path changed.** Users in Claude Code now run
+  `/plugin install cliff-security@cliff` (was `/plugin install
+  secure-repo@cliff`). The marketplace remains `cliff-security/cliff` and
+  the repo paths under `plugins/secure-repo/` moved to
+  `plugins/cliff-security/`. Anyone with the old plugin installed should
+  uninstall `secure-repo` and reinstall under the new name.
+
 ## [0.2.1] - 2026-05-19
 
 A name-only release: the CLI binary is renamed from `cliff` to `cliffsec`

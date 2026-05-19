@@ -7,9 +7,9 @@
   "description": "Cliff — self-hosted cybersecurity remediation copilot. Plugins that let Claude Code drive the full remediation loop.",
   "plugins": [
     {
-      "name": "secure-repo",
-      "source": "./plugins/secure-repo",
-      "description": "Run Cliff end-to-end on the current repo from Claude Code: install if needed, scan, plan, approve, PR, merge, close. Wraps the agent-shaped `cliff` CLI."
+      "name": "cliff-security",
+      "source": "./plugins/cliff-security",
+      "description": "Drive Cliff from Claude Code: install, onboard credentials (GitHub PAT + AI provider key), run the full secure-this-repo loop (scan → plan → approve → PR → merge → close), or troubleshoot a broken install. Action-dispatched: one entrypoint routes to versioned per-action playbooks. Wraps the agent-shaped `cliffsec` CLI."
     }
   ]
 }

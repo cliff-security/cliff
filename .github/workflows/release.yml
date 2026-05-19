@@ -473,8 +473,8 @@ jobs:
 
       # Agent surface (ADR-0034): the `cliffsec` CLI ships as a sdist release
       # asset so `install.sh` can pip-install it onto the user's host. The
-      # `/secure-repo` Claude Code plugin lives in-tree (`.claude-plugin/`,
-      # `plugins/secure-repo/`) and is consumed via `/plugin marketplace add
+      # `/cliff-security` Claude Code plugin lives in-tree (`.claude-plugin/`,
+      # `plugins/cliff-security/`) and is consumed via `/plugin marketplace add
       # cliff-security/cliff` — Anthropic's documented plugin flow — so we don't
       # publish it as a release asset.
       - name: Setup Python (CLI sdist)
@@ -502,7 +502,7 @@ jobs:
       # tags. GitHub's `/releases/latest/download/<asset>` redirect skips
       # prereleases, and refuses to let API callers mark a prerelease as
       # latest ("Latest release cannot be draft or prerelease"). The
-      # README's curl one-liner and the `/secure-repo` skill both need that
+      # README's curl one-liner and the `/cliff-security` skill both need that
       # latest URL to resolve, so the GitHub-Release prerelease flag has
       # to stay off while we're pre-1.0. The version string itself
       # (`0.1.2-alpha`, `0.2.0-rc1`, ...) still conveys maturity to anyone
