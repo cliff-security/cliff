@@ -66,11 +66,6 @@ export function AIProviderFlow({
         }}
         onDecline={() => setUserOverride('picking-method')}
         adopting={adopt.isPending}
-        // Q02-B04: unwrap the {detail: {error_message}} envelope so the
-        // user sees the actual reason ("Your account doesn't have
-        // access. Check billing setup at OpenAI.") instead of the raw
-        // ``400: {"detail":{"error_code":"no_access","error_message":...}}``
-        // string. parseApiError already knows the FastAPI shape.
         error={adopt.error ? parseApiError(adopt.error).message : null}
       />
     )

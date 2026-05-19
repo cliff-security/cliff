@@ -199,34 +199,30 @@ export function IssueSidePanel({
       queryClient.invalidateQueries({
         queryKey: ['agent-runs', workspaceId],
       })
-      // Sidebar reflects the most-recent agent output; the stage chip
-      // pulls from it. Cheap to invalidate — the query is per-workspace
-      // and React Query coalesces invalidations within a render cycle.
       queryClient.invalidateQueries({
         queryKey: ['sidebar', workspaceId],
       })
-      // Q02-B16: the panel's ``stage`` is read off ``finding.derived.stage``,
-      // which is computed by the backend from the latest agent run +
-      // sidebar and only re-derives when the findings list is re-fetched.
-      // Without this invalidation the panel sits on "Generating fix /
-      // Applying the fix" for up to 5s after the executor actually
-      // completes — long enough for users to assume Cliff has wedged.
-      // Invalidating findings on every SSE event is cheap (the query
-      // is the same one the parent IssuesPage uses; React Query
-      // coalesces within a render cycle).
+    }
+    // ``finding.derived.stage`` is computed by the backend from the
+    // latest agent run + sidebar, so the panel footer + stage chip only
+    // re-derive when the parent findings query refetches. Bump it on
+    // the SSE event that actually advances the stage — agent_run_completed —
+    // rather than on every tick, so a 5-agent pipeline doesn't trigger
+    // 10+ full-list refetches per workspace run.
+    const nudgeWithFindings = () => {
+      nudge()
       queryClient.invalidateQueries({ queryKey: ['findings'] })
     }
     es.addEventListener('permission_request', nudge)
     es.addEventListener('agent_run_started', nudge)
-    es.addEventListener('agent_run_completed', nudge)
+    es.addEventListener('agent_run_completed', nudgeWithFindings)
     es.addEventListener('error', () => {
-      // EventSource auto-reconnects on transient errors; nothing to do
-      // here. The poll fallback continues regardless.
+      // EventSource auto-reconnects on transient errors.
     })
     return () => {
       es?.removeEventListener('permission_request', nudge)
       es?.removeEventListener('agent_run_started', nudge)
-      es?.removeEventListener('agent_run_completed', nudge)
+      es?.removeEventListener('agent_run_completed', nudgeWithFindings)
       es?.close()
     }
   }, [workspaceId, queryClient])
@@ -665,11 +661,10 @@ function SPValidation({ stage }: { stage: IssueStage }) {
           <span className="text-[13px] font-bold">{verdict}</span>
         </div>
         {stage === 'fixed' && (
-          // Q02-B17: "Mark as fixed" closes the finding in Cliff's DB
-          // but doesn't re-verify the underlying rubric (posture
-          // checks etc.) — that flips on the next assessment. Tell
-          // the user so the dashboard grade not changing after a
-          // close isn't read as a Cliff bug.
+          // "Mark as fixed" closes the finding in Cliff's DB but doesn't
+          // re-verify the underlying rubric — that flips on the next
+          // assessment. Without this hint the unchanged grade after a
+          // close reads as a Cliff bug.
           <div
             className="text-[11.5px] mt-1 opacity-80"
             data-testid="validation-rerun-hint"
@@ -972,9 +967,6 @@ function ActivityRunCard({ run }: { run: AgentRun }) {
           {label}
         </span>
         {run.confidence != null && !isFailed && (
-          // Q02-B14: the bare "85%" / "95%" was opaque — readers couldn't
-          // tell if it was confidence, progress, or sampling. Tooltip
-          // labels it without lengthening the activity row.
           <span
             className="text-[10.5px] font-mono text-on-surface-variant"
             title="Agent confidence in its own output"

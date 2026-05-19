@@ -390,7 +390,11 @@ function IssuesPageContent() {
 
       <FirstScanBanner
         totalFindings={allFindings.length}
-        closedCount={sections.done.length}
+        // Use the UNFILTERED closed count so applying a severity/type
+        // filter that hides closed rows doesn't replay the banner.
+        closedCount={
+          allFindings.filter((f) => f.derived?.section === 'done').length
+        }
       />
 
       {importOpen && (
@@ -679,14 +683,6 @@ function IssuesPageContent() {
                 <span
                   style={{ fontSize: 13, color: 'var(--cd-fg-3)' }}
                 >
-                  {/* Q02-B11: when the in-progress count is 0 the prior
-                       "Agents working — no action needed" copy lied —
-                       nothing was working. Mirror the truth on each
-                       side of zero.
-                       The per-substage breakdown ("0 planning · 2 generating
-                       · …") was misleading historically: substages were
-                       derived optimistically from finding.status and
-                       didn't reflect what the executor was doing. */}
                   {sections.inProgress.length === 0
                     ? 'Nothing in flight'
                     : 'Agents working — no action needed'}

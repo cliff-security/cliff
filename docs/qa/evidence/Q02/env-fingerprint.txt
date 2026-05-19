@@ -5,19 +5,19 @@
 main
 v0.2.0
 === uname ===
-Darwin Mac.lan 25.3.0 Darwin Kernel Version 25.3.0: Wed Jan 28 20:56:34 PST 2026; root:xnu-12377.91.3~2/RELEASE_ARM64_T8122 arm64
+Darwin <redacted-host> 25.3.0 Darwin Kernel Version 25.3.0 arm64
 === docker ===
 Docker version 27.3.1, build ce12230
-sha256:4091206739bd3a83570b7a085ebd773630551eaa38e1fe7419a57d178857e956 created=2026-05-19T09:11:00.775114134Z
+sha256:4091206739bd3a83570b7a085ebd773630551eaa38e1fe7419a57d178857e956 created=2026-05-19T09:11:00Z
 [ghcr.io/cliff-security/cliff@sha256:4091206739bd3a83570b7a085ebd773630551eaa38e1fe7419a57d178857e956]
 === spotlight ===
-/System/Volumes/Data/Users/galankonina/cliff-qa/Q02:
+/System/Volumes/Data/Users/<redacted-user>/cliff-qa/Q02:
 	Error: unknown indexing state.
 === data dir ===
 total 2328
-drwxr-xr-x@ 6 galankonina  staff      192 19 מאי  12:11 .
-drwxr-xr-x@ 4 galankonina  staff      128 19 מאי  12:08 ..
--rw-r--r--  1 galankonina  staff        0 19 מאי  12:11 .metadata_never_index
--rw-r--r--  1 galankonina  staff     4096 19 מאי  12:11 cliff.db
--rw-r--r--  1 galankonina  staff    32768 19 מאי  12:11 cliff.db-shm
--rw-r--r--  1 galankonina  staff  1153632 19 מאי  12:11 cliff.db-wal
+drwxr-xr-x@ 6 <redacted-user>  staff      192 19 May  12:11 .
+drwxr-xr-x@ 4 <redacted-user>  staff      128 19 May  12:08 ..
+-rw-r--r--  1 <redacted-user>  staff        0 19 May  12:11 .metadata_never_index
+-rw-r--r--  1 <redacted-user>  staff     4096 19 May  12:11 cliff.db
+-rw-r--r--  1 <redacted-user>  staff    32768 19 May  12:11 cliff.db-shm
+-rw-r--r--  1 <redacted-user>  staff  1153632 19 May  12:11 cliff.db-wal

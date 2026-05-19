@@ -241,22 +241,15 @@ export function useProviderModels(provider: AIProvider | null) {
  * Poll the OAuth status endpoint every 1s while *sessionId* is set and the
  * status is non-terminal. Calls *onTerminal* once with the final status.
  * Hard 5-min timeout matches the backend listener TTL.
- */
-/**
- * Q02-B06 defense-in-depth: when ``/openrouter/status`` keeps returning
- * ``waiting`` for longer than this threshold, the polling hook ALSO
- * consults the canonical ``/ai/status`` endpoint on each subsequent
- * poll. If the canonical AI status is ``connected`` with provider
- * ``openrouter``, the response is promoted to a terminal connected
- * result and the modal can resolve.
  *
- * This guards against a backend regression where the in-memory
- * ``_pending_sessions`` state isn't flipped to ``connected`` on
- * callback persist even though the DB write succeeded. The 404 fallback
- * already handles the TTL/restart case; this extends the same idea to
- * the "still alive, just stuck on waiting" case.
+ * After this much elapsed `waiting`, the hook also consults the canonical
+ * `/ai/status` and promotes to terminal-connected if the DB-backed status
+ * says so — guards against any race where the per-session state flag lags
+ * behind the persisted integration.
  */
-const OPENROUTER_AI_STATUS_FALLBACK_AFTER_MS = 5_000
+const openRouterAiStatusFallbackAfterMs = 5_000
+/** Throttle: at most one extra `/ai/status` call per this window while waiting. */
+const openRouterAiStatusFallbackThrottleMs = 5_000
 
 export function useOpenRouterPolling(
   sessionId: string | null,
@@ -266,24 +259,22 @@ export function useOpenRouterPolling(
   // Guards against the terminal-status effect re-firing every time the
   // parent re-renders with a fresh `onTerminal` callback identity.
   const lastHandled = useRef<OAuthStatus | null>(null)
+  const lastAiStatusCheckAt = useRef<number>(0)
   const TIMEOUT_MS = 5 * 60 * 1000
   const qc = useQueryClient()
 
   const query = useQuery({
     queryKey: ['ai-provider', 'openrouter', sessionId],
     queryFn: async () => {
+      // When the backend's listener TTL (5 min) elapses or the singleton was
+      // restarted, /openrouter/status returns 404 even though the callback
+      // may have already persisted the key. Fall back to /ai/status (which
+      // reads from the DB) and treat a connected OpenRouter row as the
+      // terminal result. ``request<T>`` throws Error("404: <body>").
       let resp: OpenRouterStatusResponse
       try {
         resp = await aiProviderApi.openrouterStatus(sessionId as string)
       } catch (err) {
-        // B22 — when the backend's listener TTL (5 min) elapses or the
-        // singleton was restarted, /openrouter/status returns 404 even
-        // though the callback may have already persisted the key. Fall
-        // back to the canonical /ai/status read: if a connected
-        // OpenRouter account is on file, treat the OAuth flow as
-        // ``connected`` so the modal advances instead of stalling on
-        // "Waiting for you to authorize" forever.
-        // ``request<T>`` throws Error("404: <body>") — parse the prefix.
         const msg = err instanceof Error ? err.message : String(err ?? '')
         const httpStatus = Number.parseInt(msg.split(':', 1)[0] ?? '', 10)
         if (httpStatus === 404) {
@@ -296,25 +287,24 @@ export function useOpenRouterPolling(
               } satisfies OpenRouterStatusResponse
             }
           } catch {
-            // Swallow — surface the original 404 path instead.
+            // Surface the original 404 path instead.
           }
         }
         throw err
       }
 
-      // Q02-B06 defense-in-depth: if /openrouter/status keeps reporting
-      // ``waiting`` past the threshold, ALSO consult /ai/status. The
-      // canonical AI status is the source of truth (it reads from the
-      // DB, which the OAuth callback handler writes BEFORE flipping any
-      // in-memory session state). If it's connected, promote to
-      // terminal so the UI stops sitting on "Waiting for you to
-      // authorize" forever.
+      // Same canonical-status promotion for the "still alive, just stuck on
+      // waiting" case. Throttled so a 5-minute hang doesn't issue ~300
+      // redundant /ai/status calls — at most one per 5 s.
       if (
         resp.status === 'waiting' &&
         startedAt.current !== null &&
         Date.now() - startedAt.current >
-          OPENROUTER_AI_STATUS_FALLBACK_AFTER_MS
+          openRouterAiStatusFallbackAfterMs &&
+        Date.now() - lastAiStatusCheckAt.current >
+          openRouterAiStatusFallbackThrottleMs
       ) {
+        lastAiStatusCheckAt.current = Date.now()
         try {
           const ai = await aiProviderApi.status()
           if (ai.state === 'connected' && ai.provider === 'openrouter') {
@@ -324,7 +314,7 @@ export function useOpenRouterPolling(
             } satisfies OpenRouterStatusResponse
           }
         } catch {
-          // Swallow — keep returning the waiting response.
+          // Keep returning the waiting response.
         }
       }
 
@@ -355,6 +345,7 @@ export function useOpenRouterPolling(
     } else if (!sessionId) {
       startedAt.current = null
       lastHandled.current = null
+      lastAiStatusCheckAt.current = 0
     }
   }, [sessionId])
 

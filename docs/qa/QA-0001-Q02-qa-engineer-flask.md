@@ -37,7 +37,7 @@ are dependency-bump CVEs that need real upstream releases. See the
 
 ## Environment fingerprint (step 0)
 
-```
+```text
 === /health (note: /api/health is NOT a real endpoint — see Q02-B21) ===
 {"cliff":"ok","opencode":"ok","opencode_version":"1.3.2","model":"openrouter/anthropic/claude-haiku-4.5","ai_provider_ready":false}
 === git (OpenSec checkout used for the report file only) ===
@@ -45,7 +45,7 @@ HEAD:    4def61aa4677270a557edd2098cdfaf397ac9a07
 branch:  main
 tag:     v0.2.0
 === uname ===
-Darwin Mac.lan 25.3.0 Darwin Kernel Version 25.3.0 arm64
+Darwin <redacted-host> 25.3.0 Darwin Kernel Version 25.3.0 arm64
 === docker ===
 Docker version 27.3.1, build ce12230
 image:   ghcr.io/cliff-security/cliff@sha256:4091206739bd3a83570b7a085ebd773630551eaa38e1fe7419a57d178857e956
@@ -54,7 +54,7 @@ created: 2026-05-19T09:11:00Z
 8002 host → 8000 container, plus 3000 host → 3000 container (added
 mid-session for OpenRouter OAuth callback — see Q02-B02 / Q02-B22).
 === data dir ===
-/Users/galankonina/cliff-qa/Q02 (bind-mounted), chowned to uid
+/Users/<redacted-user>/cliff-qa/Q02 (bind-mounted), chowned to uid
 10001:10001, clean before launch.
 === spotlight ===
 mdutil -s reported "unknown indexing state" on the dir — Spotlight not
@@ -63,7 +63,7 @@ indexing it. Acceptable per shared-rules.
 
 Branch: `main` on the public `cliff` checkout. No `qa/q01-campaign-fixes`
 branch is present locally — this checkout has Q01 not yet landed, so
-this report uses per-session numbering `Q02-B01..Q02-B22`.
+this report uses per-session numbering `Q02-B01..Q02-B25`.
 
 `scripts/qa-launch.sh` was not present, so setup was done by hand and
 documented in this report rather than that helper.
@@ -71,7 +71,7 @@ documented in this report rather than that helper.
 ## Journey log (chronological)
 
 1. **Setup.** Pulled `ghcr.io/cliff-security/cliff:0.2.0`, created
-   `/Users/galankonina/cliff-qa/Q02`, chowned to uid 10001, launched
+   `/Users/<redacted-user>/cliff-qa/Q02`, chowned to uid 10001, launched
    container `cliff-q02` mapped to `8002:8000`. `/health` returned
    `cliff:ok, opencode:ok, ai_provider_ready:false` in 1s after
    startup. `/api/findings` returned `[]` (clean-slate guarantee held).
@@ -86,7 +86,7 @@ documented in this report rather than that helper.
    Cliff — instead Cliff shows a graceful "Pick up where you left off ·
    Resume install" page after a few seconds. Body copy uses British
    spelling "**authorising**" while the rest of the app uses US
-   English. Filed Q02-B22.
+   English. Filed Q02-B25.
 
 4. **Onboarding · device flow.** "Resume install" opens a modal with a
    one-time code `D639-4A1C`, a "Copy code & open GitHub" button, and
@@ -744,7 +744,8 @@ shows only Dashboard, Issues, Settings).
 - **Surface:** HTTP API
 
 **Repro:**
-```
+
+```bash
 curl http://localhost:8002/api/health
 ```
 
@@ -840,7 +841,7 @@ nav), ss_59903fiks (Issues after refresh — no landing context).
 
 ---
 
-### [Q02-B22] Onboarding · "authorising" (British) vs "Authorize" (US) inconsistency
+### [Q02-B25] Onboarding · "authorising" (British) vs "Authorize" (US) inconsistency
 
 - **Severity:** P3
 - **Persona:** QA engineer
@@ -852,10 +853,6 @@ The rest of the app uses US English ("Authorize", "Customize",
 "recognize"). Choose one — probably US English to match the rest.
 
 **Evidence:** ss_8734pm8wj.
-
-(Renumber confusion: this bug was previously called Q02-B22 in
-journey log step 3; keeping the same id here to match. Total bug
-count is still 24 distinct entries.)
 
 ---
 

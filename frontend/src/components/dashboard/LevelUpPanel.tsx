@@ -9,12 +9,11 @@
  */
 import GateRow, { type GateRowData } from './GateRow'
 
-/**
- * Q02-B09 — pick the correct indefinite article for a grade letter.
- * "an" for A / E / F (vowel-sound initial), "a" for everything else.
- */
-function gradeArticle(letter: string): 'a' | 'an' {
-  return letter === 'A' || letter === 'E' || letter === 'F' ? 'an' : 'a'
+/** "an" for grade letters that start with a vowel sound (A / E / F). */
+function gradeArticle(letter: string, capitalize = false): string {
+  const isVowelInitial = letter === 'A' || letter === 'E' || letter === 'F'
+  if (capitalize) return isVowelInitial ? 'An' : 'A'
+  return isVowelInitial ? 'an' : 'a'
 }
 
 export type LevelUpPanelData = {
@@ -155,7 +154,7 @@ export default function LevelUpPanel({
           textWrap: 'pretty' as never,
         }}
       >
-        Grading rubric · {gradeArticle(nextLetter) === 'an' ? 'An' : 'A'}{' '}
+        Grading rubric · {gradeArticle(nextLetter, true)}{' '}
         <strong>{nextLetter}</strong> requires zero open Criticals, ≤ 3 High
         findings, no committed secrets, and all 15 posture checks passing.{' '}
         <button

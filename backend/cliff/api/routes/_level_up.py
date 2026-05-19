@@ -254,12 +254,9 @@ def _action_label(status: LevelUpGateStatus, *, fixable: int = 0, total: int = 0
     if status == "in_progress":
         return "Open Review"
     if status == "auto_fixable":
-        # Q02-B10 — "Auto-fix 2 of 5" read as "Cliff will fix 2 of the 5
-        # things you need" (i.e. partial). The truth is "Cliff can
-        # auto-fix 2; the remaining 3 require manual work." Drop the
-        # ambiguous "of N" and surface the remainder context only when
-        # there IS a remainder. Single fixable reads naturally without
-        # a count ("Auto-fix it"); plural keeps the count.
+        # "Auto-fix N of M" reads as partial ("we'll fix N of the M you
+        # need"). It actually means "N are auto-fixable; the other M-N
+        # require manual work." Phrase variants reflect that.
         if fixable == 0:
             return "Auto-fix"
         if fixable == total:
@@ -387,12 +384,10 @@ def _detail_for_findings(items: list[Finding], *, fallback: str) -> str:
 
 
 def _grade_article(grade: str) -> str:
-    """Q02-B09 — pick the correct indefinite article for a grade letter.
+    """Indefinite article for a grade letter.
 
-    Only the grade letters that start with a vowel-sound take "an": A,
-    E, F. The previously-hardcoded "an" rendered as "an C" / "an D" /
-    "an B", which read as a copy bug. Defaults to "a" for any unknown
-    letter so future grade tokens don't regress the user-visible string.
+    Only A, E, F start with a vowel sound. Defaults to "a" for unknown
+    letters so future grade tokens don't regress.
     """
     return "an" if grade in {"A", "E", "F"} else "a"
 
