@@ -664,6 +664,20 @@ function SPValidation({ stage }: { stage: IssueStage }) {
           </span>
           <span className="text-[13px] font-bold">{verdict}</span>
         </div>
+        {stage === 'fixed' && (
+          // Q02-B17: "Mark as fixed" closes the finding in Cliff's DB
+          // but doesn't re-verify the underlying rubric (posture
+          // checks etc.) — that flips on the next assessment. Tell
+          // the user so the dashboard grade not changing after a
+          // close isn't read as a Cliff bug.
+          <div
+            className="text-[11.5px] mt-1 opacity-80"
+            data-testid="validation-rerun-hint"
+          >
+            We&rsquo;ll confirm this on the next assessment. Re-run from the
+            Dashboard to refresh the grade.
+          </div>
+        )}
       </div>
     </section>
   )
