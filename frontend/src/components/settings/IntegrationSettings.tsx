@@ -833,7 +833,15 @@ export default function IntegrationSettings() {
               gap: 10,
             }}
           >
-            {(registry || []).map((entry) => {
+            {(registry || [])
+              // Q02-B15: once an integration is connected, it shows in
+              // the "Connected" section above; rendering it ALSO in
+              // "Available" (with a "Connected" status pill) made the
+              // page look like there were two GitHub sources. Filter
+              // configured entries out so each integration appears
+              // exactly once.
+              .filter((entry) => !isConfigured(entry))
+              .map((entry) => {
               const configured = isConfigured(entry)
               const dim = entry.status === 'coming_soon'
               return (

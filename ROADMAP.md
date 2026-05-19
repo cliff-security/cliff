@@ -169,9 +169,15 @@ The product center — chat-led remediation with persistent structured state.
 
 **Exit criteria:** User can run at least one agent from chat, see the running state, get results, and see sidebar update. All state persisted. Each workspace runs in isolation.
 
-### Phase 8: History
+### Phase 8: History — Superseded (Q02 / 2026-05-19)
 
-Turn completed work into searchable, reusable memory.
+> **Status:** Superseded. The standalone History page was removed in
+> the Q02 batch fix (IMPL-0021). Closed findings now scroll into view
+> at the bottom of `/issues` and are reachable from the same surface
+> users already know. The `/history` route redirects to `/issues` for
+> bookmark compatibility. The original shipped surface area (list,
+> filter, search, replay, reopen, export-markdown) is preserved here
+> for the historical trail.
 
 - [x] History page with list of completed Workspaces
 - [x] Filter: open vs completed, by finding, asset, owner, date range
@@ -181,7 +187,7 @@ Turn completed work into searchable, reusable memory.
 - [x] Reopen a past workspace for continued work
 - [x] Export workspace summary as markdown
 
-**Exit criteria:** Completed work is searchable and readable. Past workspaces can be reopened. All backed by real APIs.
+**Exit criteria (historical):** Completed work is searchable and readable. Past workspaces can be reopened. All backed by real APIs.
 
 ---
 

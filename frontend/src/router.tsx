@@ -7,7 +7,6 @@ import FindingDetailPage from '@/pages/FindingDetailPage'
 import { FindingDetailPageRedirect } from '@/pages/FindingsRedirects'
 import IssuesPage from '@/pages/IssuesPage'
 import WorkspaceRedirect from '@/pages/WorkspaceRedirect'
-import HistoryPage from '@/pages/HistoryPage'
 import SettingsPage from '@/pages/SettingsPage'
 import Spike from '@/pages/Spike'
 import Welcome from '@/pages/onboarding/Welcome'
@@ -53,7 +52,9 @@ export const router = createBrowserRouter([
       // resolves the workspace, then redirects to ?open=<finding_id>.
       { path: 'workspace', element: <Navigate to="/issues" replace /> },
       { path: 'workspace/:id', element: <WorkspaceRedirect /> },
-      { path: 'history', element: <HistoryPage /> },
+      // Q02-B19 / B20 — /history was removed. Closed findings appear at
+      // the bottom of /issues. Redirect legacy bookmarks rather than 404.
+      { path: 'history', element: <Navigate to="/issues" replace /> },
       { path: 'integrations', element: <Navigate to="/settings" replace /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: 'spike', element: <Spike /> },

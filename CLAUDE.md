@@ -71,7 +71,7 @@ backend/              FastAPI app (Python)
     api/routes/       REST endpoints (health, sessions, chat, workspace-scoped chat)
 frontend/             React SPA (TypeScript + Vite + Tailwind)
   src/
-    pages/            Page components (Findings, Workspace, History, Integrations, Settings)
+    pages/            Page components (Issues, Workspace, Integrations, Settings)
     api/              API client + TanStack Query hooks
     components/       Shared components (layout, Markdown, ResultCard)
     layouts/          App layout (SideNav + TopBar + Outlet)
@@ -106,7 +106,6 @@ See `cliff-os/docs/architecture/domain-model.md` (private) for entity details an
 |------|---------|
 | Findings | List, filter, sort, and import findings. "Solve" opens a Workspace |
 | Workspace | Chat-led remediation with sidebar, agent cards, and actions |
-| History | Browse completed workspaces, replay chats |
 | Integrations | Configure adapter connections |
 | Settings | Model/provider config, agent settings |
 
