@@ -117,12 +117,24 @@ RUN ARCH="$(dpkg --print-architecture)" \
     && chmod +x /app/bin/trivy \
     && /app/bin/trivy --version
 ARG SEMGREP_VERSION=1.70.0
+# Source the semgrep LICENSE from the GitHub repo at the matching
+# version tag rather than from the installed wheel. The wheel-based
+# lookup that used to live here (``importlib.metadata.distribution
+# ('semgrep').files``) broke on linux/arm64 because pip picks the
+# arch-specific ``musllinux_1_0_aarch64.manylinux2014_aarch64`` wheel
+# there, and *that* wheel ships without any LICENSE in its dist-info —
+# only the universal ``-none-any`` wheel used on linux/amd64 carried
+# one. So no wheel-side lookup (RECORD-based or filesystem-based) can
+# satisfy both arches. Fetching from
+# ``raw.githubusercontent.com/semgrep/semgrep/v${SEMGREP_VERSION}``
+# gives the same LICENSE on every platform and matches the pattern
+# already used for the Trivy LICENSE above. Refs: v0.2.0 release run
+# #26056147494, arm64 step 15/25.
 RUN pip install --no-cache-dir "semgrep==${SEMGREP_VERSION}" \
     && ln -sf "$(which semgrep)" /app/bin/semgrep \
-    && SEMGREP_LICENSE="$(python -c "from importlib.metadata import distribution; \
-        print(next(p for p in distribution('semgrep').files \
-        if p.name in ('LICENSE','LICENSE.txt','COPYING')).locate())")" \
-    && cp "$SEMGREP_LICENSE" /app/bin/semgrep.LICENSE \
+    && curl -fsSL "https://raw.githubusercontent.com/semgrep/semgrep/v${SEMGREP_VERSION}/LICENSE" \
+         -o /app/bin/semgrep.LICENSE \
+    && test -s /app/bin/semgrep.LICENSE \
     && /app/bin/semgrep --version
 
 # Install Python dependencies (cache layer)
