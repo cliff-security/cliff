@@ -221,7 +221,7 @@ Turn remediation plans into actionable tickets. Depends on Phase 6b (needs agent
 - [ ] "Update ticket" action for status changes
 - [ ] Ticket state visible in sidebar (key, status, assignee, link)
 - [ ] Close/reopen logic tied to ticket + validation state
-- [ ] Link ticket into History entries
+- [ ] Link ticket into closed Issue entries (formerly the History page; closed work now lives at the bottom of `/issues`)
 - [ ] Request approval placeholder (for future enterprise edition)
 
 **Exit criteria:** Workspace can produce a ticket draft, create it (mock), and reference it during closure.

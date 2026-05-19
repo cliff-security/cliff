@@ -204,23 +204,25 @@ export function IssueSidePanel({
       })
     }
     // ``finding.derived.stage`` is computed by the backend from the
-    // latest agent run + sidebar, so the panel footer + stage chip only
-    // re-derive when the parent findings query refetches. Bump it on
-    // the SSE event that actually advances the stage — agent_run_completed —
-    // rather than on every tick, so a 5-agent pipeline doesn't trigger
-    // 10+ full-list refetches per workspace run.
+    // latest agent run + sidebar, so the parent IssuesPage's row stage
+    // chip + section bucketing only re-derive when its findings query
+    // refetches. Bump it on the SSE events that actually advance the
+    // stage — agent_run_completed (terminal) and permission_request
+    // (pauses into "awaiting_permission" → "Needs you" section).
+    // agent_run_started fires once per sub-agent and never changes the
+    // stage, so it stays on the cheap per-workspace nudge.
     const nudgeWithFindings = () => {
       nudge()
       queryClient.invalidateQueries({ queryKey: ['findings'] })
     }
-    es.addEventListener('permission_request', nudge)
+    es.addEventListener('permission_request', nudgeWithFindings)
     es.addEventListener('agent_run_started', nudge)
     es.addEventListener('agent_run_completed', nudgeWithFindings)
     es.addEventListener('error', () => {
       // EventSource auto-reconnects on transient errors.
     })
     return () => {
-      es?.removeEventListener('permission_request', nudge)
+      es?.removeEventListener('permission_request', nudgeWithFindings)
       es?.removeEventListener('agent_run_started', nudge)
       es?.removeEventListener('agent_run_completed', nudgeWithFindings)
       es?.close()
