@@ -23,11 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `version` — a fail-loud integrity check against hand-edits or partial
   upgrades.
 - **Plugin install path changed.** Users in Claude Code now run
-  `/plugin install cliff-security@cliff` (was `/plugin install
-  secure-repo@cliff`). The marketplace remains `cliff-security/cliff` and
-  the repo paths under `plugins/secure-repo/` moved to
-  `plugins/cliff-security/`. Anyone with the old plugin installed should
-  uninstall `secure-repo` and reinstall under the new name.
+  `/plugin install cliff-security@cliff`. The marketplace remains
+  `cliff-security/cliff`; the in-tree path is `plugins/cliff-security/`.
 
 ## [0.2.1] - 2026-05-19
 
