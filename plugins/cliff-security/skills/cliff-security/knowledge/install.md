@@ -46,11 +46,13 @@ curl -fsSL "https://github.com/cliff-security/cliff/releases/download/${CLIFF_RE
 
 Both the install script URL and the `CLIFF_VERSION` env var are pinned to `v0.2.0`, so the binary the user ends up with matches what this skill was tested against — no silent drift to a later release.
 
+The `| sh` is deliberate, not a bug: `install-local.sh` ships with a `#!/usr/bin/env sh` shebang and is written to be POSIX-clean (no `[[ ... ]]`, no arrays, no `local`, etc.) so it runs under dash, busybox sh, FreeBSD sh, and macOS's `/bin/sh`. **Do not change `| sh` to `| bash`** — it would gate the installer on bash being present, breaking minimal Linux containers and BSDs.
+
 Then say:
 
 > "This will install Cliff `v0.2.0` (the version this skill was tested against). Both the install script and the binary it installs are pinned to tag `v0.2.0`. May I run it?"
 
-Wait for an explicit "yes" / "go" / "do it". Only after approval, run the pinned command via Bash. The installer:
+Wait for an explicit "yes" / "go" / "do it". Only after approval, execute the pinned command through your `Bash` tool — that tool runs commands in the user's login shell, and the `| sh` in the pipe is what actually interprets the installer. The installer:
 
 - Downloads the **`v0.2.0`** release tarball (pinned via `CLIFF_VERSION` above; the installer respects this env var).
 - Creates `~/.cliff/` (config, data, run, logs, cli-venv, bin).
