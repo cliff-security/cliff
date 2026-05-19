@@ -375,8 +375,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     app.state.ai_on_key_change = _ai_on_key_change
 
-    # Agent executor (Layer 5: orchestration)
-    app.state.agent_executor = AgentExecutor(pool, context_builder)
+    # Agent executor (Layer 5: orchestration). The AI env+model
+    # resolvers are the same callables the pool consumes for OpenCode
+    # env injection; the executor uses them in the Pydantic AI no-tools
+    # path to construct a fresh ``Model`` per agent run (ADR-0047).
+    app.state.agent_executor = AgentExecutor(
+        pool,
+        context_builder,
+        ai_env_resolver=_ai_env_resolver,
+        ai_model_resolver=_ai_model_resolver,
+    )
 
     # Background idle cleanup task
     async def _idle_cleanup_loop() -> None:
