@@ -1,6 +1,6 @@
 """Owner-safe process discovery and cleanup for the Cliff CLI.
 
-Used by ``cliff stop`` / ``restart`` / ``uninstall`` to find leaked Cliff
+Used by ``cliffsec stop`` / ``restart`` / ``uninstall`` to find leaked Cliff
 processes (parent uvicorn + child OpenCode binaries) when the parent died
 abruptly and left orphans holding ports.
 

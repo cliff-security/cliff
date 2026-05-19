@@ -37,8 +37,8 @@ wheels = [
 ]
 
 [[package]]
-name = "cliff-cli"
-version = "0.1.1"
+name = "cliffsec"
+version = "0.2.1"
 source = { editable = "." }
 dependencies = [
     { name = "click" },

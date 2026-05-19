@@ -1,7 +1,7 @@
 """EF-B14 regression — close handler must reconcile pr_url back to Finding.
 
 Reproduces the QA-0001 fsevents scenario: executor opens a real PR (recorded
-in AgentRun.structured_output), user calls cliff close (PATCH /workspaces
+in AgentRun.structured_output), user calls cliffsec close (PATCH /workspaces
 state=closed), and the Finding silently lands in status=validated with
 pr_url=null — leaving the PR orphaned and the dashboard lying about closure.
 """

@@ -105,13 +105,13 @@ Each step persists into both the chat timeline and a structured sidebar. Re-open
 <!-- install:start -->
 ```bash
 curl -fsSL https://github.com/cliff-security/cliff/releases/latest/download/install-local.sh | sh
-cliff start --detach
+cliffsec start --detach
 ```
 <!-- install:end -->
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000) and paste your Anthropic or OpenAI key in Settings.
 
-The installer fetches `uv`, a managed Python 3.11, the OpenCode binary, and the Trivy and Semgrep scanners. Prereqs: `git`, `curl`, and the [GitHub CLI](https://github.com/cli/cli#installation). If something doesn't run, `cliff doctor` will say why.
+The installer fetches `uv`, a managed Python 3.11, the OpenCode binary, and the Trivy and Semgrep scanners. Prereqs: `git`, `curl`, and the [GitHub CLI](https://github.com/cli/cli#installation). If something doesn't run, `cliffsec doctor` will say why.
 
 **Docker** — required on Windows, optional everywhere else. Prereqs: Docker 24+.
 

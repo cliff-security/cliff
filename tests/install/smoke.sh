@@ -2,7 +2,7 @@
 # Smoke test for the native installer. Runs in CI and locally.
 #
 # Builds the tarball with a stub frontend, installs it into a scratch
-# CLIFF_HOME, asserts `cliff doctor` is healthy, starts the daemon
+# CLIFF_HOME, asserts `cliffsec doctor` is healthy, starts the daemon
 # detached on a non-default port, hits /health, then stops it.
 #
 # Designed to be safe to run on a developer's box: it never touches the
@@ -58,7 +58,7 @@ fi
 # ---- 2. build tarball ------------------------------------------------------
 echo "==> building tarball"
 SKIP_FRONTEND_BUILD=1 scripts/build-tarball.sh >/dev/null
-TARBALL="$(ls -1 dist/cliff-*.tar.gz | head -1)"
+TARBALL="$(ls -1 dist/cliffsec-*.tar.gz | head -1)"
 [[ -f "${TARBALL}" ]] || { echo "FAIL: no tarball produced"; exit 1; }
 
 # Layout sanity: every file the installer relies on must be in the tarball.
@@ -88,18 +88,18 @@ echo "  tarball layout OK"
 # ---- 3. install ------------------------------------------------------------
 echo "==> installing into ${TEST_HOME}"
 # We point install-local.sh at the local tarball and use CLIFF_HOME.
-# We also bypass the ~/.local/bin/cliff symlink step so the developer's
+# We also bypass the ~/.local/bin/cliffsec symlink step so the developer's
 # real CLI is never disturbed.
 CLIFF_HOME="${TEST_HOME}" \
 CLIFF_LOCAL_TARBALL="${REPO_ROOT}/${TARBALL}" \
 HOME="${TEST_HOME}" \
   sh scripts/install-local.sh >/dev/null
 
-CLI="${TEST_HOME}/cli-venv/bin/cliff"
+CLI="${TEST_HOME}/cli-venv/bin/cliffsec"
 [[ -x "${CLI}" ]] || { echo "FAIL: cli-venv missing at ${CLI}"; exit 1; }
 
 # ---- 4. doctor -------------------------------------------------------------
-echo "==> cliff doctor --json"
+echo "==> cliffsec doctor --json"
 DOCTOR_OUT="$(CLIFF_HOME="${TEST_HOME}" "${CLI}" doctor --json || true)"
 # Parse via the cli venv's python (guaranteed present after install) — system
 # python3 is missing on minimal containers we test in.
@@ -116,7 +116,7 @@ print('  doctor: clean (warnings:', data.get('warnings', []), ')')
 "
 
 # ---- 5. start --detach + health + stop ------------------------------------
-echo "==> cliff start --detach --port ${TEST_PORT}"
+echo "==> cliffsec start --detach --port ${TEST_PORT}"
 CLIFF_HOME="${TEST_HOME}" "${CLI}" start --detach --port "${TEST_PORT}" >/dev/null
 
 # /health should respond within ~5s of start returning (start already
@@ -133,7 +133,7 @@ if ! curl -fsS "http://127.0.0.1:${TEST_PORT}/health" >/dev/null; then
 fi
 echo "  /health: ok"
 
-echo "==> cliff stop"
+echo "==> cliffsec stop"
 CLIFF_HOME="${TEST_HOME}" "${CLI}" stop >/dev/null
 
 # Confirm the port is released.
@@ -145,9 +145,9 @@ fi
 
 # ---- 6. orphan-cleanup scenario --------------------------------------------
 # Simulates a hard crash: start the daemon, SIGKILL the parent so the lifespan
-# cleanup never runs, then run `cliff stop` and verify the OpenCode singleton
-# port (4096) is reclaimed. This is the bug we're fixing — the CLI must sweep
-# for orphans, not just trust the pidfile.
+# cleanup never runs, then run `cliffsec stop` and verify the OpenCode singleton
+# port (4096) is reclaimed. The CLI must sweep for orphans, not just trust
+# the pidfile.
 #
 # The previous step's stop may have left 4096 in TIME_WAIT. Wait up to 60s for
 # the port to free up before starting; skip the scenario if it never frees

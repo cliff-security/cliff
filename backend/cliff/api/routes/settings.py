@@ -73,7 +73,7 @@ async def _emit_audit(request: Request, **kwargs) -> None:
 async def get_model(request: Request, db=Depends(get_db)):
     """Return the canonical active model (ADR-0037).
 
-    Thin shim over :class:`AIIntegrationService` so the CLI (``cliff
+    Thin shim over :class:`AIIntegrationService` so the CLI (``cliffsec
     model get``) and the new Settings UI agree byte-for-byte. Falls
     back to the old ``opencode.json``-derived value when no AI
     provider is connected so legacy users without an ``ai_integration``
@@ -105,7 +105,7 @@ async def update_model(body: ModelUpdateRequest, request: Request, db=Depends(ge
     Routes through :class:`AIIntegrationService.set_model` when a
     provider is connected. On a fresh install with no provider yet,
     falls through to the legacy ``config_manager.update_model`` so
-    ``cliff model set`` during install still works before BYOK.
+    ``cliffsec model set`` during install still works before BYOK.
     """
     vault = getattr(request.app.state, "vault", None)
     if vault is not None:

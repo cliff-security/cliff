@@ -201,7 +201,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Whether the resolved AI credential actually authenticates. A present,
     # decryptable credential is not the same as a working one — a revoked or
     # wrong key resolves into the workspace env fine and only 401s at
-    # agent-run time. ``/health`` and ``cliff status`` gate readiness on
+    # agent-run time. ``/health`` and ``cliffsec status`` gate readiness on
     # this so ``ready: true`` means agents will genuinely run. (Q01-B02.)
     app.state.ai_provider_credential_ok = False
 

@@ -239,7 +239,7 @@ class AIIntegrationService:
         (:mod:`cliff.ai.validators`) and, on a clean pass, stamps
         ``last_validated_at`` on the integration row.
 
-        This is the signal behind ``ai_provider_ready`` / ``cliff status``
+        This is the signal behind ``ai_provider_ready`` / ``cliffsec status``
         (Q01-B02): a credential that is *present and decrypts* is not the
         same as one that *authenticates* — a revoked or wrong key resolves
         into the workspace env just fine and only 401s at agent-run time.

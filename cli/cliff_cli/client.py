@@ -6,7 +6,7 @@ Wraps httpx with the conventions every CLI command needs:
   * one shared connection-pool per CLI invocation (commands are short-lived
     so we don't bother caching across runs);
   * a single retry on connect failures so a daemon that's still booting
-    behind ``cliff status`` doesn't immediately exit 3;
+    behind ``cliffsec status`` doesn't immediately exit 3;
   * helper exceptions the command layer maps to exit codes.
 """
 
@@ -68,7 +68,7 @@ class Client:
         self._http = httpx.Client(
             base_url=_base_url(),
             timeout=timeout,
-            headers={"User-Agent": f"cliff-cli/{__version__}"},
+            headers={"User-Agent": f"cliffsec/{__version__}"},
         )
 
     def __enter__(self) -> Client:

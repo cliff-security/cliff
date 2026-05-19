@@ -5073,7 +5073,7 @@
         "type": "object"
       },
       "VersionInfo": {
-        "description": "Version handshake for the agent CLI (`cliff status`).\n\n`min_cli` is the lowest CLI version this server promises to speak to.\nA CLI older than this should refuse to operate and tell the user to upgrade.\n`schema_version` bumps when the CLI/server contract changes incompatibly.",
+        "description": "Version handshake for the agent CLI (`cliffsec status`).\n\n`min_cli` is the lowest CLI version this server promises to speak to.\nA CLI older than this should refuse to operate and tell the user to upgrade.\n`schema_version` bumps when the CLI/server contract changes incompatibly.",
         "properties": {
           "cliff": {
             "title": "Cliff",
@@ -7912,7 +7912,7 @@
     },
     "/api/settings/model": {
       "get": {
-        "description": "Return the canonical active model (ADR-0037).\n\nThin shim over :class:`AIIntegrationService` so the CLI (``cliff\nmodel get``) and the new Settings UI agree byte-for-byte. Falls\nback to the old ``opencode.json``-derived value when no AI\nprovider is connected so legacy users without an ``ai_integration``\nrow still get something meaningful.",
+        "description": "Return the canonical active model (ADR-0037).\n\nThin shim over :class:`AIIntegrationService` so the CLI (``cliffsec\nmodel get``) and the new Settings UI agree byte-for-byte. Falls\nback to the old ``opencode.json``-derived value when no AI\nprovider is connected so legacy users without an ``ai_integration``\nrow still get something meaningful.",
         "operationId": "get_model_api_settings_model_get",
         "responses": {
           "200": {
@@ -7932,7 +7932,7 @@
         ]
       },
       "put": {
-        "description": "Persist a model change (ADR-0037).\n\nRoutes through :class:`AIIntegrationService.set_model` when a\nprovider is connected. On a fresh install with no provider yet,\nfalls through to the legacy ``config_manager.update_model`` so\n``cliff model set`` during install still works before BYOK.",
+        "description": "Persist a model change (ADR-0037).\n\nRoutes through :class:`AIIntegrationService.set_model` when a\nprovider is connected. On a fresh install with no provider yet,\nfalls through to the legacy ``config_manager.update_model`` so\n``cliffsec model set`` during install still works before BYOK.",
         "operationId": "update_model_api_settings_model_put",
         "requestBody": {
           "content": {

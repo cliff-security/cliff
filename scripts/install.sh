@@ -90,7 +90,7 @@ download() {
   fi
 }
 
-# Install the agent-facing CLI (`cliff`) into ~/.local/bin if the release
+# Install the agent-facing CLI (`cliffsec`) into ~/.local/bin if the release
 # ships it. The CLI is a normal Unix binary going to a normal Unix location,
 # so this is an extension of `curl ... | sh` consent — same as rustup, nvm,
 # uv, etc. install.
@@ -100,7 +100,7 @@ download() {
 # requires explicit user opt-in via `/plugin marketplace add` + `/plugin
 # install`. We just print the command at the end (see end of script).
 install_agent_cli() {
-  cli_archive="cliff-cli.tar.gz"
+  cli_archive="cliffsec-cli.tar.gz"
   cli_url="${RELEASE_BASE}/${cli_archive}"
   bin_dir="${HOME}/.local/bin"
 
@@ -111,15 +111,21 @@ install_agent_cli() {
     return 0
   fi
   venv_dir="${HOME}/.cliff/cli-venv"
+  # Wipe the venv before reinstall so the pre-rename `cliff` entry-point
+  # script doesn't survive alongside the new `cliffsec` one.
+  rm -rf "${venv_dir}"
   python3 -m venv "${venv_dir}" >/dev/null 2>&1 || true
   "${venv_dir}/bin/pip" install --quiet --upgrade pip >/dev/null 2>&1 || true
   if "${venv_dir}/bin/pip" install --quiet "/tmp/${cli_archive}" >/dev/null 2>&1; then
     mkdir -p "${bin_dir}"
-    ln -sf "${venv_dir}/bin/cliff" "${bin_dir}/cliff"
-    ok "Installed cliff CLI to ${bin_dir}/cliff"
+    # Remove the pre-rename `cliff` symlink (v0.2.0 and earlier) so it
+    # doesn't shadow the new `cliffsec` binary on PATH.
+    rm -f "${bin_dir}/cliff"
+    ln -sf "${venv_dir}/bin/cliffsec" "${bin_dir}/cliffsec"
+    ok "Installed cliffsec CLI to ${bin_dir}/cliffsec"
     case ":${PATH}:" in
       *":${bin_dir}:"*) : ;;
-      *) warn "${bin_dir} is not in your PATH — add it to use the 'cliff' command." ;;
+      *) warn "${bin_dir} is not in your PATH — add it to use the 'cliffsec' command." ;;
     esac
   fi
   rm -f "/tmp/${cli_archive}"

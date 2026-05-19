@@ -276,7 +276,7 @@ jobs:
         with:
           image: ${{ env.REGISTRY_IMAGE }}@${{ steps.build.outputs.digest }}
           format: cyclonedx-json
-          output-file: cliff-${{ needs.validate.outputs.version }}.cdx.json
+          output-file: cliffsec-${{ needs.validate.outputs.version }}.cdx.json
           upload-artifact: false
           upload-release-assets: false
 
@@ -292,7 +292,7 @@ jobs:
         with:
           subject-name: ${{ env.REGISTRY_IMAGE }}
           subject-digest: ${{ steps.build.outputs.digest }}
-          sbom-path: cliff-${{ needs.validate.outputs.version }}.cdx.json
+          sbom-path: cliffsec-${{ needs.validate.outputs.version }}.cdx.json
           push-to-registry: true
 
       - name: Install cosign
@@ -309,7 +309,7 @@ jobs:
       - name: Cosign — attach CycloneDX SBOM as cosign attestation
         run: |
           cosign attest --yes \
-            --predicate "cliff-${VERSION}.cdx.json" \
+            --predicate "cliffsec-${VERSION}.cdx.json" \
             --type cyclonedx \
             "${REGISTRY_IMAGE}@${DIGEST}"
         env:
@@ -330,7 +330,7 @@ jobs:
           docker run --rm --entrypoint /app/bin/trivy "$IMG" --version
           # Tag the digest-pinned image with a local alias so the
           # testcontainers smoke step (next) can find it without re-pulling.
-          docker tag "$IMG" cliff:smoke
+          docker tag "$IMG" cliffsec:smoke
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
           VERSION: ${{ needs.validate.outputs.version }}
@@ -347,7 +347,7 @@ jobs:
       - name: Smoke — boot image and probe /health
         working-directory: backend
         env:
-          CLIFF_TEST_IMAGE: cliff:smoke
+          CLIFF_TEST_IMAGE: cliffsec:smoke
         run: |
           set -euo pipefail
           uv sync --extra dev
@@ -357,7 +357,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sbom
-          path: cliff-${{ needs.validate.outputs.version }}.cdx.json
+          path: cliffsec-${{ needs.validate.outputs.version }}.cdx.json
           if-no-files-found: error
 
   # ------------------------------------------------------------------
@@ -460,12 +460,18 @@ jobs:
           scripts/build-tarball.sh "${{ needs.validate.outputs.version }}"
           # Surface the staged assets at the workflow root so softprops/action-gh-release
           # can pick them up alongside install-local.sh, install.sh, etc.
+          cp dist/cliffsec-${{ needs.validate.outputs.version }}.tar.gz        .
+          cp dist/cliffsec-${{ needs.validate.outputs.version }}.tar.gz.sha256 .
+          cp dist/cliffsec.tar.gz                                              .
+          cp dist/cliffsec.tar.gz.sha256                                       .
+          # One-release back-compat aliases so v0.2.0 installs running
+          # `cliff update` can still resolve the v0.2.1 tarball. Dropped in v0.2.2.
           cp dist/cliff-${{ needs.validate.outputs.version }}.tar.gz        .
           cp dist/cliff-${{ needs.validate.outputs.version }}.tar.gz.sha256 .
           cp dist/cliff.tar.gz                                              .
           cp dist/cliff.tar.gz.sha256                                       .
 
-      # Agent surface (ADR-0034): the `cliff` CLI ships as a sdist release
+      # Agent surface (ADR-0034): the `cliffsec` CLI ships as a sdist release
       # asset so `install.sh` can pip-install it onto the user's host. The
       # `/secure-repo` Claude Code plugin lives in-tree (`.claude-plugin/`,
       # `plugins/secure-repo/`) and is consumed via `/plugin marketplace add
@@ -485,8 +491,12 @@ jobs:
           # from the release URL, not whatever pip's sdist convention
           # happened to produce.
           src=$(ls cli/dist/*.tar.gz | head -n1)
+          cp "$src" cliffsec-cli.tar.gz
+          echo "Staged $src as cliffsec-cli.tar.gz"
+          # One-release back-compat alias for the pre-rename filename so
+          # users on v0.2.0's installer (which downloads `cliff-cli.tar.gz`)
+          # still resolve correctly. Drop in v0.2.2.
           cp "$src" cliff-cli.tar.gz
-          echo "Staged $src as cliff-cli.tar.gz"
 
       # We deliberately do NOT set `prerelease: true` here, even for alpha
       # tags. GitHub's `/releases/latest/download/<asset>` redirect skips
@@ -510,12 +520,17 @@ jobs:
           body_path: release-notes.md
           make_latest: "true"
           files: |
-            cliff-${{ needs.validate.outputs.version }}.cdx.json
+            cliffsec-${{ needs.validate.outputs.version }}.cdx.json
             verification.txt
             install.sh
             install-local.sh
             docker-compose.yml
             .env.example
+            cliffsec-cli.tar.gz
+            cliffsec-${{ needs.validate.outputs.version }}.tar.gz
+            cliffsec-${{ needs.validate.outputs.version }}.tar.gz.sha256
+            cliffsec.tar.gz
+            cliffsec.tar.gz.sha256
             cliff-cli.tar.gz
             cliff-${{ needs.validate.outputs.version }}.tar.gz
             cliff-${{ needs.validate.outputs.version }}.tar.gz.sha256

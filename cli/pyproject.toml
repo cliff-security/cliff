@@ -1,6 +1,6 @@
 [project]
-name = "cliff-cli"
-version = "0.2.0"
+name = "cliffsec"
+version = "0.2.1"
 description = "Agent-friendly CLI for Cliff — drive the full remediation loop from Claude Code or any agent."
 requires-python = ">=3.11"
 license = "AGPL-3.0-only"
@@ -19,7 +19,7 @@ dev = [
 ]
 
 [project.scripts]
-cliff = "cliff_cli.cli:main"
+cliffsec = "cliff_cli.cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]
