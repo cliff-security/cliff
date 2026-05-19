@@ -94,10 +94,10 @@ export default function Welcome() {
           </button>
         </div>
         <p
-          className="mt-8 text-xs font-mono uppercase"
-          style={{ color: 'var(--cd-fg-4)', letterSpacing: '0.18em' }}
+          className="mt-8 text-xs font-mono"
+          style={{ color: 'var(--cd-fg-4)', letterSpacing: '0.08em' }}
         >
-          self-hosted · credentials never leave this machine
+          Self-hosted · credentials never leave this machine
         </p>
       </div>
     </div>

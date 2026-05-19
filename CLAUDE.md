@@ -34,28 +34,29 @@ When working on this codebase:
 
 See `cliff-os/docs/architecture/overview.md` (private) for the full system diagram and `cliff-os/docs/adr/0014-workspace-runtime-architecture.md` (private) for the workspace isolation architecture.
 
-## Design System: "The Serene Sentinel"
+## Design System: "Cyberdeck"
 
-The UI follows the Stitch-generated "Ethos Security" design system (Stitch project `12683083125265338263`). See `cliff-os/docs/adr/0011-stitch-design-system.md` (private) for the decision record.
+The UI follows the Cyberdeck design system shipped at v0.2.0 — dark-navy operator console with a single sage-mint accent, almost-square geometry, mono labels, barely-visible scanline texture. **Dark mode is the default and the only mode.** The earlier "Serene Sentinel" / "Granite" light-mode identity is deprecated.
+
+Canonical brand reference: **`cliff-os/gtm/DESIGN.md`** (private). The CSS tokens at `frontend/src/styles/cyberdeck.css` are the load-bearing source for the app; if a value here disagrees with that file, the CSS wins.
 
 | Aspect | Choice |
 |--------|--------|
-| Creative direction | "Editorial Assurance" — calm, authoritative, gallery-like |
-| Color mode | Light mode default |
-| Primary color | `#4d44e3` (indigo) |
-| Background | `#f8f9fa` |
-| Headlines font | Manrope (600-800) |
-| Body/labels font | Inter (400-600) |
+| Creative direction | Operator console — calm, terminal-like, intentional |
+| Color mode | Dark default (only mode) |
+| Primary accent | sage-mint (`var(--cd-green)`) |
+| Background | dark navy (`var(--cd-bg)`, `var(--cd-bg-1)`) — see `cyberdeck.css` |
+| Headlines font | font-display (Cabinet Grotesk, weights 700–800) |
+| Body/labels font | Inter (400–600) |
+| Mono / labels | JetBrains Mono — used for all eyebrows, codes, IDs |
 | Icons | Google Material Symbols Outlined |
-| Color tokens | See `frontend/tailwind.config.ts` (65+ tokens from Stitch) |
-| Mockup reference | `frontend/mockups/html/*.html` and `frontend/mockups/screenshots/*.png` |
+| Color tokens | See `frontend/src/styles/cyberdeck.css` and `frontend/tailwind.config.ts` |
 
 **Core design rules:**
-- **No-Line Rule:** Never use `1px solid` borders. Use background shifts, spacing, or tonal transitions.
-- **Tonal Layering:** Depth via background colors: Level 0 `#f8f9fa`, Level 1 `#f1f4f6`, Level 2 `#ffffff`
-- **Ghost Borders:** `outline-variant` at 15% opacity when borders are needed
-- **Sentence case:** All labels, headers, buttons. No Title Case or ALL CAPS.
-- **Text color:** Never use pure `#000000`. Use `on-surface` (`#2b3437`).
+- **No-Line Rule:** Avoid `1px solid` borders. Use background shifts, spacing, or tonal transitions. Subtle 1px CSS-variable rules (`var(--cd-rule)`) are acceptable as ghost borders.
+- **Tonal Layering:** Depth via dark-mode background tiers (`--cd-bg`, `--cd-bg-1`, `--cd-bg-2`).
+- **Sentence case:** All labels, headers, buttons in sentence case. **Exception:** small-caps mono eyebrows (tracking-wide, ≤11px, used as category tags above primary headings — e.g. "STEP 1 OF 3", "RECOMMENDED"). The eyebrow exception is intentional Cyberdeck typography. Anything larger than a micro-label or that acts as body/hero copy must be sentence case.
+- **Text color:** Never pure `#000000` or pure `#ffffff`. Use the Cyberdeck `--cd-fg-*` tiers.
 
 ## Repository Layout
 
