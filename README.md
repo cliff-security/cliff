@@ -123,11 +123,11 @@ Verify the image by checksum or build it yourself from this repo. See [`docker/`
 
 ## Use Cliff inside Claude Code
 
-Already in [Claude Code](https://claude.com/claude-code)? Skip the web UI. After running the installer above, register the plugin marketplace and install `secure-repo`:
+Already in [Claude Code](https://claude.com/claude-code)? Skip the web UI. After running the installer above, register the plugin marketplace and install `cliff-security`:
 
 ```text
 /plugin marketplace add cliff-security/cliff
-/plugin install secure-repo@cliff
+/plugin install cliff-security@cliff
 ```
 
 Then, in any git repo, ask:

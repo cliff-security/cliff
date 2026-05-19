@@ -1,0 +1,13 @@
+{
+  "name": "cliff-security",
+  "version": "0.2.0",
+  "description": "Drive Cliff from inside Claude Code: install the daemon, onboard credentials (GitHub PAT + AI provider key), run the full secure-this-repo loop (scan → plan → approve → PR → merge → close), or troubleshoot a broken install. Action-dispatched skill: a single entrypoint routes to versioned per-action playbooks. Wraps the agent-shaped `cliffsec` CLI.",
+  "author": {
+    "name": "galanko",
+    "email": "galank@gmail.com"
+  },
+  "homepage": "https://github.com/cliff-security/cliff",
+  "repository": "https://github.com/cliff-security/cliff",
+  "license": "AGPL-3.0-only",
+  "keywords": ["security", "remediation", "cliff", "vibe-security", "agent-cli"]
+}

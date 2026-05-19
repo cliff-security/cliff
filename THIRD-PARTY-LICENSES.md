@@ -150,8 +150,8 @@ guidance; `MPL-2.0` is GPL-compatible via its secondary-license clause.
 ## 5. In-repo plugins
 
 The only plugin shipped inside this repository is
-[`plugins/secure-repo/`](plugins/secure-repo/). Its
-[`plugin.json`](plugins/secure-repo/.claude-plugin/plugin.json) declares
+[`plugins/cliff-security/`](plugins/cliff-security/). Its
+[`plugin.json`](plugins/cliff-security/.claude-plugin/plugin.json) declares
 `"license": "AGPL-3.0-only"`, exactly matching the project's overall
 SPDX identifier. Inbound = outbound.
 
