@@ -25,6 +25,7 @@ import EmptyState from '../components/EmptyState'
 import ErrorBoundary from '../components/ErrorBoundary'
 import ErrorState from '../components/ErrorState'
 import ImportDialog from '../components/ImportDialog'
+import { FirstScanBanner } from '../components/issues/FirstScanBanner'
 import { IssueRow } from '../components/issues/IssueRow'
 import { IssueSidePanel } from '../components/issues/IssueSidePanel'
 import { IssuesHeader, type SeverityFilter, type TypeFilter } from '../components/issues/IssuesHeader'
@@ -387,6 +388,15 @@ function IssuesPageContent() {
         onTypeFilterChange={handleTypeFilterChange}
       />
 
+      <FirstScanBanner
+        totalFindings={allFindings.length}
+        // Use the UNFILTERED closed count so applying a severity/type
+        // filter that hides closed rows doesn't replay the banner.
+        closedCount={
+          allFindings.filter((f) => f.derived?.section === 'done').length
+        }
+      />
+
       {importOpen && (
         <ImportDialog
           onComplete={() => {
@@ -673,13 +683,9 @@ function IssuesPageContent() {
                 <span
                   style={{ fontSize: 13, color: 'var(--cd-fg-3)' }}
                 >
-                  {/* The per-substage breakdown ("0 planning · 2 generating
-                       · …") was misleading: substages were derived
-                       optimistically from finding.status and don't reliably
-                       reflect what the executor is actually doing. Until we
-                       wire real progress events we just surface the
-                       aggregate count, which is always correct. */}
-                  Agents working — no action needed
+                  {sections.inProgress.length === 0
+                    ? 'Nothing in flight'
+                    : 'Agents working — no action needed'}
                 </span>
                 {/* Hint chip, not a button — the outer <button> is the
                  *  toggle. Styled as a quiet caption + chevron rather

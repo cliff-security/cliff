@@ -199,24 +199,32 @@ export function IssueSidePanel({
       queryClient.invalidateQueries({
         queryKey: ['agent-runs', workspaceId],
       })
-      // Sidebar reflects the most-recent agent output; the stage chip
-      // pulls from it. Cheap to invalidate — the query is per-workspace
-      // and React Query coalesces invalidations within a render cycle.
       queryClient.invalidateQueries({
         queryKey: ['sidebar', workspaceId],
       })
     }
-    es.addEventListener('permission_request', nudge)
+    // ``finding.derived.stage`` is computed by the backend from the
+    // latest agent run + sidebar, so the parent IssuesPage's row stage
+    // chip + section bucketing only re-derive when its findings query
+    // refetches. Bump it on the SSE events that actually advance the
+    // stage — agent_run_completed (terminal) and permission_request
+    // (pauses into "awaiting_permission" → "Needs you" section).
+    // agent_run_started fires once per sub-agent and never changes the
+    // stage, so it stays on the cheap per-workspace nudge.
+    const nudgeWithFindings = () => {
+      nudge()
+      queryClient.invalidateQueries({ queryKey: ['findings'] })
+    }
+    es.addEventListener('permission_request', nudgeWithFindings)
     es.addEventListener('agent_run_started', nudge)
-    es.addEventListener('agent_run_completed', nudge)
+    es.addEventListener('agent_run_completed', nudgeWithFindings)
     es.addEventListener('error', () => {
-      // EventSource auto-reconnects on transient errors; nothing to do
-      // here. The poll fallback continues regardless.
+      // EventSource auto-reconnects on transient errors.
     })
     return () => {
-      es?.removeEventListener('permission_request', nudge)
+      es?.removeEventListener('permission_request', nudgeWithFindings)
       es?.removeEventListener('agent_run_started', nudge)
-      es?.removeEventListener('agent_run_completed', nudge)
+      es?.removeEventListener('agent_run_completed', nudgeWithFindings)
       es?.close()
     }
   }, [workspaceId, queryClient])
@@ -654,6 +662,19 @@ function SPValidation({ stage }: { stage: IssueStage }) {
           </span>
           <span className="text-[13px] font-bold">{verdict}</span>
         </div>
+        {stage === 'fixed' && (
+          // "Mark as fixed" closes the finding in Cliff's DB but doesn't
+          // re-verify the underlying rubric — that flips on the next
+          // assessment. Without this hint the unchanged grade after a
+          // close reads as a Cliff bug.
+          <div
+            className="text-[11.5px] mt-1 opacity-80"
+            data-testid="validation-rerun-hint"
+          >
+            We&rsquo;ll confirm this on the next assessment. Re-run from the
+            Dashboard to refresh the grade.
+          </div>
+        )}
       </div>
     </section>
   )
@@ -948,7 +969,10 @@ function ActivityRunCard({ run }: { run: AgentRun }) {
           {label}
         </span>
         {run.confidence != null && !isFailed && (
-          <span className="text-[10.5px] font-mono text-on-surface-variant">
+          <span
+            className="text-[10.5px] font-mono text-on-surface-variant"
+            title="Agent confidence in its own output"
+          >
             {Math.round(run.confidence * 100)}%
           </span>
         )}

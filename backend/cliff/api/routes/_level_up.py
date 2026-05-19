@@ -254,7 +254,16 @@ def _action_label(status: LevelUpGateStatus, *, fixable: int = 0, total: int = 0
     if status == "in_progress":
         return "Open Review"
     if status == "auto_fixable":
-        return f"Auto-fix {fixable} of {total}"
+        # "Auto-fix N of M" reads as partial ("we'll fix N of the M you
+        # need"). It actually means "N are auto-fixable; the other M-N
+        # require manual work." Phrase variants reflect that.
+        if fixable == 0:
+            return "Auto-fix"
+        if fixable == total:
+            return "Auto-fix all" if fixable > 1 else "Auto-fix it"
+        if fixable == 1:
+            return f"Auto-fix 1 (of {total} open)"
+        return f"Auto-fix {fixable} (of {total} open)"
     return "Start"
 
 
@@ -374,12 +383,22 @@ def _detail_for_findings(items: list[Finding], *, fallback: str) -> str:
     return title
 
 
+def _grade_article(grade: str) -> str:
+    """Indefinite article for a grade letter.
+
+    Only A, E, F start with a vowel sound. Defaults to "a" for unknown
+    letters so future grade tokens don't regress.
+    """
+    return "an" if grade in {"A", "E", "F"} else "a"
+
+
 def _compose_summary(gates: list[LevelUpGate], *, next_grade: str) -> str:
     if not gates:
         return f"You're already meeting the bar for {next_grade}. Hold the line."
     n = len(gates)
     things = "thing" if n == 1 else "things"
-    base = f"{_humanize_count(n)} {things} between you and an {next_grade}."
+    article = _grade_article(next_grade)
+    base = f"{_humanize_count(n)} {things} between you and {article} {next_grade}."
     one_click = sum(
         1 for g in gates if g.status in {"auto_fixable", "pr_ready"}
     )

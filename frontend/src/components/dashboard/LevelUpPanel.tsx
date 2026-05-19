@@ -9,6 +9,13 @@
  */
 import GateRow, { type GateRowData } from './GateRow'
 
+/** "an" for grade letters that start with a vowel sound (A / E / F). */
+function gradeArticle(letter: string, capitalize = false): string {
+  const isVowelInitial = letter === 'A' || letter === 'E' || letter === 'F'
+  if (capitalize) return isVowelInitial ? 'An' : 'A'
+  return isVowelInitial ? 'an' : 'a'
+}
+
 export type LevelUpPanelData = {
   current: 'A' | 'B' | 'C' | 'D' | 'F'
   next: 'A' | 'B' | 'C' | 'D' | 'F' | null
@@ -147,9 +154,9 @@ export default function LevelUpPanel({
           textWrap: 'pretty' as never,
         }}
       >
-        Grading rubric · An <strong>{nextLetter}</strong> requires zero open
-        Criticals, ≤ 3 High findings, no committed secrets, and all 15
-        posture checks passing.{' '}
+        Grading rubric · {gradeArticle(nextLetter, true)}{' '}
+        <strong>{nextLetter}</strong> requires zero open Criticals, ≤ 3 High
+        findings, no committed secrets, and all 15 posture checks passing.{' '}
         <button
           type="button"
           onClick={onViewRubric}

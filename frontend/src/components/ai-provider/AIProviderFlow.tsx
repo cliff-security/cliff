@@ -14,6 +14,7 @@
 
 import { useCallback, useState } from 'react'
 import { useAdopt, useAutodetect } from '@/api/aiProvider'
+import { parseApiError } from '@/api/client'
 import {
   describeAutodetectSource,
   providerIcon,
@@ -65,7 +66,7 @@ export function AIProviderFlow({
         }}
         onDecline={() => setUserOverride('picking-method')}
         adopting={adopt.isPending}
-        error={adopt.error instanceof Error ? adopt.error.message : null}
+        error={adopt.error ? parseApiError(adopt.error).message : null}
       />
     )
   }

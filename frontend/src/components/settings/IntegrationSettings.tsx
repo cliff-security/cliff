@@ -833,8 +833,11 @@ export default function IntegrationSettings() {
               gap: 10,
             }}
           >
-            {(registry || []).map((entry) => {
-              const configured = isConfigured(entry)
+            {/* Each integration renders exactly once: connected ones show
+                in the "Connected" section above, the rest appear here. */}
+            {(registry || [])
+              .filter((entry) => !isConfigured(entry))
+              .map((entry) => {
               const dim = entry.status === 'coming_soon'
               return (
                 <div
@@ -927,7 +930,7 @@ export default function IntegrationSettings() {
                         </span>
                       ))}
                     </div>
-                    {entry.status === 'available' && !configured && (
+                    {entry.status === 'available' && (
                       entry.id === 'github' && entry.github_app_available ? (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
                           {ghAppInflight ? (
@@ -976,30 +979,6 @@ export default function IntegrationSettings() {
                           Set up
                         </button>
                       )
-                    )}
-                    {configured && (
-                      <span
-                        style={{
-                          fontSize: 12,
-                          fontWeight: 600,
-                          color: 'var(--cd-green)',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 6,
-                        }}
-                      >
-                        <span
-                          aria-hidden
-                          style={{
-                            width: 7,
-                            height: 7,
-                            borderRadius: 999,
-                            background: 'var(--cd-green)',
-                            boxShadow: '0 0 6px var(--cd-green)',
-                          }}
-                        />
-                        Connected
-                      </span>
                     )}
                   </div>
                 </div>

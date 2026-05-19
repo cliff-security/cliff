@@ -88,8 +88,10 @@ export function ManualRecoveryCard({
           </p>
           <p className="text-xs text-on-surface-variant mt-1 leading-relaxed">
             GitHub may have redirected you to <span className="font-mono">localhost:8000</span>
-            {' '}instead of this Cliff. Open the App&apos;s installation page on GitHub,
-            copy the installation ID from the URL (e.g.{' '}
+            {' '}(the App&apos;s registered callback) instead of this Cliff at{' '}
+            <span className="font-mono">{window.location.host}</span>. Open the
+            App&apos;s installation page on GitHub, copy the installation
+            ID from the URL (e.g.{' '}
             <span className="font-mono">/installations/12345</span>), and paste it here.
           </p>
         </div>

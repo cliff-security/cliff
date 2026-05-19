@@ -60,13 +60,14 @@ export default function AssessmentSummary({
           icon="bug_report"
           label="Vulnerabilities"
           value={stats.vulnerabilitiesTotal}
+          subtitle="From scanners · excludes posture checks"
           tone="primary"
         />
         <SummaryCard
           icon="rule"
           label="Posture"
           value={stats.postureFailing}
-          subtitle={`${stats.posturePassing} of ${stats.postureTotal} passing`}
+          subtitle={`Failing — ${stats.posturePassing} of ${stats.postureTotal} pass`}
           tone={stats.postureFailing === 0 ? 'tertiary' : 'warning'}
         />
         <SummaryCard

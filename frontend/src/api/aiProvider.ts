@@ -241,7 +241,16 @@ export function useProviderModels(provider: AIProvider | null) {
  * Poll the OAuth status endpoint every 1s while *sessionId* is set and the
  * status is non-terminal. Calls *onTerminal* once with the final status.
  * Hard 5-min timeout matches the backend listener TTL.
+ *
+ * After this much elapsed `waiting`, the hook also consults the canonical
+ * `/ai/status` and promotes to terminal-connected if the DB-backed status
+ * says so — guards against any race where the per-session state flag lags
+ * behind the persisted integration.
  */
+const openRouterAiStatusFallbackAfterMs = 5_000
+/** Throttle: at most one extra `/ai/status` call per this window while waiting. */
+const openRouterAiStatusFallbackThrottleMs = 5_000
+
 export function useOpenRouterPolling(
   sessionId: string | null,
   onTerminal: (status: OpenRouterStatusResponse) => void,
@@ -250,23 +259,22 @@ export function useOpenRouterPolling(
   // Guards against the terminal-status effect re-firing every time the
   // parent re-renders with a fresh `onTerminal` callback identity.
   const lastHandled = useRef<OAuthStatus | null>(null)
+  const lastAiStatusCheckAt = useRef<number>(0)
   const TIMEOUT_MS = 5 * 60 * 1000
   const qc = useQueryClient()
 
   const query = useQuery({
     queryKey: ['ai-provider', 'openrouter', sessionId],
     queryFn: async () => {
+      // When the backend's listener TTL (5 min) elapses or the singleton was
+      // restarted, /openrouter/status returns 404 even though the callback
+      // may have already persisted the key. Fall back to /ai/status (which
+      // reads from the DB) and treat a connected OpenRouter row as the
+      // terminal result. ``request<T>`` throws Error("404: <body>").
+      let resp: OpenRouterStatusResponse
       try {
-        return await aiProviderApi.openrouterStatus(sessionId as string)
+        resp = await aiProviderApi.openrouterStatus(sessionId as string)
       } catch (err) {
-        // B22 — when the backend's listener TTL (5 min) elapses or the
-        // singleton was restarted, /openrouter/status returns 404 even
-        // though the callback may have already persisted the key. Fall
-        // back to the canonical /ai/status read: if a connected
-        // OpenRouter account is on file, treat the OAuth flow as
-        // ``connected`` so the modal advances instead of stalling on
-        // "Waiting for you to authorize" forever.
-        // ``request<T>`` throws Error("404: <body>") — parse the prefix.
         const msg = err instanceof Error ? err.message : String(err ?? '')
         const httpStatus = Number.parseInt(msg.split(':', 1)[0] ?? '', 10)
         if (httpStatus === 404) {
@@ -279,11 +287,38 @@ export function useOpenRouterPolling(
               } satisfies OpenRouterStatusResponse
             }
           } catch {
-            // Swallow — surface the original 404 path instead.
+            // Surface the original 404 path instead.
           }
         }
         throw err
       }
+
+      // Same canonical-status promotion for the "still alive, just stuck on
+      // waiting" case. Throttled so a 5-minute hang doesn't issue ~300
+      // redundant /ai/status calls — at most one per 5 s.
+      if (
+        resp.status === 'waiting' &&
+        startedAt.current !== null &&
+        Date.now() - startedAt.current >
+          openRouterAiStatusFallbackAfterMs &&
+        Date.now() - lastAiStatusCheckAt.current >
+          openRouterAiStatusFallbackThrottleMs
+      ) {
+        lastAiStatusCheckAt.current = Date.now()
+        try {
+          const ai = await aiProviderApi.status()
+          if (ai.state === 'connected' && ai.provider === 'openrouter') {
+            return {
+              status: 'connected' as const,
+              detail: null,
+            } satisfies OpenRouterStatusResponse
+          }
+        } catch {
+          // Keep returning the waiting response.
+        }
+      }
+
+      return resp
     },
     enabled: !!sessionId,
     // Refetch when the tab regains focus so a user who tabs back from
@@ -310,6 +345,7 @@ export function useOpenRouterPolling(
     } else if (!sessionId) {
       startedAt.current = null
       lastHandled.current = null
+      lastAiStatusCheckAt.current = 0
     }
   }, [sessionId])
 
