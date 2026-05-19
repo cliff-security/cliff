@@ -213,7 +213,7 @@ def start_cmd(detach: bool, port: int | None, host: str | None) -> None:
         emit_error(
             f"Cliff is already running (pid {existing}).",
             code="already_running",
-            hint="Run `cliff stop` first, or `cliff restart` to bounce.",
+            hint="Run `cliffsec stop` first, or `cliffsec restart` to bounce.",
         )
 
     _ensure_dirs()
@@ -267,7 +267,7 @@ def start_cmd(detach: bool, port: int | None, host: str | None) -> None:
             emit_error(
                 f"Started detached (pid {proc.pid}) but /health did not respond within 30s.",
                 code="health_timeout",
-                hint=f"Check `cliff logs` and `cliff doctor`. Latest log: {log_path}",
+                hint=f"Check `cliffsec logs` and `cliffsec doctor`. Latest log: {log_path}",
             )
         click.echo(f"Cliff started (pid {proc.pid}). Open http://{bind_host}:{bind_port}")
         return
@@ -352,14 +352,14 @@ def stop_cmd(timeout: float, force: bool) -> None:
     #    - PIDs still alive after our timeout: real failure, exit 1.
     #    - All our processes dead but ports still bound (kernel TIME_WAIT,
     #      socket teardown lag): not a failure, just a hint to wait briefly
-    #      before `cliff start`.
+    #      before `cliffsec start`.
     if stuck:
         emit_error(
             "Some Cliff processes resisted shutdown.",
             code="stop_incomplete",
             hint=(
                 f"PIDs still alive: {[p.pid for p in stuck]}. "
-                "Try `cliff stop --force`."
+                "Try `cliffsec stop --force`."
             ),
             exit_code=EXIT_ERROR,
         )
@@ -370,7 +370,7 @@ def stop_cmd(timeout: float, force: bool) -> None:
     if cliff_still_bound:
         click.echo(
             f"Note: ports {cliff_still_bound} still bound (likely TIME_WAIT). "
-            "If the next `cliff start` fails with port_in_use, wait ~30s and retry.",
+            "If the next `cliffsec start` fails with port_in_use, wait ~30s and retry.",
             err=True,
         )
 
@@ -413,7 +413,7 @@ def logs_cmd(follow: bool, lines: int) -> None:
         return
     log_files = sorted(LOG_DIR.glob("cliff-*.log"))
     if not log_files:
-        click.echo("No logs found yet — run `cliff start --detach` first.", err=True)
+        click.echo("No logs found yet — run `cliffsec start --detach` first.", err=True)
         return
     latest = log_files[-1]
     args = ["tail"]
@@ -609,7 +609,7 @@ def _gather_doctor_checks() -> list[dict[str, Any]]:
             api_key_set,
             "configured"
             if api_key_set
-            else "not set — paste in Settings UI after `cliff start`",
+            else "not set — paste in Settings UI after `cliffsec start`",
             warn_only=True,
         )
     )
@@ -769,7 +769,7 @@ def uninstall_cmd(ctx: click.Context, keep_data: bool, yes: bool) -> None:
         emit_error(
             "Cliff processes are still running after stop — refusing to remove files.",
             code="still_running",
-            hint=f"PIDs: {[p.pid for p in ours]}. Try `cliff stop --force`.",
+            hint=f"PIDs: {[p.pid for p in ours]}. Try `cliffsec stop --force`.",
         )
 
     targets: list[Path] = [APP_DIR, BIN_DIR, RUN_DIR, CLI_VENV_DIR]

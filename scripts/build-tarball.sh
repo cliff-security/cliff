@@ -2,7 +2,9 @@
 # Build the Cliff local-install tarball.
 #
 # Output:
-#   dist/cliff-<version>.tar.gz
+#   dist/cliffsec-<version>.tar.gz
+#   dist/cliffsec-<version>.tar.gz.sha256
+#   dist/cliff-<version>.tar.gz            (one-release back-compat alias; see release notes)
 #   dist/cliff-<version>.tar.gz.sha256
 #
 # Layout inside the tarball (extracts directly under the install's app dir):
@@ -35,7 +37,7 @@ if [[ -z "${VERSION}" ]]; then
 fi
 
 DIST_DIR="${REPO_ROOT}/dist"
-STAGE_DIR="$(mktemp -d -t cliff-build-XXXXXXXX)"
+STAGE_DIR="$(mktemp -d -t cliffsec-build-XXXXXXXX)"
 trap 'rm -rf "${STAGE_DIR}"' EXIT
 mkdir -p "${DIST_DIR}"
 
@@ -115,12 +117,12 @@ If you got here directly, you almost certainly want the installer instead:
 
 The installer downloads this tarball, extracts it under ~/.cliff/app/,
 sets up a uv-managed Python venv, installs the opencode/trivy/semgrep
-binaries via the bundled scripts, and drops `cliff` into ~/.local/bin/.
+binaries via the bundled scripts, and drops `cliffsec` into ~/.local/bin/.
 EOF
 
 # ---- archive ---------------------------------------------------------------
 
-ARCHIVE_NAME="cliff-${VERSION}.tar.gz"
+ARCHIVE_NAME="cliffsec-${VERSION}.tar.gz"
 ARCHIVE_PATH="${DIST_DIR}/${ARCHIVE_NAME}"
 echo "==> writing ${ARCHIVE_PATH}"
 tar -czf "${ARCHIVE_PATH}" -C "${STAGE_DIR}" .
@@ -134,17 +136,29 @@ else
   echo "warn: no shasum/sha256sum found — skipping .sha256 generation" >&2
 fi
 
-# Also produce a stable-name copy so /releases/latest/download/cliff.tar.gz
-# resolves cleanly. CI uploads both.
+# Stable-name copy so /releases/latest/download/cliffsec.tar.gz resolves
+# cleanly. CI uploads both.
+cp "${ARCHIVE_PATH}" "${DIST_DIR}/cliffsec.tar.gz"
+if [[ -f "${ARCHIVE_PATH}.sha256" ]]; then
+  cp "${ARCHIVE_PATH}.sha256" "${DIST_DIR}/cliffsec.tar.gz.sha256"
+  awk -v new="cliffsec.tar.gz" '{print $1"  "new}' "${ARCHIVE_PATH}.sha256" \
+    > "${DIST_DIR}/cliffsec.tar.gz.sha256"
+fi
+
+# One-release back-compat alias: v0.2.0's in-place `cliff update` downloads
+# `cliff-${version}.tar.gz` (and `cliff.tar.gz` for latest). Ship both names
+# in this release so existing installs can upgrade. Drop the alias in v0.2.2.
+COMPAT_ARCHIVE="${DIST_DIR}/cliff-${VERSION}.tar.gz"
+cp "${ARCHIVE_PATH}" "${COMPAT_ARCHIVE}"
 cp "${ARCHIVE_PATH}" "${DIST_DIR}/cliff.tar.gz"
 if [[ -f "${ARCHIVE_PATH}.sha256" ]]; then
-  cp "${ARCHIVE_PATH}.sha256" "${DIST_DIR}/cliff.tar.gz.sha256"
-  # Rewrite the filename inside the .sha256 file so `shasum -c` works against
-  # the stable-name copy too.
+  awk -v new="cliff-${VERSION}.tar.gz" '{print $1"  "new}' "${ARCHIVE_PATH}.sha256" \
+    > "${COMPAT_ARCHIVE}.sha256"
   awk -v new="cliff.tar.gz" '{print $1"  "new}' "${ARCHIVE_PATH}.sha256" \
     > "${DIST_DIR}/cliff.tar.gz.sha256"
 fi
 
 echo
 echo "Built:"
-ls -lh "${DIST_DIR}"/cliff*.tar.gz "${DIST_DIR}"/cliff*.sha256 2>/dev/null || true
+ls -lh "${DIST_DIR}"/cliffsec*.tar.gz "${DIST_DIR}"/cliffsec*.sha256 \
+      "${DIST_DIR}"/cliff*.tar.gz "${DIST_DIR}"/cliff*.sha256 2>/dev/null || true

@@ -30,7 +30,7 @@ DATA_DIR="${CLIFF_HOME}/data"
 CONFIG_DIR="${CLIFF_HOME}/config"
 ENV_FILE="${CONFIG_DIR}/cliff.env"
 LOCAL_BIN="${HOME}/.local/bin"
-LAUNCHER="${LOCAL_BIN}/cliff"
+LAUNCHER="${LOCAL_BIN}/cliffsec"
 CLI_VENV="${CLIFF_HOME}/cli-venv"
 
 # ---- pretty output ---------------------------------------------------------
@@ -142,19 +142,19 @@ if [ -n "${CLIFF_LOCAL_TARBALL:-}" ]; then
   TARBALL="${CLIFF_LOCAL_TARBALL}"
 else
   if [ "${VERSION}" = "latest" ]; then
-    URL="https://github.com/${CLIFF_REPO}/releases/latest/download/cliff.tar.gz"
+    URL="https://github.com/${CLIFF_REPO}/releases/latest/download/cliffsec.tar.gz"
   else
-    URL="https://github.com/${CLIFF_REPO}/releases/download/v${VERSION}/cliff-${VERSION}.tar.gz"
+    URL="https://github.com/${CLIFF_REPO}/releases/download/v${VERSION}/cliffsec-${VERSION}.tar.gz"
   fi
   TMPDIR="$(mktemp -d)"
   trap 'rm -rf "${TMPDIR}"' EXIT
-  TARBALL="${TMPDIR}/cliff.tar.gz"
+  TARBALL="${TMPDIR}/cliffsec.tar.gz"
   say "Downloading ${URL}"
   curl -fsSL "${URL}" -o "${TARBALL}" \
     || fail "Download failed. Check the URL or pass CLIFF_VERSION=<tag> for a specific release."
 
   # Best-effort SHA256 verification — the same release uploads
-  # `cliff.tar.gz.sha256` next to the tarball.
+  # `cliffsec.tar.gz.sha256` next to the tarball.
   SUM_URL="${URL}.sha256"
   if curl -fsSL "${SUM_URL}" -o "${TARBALL}.sha256" 2>/dev/null; then
     EXPECTED=$(awk '{print $1}' "${TARBALL}.sha256")
@@ -222,7 +222,7 @@ if [ ! -f "${ENV_FILE}" ]; then
     KEY=$(uv run --quiet python -c 'import os, base64; print(base64.b64encode(os.urandom(32)).decode())')
   fi
   cat > "${ENV_FILE}" <<EOF
-# Cliff local install — environment overrides loaded by \`cliff start\`.
+# Cliff local install — environment overrides loaded by \`cliffsec start\`.
 # This file lives outside the app directory so reinstalls don't clobber it.
 #
 # Required:
@@ -243,9 +243,9 @@ else
   ok "${ENV_FILE} preserved"
 fi
 
-# ---- cliff CLI venv + launcher symlink -----------------------------------
+# ---- cliffsec CLI venv + launcher symlink --------------------------------
 
-say "Installing cliff CLI"
+say "Installing cliffsec CLI"
 # We install the CLI into its own venv (separate from the backend venv) so it
 # can be upgraded independently. cli/ source ships in the tarball.
 rm -rf "${CLI_VENV}"
@@ -253,8 +253,12 @@ uv venv --python 3.11 --quiet "${CLI_VENV}"
 uv pip install --python "${CLI_VENV}/bin/python" --quiet "${APP_DIR}/cli" \
   || fail "uv pip install of cli/ failed."
 
-ln -sf "${CLI_VENV}/bin/cliff" "${LAUNCHER}"
-ok "cliff CLI at ${LAUNCHER}"
+# Clean up the pre-rename `cliff` symlink (v0.2.0 and earlier).
+# `ln -sf` only replaces the target it's pointed at — without this the old
+# `cliff` symlink would survive an upgrade and stay on PATH.
+rm -f "${LOCAL_BIN}/cliff"
+ln -sf "${CLI_VENV}/bin/cliffsec" "${LAUNCHER}"
+ok "cliffsec CLI at ${LAUNCHER}"
 
 # ---- final UX --------------------------------------------------------------
 
@@ -270,10 +274,10 @@ case ":${PATH}:" in
 esac
 
 printf '%sCliff is installed.%s\n\n' "${BOLD}" "${RESET}"
-printf '  %sStart:%s     cliff start --detach\n' "${DIM}" "${RESET}"
-printf '  %sStatus:%s    cliff doctor\n' "${DIM}" "${RESET}"
-printf '  %sLogs:%s      cliff logs -f\n' "${DIM}" "${RESET}"
-printf '  %sStop:%s      cliff stop\n' "${DIM}" "${RESET}"
+printf '  %sStart:%s     cliffsec start --detach\n' "${DIM}" "${RESET}"
+printf '  %sStatus:%s    cliffsec doctor\n' "${DIM}" "${RESET}"
+printf '  %sLogs:%s      cliffsec logs -f\n' "${DIM}" "${RESET}"
+printf '  %sStop:%s      cliffsec stop\n' "${DIM}" "${RESET}"
 echo
 printf '  Open %shttp://127.0.0.1:8000%s after starting, then paste your\n' "${BLUE}" "${RESET}"
 printf '  Anthropic or OpenAI API key in the Settings page.\n'

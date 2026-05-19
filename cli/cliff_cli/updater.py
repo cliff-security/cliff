@@ -1,6 +1,6 @@
 """Safe in-place updater for the local Cliff install.
 
-`cliff update` checks GitHub Releases for a newer version, downloads the
+`cliffsec update` checks GitHub Releases for a newer version, downloads the
 tarball, snapshots the current ``app/`` and ``bin/`` (rename, not copy — fast,
 atomic on the same filesystem), extracts the new version, re-runs the
 bundled ``install-opencode.sh`` / ``install-scanners.sh`` to rehydrate
@@ -11,6 +11,13 @@ Data and config are never touched. ``data/``, ``config/``, and ``cli-venv/``
 stay where they are.
 
 A flock on ``$CLIFF_HOME/run/update.lock`` prevents concurrent updates.
+
+Naming note: the v0.2.0 -> v0.2.1 release renamed the CLI binary from
+``cliff`` to ``cliffsec`` and the release asset from ``cliff-<version>.tar.gz``
+to ``cliffsec-<version>.tar.gz``. The v0.2.1 release ships both filenames
+as one-time aliases so v0.2.0's updater (which still expects the old name)
+can upgrade in place. From v0.2.1 onward this module fetches the
+``cliffsec-`` name; v0.2.2 will drop the alias.
 """
 
 from __future__ import annotations
@@ -86,13 +93,13 @@ class Release:
 def _release_urls(tag: str) -> tuple[str, str]:
     """Build the tarball + sha256 sidecar URLs for a tag, mirroring install-local.sh.
 
-    install-local.sh names the asset ``cliff-<version>.tar.gz`` for tagged
-    releases and ``cliff.tar.gz`` for the ``latest`` redirect. We always
+    install-local.sh names the asset ``cliffsec-<version>.tar.gz`` for tagged
+    releases and ``cliffsec.tar.gz`` for the ``latest`` redirect. We always
     pin to a tag here, so we use the versioned asset name.
     """
     version = _normalize(tag)
     base = f"https://github.com/{GITHUB_REPO}/releases/download/{tag}"
-    tar = f"{base}/cliff-{version}.tar.gz"
+    tar = f"{base}/cliffsec-{version}.tar.gz"
     return tar, tar + ".sha256"
 
 
@@ -273,7 +280,7 @@ def safe_extract(tarball: Path, dest: Path) -> None:
 
 
 class UpdateLockBusy(RuntimeError):  # noqa: N818 — distinct exception type, not an Error
-    """Another ``cliff update`` is currently holding the lock."""
+    """Another ``cliffsec update`` is currently holding the lock."""
 
 
 @contextlib.contextmanager
@@ -286,7 +293,7 @@ def update_lock(lock_path: Path):
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
-            raise UpdateLockBusy("another `cliff update` is in progress") from exc
+            raise UpdateLockBusy("another `cliffsec update` is in progress") from exc
         os.write(fd, f"{os.getpid()}\n".encode())
         yield
     finally:
@@ -378,7 +385,7 @@ def update_cmd(
             ctx.exit(EXIT_OK)
         if check_only:
             click.echo(
-                "An update is available. Run `cliff update` (or `cliff update --yes`)."
+                "An update is available. Run `cliffsec update` (or `cliffsec update --yes`)."
             )
             ctx.exit(EXIT_AWAITING_HUMAN)
 
@@ -439,7 +446,7 @@ def _do_update(
     # The tempdir context wraps the entire swap so the tarball stays on disk
     # for extraction.
     with tempfile.TemporaryDirectory() as tmpdir:
-        tar_path = Path(tmpdir) / "cliff.tar.gz"
+        tar_path = Path(tmpdir) / "cliffsec.tar.gz"
 
         click.echo(f"[3/9] downloading {release.tarball_url}")
         actual_sha = download_tarball(client, release, tar_path)
@@ -541,7 +548,7 @@ def _do_update(
         click.echo(
             "Note: the CLI itself was not updated (it's not running from "
             f"{d.CLIFF_HOME / 'cli-venv'}). If you installed via "
-            "`pip install cliff-cli`, upgrade the package separately.",
+            "`pip install cliffsec`, upgrade the package separately.",
             err=True,
         )
 

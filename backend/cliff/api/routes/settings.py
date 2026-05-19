@@ -105,7 +105,7 @@ async def update_model(body: ModelUpdateRequest, request: Request, db=Depends(ge
     Routes through :class:`AIIntegrationService.set_model` when a
     provider is connected. On a fresh install with no provider yet,
     falls through to the legacy ``config_manager.update_model`` so
-    ``cliff model set`` during install still works before BYOK.
+    ``cliffsec model set`` during install still works before BYOK.
     """
     vault = getattr(request.app.state, "vault", None)
     if vault is not None:

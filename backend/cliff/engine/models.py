@@ -44,13 +44,13 @@ class HealthStatus(BaseModel):
     # True only when an AI provider credential is present *and* reachable by
     # the per-workspace subprocesses (i.e. it resolved into the env cache the
     # process pool injects). A configured model string alone is not enough —
-    # see the BYOK auth-propagation bug. ``cliff status`` turns a False
+    # see the BYOK auth-propagation bug. ``cliffsec status`` turns a False
     # here into a ``no_ai_provider_credential`` blocker.
     ai_provider_ready: bool = False
 
 
 class VersionInfo(BaseModel):
-    """Version handshake for the agent CLI (`cliff status`).
+    """Version handshake for the agent CLI (`cliffsec status`).
 
     `min_cli` is the lowest CLI version this server promises to speak to.
     A CLI older than this should refuse to operate and tell the user to upgrade.

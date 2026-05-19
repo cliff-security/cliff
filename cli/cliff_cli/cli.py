@@ -1,16 +1,16 @@
-"""`cliff` — agent-friendly CLI for Cliff.
+"""`cliffsec` — agent-friendly CLI for Cliff.
 
 Six commands, JSON-by-default, exit codes that encode workflow state.
 See :mod:`cliff_cli.output` for the exit-code contract.
 
 Workflow (driven by the `/secure-repo` skill):
 
-    cliff status                  # daemon up?
-    cliff scan <repo_url>         # run posture-assessment, ingest findings
-    cliff issues --severity high  # list what to fix
-    cliff fix <id>                # plan, exit 2 → human approves
-    cliff approve <id>            # executor + validator, returns PR
-    cliff close <id>              # mark closed after PR merges
+    cliffsec status                  # daemon up?
+    cliffsec scan <repo_url>         # run posture-assessment, ingest findings
+    cliffsec issues --severity high  # list what to fix
+    cliffsec fix <id>                # plan, exit 2 → human approves
+    cliffsec approve <id>            # executor + validator, returns PR
+    cliffsec close <id>              # mark closed after PR merges
 """
 
 from __future__ import annotations
@@ -114,7 +114,7 @@ def _with_client(fn):
         "JSON output by default; exit codes encode workflow state."
     ),
 )
-@click.version_option(__version__, prog_name="cliff")
+@click.version_option(__version__, prog_name="cliffsec")
 def main() -> None:
     pass
 
@@ -298,7 +298,7 @@ def fix(client: Client, issue_id: str, timeout: float) -> None:
     """Open a workspace, run the pipeline through the planner, stop at the plan gate.
 
     Exits 2 (awaiting human) when the plan is ready for review. Run
-    ``cliff approve <workspace_id>`` after the user confirms.
+    ``cliffsec approve <workspace_id>`` after the user confirms.
     """
     client.version_handshake()
 
@@ -508,7 +508,7 @@ def model_list(client: Client, provider: str) -> None:
         emit_error(
             f"Provider not found: {provider}",
             code="provider_not_found",
-            hint="Run `cliff model list --provider <id>` with a valid provider ID.",
+            hint="Run `cliffsec model list --provider <id>` with a valid provider ID.",
             exit_code=EXIT_ERROR,
         )
         return

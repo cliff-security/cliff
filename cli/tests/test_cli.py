@@ -37,7 +37,7 @@ def _stub_ai_integration_status(
     *,
     model: str | None = None,
 ) -> None:
-    """Stub ``GET /api/integrations/ai/status`` for ``cliff status``.
+    """Stub ``GET /api/integrations/ai/status`` for ``cliffsec status``.
 
     ADR-0037 / architect M9: the live-probe + drift signal were removed.
     The CLI now only reads the canonical ``model`` field; the singleton

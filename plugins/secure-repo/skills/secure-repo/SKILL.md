@@ -1,7 +1,7 @@
 ---
 name: "Secure Repo"
 description: |
-  Run Cliff end-to-end on the user's repo from inside Claude Code — install if needed, scan, plan, approve, PR, close. Trigger when the user says "secure this repo", "vibe security", "scan with Cliff", or asks Claude to drive a remediation flow on a local checkout. Also handles troubleshooting when Cliff misbehaves: gathers diagnostics, proposes a fix, and on a real bug drafts a GitHub issue for the user to review. Uses the `cliff` CLI (bundled with the Cliff installer) and `gh` for the PR review/merge + issue-filing steps. Hard rule: never auto-approve plans, auto-merge PRs, or run any troubleshooting write action without explicit user approval — those are user gates.
+  Run Cliff end-to-end on the user's repo from inside Claude Code — install if needed, scan, plan, approve, PR, close. Trigger when the user says "secure this repo", "vibe security", "scan with Cliff", or asks Claude to drive a remediation flow on a local checkout. Also handles troubleshooting when Cliff misbehaves: gathers diagnostics, proposes a fix, and on a real bug drafts a GitHub issue for the user to review. Uses the `cliffsec` CLI (bundled with the Cliff installer) and `gh` for the PR review/merge + issue-filing steps. Hard rule: never auto-approve plans, auto-merge PRs, or run any troubleshooting write action without explicit user approval — those are user gates.
 version: "0.1.3"
 category: "security"
 tags: [cliff, security, remediation, vibe-security, agent-cli]
@@ -11,14 +11,14 @@ tags: [cliff, security, remediation, vibe-security, agent-cli]
 
 You are driving Cliff on the user's behalf. The user lives in their terminal — your job is to take them from "raw repo" to "fixes merged" with as few prompts as possible while never crossing a real decision boundary unilaterally.
 
-This skill wraps the `cliff` CLI (agent-shaped, JSON output, exit codes encode state) and `gh` (for PR review/merge). Prefer one CLI call over many curl recipes. Trust the exit code — it tells you what to do next.
+This skill wraps the `cliffsec` CLI (agent-shaped, JSON output, exit codes encode state) and `gh` (for PR review/merge). Prefer one CLI call over many curl recipes. Trust the exit code — it tells you what to do next.
 
 ## Hard rules — never break these
 
-1. **Never auto-approve a plan.** `cliff fix` exits 2 when a plan is ready. Show the plan summary + steps to the user and wait for an explicit "approve" / "yes" / "go" before calling `cliff approve`.
-2. **Never auto-merge a PR.** After `cliff approve` returns a `pr_url`, use `gh pr view --json title,body,files,additions,deletions` and `gh pr diff` to summarize the change to the user. Wait for an explicit "merge" before calling `gh pr merge --squash`.
-3. **Stop on validation failure.** If `cliff approve` exits 2 with `validation.verdict != "ok"`, do not call `close`. Surface the failure reason and stop.
-4. **Never invent IDs.** Only pass IDs the CLI returned. If you don't have one, run `cliff issues` to get one.
+1. **Never auto-approve a plan.** `cliffsec fix` exits 2 when a plan is ready. Show the plan summary + steps to the user and wait for an explicit "approve" / "yes" / "go" before calling `cliffsec approve`.
+2. **Never auto-merge a PR.** After `cliffsec approve` returns a `pr_url`, use `gh pr view --json title,body,files,additions,deletions` and `gh pr diff` to summarize the change to the user. Wait for an explicit "merge" before calling `gh pr merge --squash`.
+3. **Stop on validation failure.** If `cliffsec approve` exits 2 with `validation.verdict != "ok"`, do not call `close`. Surface the failure reason and stop.
+4. **Never invent IDs.** Only pass IDs the CLI returned. If you don't have one, run `cliffsec issues` to get one.
 5. **Don't silence version mismatch.** If any command exits 4, stop and tell the user to re-run the install one-liner. Do not try to work around it.
 6. **Never run a troubleshooting write action without approval.** `stop`, `start`, `restart`, `update`, `config set`, `xattr`, or re-running the installer all require an explicit "yes" before you run them. Read-only diagnostics (`doctor`, `logs`, `--check`, `ps`) are fine to run unprompted.
 7. **Never auto-submit a GitHub issue.** Use `gh issue create --web` so it opens the user's browser with the body pre-filled — the user reviews, edits, and clicks Submit. Never call `gh issue create` without `--web` when filing a troubleshooting bug.
@@ -41,7 +41,7 @@ Every command emits one JSON object on stdout (or stderr for errors) and exits w
 ### 1. Preflight — is Cliff running and configured?
 
 ```
-cliff status
+cliffsec status
 ```
 
 - Exit 0 + `ready: true` → continue to **provider keys** (next).
@@ -53,7 +53,7 @@ cliff status
 
 Cliff needs **two** credentials to drive the full loop:
 
-- **AI provider key** (e.g. `OPENAI_API_KEY`) — read by the daemon at boot from env, or stored via `PUT /api/settings/api-keys/{provider}`. The model itself is set via `cliff model set <provider>/<id>` (defaults to `openai/gpt-5-nano`).
+- **AI provider key** (e.g. `OPENAI_API_KEY`) — read by the daemon at boot from env, or stored via `PUT /api/settings/api-keys/{provider}`. The model itself is set via `cliffsec model set <provider>/<id>` (defaults to `openai/gpt-5-nano`).
 - **GitHub PAT** — stored as an **Integration** (the daemon does NOT read `GITHUB_TOKEN` env). Without it, every GitHub-API posture check (`branch_protection_enabled`, `secret_scanning_enabled`, `no_stale_collaborators`, …) returns `unknown` and the grade caps at C.
 
 Verify both:
@@ -92,7 +92,7 @@ curl -X POST "http://localhost:8000/api/settings/integrations/$INT_ID/credential
 
 Required PAT scopes for the posture probes: `repo` (or fine-grained: Contents read, Metadata read, Administration read, Code scanning alerts read, Pull requests read+write for remediation).
 
-After both are present, re-run `cliff status` — `ready: true` → continue to scan.
+After both are present, re-run `cliffsec status` — `ready: true` → continue to scan.
 
 ### 2. Install path (only when status fails preflight)
 
@@ -103,7 +103,7 @@ curl -fsSL https://raw.githubusercontent.com/cliff-security/cliff/main/README.md
   | awk '/<!-- install:start -->/{f=1;next}/<!-- install:end -->/{f=0}f'
 ```
 
-That extracts the canonical install snippet. Show it verbatim to the user, get an explicit "yes" (it's a `curl | sh`), then run it via `Bash`. After it returns, poll `cliff status` until exit 0. If it never comes up, surface the install logs and stop — don't keep retrying.
+That extracts the canonical install snippet. Show it verbatim to the user, get an explicit "yes" (it's a `curl | sh`), then run it via `Bash`. After it returns, poll `cliffsec status` until exit 0. If it never comes up, surface the install logs and stop — don't keep retrying.
 
 ### 3. Scan
 
@@ -116,7 +116,7 @@ gh repo view --json url -q .url
 Then:
 
 ```
-cliff scan <repo_url>
+cliffsec scan <repo_url>
 ```
 
 - Exit 5 → "no findings — repo is clean", stop here.
@@ -125,17 +125,17 @@ cliff scan <repo_url>
 ### 4. Triage
 
 ```
-cliff issues --severity critical,high --limit 10
+cliffsec issues --severity critical,high --limit 10
 ```
 
 If `total > 5`, ask the user which issues to tackle this session (or "all"). Otherwise proceed through them in order. Don't chase low/medium severity unless the user asks.
 
-Posture findings surface here too (`type: "posture"`, severity often empty). They map to grade-counting criteria — don't skip them just because they have no CVSS. The fix flow is the same: `cliff fix <id>` → review plan → approve → PR → merge → close.
+Posture findings surface here too (`type: "posture"`, severity often empty). They map to grade-counting criteria — don't skip them just because they have no CVSS. The fix flow is the same: `cliffsec fix <id>` → review plan → approve → PR → merge → close.
 
 ### 5. Fix loop — per issue
 
 ```
-cliff fix <issue_id>
+cliffsec fix <issue_id>
 ```
 
 Exit 2 means the planner is done and the plan is awaiting approval. The JSON contains `plan.steps`, `plan.interim_mitigation`, and `plan.definition_of_done`. Render that to the user as a short bullet list and ask for approval. **Wait for an explicit yes.**
@@ -143,7 +143,7 @@ Exit 2 means the planner is done and the plan is awaiting approval. The JSON con
 Once approved:
 
 ```
-cliff approve <workspace_id>
+cliffsec approve <workspace_id>
 ```
 
 The CLI runs the executor + validator and waits for the result. Outcomes:
@@ -167,17 +167,17 @@ gh pr merge <pr_url> --squash
 ### 7. Close
 
 ```
-cliff close <workspace_id>
+cliffsec close <workspace_id>
 ```
 
 This marks the workspace closed and auto-resolves the linked finding. Exit 0 with `closed: true` → move on to the next issue.
 
 ### 8. Re-assess (always run after fixes land)
 
-After the last `cliff close` — or whenever the user pauses the loop — re-run the scan to capture the new grade and any newly surfaced posture findings:
+After the last `cliffsec close` — or whenever the user pauses the loop — re-run the scan to capture the new grade and any newly surfaced posture findings:
 
 ```
-cliff scan <repo_url>
+cliffsec scan <repo_url>
 ```
 
 Then read `/api/assessment/latest` to get the current grade and `criteria_snapshot`:
@@ -209,16 +209,16 @@ When the loop ends (no more issues, or user stopped), give the user one paragrap
 
 ## Token discipline
 
-- Always pass `--severity` and `--limit` on `cliff issues`. Don't list 100 findings when 10 will do.
+- Always pass `--severity` and `--limit` on `cliffsec issues`. Don't list 100 findings when 10 will do.
 - Don't ask the CLI for `--verbose` unless something failed and you need detail.
-- Don't re-run `cliff status` between every step — once at the start is enough. Run it again only after an unexpected error.
+- Don't re-run `cliffsec status` between every step — once at the start is enough. Run it again only after an unexpected error.
 - When showing a plan or PR diff, summarize. The user can read the diff themselves if they want — your value is the one-line risk read.
 
 ## Troubleshooting
 
 Engage when:
 
-- A `cliff` command in the main flow exits **1** (generic error).
+- A `cliffsec` command in the main flow exits **1** (generic error).
 - A command hangs longer than ~2 minutes with no output.
 - The user says "troubleshoot", "it's broken", "something's wrong", "fix the daemon", "cliff isn't working", or anything similar.
 
@@ -231,10 +231,10 @@ The flow is fixed: gather → diagnose → propose → verify → escalate. Don'
 Run all of these once and keep the output for diagnosis + a possible issue draft:
 
 ```bash
-cliff doctor --json
-cliff logs --lines 100 || true
-cliff --version
-cliff update --check || true   # exit 0 = up to date, exit 2 = newer available
+cliffsec doctor --json
+cliffsec logs --lines 100 || true
+cliffsec --version
+cliffsec update --check || true   # exit 0 = up to date, exit 2 = newer available
 ps -ef | grep -E '(cliff|opencode|uvicorn)' | grep -v grep || true
 uname -a
 ```
@@ -247,16 +247,16 @@ Cross-reference what you found in Phase A against this table. The mapping is **f
 
 | Signal | Diagnosis | Proposed action |
 |---|---|---|
-| `status` exit 3, no PID file at `~/.cliff/run/cliff.pid` | Daemon was never started | `cliff start --detach` |
-| `status` exit 3, PID file exists but the recorded process is gone | Crashed orphan, ports possibly leaked | `cliff stop` (sweeps owned children) then `cliff start --detach` |
-| `doctor` shows `port.<configured-app-port>` failing | Port conflict | Pick a free port, then `cliff config set CLIFF_APP_PORT=<port>` and `cliff restart` |
-| `doctor` shows `port.4096` or `port.4100..4102` failing AND status is daemon-down | OpenCode child leaked from a previous crash | `cliff stop` (the sweep reclaims orphans) then `cliff start --detach` |
+| `status` exit 3, no PID file at `~/.cliff/run/cliff.pid` | Daemon was never started | `cliffsec start --detach` |
+| `status` exit 3, PID file exists but the recorded process is gone | Crashed orphan, ports possibly leaked | `cliffsec stop` (sweeps owned children) then `cliffsec start --detach` |
+| `doctor` shows `port.<configured-app-port>` failing | Port conflict | Pick a free port, then `cliffsec config set CLIFF_APP_PORT=<port>` and `cliffsec restart` |
+| `doctor` shows `port.4096` or `port.4100..4102` failing AND status is daemon-down | OpenCode child leaked from a previous crash | `cliffsec stop` (the sweep reclaims orphans) then `cliffsec start --detach` |
 | `doctor` shows `opencode` failing with "not found" | OpenCode binary missing or never installed | Re-run the install one-liner |
 | `doctor` shows `opencode.quarantine` failing on macOS | Gatekeeper quarantined the binary | `xattr -dr com.apple.quarantine ~/.cliff/bin/opencode` (and `trivy` / `semgrep` if they show the same) |
 | `doctor` shows `venv` failing | Backend venv corrupt or removed | Re-run the install one-liner |
 | `doctor` shows `credential_key` missing | Encryption key not in env file | Re-run the install one-liner (it generates and persists the key) |
 | `doctor` shows `migrations` failing with a SQLite error | DB schema state is bad | **Bug** — escalate (Phase E). Do not propose deleting the DB without explicit user request — it would lose findings + workspaces. |
-| `update --check` exit 2 (newer release available) AND symptoms could plausibly be a known fix | Out-of-date install | Offer `cliff update` |
+| `update --check` exit 2 (newer release available) AND symptoms could plausibly be a known fix | Out-of-date install | Offer `cliffsec update` |
 | Logs contain a Python traceback (`Traceback (most recent call last):` or `ERROR  ` lines on every request) | Real bug | Escalate (Phase E) |
 | Doctor entirely clean, command still failing | No diagnosis from signals | Escalate (Phase E) |
 
@@ -273,11 +273,11 @@ Wait for an explicit "yes" / "go" / "do it". Anything ambiguous → ask again.
 
 The list of writes that require approval (recheck before running):
 
-- `cliff start`, `stop`, `restart`, `update`
-- `cliff config set ...`
+- `cliffsec start`, `stop`, `restart`, `update`
+- `cliffsec config set ...`
 - `xattr ...` or any other shell command that mutates the system
 - Re-running the installer
-- **Never** `cliff uninstall` — that removes data and config, and is never an automatic remedy. Only run it if the user explicitly asks to uninstall.
+- **Never** `cliffsec uninstall` — that removes data and config, and is never an automatic remedy. Only run it if the user explicitly asks to uninstall.
 
 If the user declines, ask if they'd like to file an issue (Phase E) instead.
 
@@ -286,8 +286,8 @@ If the user declines, ask if they'd like to file an issue (Phase E) instead.
 After running the approved fix, re-verify before declaring success:
 
 ```bash
-cliff doctor --json
-cliff status   # if the fix involved start/restart
+cliffsec doctor --json
+cliffsec status   # if the fix involved start/restart
 ```
 
 - Doctor clean and `status` ready → tell the user "fixed: <one line>" and stop.
@@ -316,18 +316,18 @@ gh issue create --repo cliff-security/cliff --web \
 2. <expected vs. actual>
 
 ## Environment
-- Cliff CLI version: <cliff --version>
-- Latest release: <cliff update --check result>
+- Cliff CLI version: <cliffsec --version>
+- Latest release: <cliffsec update --check result>
 - OS: <uname -a>
 
 ## Doctor output
 \`\`\`json
-<cliff doctor --json output>
+<cliffsec doctor --json output>
 \`\`\`
 
 ## Recent daemon logs (last 100 lines, secrets redacted)
 \`\`\`
-<cliff logs --lines 100, with redaction applied>
+<cliffsec logs --lines 100, with redaction applied>
 \`\`\`
 
 ## What was already tried
@@ -351,10 +351,10 @@ If any line is ambiguous (might or might not be a secret), redact it. Better to 
 
 - Don't dump the full doctor JSON to the chat — extract the failing checks only.
 - Don't paste 100 log lines to the chat — extract the relevant traceback / error window only. The full logs go in the issue body, not the chat.
-- Don't run all the Phase A commands again between attempts — once at the top is enough. If you re-run anything, only re-run the specific check you fixed (e.g. just `cliff doctor --json` after a restart).
+- Don't run all the Phase A commands again between attempts — once at the top is enough. If you re-run anything, only re-run the specific check you fixed (e.g. just `cliffsec doctor --json` after a restart).
 
 ## When in doubt
 
-- Unknown finding type? Just call `cliff fix <id>` and let the pipeline handle it. Don't pre-classify.
+- Unknown finding type? Just call `cliffsec fix <id>` and let the pipeline handle it. Don't pre-classify.
 - The CLI returned a `next` field? Use it. The CLI knows what comes next.
 - The user said "stop" or "let me look"? Stop. Don't keep the loop running.

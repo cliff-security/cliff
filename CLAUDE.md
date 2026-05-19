@@ -272,7 +272,7 @@ broke under concurrent agent runs, so it was demoted to a picker option.)
 **Drift detection.** `GET /api/integrations/ai/status` returns both the
 canonical model and a live probe of OpenCode's `/config`. When they
 disagree the Settings card shows a red banner with a one-click reconcile,
-and `cliff status` reports `drifted: true` with both values.
+and `cliffsec status` reports `drifted: true` with both values.
 
 Key files: `backend/cliff/ai/`, `backend/cliff/api/routes/ai_integrations.py`,
 `frontend/src/components/ai-provider/`. User-facing guide:

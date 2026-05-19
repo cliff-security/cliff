@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-05-19
+
+A name-only release: the CLI binary is renamed from `cliff` to `cliffsec`
+because the PyPI distribution name `cliff` is taken by openstack's CLI
+framework. **The product is still called Cliff** — only the command users
+type, and the distribution that ships it, change. Configuration paths
+(`~/.cliff/`), env vars (`CLIFF_*`), the Docker image name, the GitHub
+repo, and the `/secure-repo` Claude Code plugin are all unchanged.
+
+> **Upgrade:** the CLI binary is now `cliffsec`. Re-run `install-local.sh`
+> (or `install.sh`) — the installer replaces `~/.local/bin/cliff` with
+> `~/.local/bin/cliffsec` and recreates the CLI venv so no stale entry
+> point survives. Configuration paths (`~/.cliff/`) and env vars
+> (`CLIFF_*`) are unchanged. Users on 0.2.0 can also self-upgrade with
+> `cliff update` — this release ships the tarball under both the new
+> `cliffsec-0.2.1.tar.gz` name and a one-time `cliff-0.2.1.tar.gz`
+> alias so the 0.2.0 updater's pinned URL resolves. The alias is dropped
+> in 0.2.2.
+
+### Changed
+
+- **Renamed the CLI binary from `cliff` to `cliffsec`.** PyPI
+  distribution name flipped from `cliff-cli` to `cliffsec`. Click
+  `prog_name` is now `cliffsec`; all help text, error hints, command
+  examples, the HTTP `User-Agent` header, and install-script banners
+  reference the new name. `install.sh` and `install-local.sh` clean up
+  the pre-rename `~/.local/bin/cliff` symlink during upgrade and wipe
+  the CLI venv so the old `bin/cliff` entry-point doesn't linger.
+- **Release assets renamed.** The local-install tarball is now
+  `cliffsec-${version}.tar.gz` (with `cliffsec.tar.gz` as the
+  stable-name alias for the `latest` redirect); the CLI sdist is
+  `cliffsec-cli.tar.gz`; the SBOM is
+  `cliffsec-${version}.cdx.json`. The 0.2.1 release additionally
+  ships `cliff-${version}.tar.gz`, `cliff.tar.gz`, and
+  `cliff-cli.tar.gz` as one-time aliases so 0.2.0 installers can still
+  resolve their pinned download URLs. Aliases dropped in 0.2.2.
+
+### Fixed
+
+- **`__version__` in `cli/cliff_cli/__init__.py` was stale.** It was
+  pinned at `0.1.1` since the OpenSec→Cliff rename; bumped to `0.2.1`
+  alongside this release so `cliffsec --version` reports correctly.
+
 ## [0.2.0] - 2026-05-18
 
 The first non-alpha cut. The project is now **Cliff**, lives at
