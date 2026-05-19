@@ -267,7 +267,15 @@ uv pip install --python "${CLI_VENV}/bin/python" --quiet "${APP_DIR}/cli" \
 # `ln -sf` only replaces the target it's pointed at — without this the old
 # `cliff` symlink would survive an upgrade and stay on PATH.
 rm -f "${LOCAL_BIN}/cliff"
-ln -sf "${CLI_VENV}/bin/cliffsec" "${LAUNCHER}"
+# A pinned pre-rename install (e.g. CLIFF_VERSION=0.2.0) lands a `bin/cliff`
+# console-script in the venv, not `bin/cliffsec`. Pick whichever exists so
+# the launcher symlink is never dangling.
+CLI_BIN="${CLI_VENV}/bin/cliffsec"
+if [ ! -x "${CLI_BIN}" ] && [ -x "${CLI_VENV}/bin/cliff" ]; then
+  CLI_BIN="${CLI_VENV}/bin/cliff"
+fi
+[ -x "${CLI_BIN}" ] || fail "Installed CLI binary not found in ${CLI_VENV}/bin (expected cliffsec or cliff)."
+ln -sf "${CLI_BIN}" "${LAUNCHER}"
 ok "cliffsec CLI at ${LAUNCHER}"
 
 # ---- final UX --------------------------------------------------------------
