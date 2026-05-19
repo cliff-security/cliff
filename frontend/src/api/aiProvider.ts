@@ -242,6 +242,22 @@ export function useProviderModels(provider: AIProvider | null) {
  * status is non-terminal. Calls *onTerminal* once with the final status.
  * Hard 5-min timeout matches the backend listener TTL.
  */
+/**
+ * Q02-B06 defense-in-depth: when ``/openrouter/status`` keeps returning
+ * ``waiting`` for longer than this threshold, the polling hook ALSO
+ * consults the canonical ``/ai/status`` endpoint on each subsequent
+ * poll. If the canonical AI status is ``connected`` with provider
+ * ``openrouter``, the response is promoted to a terminal connected
+ * result and the modal can resolve.
+ *
+ * This guards against a backend regression where the in-memory
+ * ``_pending_sessions`` state isn't flipped to ``connected`` on
+ * callback persist even though the DB write succeeded. The 404 fallback
+ * already handles the TTL/restart case; this extends the same idea to
+ * the "still alive, just stuck on waiting" case.
+ */
+const OPENROUTER_AI_STATUS_FALLBACK_AFTER_MS = 5_000
+
 export function useOpenRouterPolling(
   sessionId: string | null,
   onTerminal: (status: OpenRouterStatusResponse) => void,
@@ -256,8 +272,9 @@ export function useOpenRouterPolling(
   const query = useQuery({
     queryKey: ['ai-provider', 'openrouter', sessionId],
     queryFn: async () => {
+      let resp: OpenRouterStatusResponse
       try {
-        return await aiProviderApi.openrouterStatus(sessionId as string)
+        resp = await aiProviderApi.openrouterStatus(sessionId as string)
       } catch (err) {
         // B22 — when the backend's listener TTL (5 min) elapses or the
         // singleton was restarted, /openrouter/status returns 404 even
@@ -284,6 +301,34 @@ export function useOpenRouterPolling(
         }
         throw err
       }
+
+      // Q02-B06 defense-in-depth: if /openrouter/status keeps reporting
+      // ``waiting`` past the threshold, ALSO consult /ai/status. The
+      // canonical AI status is the source of truth (it reads from the
+      // DB, which the OAuth callback handler writes BEFORE flipping any
+      // in-memory session state). If it's connected, promote to
+      // terminal so the UI stops sitting on "Waiting for you to
+      // authorize" forever.
+      if (
+        resp.status === 'waiting' &&
+        startedAt.current !== null &&
+        Date.now() - startedAt.current >
+          OPENROUTER_AI_STATUS_FALLBACK_AFTER_MS
+      ) {
+        try {
+          const ai = await aiProviderApi.status()
+          if (ai.state === 'connected' && ai.provider === 'openrouter') {
+            return {
+              status: 'connected' as const,
+              detail: null,
+            } satisfies OpenRouterStatusResponse
+          }
+        } catch {
+          // Swallow — keep returning the waiting response.
+        }
+      }
+
+      return resp
     },
     enabled: !!sessionId,
     // Refetch when the tab regains focus so a user who tabs back from

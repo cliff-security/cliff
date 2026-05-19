@@ -205,6 +205,16 @@ export function IssueSidePanel({
       queryClient.invalidateQueries({
         queryKey: ['sidebar', workspaceId],
       })
+      // Q02-B16: the panel's ``stage`` is read off ``finding.derived.stage``,
+      // which is computed by the backend from the latest agent run +
+      // sidebar and only re-derives when the findings list is re-fetched.
+      // Without this invalidation the panel sits on "Generating fix /
+      // Applying the fix" for up to 5s after the executor actually
+      // completes — long enough for users to assume Cliff has wedged.
+      // Invalidating findings on every SSE event is cheap (the query
+      // is the same one the parent IssuesPage uses; React Query
+      // coalesces within a render cycle).
+      queryClient.invalidateQueries({ queryKey: ['findings'] })
     }
     es.addEventListener('permission_request', nudge)
     es.addEventListener('agent_run_started', nudge)
