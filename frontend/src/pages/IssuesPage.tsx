@@ -25,6 +25,7 @@ import EmptyState from '../components/EmptyState'
 import ErrorBoundary from '../components/ErrorBoundary'
 import ErrorState from '../components/ErrorState'
 import ImportDialog from '../components/ImportDialog'
+import { FirstScanBanner } from '../components/issues/FirstScanBanner'
 import { IssueRow } from '../components/issues/IssueRow'
 import { IssueSidePanel } from '../components/issues/IssueSidePanel'
 import { IssuesHeader, type SeverityFilter, type TypeFilter } from '../components/issues/IssuesHeader'
@@ -385,6 +386,11 @@ function IssuesPageContent() {
         onSeverityFilterChange={handleSeverityFilterChange}
         typeFilter={typeFilter}
         onTypeFilterChange={handleTypeFilterChange}
+      />
+
+      <FirstScanBanner
+        totalFindings={allFindings.length}
+        closedCount={sections.done.length}
       />
 
       {importOpen && (
