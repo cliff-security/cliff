@@ -409,7 +409,7 @@ class TestAgentExecutor:
         """
         executor = AgentExecutor(mock_pool, mock_context_builder)
 
-        async def _timeout_pa(*, timeout: float, **kwargs):
+        async def _timeout_pa(agent_type, deps, timeout):
             # Stand-in for the PA path's own ``asyncio.wait_for`` →
             # ``AgentTimeoutError`` translation. The executor's outer
             # ``except AgentTimeoutError`` handler is what renders the
@@ -646,7 +646,7 @@ class TestAgentExecutor:
             "reasoning": "CODEOWNERS",
         }
 
-        async def _fake_pa(**kwargs):
+        async def _fake_pa(agent_type, deps, timeout):
             return ParseResult(
                 success=True,
                 raw_text="",

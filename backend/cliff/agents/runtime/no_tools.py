@@ -78,13 +78,49 @@ async def run_no_tools_agent(
     return result.output.model_dump()
 
 
-_AGENT_SUMMARIES: dict[str, str] = {
-    "finding_enricher": "Enrichment ready.",
-    "owner_resolver": "Owner resolved.",
-    "exposure_analyzer": "Exposure assessed.",
-    "evidence_collector": "Evidence collected.",
-    "remediation_planner": "Remediation plan ready.",
-    "validation_checker": "Validation complete.",
+def _summarize_enricher(o: dict[str, Any]) -> str | None:
+    title = o.get("normalized_title")
+    cves = o.get("cve_ids") or []
+    if title and cves:
+        return f"{title} ({', '.join(cves)})."
+    return f"{title}." if title else None
+
+
+def _summarize_planner(o: dict[str, Any]) -> str | None:
+    steps = o.get("plan_steps") or []
+    suffix = "s" if len(steps) != 1 else ""
+    return f"Plan ready ({len(steps)} step{suffix})."
+
+
+# (agent_type) -> (summary_fn, fallback). The summary_fn returns either a
+# rendered one-liner or ``None`` to fall back to the generic label.
+_AGENT_SUMMARIES: dict[str, tuple[Any, str]] = {
+    "finding_enricher": (_summarize_enricher, "Enrichment ready."),
+    "owner_resolver": (
+        lambda o: f"Recommended owner: {o['recommended_owner']}."
+        if o.get("recommended_owner")
+        else None,
+        "Owner resolved.",
+    ),
+    "exposure_analyzer": (
+        lambda o: f"Recommended urgency: {o['recommended_urgency']}."
+        if o.get("recommended_urgency")
+        else None,
+        "Exposure assessed.",
+    ),
+    "evidence_collector": (
+        lambda o: f"Fix safety: {o['fix_safety']}."
+        if o.get("fix_safety")
+        else None,
+        "Evidence collected.",
+    ),
+    "remediation_planner": (_summarize_planner, "Remediation plan ready."),
+    "validation_checker": (
+        lambda o: f"Validation verdict: {o['verdict']}."
+        if o.get("verdict")
+        else None,
+        "Validation complete.",
+    ),
 }
 
 
@@ -99,41 +135,10 @@ def derive_summary(
     per agent so the agent-history row stays informative; fall back
     to a generic label when the salient field is missing.
     """
-    base = _AGENT_SUMMARIES.get(agent_type, "Agent completed.")
-
-    if agent_type == "finding_enricher":
-        title = structured_output.get("normalized_title")
-        cves = structured_output.get("cve_ids") or []
-        if title and cves:
-            return f"{title} ({', '.join(cves)})."
-        if title:
-            return f"{title}."
-
-    if agent_type == "owner_resolver":
-        owner = structured_output.get("recommended_owner")
-        if owner:
-            return f"Recommended owner: {owner}."
-
-    if agent_type == "exposure_analyzer":
-        urgency = structured_output.get("recommended_urgency")
-        if urgency:
-            return f"Recommended urgency: {urgency}."
-
-    if agent_type == "evidence_collector":
-        safety = structured_output.get("fix_safety")
-        if safety:
-            return f"Fix safety: {safety}."
-
-    if agent_type == "remediation_planner":
-        steps = structured_output.get("plan_steps") or []
-        return f"Plan ready ({len(steps)} step{'s' if len(steps) != 1 else ''})."
-
-    if agent_type == "validation_checker":
-        verdict = structured_output.get("verdict")
-        if verdict:
-            return f"Validation verdict: {verdict}."
-
-    return base
+    summarizer, fallback = _AGENT_SUMMARIES.get(
+        agent_type, (lambda _o: None, "Agent completed.")
+    )
+    return summarizer(structured_output) or fallback
 
 
 __all__ = [

@@ -1012,14 +1012,16 @@ class AgentExecutor:
                 # ``output_type`` and the framework retries on validation
                 # failures itself.
                 parse_result = await self._run_pa_no_tools(
-                    agent_type=agent_type,
-                    workspace_id=workspace_id,
-                    workspace_dir=workspace_dir,
-                    finding=finding_data,
-                    prior_context=prior_ctx,
-                    env_vars=env_vars or {},
-                    user_note=user_note,
-                    timeout=effective_timeout,
+                    agent_type,
+                    WorkspaceDeps(
+                        workspace_id=workspace_id,
+                        workspace_dir=workspace_dir,
+                        finding=finding_data,
+                        prior_context=prior_ctx,
+                        env_vars=env_vars or {},
+                        user_note=user_note,
+                    ),
+                    effective_timeout,
                 )
 
             # 7b-ref. Reference verification (Q01-B08). The finding_enricher
@@ -1356,14 +1358,8 @@ class AgentExecutor:
 
     async def _run_pa_no_tools(
         self,
-        *,
         agent_type: str,
-        workspace_id: str,
-        workspace_dir: str,
-        finding: dict[str, Any],
-        prior_context: dict[str, dict[str, Any]],
-        env_vars: dict[str, str],
-        user_note: str | None,
+        deps: WorkspaceDeps,
         timeout: float,
     ) -> ParseResult:
         """Run one of the six no-tools agents through Pydantic AI.
@@ -1399,17 +1395,9 @@ class AgentExecutor:
                 "agent without an active AI provider."
             )
 
-        deps = WorkspaceDeps(
-            workspace_id=workspace_id,
-            workspace_dir=workspace_dir,
-            finding=finding,
-            prior_context=prior_context,
-            env_vars=env_vars,
-            user_note=user_note,
+        ai_env, model_full_id = await asyncio.gather(
+            self._ai_env_resolver(), self._ai_model_resolver()
         )
-
-        ai_env = await self._ai_env_resolver()
-        model_full_id = await self._ai_model_resolver()
         try:
             model = build_model(ai_env, model_full_id)
         except ProviderConfigurationError as exc:
