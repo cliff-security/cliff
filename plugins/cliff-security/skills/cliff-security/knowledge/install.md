@@ -93,10 +93,20 @@ Tell the user explicitly which playbook you're moving to, e.g.: "Install complet
 ## What NOT to do
 
 - Don't run the installer twice "to be safe" — it's idempotent but each run rewrites the venv + symlinks. One approved run is enough.
-- Don't hardcode the install URL. Always re-extract from the README — the release-asset names have changed before (e.g. the `cliff-cli.tar.gz` → `cliffsec-cli.tar.gz` rename in v0.2.1) and a stale URL silently breaks the install.
+- Don't substitute `CLIFF_REF`, `CLIFF_VERSION`, or the script URL back to `/releases/latest/`. The pin in step 2 is deliberate — it's what makes the approval prompt's "this will install `v0.2.0`" claim true. If the user asks for a different version, go through the explicit-override branch (bump `CLIFF_REF`, flag that the skill hasn't been tested against that release), don't silently swap in `latest`.
 - Don't `sudo` the installer. It writes to `$HOME`, not system paths.
 - Don't edit the user's shell rc for them.
 - Don't suggest `pipx install cliffsec` — Cliff isn't on PyPI yet, the installer is the only supported path.
+
+## For playbook maintainers (not runtime guidance)
+
+When a new Cliff release ships and this skill version is rev'd alongside it:
+
+1. Bump the `version:` in this file's frontmatter and in `SKILL.md`.
+2. Bump `CLIFF_REF` in step 1 and step 2 to the new tag (`v0.X.Y`).
+3. Re-extract the install snippet from the new tag's README (step 1's `curl … awk …` command) and confirm the markers (`<!-- install:start -->`/`<!-- install:end -->`) still bracket the same shape of one-liner — release-asset names have moved before (e.g. `cliff-cli.tar.gz` → `cliffsec-cli.tar.gz` in v0.2.1). If the snippet's structure changed (different env vars, different script name), update step 2's pinned command to match.
+
+Do not hardcode a pinned URL by hand without going through that extraction step — it's the only way to catch silently-moved asset names. This is maintenance guidance for whoever is updating the playbook, not runtime guidance for Claude.
 
 ## Token discipline
 
