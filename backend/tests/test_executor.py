@@ -647,6 +647,15 @@ class TestAgentExecutor:
         }
 
         async def _fake_pa(agent_type, deps, timeout):
+            # PRD-0006 Phase 2 — ``user_note`` is only honoured for
+            # remediation_planner. The PA call site gates it so re-runs
+            # with a refinement note don't bleed into owner / enricher /
+            # exposure / evidence / validation calls on the same
+            # workspace. Lock that in here.
+            assert deps.user_note is None, (
+                f"owner_resolver received user_note={deps.user_note!r}; "
+                "user_note must be planner-only on the PA path."
+            )
             return ParseResult(
                 success=True,
                 raw_text="",
@@ -675,6 +684,52 @@ class TestAgentExecutor:
 
         assert result.status == "completed"
         assert result.parse_result.summary == "Owner identified"
+
+    @pytest.mark.asyncio
+    async def test_planner_receives_user_note_via_pa_path(
+        self, mock_pool, mock_context_builder, mock_db, workspace_dir,
+    ):
+        """PRD-0006 Phase 2 — the planner's PA call DOES receive the user
+        refinement note. Pair with ``test_owner_resolver_agent_type``,
+        which asserts the gate strips it from every other agent type."""
+        executor = AgentExecutor(mock_pool, mock_context_builder)
+        captured: dict[str, str | None] = {}
+
+        async def _fake_pa(agent_type, deps, timeout):
+            captured["user_note"] = deps.user_note
+            return ParseResult(
+                success=True,
+                raw_text="",
+                structured_output={
+                    "plan_steps": ["Upgrade lodash to 4.17.21"],
+                    "definition_of_done": [],
+                },
+                summary="Plan ready",
+                confidence=None,
+                suggested_next_action=None,
+                error=None,
+            )
+
+        executor._run_pa_no_tools = _fake_pa
+
+        with (
+            patch(
+                "cliff.agents.executor.create_agent_run",
+                return_value=_make_mock_agent_run(agent_type="remediation_planner"),
+            ),
+            patch("cliff.agents.executor.update_agent_run"),
+            patch("cliff.agents.executor.list_agent_runs", return_value=[]),
+            patch("cliff.agents.executor.map_and_upsert"),
+            patch("cliff.agents.executor._advance_finding_status", return_value=None),
+        ):
+            result = await executor.execute(
+                "ws-1", "remediation_planner", mock_db,
+                workspace_dir=workspace_dir,
+                user_note="prefer a code-fix over a bump",
+            )
+
+        assert result.status == "completed"
+        assert captured["user_note"] == "prefer a code-fix over a bump"
 
     @pytest.mark.asyncio
     async def test_retry_on_parse_failure(self, mock_pool, mock_context_builder,

@@ -1011,6 +1011,16 @@ class AgentExecutor:
                 # no parse retry: PA validates against the per-agent
                 # ``output_type`` and the framework retries on validation
                 # failures itself.
+                #
+                # ``user_note`` is the PRD-0006 Phase 2 refinement input;
+                # only the remediation_planner honours it. Mirror the
+                # pre-migration ``build_agent_prompt`` gate so a planner
+                # re-run with a user note doesn't bleed into a
+                # subsequent enricher / exposure / evidence / validation
+                # call on the same workspace.
+                pa_user_note = (
+                    user_note if agent_type == "remediation_planner" else None
+                )
                 parse_result = await self._run_pa_no_tools(
                     agent_type,
                     WorkspaceDeps(
@@ -1019,7 +1029,7 @@ class AgentExecutor:
                         finding=finding_data,
                         prior_context=prior_ctx,
                         env_vars=env_vars or {},
-                        user_note=user_note,
+                        user_note=pa_user_note,
                     ),
                     effective_timeout,
                 )
@@ -1395,9 +1405,28 @@ class AgentExecutor:
                 "agent without an active AI provider."
             )
 
-        ai_env, model_full_id = await asyncio.gather(
-            self._ai_env_resolver(), self._ai_model_resolver()
+        # The resolvers wired in ``main.py`` are pure ``app.state`` reads
+        # and won't raise in practice — but the constructor accepts any
+        # awaitable, so a future hook that does I/O (DB roundtrip, vault
+        # decrypt) could raise here. Translate so the outer
+        # ``except AgentProcessError`` handler renders a clean
+        # ``status=failed`` row instead of the generic "Unexpected
+        # error" fall-through.
+        env_result, model_result = await asyncio.gather(
+            self._ai_env_resolver(),
+            self._ai_model_resolver(),
+            return_exceptions=True,
         )
+        if isinstance(env_result, BaseException):
+            raise AgentProcessError(
+                f"AI env resolver failed: {env_result}"
+            ) from env_result
+        if isinstance(model_result, BaseException):
+            raise AgentProcessError(
+                f"AI model resolver failed: {model_result}"
+            ) from model_result
+        ai_env = env_result
+        model_full_id = model_result
         try:
             model = build_model(ai_env, model_full_id)
         except ProviderConfigurationError as exc:

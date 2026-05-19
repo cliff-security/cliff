@@ -17,6 +17,7 @@ OpenCode-era behaviour during the beta friction window.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from cliff.agents.runtime._prompts import build_user_prompt
@@ -28,15 +29,27 @@ from cliff.agents.runtime.remediation_planner import build_agent as _build_remed
 from cliff.agents.runtime.validation_checker import build_agent as _build_validation_checker
 
 if TYPE_CHECKING:
+    from pydantic_ai import Agent
     from pydantic_ai.models import Model
 
     from cliff.agents.runtime.deps import WorkspaceDeps
+
+# Each builder takes a Pydantic AI ``Model`` and returns an ``Agent``
+# whose ``output_type`` is the per-agent schema. The output schemas
+# differ per agent, so the registry's value type is the widest correct
+# shape — ``Agent[WorkspaceDeps, Any]`` — rather than ``Any``.
+BuilderFn = Callable[["Model"], "Agent[WorkspaceDeps, Any]"]
+
+# A summariser reads the per-agent ``structured_output`` dict and
+# returns either a one-line summary or ``None`` to fall back to the
+# generic per-agent label.
+SummarizerFn = Callable[[dict[str, Any]], "str | None"]
 
 
 # Six no-tools agent types and the runtime builder that owns each. The
 # remediation_executor stays on the OpenCode tool-use path through
 # PR #1 — PR #2 migrates it.
-_RUNTIME_BUILDERS: dict[str, Any] = {
+_RUNTIME_BUILDERS: dict[str, BuilderFn] = {
     "finding_enricher": _build_finding_enricher,
     "owner_resolver": _build_owner_resolver,
     "exposure_analyzer": _build_exposure_analyzer,
@@ -94,7 +107,7 @@ def _summarize_planner(o: dict[str, Any]) -> str | None:
 
 # (agent_type) -> (summary_fn, fallback). The summary_fn returns either a
 # rendered one-liner or ``None`` to fall back to the generic label.
-_AGENT_SUMMARIES: dict[str, tuple[Any, str]] = {
+_AGENT_SUMMARIES: dict[str, tuple[SummarizerFn, str]] = {
     "finding_enricher": (_summarize_enricher, "Enrichment ready."),
     "owner_resolver": (
         lambda o: f"Recommended owner: {o['recommended_owner']}."
