@@ -14,6 +14,7 @@
 
 import { useCallback, useState } from 'react'
 import { useAdopt, useAutodetect } from '@/api/aiProvider'
+import { parseApiError } from '@/api/client'
 import {
   describeAutodetectSource,
   providerIcon,
@@ -65,7 +66,12 @@ export function AIProviderFlow({
         }}
         onDecline={() => setUserOverride('picking-method')}
         adopting={adopt.isPending}
-        error={adopt.error instanceof Error ? adopt.error.message : null}
+        // Q02-B04: unwrap the {detail: {error_message}} envelope so the
+        // user sees the actual reason ("Your account doesn't have
+        // access. Check billing setup at OpenAI.") instead of the raw
+        // ``400: {"detail":{"error_code":"no_access","error_message":...}}``
+        // string. parseApiError already knows the FastAPI shape.
+        error={adopt.error ? parseApiError(adopt.error).message : null}
       />
     )
   }

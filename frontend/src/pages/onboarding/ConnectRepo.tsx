@@ -450,7 +450,7 @@ export default function ConnectRepo() {
                   </p>
                   <p className="text-xs text-on-surface-variant mt-1">
                     You started installing cliff but didn't finish
-                    authorising this device. Resume to see your code
+                    authorizing this device. Resume to see your code
                     again, or start fresh if something went wrong.
                   </p>
                 </div>

@@ -9,6 +9,14 @@
  */
 import GateRow, { type GateRowData } from './GateRow'
 
+/**
+ * Q02-B09 — pick the correct indefinite article for a grade letter.
+ * "an" for A / E / F (vowel-sound initial), "a" for everything else.
+ */
+function gradeArticle(letter: string): 'a' | 'an' {
+  return letter === 'A' || letter === 'E' || letter === 'F' ? 'an' : 'a'
+}
+
 export type LevelUpPanelData = {
   current: 'A' | 'B' | 'C' | 'D' | 'F'
   next: 'A' | 'B' | 'C' | 'D' | 'F' | null
@@ -147,9 +155,9 @@ export default function LevelUpPanel({
           textWrap: 'pretty' as never,
         }}
       >
-        Grading rubric · An <strong>{nextLetter}</strong> requires zero open
-        Criticals, ≤ 3 High findings, no committed secrets, and all 15
-        posture checks passing.{' '}
+        Grading rubric · {gradeArticle(nextLetter) === 'an' ? 'An' : 'A'}{' '}
+        <strong>{nextLetter}</strong> requires zero open Criticals, ≤ 3 High
+        findings, no committed secrets, and all 15 posture checks passing.{' '}
         <button
           type="button"
           onClick={onViewRubric}

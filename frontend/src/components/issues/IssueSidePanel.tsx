@@ -958,7 +958,13 @@ function ActivityRunCard({ run }: { run: AgentRun }) {
           {label}
         </span>
         {run.confidence != null && !isFailed && (
-          <span className="text-[10.5px] font-mono text-on-surface-variant">
+          // Q02-B14: the bare "85%" / "95%" was opaque — readers couldn't
+          // tell if it was confidence, progress, or sampling. Tooltip
+          // labels it without lengthening the activity row.
+          <span
+            className="text-[10.5px] font-mono text-on-surface-variant"
+            title="Agent confidence in its own output"
+          >
             {Math.round(run.confidence * 100)}%
           </span>
         )}

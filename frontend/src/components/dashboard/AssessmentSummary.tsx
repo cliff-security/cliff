@@ -60,13 +60,22 @@ export default function AssessmentSummary({
           icon="bug_report"
           label="Vulnerabilities"
           value={stats.vulnerabilitiesTotal}
+          // Q02-B08: the Issues sidebar counts vulnerabilities + failing
+          // posture checks together. The dashboard tile shows only the
+          // vulnerability slice. Adding a clarifier here so the two
+          // totals reconcile on a glance instead of requiring math.
+          subtitle="From scanners · excludes posture checks"
           tone="primary"
         />
         <SummaryCard
           icon="rule"
           label="Posture"
           value={stats.postureFailing}
-          subtitle={`${stats.posturePassing} of ${stats.postureTotal} passing`}
+          // Q02-B07: the bare ``5`` headline was ambiguous against a
+          // subtitle that talked about passing checks. Label what 5
+          // represents directly so the value + subtitle compose into
+          // one readable phrase ("5 failing — 4 of 9 pass").
+          subtitle={`Failing — ${stats.posturePassing} of ${stats.postureTotal} pass`}
           tone={stats.postureFailing === 0 ? 'tertiary' : 'warning'}
         />
         <SummaryCard

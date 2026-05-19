@@ -679,13 +679,17 @@ function IssuesPageContent() {
                 <span
                   style={{ fontSize: 13, color: 'var(--cd-fg-3)' }}
                 >
-                  {/* The per-substage breakdown ("0 planning · 2 generating
-                       · …") was misleading: substages were derived
-                       optimistically from finding.status and don't reliably
-                       reflect what the executor is actually doing. Until we
-                       wire real progress events we just surface the
-                       aggregate count, which is always correct. */}
-                  Agents working — no action needed
+                  {/* Q02-B11: when the in-progress count is 0 the prior
+                       "Agents working — no action needed" copy lied —
+                       nothing was working. Mirror the truth on each
+                       side of zero.
+                       The per-substage breakdown ("0 planning · 2 generating
+                       · …") was misleading historically: substages were
+                       derived optimistically from finding.status and
+                       didn't reflect what the executor was doing. */}
+                  {sections.inProgress.length === 0
+                    ? 'Nothing in flight'
+                    : 'Agents working — no action needed'}
                 </span>
                 {/* Hint chip, not a button — the outer <button> is the
                  *  toggle. Styled as a quiet caption + chevron rather
