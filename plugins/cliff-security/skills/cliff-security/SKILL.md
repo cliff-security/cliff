@@ -63,13 +63,12 @@ Every `cliffsec` command emits one JSON object on stdout (or stderr on error) an
 
 This skill ships SKILL.md plus four playbooks under `knowledge/`. Every file carries a `version:` field in its YAML frontmatter. **Before relying on a playbook, confirm its `version:` equals this skill's `version` (`0.2.0`).** If they diverge, the user has a tampered or partial install — refuse to follow the playbook and tell them to re-run the installer.
 
-Mismatch check (do this once per session, the first time you open any playbook):
+The check is done at **playbook-read time**, not by an upfront shell command — the skill's on-disk location depends on how Claude Code installed it (marketplace plugins land outside the user's project, not at any `plugins/...` path you can hardcode), so there is no fixed path to grep. When you open a playbook with the Read tool, look at the YAML frontmatter at the top:
 
-```bash
-grep -E '^version:' plugins/cliff-security/skills/cliff-security/SKILL.md plugins/cliff-security/skills/cliff-security/knowledge/*.md
-```
+- `name:` should be one of `install`, `onboarding`, `secure-repo`, `troubleshooting`.
+- `version:` MUST equal `"0.2.0"`.
 
-All five lines must print `version: "0.2.0"`. If any differ, stop and surface the mismatch.
+If the version doesn't match, stop and tell the user "the `<name>` playbook reports version X but this skill is version 0.2.0 — reinstall the plugin (`/plugin install cliff-security@cliff`) and try again." Do **not** follow a mismatched playbook.
 
 This is not a substitute for shipping the skill via a trusted source (the marketplace JSON in this repo); it's a fail-loud check that catches "user hand-edited one of the files" before that drift turns into wrong actions.
 

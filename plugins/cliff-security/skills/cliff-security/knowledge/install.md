@@ -22,18 +22,23 @@ Engage when:
 
 ### 1. Fetch the canonical one-liner from the README
 
-The README in `cliff-security/cliff` on `main` is the single source of truth for the install snippet. Do **not** hardcode a URL — the snippet may have moved (e.g. release-asset name change). Extract it live:
+The README in `cliff-security/cliff` is the single source of truth for the install snippet. **Fetch it from an immutable ref — a released tag — never from `main`.** `main` is mutable, and the install snippet is later piped to a shell; pinning to a tag closes the TOCTOU window between "Claude reads the README" and "the user runs the install command".
+
+This playbook is pinned to Cliff release **`v0.2.0`** (the latest released tag at the time this skill version was cut). Extract the snippet from that tag:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cliff-security/cliff/main/README.md \
+CLIFF_REF="v0.2.0"
+curl -fsSL "https://raw.githubusercontent.com/cliff-security/cliff/${CLIFF_REF}/README.md" \
   | awk '/<!-- install:start -->/{f=1;next}/<!-- install:end -->/{f=0}f'
 ```
 
 That prints the canonical install command block. Show it **verbatim** to the user — copy-paste the exact lines you got back, no paraphrasing. Then say:
 
-> "This will download and run an install script from `cliff-security/cliff`. May I run it?"
+> "This will install Cliff `v0.2.0` (the version this skill was tested against). The install script comes from `cliff-security/cliff` at tag `v0.2.0`. May I run it?"
 
 Wait for an explicit "yes" / "go" / "do it".
+
+If the user wants a newer Cliff release than this skill is pinned to, ask them to (a) update the skill (`/plugin install cliff-security@cliff` re-pulls the latest), or (b) set `CLIFF_REF` to a newer tag explicitly — but flag that the skill hasn't been tested against newer releases, and a new tag may have moved release-asset names or install-snippet markers.
 
 ### 2. Run the installer
 
