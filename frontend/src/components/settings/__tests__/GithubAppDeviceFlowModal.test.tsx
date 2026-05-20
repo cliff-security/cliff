@@ -242,6 +242,43 @@ describe('GithubAppDeviceFlowModal', () => {
     expect(screen.getByText('acme')).toBeInTheDocument()
   })
 
+  it('shows an error state (not the install CTA) when the lookup fails', async () => {
+    server.use(
+      http.get('http://localhost:5173/api/integrations/github/status', () =>
+        HttpResponse.json({
+          status: 'installation_pending',
+          user_code: 'MNPQ-RSTU',
+          expires_at: null,
+          installation_id: null,
+          github_login: 'octocat',
+          error: null,
+        }),
+      ),
+      http.get(
+        'http://localhost:5173/api/integrations/github/installations',
+        () => new HttpResponse(null, { status: 503 }),
+      ),
+    )
+
+    render(
+      wrap(
+        <GithubAppDeviceFlowModal
+          connect={baseConnect}
+          onDismiss={() => {}}
+          onTryAgain={() => {}}
+        />,
+      ),
+    )
+
+    expect(
+      await screen.findByTestId('github-installation-error'),
+    ).toBeInTheDocument()
+    // A failed lookup must NOT masquerade as "no installations".
+    expect(
+      screen.queryByTestId('github-installation-install'),
+    ).not.toBeInTheDocument()
+  })
+
   it('binds the chosen installation when a picker option is clicked', async () => {
     let selectedBody: unknown = null
     server.use(

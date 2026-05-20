@@ -324,9 +324,11 @@ export function GithubAppDeviceFlowModal({
  *   - more than one    → a picker, so the user binds the right account.
  */
 function GithubInstallationStep({ installUrl }: { installUrl: string }) {
-  const { data: installations = [], isLoading } = useGithubAppInstallations({
-    enabled: true,
-  })
+  const {
+    data: installations = [],
+    isLoading,
+    isError,
+  } = useGithubAppInstallations({ enabled: true })
   const select = useGithubAppSelectInstallation()
 
   if (isLoading) {
@@ -336,6 +338,22 @@ function GithubInstallationStep({ installUrl }: { installUrl: string }) {
         data-testid="github-installation-loading"
       >
         Looking for your GitHub App installation…
+      </p>
+    )
+  }
+
+  if (isError) {
+    // The lookup failed (e.g. GitHub 503). Without this branch the empty
+    // `installations` default would render the "install the App"
+    // affordance — hiding a real backend failure behind a wrong CTA.
+    return (
+      <p
+        role="alert"
+        className="rounded-xl bg-surface-container-low p-5 text-sm text-error"
+        data-testid="github-installation-error"
+      >
+        Couldn't load your GitHub App installations right now. This is
+        usually temporary — leave this open and we'll keep retrying.
       </p>
     )
   }

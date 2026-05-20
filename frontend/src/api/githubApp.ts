@@ -57,6 +57,10 @@ export interface DeviceFlowInstallationsResponse {
   installations: GithubAppInstallationOption[]
 }
 
+export interface SelectInstallationPayload {
+  installation_id: number
+}
+
 export interface PushAccessDiagnoseResponse {
   can_push: boolean
   reason: string
@@ -110,7 +114,7 @@ export const githubAppApi = {
     ),
   /** Bind the installation the user picked from the discovery picker
    *  and connect (ADR-0048). */
-  selectInstallation: (payload: { installation_id: number }) =>
+  selectInstallation: (payload: SelectInstallationPayload) =>
     request<DeviceFlowStatusResponse>(
       '/api/integrations/github/installations/select',
       { method: 'POST', body: JSON.stringify(payload) },
