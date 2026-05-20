@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import type {
@@ -312,8 +312,19 @@ const AGENT_RUNS_ACTIVE_POLL_MS = 2_000
  *  between runs stalled the UI on stale state — B28/B29. */
 const AGENT_RUNS_IDLE_POLL_MS = 5_000
 
+/** Agent-run statuses that mean the run will not change again. */
+const AGENT_RUN_TERMINAL = new Set([
+  'completed',
+  'failed',
+  'cancelled',
+  'rate_limited',
+])
+
 export function useAgentRuns(workspaceId: string | undefined) {
-  return useQuery({
+  const qc = useQueryClient()
+  const prevStatuses = useRef<Map<string, string>>(new Map())
+
+  const query = useQuery({
     queryKey: ['agent-runs', workspaceId],
     queryFn: () => api.listAgentRuns(workspaceId!),
     enabled: !!workspaceId,
@@ -325,6 +336,32 @@ export function useAgentRuns(workspaceId: string | undefined) {
       return hasActive ? AGENT_RUNS_ACTIVE_POLL_MS : AGENT_RUNS_IDLE_POLL_MS
     },
   })
+
+  // B09 — when a run transitions into a terminal state, the finding's
+  // backend-derived stage changes too (e.g. → 'failed'). The SSE stream
+  // normally cache-busts ['findings'] on agent_run_completed, but when SSE
+  // is unavailable the poll only refreshes ['agent-runs'] and the side
+  // panel's stage stays stale on "Thinking…". Mirror that invalidation
+  // off the poll so the fallback path also flips the panel.
+  useEffect(() => {
+    const runs = query.data
+    if (!runs || !workspaceId) return
+    const prev = prevStatuses.current
+    let terminalTransition = false
+    for (const r of runs) {
+      const was = prev.get(r.id)
+      if (was && was !== r.status && AGENT_RUN_TERMINAL.has(r.status)) {
+        terminalTransition = true
+      }
+      prev.set(r.id, r.status)
+    }
+    if (terminalTransition) {
+      qc.invalidateQueries({ queryKey: ['findings'] })
+      qc.invalidateQueries({ queryKey: ['sidebar', workspaceId] })
+    }
+  }, [query.data, qc, workspaceId])
+
+  return query
 }
 
 export function useCreateAgentRun(workspaceId: string) {

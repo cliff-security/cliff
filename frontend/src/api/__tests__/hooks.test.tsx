@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderHook, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import type { ReactNode } from 'react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { useAgentRuns } from '../hooks'
 import { server } from '../../mocks/server'
@@ -117,5 +117,71 @@ describe('useAgentRuns — background polling cadence (B28/B29 fix)', () => {
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(resolveInterval(client, 'ws-3')).toBe(5_000)
+  })
+})
+
+/**
+ * B09 — when an agent run transitions into a terminal state, the side
+ * panel's stage (derived from the *finding*) must refresh even if the SSE
+ * stream is unavailable. ``useAgentRuns`` invalidates ['findings'] and
+ * ['sidebar', wsId] off the poll so the panel doesn't stall on "Thinking…".
+ */
+describe('useAgentRuns — terminal-transition invalidation (B09 fix)', () => {
+  function runPayload(status: string) {
+    return [
+      {
+        id: 'r-term',
+        workspace_id: 'ws-term',
+        agent_type: 'exposure_analyzer',
+        status,
+        started_at: '2025-01-01T00:00:00Z',
+        completed_at: status === 'running' ? null : '2025-01-01T00:01:00Z',
+        user_note: null,
+        permission_request: null,
+      },
+    ]
+  }
+
+  it('invalidates findings + sidebar when a run flips running → failed', async () => {
+    let status = 'running'
+    server.use(
+      http.get('/api/workspaces/:wsId/agent-runs', () =>
+        HttpResponse.json(runPayload(status)),
+      ),
+    )
+    const { Wrapper, client } = makeWrapper()
+    const spy = vi.spyOn(client, 'invalidateQueries')
+
+    const { result } = renderHook(() => useAgentRuns('ws-term'), {
+      wrapper: Wrapper,
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    // first load is not a transition — no invalidation yet
+    spy.mockClear()
+
+    status = 'failed'
+    await result.current.refetch()
+
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith({ queryKey: ['findings'] })
+    })
+    expect(spy).toHaveBeenCalledWith({ queryKey: ['sidebar', 'ws-term'] })
+  })
+
+  it('does not invalidate on the initial load of an already-terminal run', async () => {
+    server.use(
+      http.get('/api/workspaces/:wsId/agent-runs', () =>
+        HttpResponse.json(runPayload('failed')),
+      ),
+    )
+    const { Wrapper, client } = makeWrapper()
+    const spy = vi.spyOn(client, 'invalidateQueries')
+
+    const { result } = renderHook(() => useAgentRuns('ws-pre'), {
+      wrapper: Wrapper,
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: ['findings'] })
   })
 })
