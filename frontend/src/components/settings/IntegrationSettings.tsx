@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   useIntegrations,
@@ -658,6 +659,7 @@ export default function IntegrationSettings() {
   // integration row on success.
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)
   const qc = useQueryClient()
+  const navigate = useNavigate()
 
   // Only enabled integrations count as "configured" — a disabled row
   // (e.g. a github integration created during an in-flight App install
@@ -780,6 +782,11 @@ export default function IntegrationSettings() {
           // a fresh check rather than the pre-pick stale state.
           qc.invalidateQueries({ queryKey: ['integrations'] })
           qc.invalidateQueries({ queryKey: ['integrations-health'] })
+          // B06 — the picker banner promises "we'll run the assessment
+          // right after". Honour it: land the user on the dashboard where
+          // the assessment progress is shown, instead of leaving them on
+          // the Settings page with no transition.
+          navigate('/dashboard')
         }}
       />
 

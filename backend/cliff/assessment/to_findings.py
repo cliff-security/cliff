@@ -60,6 +60,24 @@ def _priority(raw: str | None) -> str | None:
     return _PRIORITY_BY_SEVERITY.get(raw.upper())
 
 
+def _dedup_pkg_prefix(title: str, pkg_name: str) -> str:
+    """Drop a duplicated ``<pkg>: `` prefix from a finding title (B08).
+
+    Some GHSA advisory titles already lead with the package name (e.g.
+    ``"python-diskcache: Arbitrary code execution ..."``). Trivy passes that
+    through verbatim, and a prior layer prepended the package name again,
+    producing ``"python-diskcache: python-diskcache: ..."``. Collapse the
+    repeat to a single prefix. Titles without the doubled prefix are
+    returned unchanged.
+    """
+    if not pkg_name:
+        return title
+    prefix = f"{pkg_name}: "
+    if title.startswith(prefix + prefix):
+        return title[len(prefix) :]
+    return title
+
+
 # --------------------------------------------------------------------- Trivy vulns
 
 
@@ -76,7 +94,7 @@ def from_trivy_vulns(
                 type="dependency",
                 grade_impact="counts",
                 assessment_id=assessment_id,
-                title=v.title or v.vuln_id,
+                title=_dedup_pkg_prefix(v.title or v.vuln_id, v.pkg_name),
                 description=v.description,
                 raw_severity=v.severity,
                 normalized_priority=_priority(v.severity),

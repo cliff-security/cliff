@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import type { ReactNode } from 'react'
+import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { server } from '../../../mocks/server'
 import IntegrationSettings from '../IntegrationSettings'
@@ -14,7 +15,13 @@ function wrap(children: ReactNode) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  // IntegrationSettings calls useNavigate() (B06 — repo-picker redirect),
+  // so a router context is required.
+  return (
+    <QueryClientProvider client={client}>
+      <MemoryRouter>{children}</MemoryRouter>
+    </QueryClientProvider>
+  )
 }
 
 const githubRegistryEntry = (githubAppAvailable: boolean) => ({
