@@ -54,6 +54,7 @@ if TYPE_CHECKING:
     from cliff.integrations.audit import AuditLogger
     from cliff.integrations.github_app.client import (
         DeviceCodeResponse,
+        InstallationInfo,
         PollTokenResult,
         UserInfo,
     )
@@ -91,10 +92,23 @@ class IntegrationAlreadyConnectedError(RuntimeError):
     """
 
 
+class InstallationNotAvailableError(RuntimeError):
+    """Raised when a selected installation isn't bindable by this user.
+
+    Either the device flow hasn't produced a token yet, or the chosen
+    ``installation_id`` is not in the set ``/user/installations`` reports
+    for the authenticated user — which is the security boundary: a user
+    can only adopt an installation they actually control (ADR-0048).
+    """
+
+
 class GithubAppClientProtocol(Protocol):
     async def request_device_code(self) -> DeviceCodeResponse: ...
     async def poll_token(self, *, device_code: str) -> PollTokenResult: ...
     async def fetch_user(self, *, access_token: str) -> UserInfo: ...
+    async def list_installations(
+        self, *, access_token: str
+    ) -> list[InstallationInfo]: ...
 
 
 class _Clock(Protocol):
@@ -276,6 +290,16 @@ class DeviceFlowOrchestrator:
         if record.polling_status not in {"installation_pending", "device_pending"}:
             return  # terminal, nothing to do
 
+        client = self._client_factory()
+
+        # ADR-0048 — once the device flow has produced a user access token
+        # the row is in the installation-discovery phase. Re-poll
+        # ``/user/installations`` instead of the device-code endpoint
+        # (whose device_code we already consumed and deleted on success).
+        if await self._vault.has_credential(integration_id, GITHUB_TOKEN_KEY):
+            await self._discover_installation_step(record, client)
+            return
+
         # B03 — no local-clock expiry short-circuit. ``device_code_expires_at``
         # is GitHub's deadline measured against GitHub's clock; comparing it to
         # a self-hosted container's wall clock (which can be skewed — Q03 saw a
@@ -294,7 +318,6 @@ class DeviceFlowOrchestrator:
             )
             return
 
-        client = self._client_factory()
         try:
             result = await client.poll_token(device_code=device_code)
         except _TRANSIENT_ERRORS as exc:
@@ -344,6 +367,59 @@ class DeviceFlowOrchestrator:
                 status="success",
             )
         )
+
+    async def list_available_installations(
+        self, integration_id: str
+    ) -> list[InstallationInfo]:
+        """Return the App installations the device-flow user can bind.
+
+        Empty when the device flow hasn't produced a token yet, or when
+        the user simply hasn't installed the App. Used by the onboarding
+        picker (ADR-0048).
+        """
+        try:
+            token = await self._vault.retrieve(integration_id, GITHUB_TOKEN_KEY)
+        except KeyError:
+            return []
+        client = self._client_factory()
+        installations = await client.list_installations(access_token=token)
+        return self._filter_our_installations(installations)
+
+    async def select_installation(
+        self, integration_id: str, installation_id: int
+    ) -> GithubAppInstallation:
+        """Bind the user-chosen *installation_id* and connect (ADR-0048).
+
+        Re-fetches ``/user/installations`` and rejects any id outside that
+        live set — a user can only adopt an installation they control.
+        """
+        record = await gh_repo.get_for_integration(self._db, integration_id)
+        if record is None:
+            raise InstallationNotAvailableError(
+                f"no GitHub App flow in progress for integration {integration_id}"
+            )
+        try:
+            token = await self._vault.retrieve(integration_id, GITHUB_TOKEN_KEY)
+        except KeyError as exc:
+            raise InstallationNotAvailableError(
+                "the device flow has not produced an access token yet"
+            ) from exc
+        client = self._client_factory()
+        installations = await client.list_installations(access_token=token)
+        ours = self._filter_our_installations(installations)
+        if installation_id not in {i.installation_id for i in ours}:
+            raise InstallationNotAvailableError(
+                f"installation {installation_id} is not available to this user"
+            )
+        await self._finalize_connected(
+            integration_id,
+            installation_id=installation_id,
+            github_login=record.github_login,
+            token_expires_at=record.token_expires_at,
+        )
+        connected = await gh_repo.get_for_integration(self._db, integration_id)
+        assert connected is not None
+        return connected
 
     async def start(self, integration_id: str) -> None:
         """Spawn a background polling task. No-op if one is already running."""
@@ -413,6 +489,14 @@ class DeviceFlowOrchestrator:
                 )
             with contextlib.suppress(KeyError):
                 await self._vault.delete(integration_id, GITHUB_DEVICE_CODE_KEY)
+            await self._audit.log(
+                AuditEvent(
+                    event_type="github_app.token_received",
+                    integration_id=integration_id,
+                    provider_name="github",
+                    status="success",
+                )
+            )
 
             github_login: str | None = None
             try:
@@ -425,45 +509,24 @@ class DeviceFlowOrchestrator:
                 self._expires_at_iso(result.expires_in) if result.expires_in else None
             )
 
-            await gh_repo.mark_connected(
-                self._db,
-                integration_id,
-                github_login=github_login,
-                token_expires_at=token_expires_at,
-            )
-            await repo_integration.update_integration(
-                self._db,
-                integration_id,
-                IntegrationConfigUpdate(enabled=True),
-            )
-
-            # Archive any other enabled github integrations (PAT migration).
-            others = await gh_repo.list_other_enabled_github_integrations(
-                self._db, exclude_id=integration_id
-            )
-            for other in others:
-                await repo_integration.update_integration(
-                    self._db,
-                    other.id,
-                    IntegrationConfigUpdate(enabled=False),
+            # ADR-0048 — if the legacy /setup callback already bound an
+            # installation_id, connect straight away; otherwise discover
+            # the installation from the user access token.
+            if record.installation_id is not None:
+                await self._finalize_connected(
+                    integration_id,
+                    installation_id=None,
+                    github_login=github_login,
+                    token_expires_at=token_expires_at,
                 )
-                await self._audit.log(
-                    AuditEvent(
-                        event_type="github_app.pat_archived",
-                        integration_id=other.id,
-                        provider_name="github",
-                        status="success",
-                    )
+            else:
+                await self._resolve_installation(
+                    integration_id,
+                    client,
+                    access_token=result.access_token,
+                    github_login=github_login,
+                    token_expires_at=token_expires_at,
                 )
-
-            await self._audit.log(
-                AuditEvent(
-                    event_type="github_app.token_received",
-                    integration_id=integration_id,
-                    provider_name="github",
-                    status="success",
-                )
-            )
             return
 
         if kind == "authorization_pending":
@@ -498,6 +561,150 @@ class DeviceFlowOrchestrator:
         await self._terminate(
             integration_id, status="error", error=f"unknown_kind:{kind}"
         )
+
+    # ------------------------------------------------------------------
+    # Installation discovery (ADR-0048)
+    # ------------------------------------------------------------------
+
+    def _filter_our_installations(
+        self, installations: list[InstallationInfo]
+    ) -> list[InstallationInfo]:
+        """Keep only installations of *our* App.
+
+        ``/user/installations`` reports installations of every App the
+        user has authorized, so the slug filter is what isolates ours.
+        """
+        return [i for i in installations if i.app_slug == self._app_slug]
+
+    async def _resolve_installation(
+        self,
+        integration_id: str,
+        client: GithubAppClientProtocol,
+        *,
+        access_token: str,
+        github_login: str | None,
+        token_expires_at: str | None,
+    ) -> None:
+        """Discover the installation right after the device flow succeeds.
+
+        Exactly one installation → connect. Zero or many → leave the row
+        in ``installation_pending`` (token already stored): the user
+        installs the App or picks from the >1 options, and the poll loop
+        / picker endpoint resolve it from there.
+        """
+        try:
+            installations = await client.list_installations(
+                access_token=access_token
+            )
+        except Exception as exc:  # noqa: BLE001 — any failure: stay pending
+            logger.warning(
+                "installation discovery failed for %s: %s", integration_id, exc
+            )
+            await gh_repo.record_device_authorized(
+                self._db,
+                integration_id,
+                github_login=github_login,
+                token_expires_at=token_expires_at,
+            )
+            return
+
+        ours = self._filter_our_installations(installations)
+        if len(ours) == 1:
+            await self._finalize_connected(
+                integration_id,
+                installation_id=ours[0].installation_id,
+                github_login=github_login,
+                token_expires_at=token_expires_at,
+            )
+            return
+        # Zero (user must install) or many (user must pick) — hold the row
+        # in installation_pending with the token stored.
+        await gh_repo.record_device_authorized(
+            self._db,
+            integration_id,
+            github_login=github_login,
+            token_expires_at=token_expires_at,
+        )
+
+    async def _discover_installation_step(
+        self, record: GithubAppInstallation, client: GithubAppClientProtocol
+    ) -> None:
+        """One discovery tick for a row already holding a token.
+
+        Runs on the background poll loop while the row sits in
+        ``installation_pending`` post-authorization — catches the moment
+        the user finishes installing the App and exactly one installation
+        becomes visible.
+        """
+        integration_id = record.integration_id
+        try:
+            token = await self._vault.retrieve(integration_id, GITHUB_TOKEN_KEY)
+        except KeyError:
+            return  # token vanished — nothing to discover against
+        try:
+            installations = await client.list_installations(access_token=token)
+        except Exception as exc:  # noqa: BLE001 — transient or hard: retry next tick
+            logger.info(
+                "list_installations failed for %s (%s); will retry on next tick",
+                integration_id,
+                exc.__class__.__name__,
+            )
+            return
+        ours = self._filter_our_installations(installations)
+        if len(ours) == 1:
+            await self._finalize_connected(
+                integration_id,
+                installation_id=ours[0].installation_id,
+                github_login=record.github_login,
+                token_expires_at=record.token_expires_at,
+            )
+        # 0 or >1 — leave the row pending; the picker / a later tick resolves it.
+
+    async def _finalize_connected(
+        self,
+        integration_id: str,
+        *,
+        installation_id: int | None,
+        github_login: str | None,
+        token_expires_at: str | None,
+    ) -> None:
+        """Mark the row connected, enable the integration, archive PATs.
+
+        Shared by every connect path: the legacy callback-bound success,
+        immediate single-installation discovery, the background discovery
+        tick, and the picker. ``installation_id=None`` keeps whatever the
+        ``/setup`` callback already bound.
+        """
+        await gh_repo.mark_connected(
+            self._db,
+            integration_id,
+            github_login=github_login,
+            token_expires_at=token_expires_at,
+            installation_id=installation_id,
+        )
+        await repo_integration.update_integration(
+            self._db,
+            integration_id,
+            IntegrationConfigUpdate(enabled=True),
+        )
+        # Archive any other enabled github integrations (PAT migration).
+        others = await gh_repo.list_other_enabled_github_integrations(
+            self._db, exclude_id=integration_id
+        )
+        for other in others:
+            await repo_integration.update_integration(
+                self._db,
+                other.id,
+                IntegrationConfigUpdate(enabled=False),
+            )
+            await self._audit.log(
+                AuditEvent(
+                    event_type="github_app.pat_archived",
+                    integration_id=other.id,
+                    provider_name="github",
+                    status="success",
+                )
+            )
 
     async def _terminate(
         self,

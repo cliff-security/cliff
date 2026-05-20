@@ -88,6 +88,43 @@ class DeviceFlowDisconnectResponse(BaseModel):
     manual_revoke_url: str
 
 
+class GithubAppInstallationOption(BaseModel):
+    """One App installation the device-flow user can bind to (ADR-0048).
+
+    Surfaced by ``GET /installations`` when post-device-flow discovery
+    finds more than one installation — the onboarding picker renders one
+    row per option so the user chooses which account to connect.
+    """
+
+    installation_id: int
+    account_login: str
+    account_type: str
+
+
+class DeviceFlowInstallationsResponse(BaseModel):
+    """Response of ``GET /installations`` (ADR-0048).
+
+    ``installations`` is the live set discovered via the user access
+    token. Empty → the user hasn't installed the App yet (show the
+    install affordance); one entry → onboarding auto-connects; more than
+    one → the UI shows a picker.
+    """
+
+    installations: list[GithubAppInstallationOption]
+
+
+class DeviceFlowInstallationSelectRequest(BaseModel):
+    """Payload for ``POST /installations/select`` (ADR-0048).
+
+    The user picked one installation from the discovery picker. The
+    backend re-fetches ``/user/installations`` and rejects any id not in
+    that live set — a user can only bind an installation they actually
+    control, which is the security boundary ADR-0048 relies on.
+    """
+
+    installation_id: int = Field(..., gt=0)
+
+
 class DeviceFlowManualSetupRequest(BaseModel):
     """Payload for the ``POST /setup/manual`` recovery endpoint (B33).
 

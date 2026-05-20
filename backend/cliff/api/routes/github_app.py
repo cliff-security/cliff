@@ -31,18 +31,23 @@ from cliff.db.connection import get_db
 from cliff.integrations.github_app import repo as gh_repo
 from cliff.integrations.github_app.client import (
     GitHubDeviceFlowClient,
+    GitHubDeviceFlowError,
     check_repo_push_access,
 )
 from cliff.integrations.github_app.flow import (
     DeviceFlowOrchestrator,
     InstallationCsrfMismatchError,
+    InstallationNotAvailableError,
     IntegrationAlreadyConnectedError,
 )
 from cliff.integrations.github_app.models import (
     DeviceFlowConnectResponse,
     DeviceFlowDisconnectResponse,
+    DeviceFlowInstallationSelectRequest,
+    DeviceFlowInstallationsResponse,
     DeviceFlowManualSetupRequest,
     DeviceFlowStatusResponse,
+    GithubAppInstallationOption,
     PushAccessDiagnoseResponse,
 )
 from cliff.models import IntegrationConfigCreate
@@ -627,6 +632,103 @@ async def poll_now(
 
     record = await gh_repo.get_for_integration(db, integration_id)
     assert record is not None
+    return DeviceFlowStatusResponse(
+        status=record.polling_status,
+        user_code=record.user_code,
+        expires_at=record.device_code_expires_at,
+        installation_id=record.installation_id,
+        github_login=record.github_login,
+        error=record.polling_error,
+    )
+
+
+async def _latest_flow_integration_id(db: aiosqlite.Connection) -> str:
+    """Return the integration_id of the most-recently-touched flow row.
+
+    Raises 404 when no flow exists — the caller should POST /connect. The
+    singleton invariant means at most one row exists in single-user mode;
+    the ORDER BY is forward-compat defense for multi-install SaaS.
+    """
+    cursor = await db.execute(
+        """
+        SELECT integration_id FROM github_app_installation
+        ORDER BY updated_at DESC LIMIT 1
+        """
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="No GitHub App flow in progress")
+    return row["integration_id"]
+
+
+@router.get("/installations", response_model=DeviceFlowInstallationsResponse)
+async def list_installations(
+    request: Request, db: aiosqlite.Connection = Depends(get_db)
+) -> DeviceFlowInstallationsResponse:
+    """List the App installations discoverable via the device-flow token.
+
+    ADR-0048 — the onboarding UI calls this once the flow row reaches the
+    post-authorization ``installation_pending`` state. Empty → show the
+    "Install the Cliff GitHub App" affordance; more than one → show a
+    picker so the user binds the right account.
+    """
+    _require_app_configured()
+    vault, audit = _require_vault_and_audit(request)
+
+    integration_id = await _latest_flow_integration_id(db)
+    orchestrator = _get_orchestrator(request, db, vault, audit)
+    try:
+        installations = await orchestrator.list_available_installations(
+            integration_id
+        )
+    except GitHubDeviceFlowError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"GitHub installation lookup failed: {exc}",
+        ) from exc
+    return DeviceFlowInstallationsResponse(
+        installations=[
+            GithubAppInstallationOption(
+                installation_id=i.installation_id,
+                account_login=i.account_login,
+                account_type=i.account_type,
+            )
+            for i in installations
+        ]
+    )
+
+
+@router.post(
+    "/installations/select", response_model=DeviceFlowStatusResponse
+)
+async def select_installation(
+    request: Request,
+    payload: DeviceFlowInstallationSelectRequest,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> DeviceFlowStatusResponse:
+    """Bind the installation the user picked and connect (ADR-0048).
+
+    The orchestrator re-fetches ``/user/installations`` and rejects any
+    id the user can't actually administer — so a hostile id pasted into
+    the request can't be bound.
+    """
+    _require_app_configured()
+    _require_same_origin(request)
+    vault, audit = _require_vault_and_audit(request)
+
+    integration_id = await _latest_flow_integration_id(db)
+    orchestrator = _get_orchestrator(request, db, vault, audit)
+    try:
+        record = await orchestrator.select_installation(
+            integration_id, payload.installation_id
+        )
+    except InstallationNotAvailableError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except GitHubDeviceFlowError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"GitHub installation lookup failed: {exc}",
+        ) from exc
     return DeviceFlowStatusResponse(
         status=record.polling_status,
         user_code=record.user_code,

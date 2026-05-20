@@ -9,6 +9,7 @@ import pytest
 
 from cliff.integrations.github_app.client import (
     DeviceCodeResponse,
+    InstallationInfo,
     PollTokenResult,
     UserInfo,
 )
@@ -36,6 +37,16 @@ class FakeClient:
         self.poll_result = PollTokenResult(kind="authorization_pending")
         self.user_info = UserInfo(login="octocat", id=1)
         self.poll_calls = 0
+        # ADR-0048 — installation discovery. Default to one installation
+        # of our App (app_slug matches ``patched_app_settings``).
+        self.installations: list[InstallationInfo] = [
+            InstallationInfo(
+                installation_id=4242,
+                app_slug="cliff",
+                account_login="octocat",
+                account_type="User",
+            )
+        ]
 
     async def request_device_code(self) -> DeviceCodeResponse:
         return self.device_code_response
@@ -46,6 +57,11 @@ class FakeClient:
 
     async def fetch_user(self, *, access_token: str) -> UserInfo:  # noqa: ARG002
         return self.user_info
+
+    async def list_installations(
+        self, *, access_token: str  # noqa: ARG002
+    ) -> list[InstallationInfo]:
+        return self.installations
 
 
 @pytest.fixture
@@ -554,3 +570,153 @@ async def test_registry_marks_github_app_unavailable_when_client_id_unset(
     assert resp.status_code == 200
     entries = {e["id"]: e for e in resp.json()}
     assert entries["github"]["github_app_available"] is False
+
+
+# ---------------------------------------------------------------------------
+# /installations + /installations/select (ADR-0048 — installation discovery)
+# ---------------------------------------------------------------------------
+
+
+async def _connect_and_authorize(
+    db_client: AsyncClient, fake_github_client: FakeClient
+) -> None:
+    """connect → one successful device-flow poll. Discovery runs inside
+    that poll using ``fake_github_client.installations``."""
+    await db_client.post("/api/integrations/github/connect")
+    fake_github_client.poll_result = PollTokenResult(
+        kind="success", access_token="ghu_test"
+    )
+    await db_client.post("/api/integrations/github/poll-now")
+
+
+@pytest.mark.asyncio
+async def test_installations_404_when_no_flow(
+    db_client: AsyncClient,
+    patched_app_settings,  # noqa: ARG001
+):
+    resp = await db_client.get("/api/integrations/github/installations")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_installations_empty_before_device_authorization(
+    db_client: AsyncClient,
+    patched_app_settings,  # noqa: ARG001
+    patched_client_factory,  # noqa: ARG001
+):
+    """A flow exists but the device hasn't been authorized yet — there is
+    no token to query /user/installations with, so the list is empty."""
+    await db_client.post("/api/integrations/github/connect")
+    resp = await db_client.get("/api/integrations/github/installations")
+    assert resp.status_code == 200
+    assert resp.json()["installations"] == []
+
+
+@pytest.mark.asyncio
+async def test_installations_lists_discovered_options(
+    db_client: AsyncClient,
+    patched_app_settings,  # noqa: ARG001
+    patched_client_factory,  # noqa: ARG001
+    fake_github_client: FakeClient,
+):
+    """With more than one installation the flow stays pending and
+    /installations returns every option for the picker."""
+    fake_github_client.installations = [
+        InstallationInfo(
+            installation_id=11,
+            app_slug="cliff",
+            account_login="octocat",
+            account_type="User",
+        ),
+        InstallationInfo(
+            installation_id=22,
+            app_slug="cliff",
+            account_login="acme",
+            account_type="Organization",
+        ),
+    ]
+    await _connect_and_authorize(db_client, fake_github_client)
+
+    resp = await db_client.get("/api/integrations/github/installations")
+    assert resp.status_code == 200
+    options = resp.json()["installations"]
+    assert {o["installation_id"] for o in options} == {11, 22}
+    acme = next(o for o in options if o["installation_id"] == 22)
+    assert acme["account_login"] == "acme"
+    assert acme["account_type"] == "Organization"
+
+
+@pytest.mark.asyncio
+async def test_select_installation_binds_and_connects(
+    db_client: AsyncClient,
+    patched_app_settings,  # noqa: ARG001
+    patched_client_factory,  # noqa: ARG001
+    fake_github_client: FakeClient,
+):
+    fake_github_client.installations = [
+        InstallationInfo(
+            installation_id=11,
+            app_slug="cliff",
+            account_login="octocat",
+            account_type="User",
+        ),
+        InstallationInfo(
+            installation_id=22,
+            app_slug="cliff",
+            account_login="acme",
+            account_type="Organization",
+        ),
+    ]
+    await _connect_and_authorize(db_client, fake_github_client)
+
+    resp = await db_client.post(
+        "/api/integrations/github/installations/select",
+        json={"installation_id": 22},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "connected"
+    assert body["installation_id"] == 22
+
+
+@pytest.mark.asyncio
+async def test_select_installation_rejects_id_not_available(
+    db_client: AsyncClient,
+    patched_app_settings,  # noqa: ARG001
+    patched_client_factory,  # noqa: ARG001
+    fake_github_client: FakeClient,
+):
+    """An installation_id the user can't administer is rejected with 400."""
+    fake_github_client.installations = [
+        InstallationInfo(
+            installation_id=11,
+            app_slug="cliff",
+            account_login="octocat",
+            account_type="User",
+        ),
+        InstallationInfo(
+            installation_id=22,
+            app_slug="cliff",
+            account_login="acme",
+            account_type="Organization",
+        ),
+    ]
+    await _connect_and_authorize(db_client, fake_github_client)
+
+    resp = await db_client.post(
+        "/api/integrations/github/installations/select",
+        json={"installation_id": 99999},
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_select_installation_404_when_no_flow(
+    db_client: AsyncClient,
+    patched_app_settings,  # noqa: ARG001
+):
+    resp = await db_client.post(
+        "/api/integrations/github/installations/select",
+        json={"installation_id": 1},
+    )
+    assert resp.status_code == 404

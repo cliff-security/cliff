@@ -204,22 +204,95 @@ async def mark_connected(
     *,
     github_login: str | None,
     token_expires_at: str | None,
+    installation_id: int | None = None,
 ) -> GithubAppInstallation | None:
+    """Flip the row to ``connected``.
+
+    When *installation_id* is given (ADR-0048 — discovered via
+    ``/user/installations`` rather than the redirect callback) it is
+    persisted alongside; passing ``None`` leaves whatever the legacy
+    ``/setup`` callback already bound untouched.
+    """
+    now = _now_iso()
+    if installation_id is not None:
+        await db.execute(
+            """
+            UPDATE github_app_installation
+            SET polling_status = 'connected',
+                polling_error = NULL,
+                installation_id = ?,
+                installation_completed_at = ?,
+                github_login = ?,
+                token_expires_at = ?,
+                connected_at = ?,
+                last_validated_at = ?,
+                last_polled_at = ?,
+                updated_at = ?
+            WHERE integration_id = ?
+            """,
+            (
+                installation_id,
+                now,
+                github_login,
+                token_expires_at,
+                now,
+                now,
+                now,
+                now,
+                integration_id,
+            ),
+        )
+    else:
+        await db.execute(
+            """
+            UPDATE github_app_installation
+            SET polling_status = 'connected',
+                polling_error = NULL,
+                github_login = ?,
+                token_expires_at = ?,
+                connected_at = ?,
+                last_validated_at = ?,
+                last_polled_at = ?,
+                updated_at = ?
+            WHERE integration_id = ?
+            """,
+            (github_login, token_expires_at, now, now, now, now, integration_id),
+        )
+    await db.commit()
+    return await get_for_integration(db, integration_id)
+
+
+async def record_device_authorized(
+    db: aiosqlite.Connection,
+    integration_id: str,
+    *,
+    github_login: str | None,
+    token_expires_at: str | None,
+) -> GithubAppInstallation | None:
+    """Record that the device flow produced a token but no installation
+    was bound yet (ADR-0048: zero or multiple installations discovered).
+
+    The row stays in the non-terminal ``installation_pending`` state —
+    the post-device-flow meaning of that status is "we hold a token, the
+    installation is still pending". ``github_login`` is what the route
+    layer / poll loop later use to tell this phase apart from the
+    pre-authorization phase (where no token exists yet). ``token_expires_at``
+    is carried through so it survives until the installation is finally
+    resolved by a later poll or the picker.
+    """
     now = _now_iso()
     await db.execute(
         """
         UPDATE github_app_installation
-        SET polling_status = 'connected',
+        SET polling_status = 'installation_pending',
             polling_error = NULL,
             github_login = ?,
             token_expires_at = ?,
-            connected_at = ?,
-            last_validated_at = ?,
             last_polled_at = ?,
             updated_at = ?
         WHERE integration_id = ?
         """,
-        (github_login, token_expires_at, now, now, now, now, integration_id),
+        (github_login, token_expires_at, now, now, integration_id),
     )
     await db.commit()
     return await get_for_integration(db, integration_id)

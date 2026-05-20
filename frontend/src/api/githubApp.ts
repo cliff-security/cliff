@@ -45,6 +45,18 @@ export interface DeviceFlowDisconnectResponse {
   manual_revoke_url: string
 }
 
+/** One GitHub App installation the device-flow user can bind to.
+ *  Discovered via the user access token (ADR-0048). */
+export interface GithubAppInstallationOption {
+  installation_id: number
+  account_login: string
+  account_type: string
+}
+
+export interface DeviceFlowInstallationsResponse {
+  installations: GithubAppInstallationOption[]
+}
+
 export interface PushAccessDiagnoseResponse {
   can_push: boolean
   reason: string
@@ -89,14 +101,18 @@ export const githubAppApi = {
       '/api/integrations/github/disconnect',
       { method: 'POST', body: '{}' },
     ),
-  /** Manual recovery path (B33): the user pastes the installation_id
-   * from the redirect URL when the GET callback never reached this
-   * instance (typically because the App's globally-configured Setup
-   * URL points at a different deployment than theirs). The backend
-   * runs the same CSRF state check as the GET callback. */
-  setupManual: (payload: { installation_id: number; state: string }) =>
+  /** List the App installations discoverable via the device-flow token
+   *  (ADR-0048). Empty → the user hasn't installed the App yet; more
+   *  than one → the onboarding modal shows a picker. */
+  installations: () =>
+    request<DeviceFlowInstallationsResponse>(
+      '/api/integrations/github/installations',
+    ),
+  /** Bind the installation the user picked from the discovery picker
+   *  and connect (ADR-0048). */
+  selectInstallation: (payload: { installation_id: number }) =>
     request<DeviceFlowStatusResponse>(
-      '/api/integrations/github/setup/manual',
+      '/api/integrations/github/installations/select',
       { method: 'POST', body: JSON.stringify(payload) },
     ),
   /** Probe push access against the currently-configured GitHub repo.
@@ -178,15 +194,44 @@ export function useGithubAppPollNow() {
 }
 
 
-export function useGithubAppManualSetup() {
+/**
+ * Lists the App installations the device-flow token can bind (ADR-0048).
+ *
+ * The modal enables this once the device flow is authorized but no
+ * installation has been resolved yet. An empty list means "install the
+ * App"; more than one means "show a picker". Polls while *enabled* so
+ * the install affordance updates as soon as the user installs.
+ */
+export function useGithubAppInstallations(opts: { enabled?: boolean }) {
+  const { enabled = false } = opts
+  return useQuery({
+    queryKey: ['github-app', 'installations'],
+    queryFn: async (): Promise<GithubAppInstallationOption[]> => {
+      try {
+        const r = await githubAppApi.installations()
+        return r.installations
+      } catch (err) {
+        // 404 = no flow in progress. Treat as "nothing discovered yet"
+        // rather than a hard error so the modal stays calm.
+        if (err instanceof Error && err.message.startsWith('404:')) {
+          return []
+        }
+        throw err
+      }
+    },
+    enabled,
+    refetchInterval: enabled ? 3000 : false,
+  })
+}
+
+export function useGithubAppSelectInstallation() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (payload: { installation_id: number; state: string }) =>
-      githubAppApi.setupManual(payload),
+    mutationFn: (installationId: number) =>
+      githubAppApi.selectInstallation({ installation_id: installationId }),
     onSuccess: (data) => {
-      // Push the new status directly into the cache so the modal that
-      // mounts immediately after the recovery POST sees the bound
-      // installation_id without waiting for the next polling tick.
+      // Push the resulting (connected) status straight into the cache so
+      // the modal flips to its dismissal path without a polling round-trip.
       qc.setQueryData(['github-app', 'status'], data)
     },
   })

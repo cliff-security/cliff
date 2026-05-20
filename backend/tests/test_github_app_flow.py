@@ -18,6 +18,7 @@ from cliff.integrations.audit import AuditLogger
 from cliff.integrations.github_app import repo as gh_repo
 from cliff.integrations.github_app.client import (
     DeviceCodeResponse,
+    InstallationInfo,
     PollTokenResult,
     UserInfo,
 )
@@ -75,6 +76,18 @@ class FakeGitHubClient:
         self.poll_results: deque[PollTokenResult] = deque()
         self.user_info = UserInfo(login="octocat", id=1)
         self.poll_calls = 0
+        # ADR-0048 — installation discovery. Default to exactly one
+        # installation of *our* App (app_slug matches the orchestrator
+        # fixture's ``app_slug="cliff"``) so the post-device-flow success
+        # path resolves straight to ``connected``.
+        self.installations: list[InstallationInfo] = [
+            InstallationInfo(
+                installation_id=4242,
+                app_slug="cliff",
+                account_login="octocat",
+                account_type="User",
+            )
+        ]
 
     async def request_device_code(self) -> DeviceCodeResponse:
         return self.device_code_response
@@ -85,6 +98,11 @@ class FakeGitHubClient:
 
     async def fetch_user(self, *, access_token: str) -> UserInfo:
         return self.user_info
+
+    async def list_installations(
+        self, *, access_token: str
+    ) -> list[InstallationInfo]:
+        return self.installations
 
 
 # ---------------------------------------------------------------------------

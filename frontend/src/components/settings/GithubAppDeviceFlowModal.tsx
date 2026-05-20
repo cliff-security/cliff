@@ -1,27 +1,27 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  useGithubAppInstallations,
   useGithubAppPollNow,
+  useGithubAppSelectInstallation,
   useGithubAppStatus,
   type DeviceFlowConnectResponse,
 } from '@/api/githubApp'
-import { ManualRecoveryCard } from './ManualRecoveryCard'
-
-/** Pull the ``state`` query param out of the install_url returned by
- * POST /connect. Inlined here (not imported) so the modal doesn't
- * depend on its parent button. */
-function extractCsrfState(installUrl: string): string {
-  try {
-    return new URL(installUrl).searchParams.get('state') ?? ''
-  } catch {
-    return ''
-  }
-}
 
 /**
  * Modal that walks the user through the device flow once we have a
- * device code from POST /connect. Polls /status every 2s until a
- * terminal state arrives, then either dismisses (success) or surfaces
- * the error with a "Try again" affordance.
+ * device code from POST /connect. Polls /status every 2s.
+ *
+ * Two-phase flow (ADR-0048 — collapsed, no install-tab first):
+ *
+ *   1. Device authorization — show the one-time code, the user pastes
+ *      it on github.com/login/device. Status sits in
+ *      ``installation_pending`` (no github_login yet).
+ *   2. Installation discovery — once the device is authorized the
+ *      backend discovers the GitHub App installation from the user
+ *      access token. If exactly one is found it connects automatically;
+ *      if none, this modal shows an "Install the Cliff GitHub App"
+ *      affordance; if several, a picker. This phase is
+ *      ``installation_pending`` *with* a github_login set.
  *
  * GitHub does NOT honour ``?user_code=`` for pre-filling the device
  * page (we tested it — the param is stripped on the redirect to
@@ -36,16 +36,7 @@ function extractCsrfState(installUrl: string): string {
  * Design system: tonal layering, no `1px solid` borders, sentence
  * case, Material Symbols for icons.
  */
-const COUNTDOWN_VISIBLE_BELOW_MS = 2 * 60 * 1000  // start showing under 2 min
-
-// B33: how long we wait for the post-install GET callback to fire
-// before showing the manual recovery card. 30s is a balance between
-// "slow GitHub redirect" (median ~3-8s end-to-end on a healthy network)
-// and "GitHub never came back at all because the App's Setup URL
-// pointed at the wrong port". The user keeps a "still waiting…"
-// spinner alongside the recovery card so a slow network doesn't feel
-// rushed — the card is the *alternate* path, not a replacement.
-const MANUAL_RECOVERY_TIMEOUT_MS = 30 * 1000
+const COUNTDOWN_VISIBLE_BELOW_MS = 2 * 60 * 1000 // start showing under 2 min
 
 export function GithubAppDeviceFlowModal({
   connect,
@@ -104,30 +95,6 @@ export function GithubAppDeviceFlowModal({
     return undefined
   }, [status?.status, onDismiss])
 
-  // B33: surface the manual-recovery card after 30s of polling /status
-  // still in ``installation_pending`` (i.e. the GitHub-driven GET
-  // callback hasn't fired). The csrf state is extracted from the
-  // install_url — that's what the backend's manual-setup endpoint
-  // validates against, so a state that didn't come from this /connect
-  // can't bind a hostile installation_id.
-  const csrfState = extractCsrfState(connect.install_url)
-  const [showRecoveryCard, setShowRecoveryCard] = useState(false)
-  useEffect(() => {
-    const id = window.setTimeout(
-      () => setShowRecoveryCard(true),
-      MANUAL_RECOVERY_TIMEOUT_MS,
-    )
-    return () => window.clearTimeout(id)
-  }, [])
-  // Hide the card the moment we get past installation_pending — either
-  // the user pasted an id (status flipped to device_pending) or the
-  // GET callback arrived. Either way the card has done its job and the
-  // device-flow UI should take over uncluttered.
-  const installAttached =
-    !!status &&
-    status.installation_id !== null &&
-    status.status !== 'installation_pending'
-
   // Move focus to the modal heading on mount + Escape to dismiss. Both
   // are basic dialog hygiene that screen readers + keyboard users
   // depend on.
@@ -145,10 +112,21 @@ export function GithubAppDeviceFlowModal({
   const remainingSeconds = Math.floor((remainingMs % 60_000) / 1000)
   const timer = `${remainingMinutes}:${remainingSeconds.toString().padStart(2, '0')}`
 
-  const terminal = status?.status === 'expired'
-    || status?.status === 'denied'
-    || status?.status === 'error'
-    || remainingMs <= 0
+  // ADR-0048 — the device flow is authorized but no installation is
+  // bound yet (the backend discovered zero, or more than one). The
+  // github_login is what tells this phase apart from the pre-auth
+  // device-code phase: it's only set after the token is in hand.
+  const awaitingInstall =
+    status?.status === 'installation_pending' && !!status?.github_login
+
+  // The device-code countdown is meaningless once the code is consumed
+  // (i.e. once we're awaiting the install), so it can't terminate us there.
+  const terminal =
+    !awaitingInstall &&
+    (status?.status === 'expired' ||
+      status?.status === 'denied' ||
+      status?.status === 'error' ||
+      remainingMs <= 0)
 
   const copyCode = async () => {
     try {
@@ -173,6 +151,8 @@ export function GithubAppDeviceFlowModal({
     window.open(connect.verification_uri, '_blank', 'noopener,noreferrer')
   }
 
+  const showDeviceSteps = !terminal && !awaitingInstall
+
   return (
     <div
       role="dialog"
@@ -194,16 +174,19 @@ export function GithubAppDeviceFlowModal({
               tabIndex={-1}
               className="text-lg font-semibold tracking-tight text-on-surface focus:outline-none"
             >
-              Authorize Cliff on this device
+              {awaitingInstall
+                ? 'Install the Cliff GitHub App'
+                : 'Authorize Cliff on this device'}
             </h3>
             <p className="text-sm text-on-surface-variant mt-1">
-              Two steps: copy the code, paste it on GitHub. We'll handle the
-              copy for you when you click Authorize.
+              {awaitingInstall
+                ? "You're authorized — now pick the account or repo Cliff should work with."
+                : "Two steps: copy the code, paste it on GitHub. We'll handle the copy for you when you click Authorize."}
             </p>
           </div>
         </div>
 
-        {!terminal && (
+        {showDeviceSteps && (
           <>
             {/* Step 1 — the code, prominently displayed. Clicking the
                 Copy button copies it manually; clicking Authorize below
@@ -279,16 +262,11 @@ export function GithubAppDeviceFlowModal({
                 </>
               )}
             </p>
-
-            {/* B33: after 30s with no GET callback, surface the manual
-                recovery card. The "still waiting…" line above stays
-                visible alongside the card so a slow network doesn't
-                feel rushed — the card is an alternate path, not a
-                replacement for waiting. */}
-            {showRecoveryCard && !installAttached && csrfState && (
-              <ManualRecoveryCard csrfState={csrfState} />
-            )}
           </>
+        )}
+
+        {awaitingInstall && (
+          <GithubInstallationStep installUrl={connect.install_url} />
         )}
 
         {terminal && (
@@ -334,6 +312,116 @@ export function GithubAppDeviceFlowModal({
   )
 }
 
+/**
+ * Installation-discovery phase (ADR-0048). Once the device flow is
+ * authorized the backend looks up which GitHub App installations the
+ * user has. This component renders one of three states:
+ *
+ *   - none discovered  → "Install the Cliff GitHub App" affordance. The
+ *     backend keeps polling /user/installations; the moment exactly one
+ *     installation appears it connects and the modal dismisses.
+ *   - exactly one      → transient — the backend is auto-connecting.
+ *   - more than one    → a picker, so the user binds the right account.
+ */
+function GithubInstallationStep({ installUrl }: { installUrl: string }) {
+  const { data: installations = [], isLoading } = useGithubAppInstallations({
+    enabled: true,
+  })
+  const select = useGithubAppSelectInstallation()
+
+  if (isLoading) {
+    return (
+      <p
+        className="rounded-xl bg-surface-container-low p-5 text-sm text-on-surface-variant"
+        data-testid="github-installation-loading"
+      >
+        Looking for your GitHub App installation…
+      </p>
+    )
+  }
+
+  if (installations.length === 0) {
+    return (
+      <div
+        className="rounded-xl bg-surface-container-low p-5"
+        data-testid="github-installation-install"
+      >
+        <p className="text-sm text-on-surface">
+          One more step — install the Cliff GitHub App on the account or
+          repository you want to secure.
+        </p>
+        <a
+          href={installUrl}
+          target="_blank"
+          rel="noreferrer"
+          data-testid="github-installation-install-link"
+          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 py-4 text-base font-semibold text-on-primary hover:bg-primary/90 transition-colors shadow-sm shadow-primary/20"
+        >
+          <span className="material-symbols-outlined text-xl">open_in_new</span>
+          Install the Cliff GitHub App
+        </a>
+        <p className="mt-3 text-center text-xs text-on-surface-variant">
+          Opens github.com in a new tab. Keep this tab open — we'll detect
+          the install automatically and finish connecting.
+        </p>
+      </div>
+    )
+  }
+
+  if (installations.length === 1) {
+    return (
+      <p
+        className="rounded-xl bg-surface-container-low p-5 text-sm text-on-surface-variant"
+        data-testid="github-installation-finishing"
+      >
+        Found your installation — finishing up…
+      </p>
+    )
+  }
+
+  return (
+    <div
+      className="rounded-xl bg-surface-container-low p-5"
+      data-testid="github-installation-picker"
+    >
+      <p className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant mb-3">
+        Choose an account
+      </p>
+      <p className="text-sm text-on-surface-variant mb-3">
+        The Cliff GitHub App is installed on more than one account. Pick the
+        one to connect to this Cliff.
+      </p>
+      <ul className="flex flex-col gap-2">
+        {installations.map((inst) => (
+          <li key={inst.installation_id}>
+            <button
+              type="button"
+              data-testid={`github-installation-option-${inst.installation_id}`}
+              onClick={() => select.mutate(inst.installation_id)}
+              disabled={select.isPending}
+              className="flex w-full items-center justify-between gap-3 rounded-lg bg-surface-container-lowest px-4 py-3 text-left text-sm text-on-surface hover:bg-surface-container transition-colors disabled:opacity-60"
+            >
+              <span className="font-semibold">{inst.account_login}</span>
+              <span className="text-xs text-on-surface-variant">
+                {inst.account_type}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {select.isError && (
+        <p
+          role="alert"
+          className="mt-3 text-xs text-error"
+          data-testid="github-installation-picker-error"
+        >
+          Couldn't connect that account. Pick another, or try again.
+        </p>
+      )}
+    </div>
+  )
+}
+
 function statusLabel(
   status: string | undefined,
   returnedFromAuthorize: boolean,
@@ -346,7 +434,6 @@ function statusLabel(
   }
   switch (status) {
     case 'installation_pending':
-      return 'Waiting for install…'
     case 'device_pending':
       return 'Waiting for authorization…'
     case 'rate_limited':

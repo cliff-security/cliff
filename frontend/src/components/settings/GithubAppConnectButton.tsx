@@ -9,24 +9,19 @@ import { GithubAppDeviceFlowModal } from './GithubAppDeviceFlowModal'
 /**
  * Single-button entry point for the GitHub App + Device Flow onboarding.
  *
- * New-tab UX (B33 / IMPL-0016):
- * 1. Click button → POST /connect → open the GitHub install URL in a
- *    NEW tab via ``window.open``. The original tab stays alive so it
- *    can poll for the install and offer a manual-recovery path if the
- *    callback never reaches this instance (the App's Setup URL is
- *    hardcoded on github.com to ``localhost:8000`` — every Cliff that
- *    isn't bound to that exact port hits the recovery flow).
- * 2. The original tab mounts the GithubAppDeviceFlowModal, which polls
- *    /status. It starts in ``installation_pending`` and flips to
- *    ``device_pending`` once the GET callback lands (or until the user
- *    pastes the installation_id into the ManualRecoveryCard the modal
- *    shows after 30s).
- * 3. Once in ``device_pending`` the user authorizes on the device-code
- *    page, the modal flips to Connected, and dismisses.
+ * Collapsed single-modal UX (ADR-0048):
+ * 1. Click button → POST /connect → mount the GithubAppDeviceFlowModal
+ *    directly. No install tab is opened up front — the device flow
+ *    comes first.
+ * 2. The modal walks the user through authorizing the device code.
+ * 3. Once authorized, the backend discovers the GitHub App installation
+ *    from the user access token (``GET /user/installations``). The
+ *    modal then either connects automatically (one installation),
+ *    shows an "Install the Cliff GitHub App" affordance (none), or a
+ *    picker (several) — all in the same modal.
  *
- * The button used to do a same-tab ``window.location.href = ...``
- * which made the recovery flow impossible (the original tab navigated
- * away). New-tab is the load-bearing change for B33.
+ * Discovery removes the dependency on the App's redirect callback, so
+ * onboarding works on any self-host port (B02).
  */
 export function GithubAppConnectButton({
   className = '',
@@ -56,18 +51,10 @@ export function GithubAppConnectButton({
   // row exists), so the page is the only safe owner of that effect.
 
   const handleClick = async () => {
+    // ADR-0048 — go straight to the device-flow modal. The App-install
+    // step (when needed) is a secondary affordance the modal surfaces
+    // after the device is authorized, not a tab opened up front.
     const r = await connect.mutateAsync({ returnTo })
-    if (typeof window !== 'undefined') {
-      // Open the install URL in a NEW tab so this tab can keep polling
-      // /status. The user's flow: click Install on github.com → if
-      // GitHub redirects to a Cliff that doesn't exist on the
-      // hard-coded port the user can simply switch back to this tab
-      // and use the manual recovery card after 30s.
-      window.open(r.install_url, '_blank', 'noopener,noreferrer')
-    }
-    // Mount the modal IMMEDIATELY (not waiting for the user to come
-    // back from GitHub) — that's what enables the 30s timeout that
-    // surfaces the manual recovery card on B33-affected deployments.
     setResponse(r)
   }
 
