@@ -324,6 +324,31 @@ async def test_engine_semgrep_timeout_is_skipped_with_timeout_error(
 
 
 @pytest.mark.asyncio
+async def test_engine_semgrep_missing_binary_is_skipped_with_binary_missing_error(
+    planted_repo: Path,
+) -> None:
+    """B07 — a missing pinned binary surfaces as FileNotFoundError from the
+    subprocess spawn and is classified ``binary_missing`` (distinct from a
+    generic exec failure)."""
+    runner = FakeScannerRunner(
+        semgrep_exc=FileNotFoundError("bin/semgrep: not found")
+    )
+    cloner = FakeRepoCloner(planted_repo)
+
+    result = await run_assessment(
+        "https://github.com/acme/demo",
+        gh_client=_gh_client_unable(),
+        runner=runner,
+        cloner=cloner,
+        assessment_id="asm-nobin",
+    )
+
+    semgrep = next(t for t in result.tools if t.id == "semgrep")
+    assert semgrep.state == "skipped"
+    assert semgrep.error == "binary_missing"
+
+
+@pytest.mark.asyncio
 async def test_engine_semgrep_success_has_no_error(
     planted_repo: Path,
 ) -> None:

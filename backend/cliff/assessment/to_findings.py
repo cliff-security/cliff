@@ -69,11 +69,15 @@ def _dedup_pkg_prefix(title: str, pkg_name: str) -> str:
     producing ``"python-diskcache: python-diskcache: ..."``. Collapse the
     repeat to a single prefix. Titles without the doubled prefix are
     returned unchanged.
+
+    The match is case-insensitive: GHSA titles routinely differ in case
+    from Trivy's ``PkgName`` (e.g. pkg ``Django`` vs title ``django: ...``).
     """
     if not pkg_name:
         return title
     prefix = f"{pkg_name}: "
-    if title.startswith(prefix + prefix):
+    double = prefix + prefix
+    if title[: len(double)].lower() == double.lower():
         return title[len(prefix) :]
     return title
 

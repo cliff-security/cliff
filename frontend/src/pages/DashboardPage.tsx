@@ -34,6 +34,7 @@ import IssueGradeHero, {
   type GradeLetter,
 } from '@/components/dashboard/IssueGradeHero'
 import LastAssessmentPanel from '@/components/dashboard/LastAssessmentPanel'
+import type { ScannerRowData } from '@/components/dashboard/ScannerRow'
 import LevelUpPanel from '@/components/dashboard/LevelUpPanel'
 import ShareReportPanel from '@/components/dashboard/ShareReportPanel'
 import { countQuickWins } from '@/components/dashboard/quickWins'
@@ -620,22 +621,8 @@ function ReportCard({ data }: { data: DashboardPayload }) {
                 branch: data.last_assessment.branch,
                 scanned_files: data.last_assessment.scanned_files,
                 scanned_deps: data.last_assessment.scanned_deps,
-                scanners: (data.last_assessment.scanners ?? []) as Array<{
-                  id: string
-                  label: string
-                  state: 'pending' | 'active' | 'done' | 'skipped'
-                  version?: string | null
-                  icon?: string | null
-                  ran?: string | null
-                  scope?: string | null
-                  duration_ms?: number | null
-                  error?: 'timeout' | 'binary_missing' | 'exec_failed' | null
-                  result?: {
-                    kind: 'findings_count' | 'pass_count'
-                    value: number
-                    text: string
-                  } | null
-                }>,
+                scanners: (data.last_assessment.scanners ??
+                  []) as ScannerRowData[],
               }}
               onReassess={handleReassess}
               reassessing={reassessMutation.isPending}

@@ -99,6 +99,26 @@ def test_from_trivy_vulns_collapses_doubled_package_prefix() -> None:
     )
 
 
+def test_from_trivy_vulns_dedup_prefix_is_case_insensitive() -> None:
+    """B08 — GHSA titles routinely differ in case from Trivy's PkgName
+    (pkg ``Django`` vs title ``django: ...``); the dedup still collapses."""
+    result = TrivyResult(
+        version="0.52.0",
+        target="/tmp/repo",
+        vulnerabilities=[
+            TrivyVulnerability(
+                pkg_name="Django",
+                installed_version="4.2.0",
+                vuln_id="CVE-2026-00001",
+                severity="HIGH",
+                title="django: django: SQL injection in QuerySet",
+            )
+        ],
+    )
+    [f] = from_trivy_vulns(result, assessment_id=ASSESSMENT_ID)
+    assert f.title == "django: SQL injection in QuerySet"
+
+
 def test_from_trivy_vulns_leaves_single_prefix_and_plain_titles_unchanged() -> None:
     """B08 — a title with a single prefix, or none, is untouched."""
     result = TrivyResult(

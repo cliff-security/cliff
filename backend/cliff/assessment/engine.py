@@ -264,11 +264,15 @@ async def run_assessment(
             durations_ms["semgrep"] = _elapsed_ms(semgrep_started)
             # B07 — carry a machine-readable reason so the dashboard can
             # render a skipped scanner distinctly from a clean "0 findings"
-            # run. A timeout is the common case on large repos; anything
-            # else is an exec failure.
-            tool_error = (
-                "timeout" if isinstance(exc, ScannerTimeoutError) else "exec_failed"
-            )
+            # run. Timeout is the common case on large repos; a missing
+            # pinned binary surfaces as FileNotFoundError from the
+            # subprocess spawn; anything else is an exec failure.
+            if isinstance(exc, ScannerTimeoutError):
+                tool_error = "timeout"
+            elif isinstance(exc, FileNotFoundError):
+                tool_error = "binary_missing"
+            else:
+                tool_error = "exec_failed"
             tools["semgrep"] = tools["semgrep"].model_copy(
                 update={
                     "state": "skipped",

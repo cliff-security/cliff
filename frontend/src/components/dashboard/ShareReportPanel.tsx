@@ -41,7 +41,8 @@ export default function ShareReportPanel({
       try {
         dlg.showModal()
       } catch {
-        dlg.setAttribute('open', '')
+        // showModal throws if the dialog is mid-transition; the `open`
+        // prop has already rendered it visibly, so no fallback is needed.
       }
     } else if (!open && dlg.open) {
       dlg.close()

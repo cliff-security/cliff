@@ -348,13 +348,18 @@ export function useAgentRuns(workspaceId: string | undefined) {
     if (!runs || !workspaceId) return
     const prev = prevStatuses.current
     let terminalTransition = false
+    const next = new Map<string, string>()
     for (const r of runs) {
       const was = prev.get(r.id)
       if (was && was !== r.status && AGENT_RUN_TERMINAL.has(r.status)) {
         terminalTransition = true
       }
-      prev.set(r.id, r.status)
+      next.set(r.id, r.status)
     }
+    // Replace wholesale rather than accumulate — ids from runs that have
+    // dropped off (or from a prior workspace this hook instance served)
+    // never linger.
+    prevStatuses.current = next
     if (terminalTransition) {
       qc.invalidateQueries({ queryKey: ['findings'] })
       qc.invalidateQueries({ queryKey: ['sidebar', workspaceId] })
