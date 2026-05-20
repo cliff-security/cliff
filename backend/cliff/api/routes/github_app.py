@@ -32,6 +32,7 @@ from cliff.integrations.github_app import repo as gh_repo
 from cliff.integrations.github_app.client import (
     GitHubDeviceFlowClient,
     GitHubDeviceFlowError,
+    GitHubDeviceFlowTransientError,
     check_repo_push_access,
 )
 from cliff.integrations.github_app.flow import (
@@ -681,6 +682,12 @@ async def list_installations(
         installations = await orchestrator.list_available_installations(
             integration_id
         )
+    except GitHubDeviceFlowTransientError as exc:
+        # Rate limit / 5xx — recoverable. 503 tells the UI to retry.
+        raise HTTPException(
+            status_code=503,
+            detail="GitHub is temporarily unavailable — try again in a moment.",
+        ) from exc
     except GitHubDeviceFlowError as exc:
         raise HTTPException(
             status_code=502,
@@ -724,6 +731,11 @@ async def select_installation(
         )
     except InstallationNotAvailableError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except GitHubDeviceFlowTransientError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="GitHub is temporarily unavailable — try again in a moment.",
+        ) from exc
     except GitHubDeviceFlowError as exc:
         raise HTTPException(
             status_code=502,

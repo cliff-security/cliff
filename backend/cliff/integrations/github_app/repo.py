@@ -211,53 +211,41 @@ async def mark_connected(
     When *installation_id* is given (ADR-0048 — discovered via
     ``/user/installations`` rather than the redirect callback) it is
     persisted alongside; passing ``None`` leaves whatever the legacy
-    ``/setup`` callback already bound untouched.
+    ``/setup`` callback already bound untouched. ``COALESCE`` is what
+    makes the single UPDATE serve both: a ``NULL`` parameter keeps the
+    existing column value.
     """
     now = _now_iso()
-    if installation_id is not None:
-        await db.execute(
-            """
-            UPDATE github_app_installation
-            SET polling_status = 'connected',
-                polling_error = NULL,
-                installation_id = ?,
-                installation_completed_at = ?,
-                github_login = ?,
-                token_expires_at = ?,
-                connected_at = ?,
-                last_validated_at = ?,
-                last_polled_at = ?,
-                updated_at = ?
-            WHERE integration_id = ?
-            """,
-            (
-                installation_id,
-                now,
-                github_login,
-                token_expires_at,
-                now,
-                now,
-                now,
-                now,
-                integration_id,
-            ),
-        )
-    else:
-        await db.execute(
-            """
-            UPDATE github_app_installation
-            SET polling_status = 'connected',
-                polling_error = NULL,
-                github_login = ?,
-                token_expires_at = ?,
-                connected_at = ?,
-                last_validated_at = ?,
-                last_polled_at = ?,
-                updated_at = ?
-            WHERE integration_id = ?
-            """,
-            (github_login, token_expires_at, now, now, now, now, integration_id),
-        )
+    # installation_completed_at advances only when a fresh installation_id
+    # is being bound; otherwise it (like installation_id) is preserved.
+    completed_at = now if installation_id is not None else None
+    await db.execute(
+        """
+        UPDATE github_app_installation
+        SET polling_status = 'connected',
+            polling_error = NULL,
+            installation_id = COALESCE(?, installation_id),
+            installation_completed_at = COALESCE(?, installation_completed_at),
+            github_login = ?,
+            token_expires_at = ?,
+            connected_at = ?,
+            last_validated_at = ?,
+            last_polled_at = ?,
+            updated_at = ?
+        WHERE integration_id = ?
+        """,
+        (
+            installation_id,
+            completed_at,
+            github_login,
+            token_expires_at,
+            now,
+            now,
+            now,
+            now,
+            integration_id,
+        ),
+    )
     await db.commit()
     return await get_for_integration(db, integration_id)
 

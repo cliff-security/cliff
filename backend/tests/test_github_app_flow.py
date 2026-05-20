@@ -7,6 +7,7 @@ deterministically.
 
 from __future__ import annotations
 
+import asyncio
 from collections import deque
 from typing import TYPE_CHECKING
 
@@ -580,6 +581,37 @@ async def test_disconnect_clears_credentials_and_installation_row(
 # ---------------------------------------------------------------------------
 # PAT archive on connect
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_poll_loop_stops_after_max_duration(
+    orchestrator: DeviceFlowOrchestrator,
+    db: aiosqlite.Connection,
+    fake_client: FakeGitHubClient,
+    integration_id: str,
+):
+    """The background poll loop must not run forever. A device that is
+    never authorized would otherwise keep the row non-terminal and the
+    loop spinning; the duration cap stops the task on its own. The row is
+    left untouched — a returning user's idempotent /connect re-spawns it.
+    """
+    await orchestrator.initiate(integration_id)
+    # Every poll stays pending — without the cap the loop never exits.
+    # FakeClock.sleep advances the clock, so the cap is reached fast.
+    for _ in range(2_000):
+        fake_client.poll_results.append(
+            PollTokenResult(kind="authorization_pending")
+        )
+
+    await orchestrator.start(integration_id)
+    task = orchestrator._tasks[integration_id]  # noqa: SLF001 — test seam
+    await asyncio.wait_for(task, timeout=5)
+    assert task.done()
+
+    record = await gh_repo.get_for_integration(db, integration_id)
+    assert record is not None
+    # The loop stopping does not mutate the row — still pending.
+    assert record.polling_status == "installation_pending"
 
 
 @pytest.mark.asyncio
