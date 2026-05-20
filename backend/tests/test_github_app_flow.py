@@ -491,20 +491,41 @@ async def test_poll_step_transient_github_5xx_does_not_terminate(
 
 
 @pytest.mark.asyncio
-async def test_poll_step_after_device_code_expiry_marks_expired(
+async def test_poll_step_ignores_skewed_local_clock_uses_github_authority(
     orchestrator: DeviceFlowOrchestrator,
+    vault: CredentialVault,
     db: aiosqlite.Connection,
     fake_clock: FakeClock,
+    fake_client: FakeGitHubClient,
     integration_id: str,
 ):
+    """B03 — a self-hosted container's clock can be skewed ahead of GitHub's.
+
+    Before the fix, ``run_poll_step`` short-circuited to ``expired`` purely
+    on the local clock crossing ``device_code_expires_at``. A +2h-skewed
+    container (Q03) expired still-valid codes. Now the flow always polls
+    GitHub: if GitHub still accepts the code, the connection completes even
+    though the *local* clock is well past the stored deadline.
+    """
     await orchestrator.initiate(integration_id)
-    # Skip past the 15-minute window without queuing any poll results.
+    # Local clock jumps far past the 15-minute window (simulated skew).
     fake_clock.advance(901)
+    # GitHub itself still honours the code and returns a token.
+    fake_client.poll_results.append(
+        PollTokenResult(
+            kind="success",
+            access_token="ghu_test",
+            refresh_token=None,
+            expires_in=None,
+        )
+    )
     await orchestrator.run_poll_step(integration_id)
 
     record = await gh_repo.get_for_integration(db, integration_id)
     assert record is not None
-    assert record.polling_status == "expired"
+    # Not expired — GitHub's authority wins over the skewed local clock.
+    assert record.polling_status == "connected"
+    assert await vault.retrieve(integration_id, GITHUB_TOKEN_KEY) == "ghu_test"
 
 
 # ---------------------------------------------------------------------------
