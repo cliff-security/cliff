@@ -269,6 +269,9 @@ async def record_device_authorized(
     resolved by a later poll or the picker.
     """
     now = _now_iso()
+    # ``AND installation_id IS NULL`` keeps a late discovery tick from
+    # clobbering a row the legacy /setup callback bound concurrently —
+    # once an installation is attached, that row is past this phase.
     await db.execute(
         """
         UPDATE github_app_installation
@@ -279,6 +282,7 @@ async def record_device_authorized(
             last_polled_at = ?,
             updated_at = ?
         WHERE integration_id = ?
+          AND installation_id IS NULL
         """,
         (github_login, token_expires_at, now, now, integration_id),
     )

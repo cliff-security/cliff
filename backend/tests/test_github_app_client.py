@@ -391,6 +391,50 @@ async def test_list_installations_raises_transient_on_5xx():
 
 
 @pytest.mark.asyncio
+async def test_list_installations_treats_rate_limited_403_as_transient():
+    """GitHub surfaces rate limits as 403 too — a 403 with an exhausted
+    ``x-ratelimit-remaining`` must be transient, not fatal, so discovery
+    retries instead of failing the onboarding flow."""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            headers={"x-ratelimit-remaining": "0"},
+            json={"message": "API rate limit exceeded"},
+        )
+
+    client = _client_with_handler(handler)
+    with pytest.raises(GitHubDeviceFlowTransientError):
+        await client.list_installations(access_token="ghu_test")
+
+
+@pytest.mark.asyncio
+async def test_list_installations_plain_403_stays_fatal():
+    """A 403 that is NOT a rate limit (genuine forbidden) is fatal."""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"message": "Forbidden"})
+
+    client = _client_with_handler(handler)
+    with pytest.raises(GitHubDeviceFlowError) as exc:
+        await client.list_installations(access_token="ghu_test")
+    assert not isinstance(exc.value, GitHubDeviceFlowTransientError)
+
+
+@pytest.mark.asyncio
+async def test_list_installations_raises_on_non_json_200():
+    """A 200 whose body isn't JSON raises a typed GitHubDeviceFlowError
+    rather than letting a bare ValueError escape."""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<html>not json</html>")
+
+    client = _client_with_handler(handler)
+    with pytest.raises(GitHubDeviceFlowError):
+        await client.list_installations(access_token="ghu_test")
+
+
+@pytest.mark.asyncio
 async def test_list_installations_raises_on_401():
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, json={"message": "Bad credentials"})

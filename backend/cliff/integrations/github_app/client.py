@@ -330,7 +330,21 @@ class GitHubDeviceFlowClient:
                     "X-GitHub-Api-Version": "2022-11-28",
                 },
             )
-        if resp.status_code == 429 or 500 <= resp.status_code < 600:
+        # GitHub surfaces primary AND secondary rate limits as either 429
+        # or 403 (docs: rest/using-the-rest-api/rate-limits-for-the-rest-api).
+        # A 403 is a rate limit when ``x-ratelimit-remaining`` is exhausted
+        # or the body says so — classify those as transient like a 429 so
+        # discovery retries instead of failing the flow.
+        rate_limited_403 = resp.status_code == 403 and (
+            resp.headers.get("x-ratelimit-remaining") == "0"
+            or "rate limit" in (resp.text or "").lower()
+            or "abuse" in (resp.text or "").lower()
+        )
+        if (
+            resp.status_code == 429
+            or rate_limited_403
+            or 500 <= resp.status_code < 600
+        ):
             raise GitHubDeviceFlowTransientError(
                 f"list_installations transient: HTTP {resp.status_code} "
                 f"{_safe_error_summary(resp)}"
@@ -340,7 +354,12 @@ class GitHubDeviceFlowClient:
                 f"GET /user/installations failed: HTTP {resp.status_code} "
                 f"{_safe_error_summary(resp)}"
             )
-        body = resp.json()
+        try:
+            body = resp.json()
+        except ValueError as exc:
+            raise GitHubDeviceFlowError(
+                "GET /user/installations returned a non-JSON response"
+            ) from exc
         raw = body.get("installations") if isinstance(body, dict) else None
         if not isinstance(raw, list):
             raise GitHubDeviceFlowError(
