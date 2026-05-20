@@ -7,7 +7,6 @@ import {
   useDeleteIntegration,
   useUpdateIntegration,
   useRegistry,
-  useCredentials,
   useStoreCredential,
   useTestIntegration,
   useAllIntegrationsHealth,
@@ -376,7 +375,6 @@ function ConfiguredCard({
   const deleteIntegration = useDeleteIntegration()
   const githubAppDisconnect = useGithubAppDisconnect()
   const testIntegration = useTestIntegration()
-  const { data: credentials } = useCredentials(integration.id)
   const [testing, setTesting] = useState(false)
 
   const isGithubAppRow = integration.auth_method === 'github_app'
@@ -421,7 +419,12 @@ function ConfiguredCard({
   const level = resolveHealthLevel(health)
   const live = level === 'ok'
 
-  // Mono detail line — repo url if present, else adapter_type + cred count.
+  // Mono detail line — repo url if present, else adapter_type, then login.
+  // B04 — the raw vault credential count used to render here ("2
+  // credentials"). That's an internal storage detail the maintainer can't
+  // act on, and a count like "2" reads as a glitch. Connection identity
+  // (repo · @login · Live) is what actually matters; the health row
+  // already covers "credentials missing".
   const repoUrl =
     typeof integration.config?.repo_url === 'string' && integration.config.repo_url
       ? (integration.config.repo_url as string)
@@ -431,11 +434,6 @@ function ConfiguredCard({
     detailParts.push(repoUrl.replace(/^https?:\/\//, ''))
   } else {
     detailParts.push(integration.adapter_type.replace('_', ' '))
-  }
-  if (credentials && credentials.length > 0) {
-    detailParts.push(
-      `${credentials.length} credential${credentials.length !== 1 ? 's' : ''}`,
-    )
   }
   if (isGithubAppRow && integration.github_login) {
     detailParts.push(`@${integration.github_login}`)
