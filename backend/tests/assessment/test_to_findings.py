@@ -73,6 +73,85 @@ def test_from_trivy_vulns_source_id_format() -> None:
     assert f.source_id == "braces@3.0.2:GHSA-grv7-fg5c-xmjg"
 
 
+def test_from_trivy_vulns_collapses_doubled_package_prefix() -> None:
+    """B08 — a GHSA title already led with ``<pkg>: `` and the package name
+    was prepended again. The doubled prefix is collapsed to one."""
+    result = TrivyResult(
+        version="0.52.0",
+        target="/tmp/repo",
+        vulnerabilities=[
+            TrivyVulnerability(
+                pkg_name="python-diskcache",
+                installed_version="5.6.3",
+                vuln_id="CVE-2025-69872",
+                severity="MEDIUM",
+                title=(
+                    "python-diskcache: python-diskcache: Arbitrary code "
+                    "execution via insecure pickle deserialization"
+                ),
+            )
+        ],
+    )
+    [f] = from_trivy_vulns(result, assessment_id=ASSESSMENT_ID)
+    assert f.title == (
+        "python-diskcache: Arbitrary code execution via insecure pickle "
+        "deserialization"
+    )
+
+
+def test_from_trivy_vulns_dedup_prefix_is_case_insensitive() -> None:
+    """B08 — GHSA titles routinely differ in case from Trivy's PkgName
+    (pkg ``Django`` vs title ``django: ...``); the dedup still collapses."""
+    result = TrivyResult(
+        version="0.52.0",
+        target="/tmp/repo",
+        vulnerabilities=[
+            TrivyVulnerability(
+                pkg_name="Django",
+                installed_version="4.2.0",
+                vuln_id="CVE-2026-00001",
+                severity="HIGH",
+                title="django: django: SQL injection in QuerySet",
+            )
+        ],
+    )
+    [f] = from_trivy_vulns(result, assessment_id=ASSESSMENT_ID)
+    assert f.title == "django: SQL injection in QuerySet"
+
+
+def test_from_trivy_vulns_leaves_single_prefix_and_plain_titles_unchanged() -> None:
+    """B08 — a title with a single prefix, or none, is untouched."""
+    result = TrivyResult(
+        version="0.52.0",
+        target="/tmp/repo",
+        vulnerabilities=[
+            TrivyVulnerability(
+                pkg_name="urllib3",
+                installed_version="2.6.3",
+                vuln_id="CVE-2026-44432",
+                severity="HIGH",
+                title="urllib3 is an HTTP client library for Python ...",
+            ),
+            TrivyVulnerability(
+                pkg_name="gitpython",
+                installed_version="3.1.49",
+                vuln_id="GHSA-mv93-w799-cj2w",
+                severity="HIGH",
+                title="gitpython: Newline injection in config_writer()",
+            ),
+        ],
+    )
+    findings = from_trivy_vulns(result, assessment_id=ASSESSMENT_ID)
+    # urllib3 title has no "<pkg>: " prefix at all → unchanged.
+    assert findings[0].title == (
+        "urllib3 is an HTTP client library for Python ..."
+    )
+    # gitpython title has exactly one prefix → unchanged.
+    assert findings[1].title == (
+        "gitpython: Newline injection in config_writer()"
+    )
+
+
 # --------------------------------------------------------------------- Trivy secrets
 
 

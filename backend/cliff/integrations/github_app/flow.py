@@ -276,10 +276,13 @@ class DeviceFlowOrchestrator:
         if record.polling_status not in {"installation_pending", "device_pending"}:
             return  # terminal, nothing to do
 
-        # Device-code expiry — short-circuit before hitting the network.
-        if self._is_expired(record):
-            await self._terminate(integration_id, status="expired", error=None)
-            return
+        # B03 — no local-clock expiry short-circuit. ``device_code_expires_at``
+        # is GitHub's deadline measured against GitHub's clock; comparing it to
+        # a self-hosted container's wall clock (which can be skewed — Q03 saw a
+        # +2h drift) expired still-valid codes prematurely. GitHub's own
+        # ``expired_token`` poll result is the single source of truth: an
+        # expired code returns that kind and ``_apply_poll_result`` terminates
+        # the row. The cost is one extra poll call per genuinely-expired code.
 
         try:
             device_code = await self._vault.retrieve(
@@ -513,15 +516,6 @@ class DeviceFlowOrchestrator:
         await gh_repo.update_polling_status(
             self._db, integration_id, status=status, error=bounded_error  # type: ignore[arg-type]
         )
-
-    def _is_expired(self, record: GithubAppInstallation) -> bool:
-        if not record.device_code_expires_at:
-            return False
-        try:
-            expires = datetime.fromisoformat(record.device_code_expires_at)
-        except ValueError:
-            return False
-        return self._now_dt() >= expires
 
     def _remaining_seconds(self, record: GithubAppInstallation) -> int:
         if not record.device_code_expires_at:

@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import type {
@@ -312,8 +312,30 @@ const AGENT_RUNS_ACTIVE_POLL_MS = 2_000
  *  between runs stalled the UI on stale state — B28/B29. */
 const AGENT_RUNS_IDLE_POLL_MS = 5_000
 
+/** Agent-run statuses that mean the run will not change again. */
+const AGENT_RUN_TERMINAL = new Set([
+  'completed',
+  'failed',
+  'cancelled',
+  'rate_limited',
+])
+
 export function useAgentRuns(workspaceId: string | undefined) {
-  return useQuery({
+  const qc = useQueryClient()
+  const prevStatuses = useRef<Map<string, string>>(new Map())
+  // False until the first poll for the current workspace has been seen,
+  // so an initial load (or a workspace switch) establishes a baseline
+  // instead of firing an invalidation for every already-terminal run.
+  const baselined = useRef(false)
+
+  // Reset the baseline when the workspace changes — a fresh workspace's
+  // runs must not be diffed against the previous workspace's snapshot.
+  useEffect(() => {
+    prevStatuses.current = new Map()
+    baselined.current = false
+  }, [workspaceId])
+
+  const query = useQuery({
     queryKey: ['agent-runs', workspaceId],
     queryFn: () => api.listAgentRuns(workspaceId!),
     enabled: !!workspaceId,
@@ -325,6 +347,45 @@ export function useAgentRuns(workspaceId: string | undefined) {
       return hasActive ? AGENT_RUNS_ACTIVE_POLL_MS : AGENT_RUNS_IDLE_POLL_MS
     },
   })
+
+  // B09 — when a run reaches a terminal state, the finding's backend-derived
+  // stage changes too (e.g. → 'failed'). The SSE stream normally cache-busts
+  // ['findings'] on agent_run_completed, but when SSE is unavailable the poll
+  // only refreshes ['agent-runs'] and the side panel's stage stays stale on
+  // "Thinking…". Mirror that invalidation off the poll so the fallback path
+  // also flips the panel.
+  useEffect(() => {
+    const runs = query.data
+    if (!runs || !workspaceId) return
+    const prev = prevStatuses.current
+    let terminalTransition = false
+    const next = new Map<string, string>()
+    for (const r of runs) {
+      const was = prev.get(r.id)
+      // Fire once the baseline exists for any run that *became* terminal —
+      // whether it was previously seen non-terminal, or first observed
+      // already terminal (a fast agent can be created and fail entirely
+      // between two polls, so the non-terminal state is never seen).
+      if (
+        baselined.current &&
+        was !== r.status &&
+        AGENT_RUN_TERMINAL.has(r.status)
+      ) {
+        terminalTransition = true
+      }
+      next.set(r.id, r.status)
+    }
+    // Replace wholesale rather than accumulate — ids from runs that have
+    // dropped off never linger.
+    prevStatuses.current = next
+    baselined.current = true
+    if (terminalTransition) {
+      qc.invalidateQueries({ queryKey: ['findings'] })
+      qc.invalidateQueries({ queryKey: ['sidebar', workspaceId] })
+    }
+  }, [query.data, qc, workspaceId])
+
+  return query
 }
 
 export function useCreateAgentRun(workspaceId: string) {

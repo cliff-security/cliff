@@ -957,6 +957,22 @@
             ],
             "title": "Duration Ms"
           },
+          "error": {
+            "anyOf": [
+              {
+                "enum": [
+                  "timeout",
+                  "binary_missing",
+                  "exec_failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
           "icon": {
             "title": "Icon",
             "type": "string"
