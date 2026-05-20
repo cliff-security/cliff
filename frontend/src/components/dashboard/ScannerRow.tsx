@@ -4,17 +4,26 @@
  *
  * Generic over the AssessmentTool shape so the future Secret-Sweeper split
  * (CEO follow-up) is data-only with no component refactor needed.
+ *
+ * B07 — the row is state-aware: a ``skipped`` scanner (timed out, binary
+ * missing, exec failure) renders a distinct warning indicator and a chip
+ * that names the reason, so it never reads as a clean "0 findings" run.
  */
 import { formatDurationMs } from './durationFormat'
+
+type ToolState = 'pending' | 'active' | 'done' | 'skipped'
+type ToolError = 'timeout' | 'binary_missing' | 'exec_failed'
 
 export type ScannerRowData = {
   id: string
   label: string
+  state: ToolState
   version?: string | null
   icon?: string | null
   ran?: string | null
   scope?: string | null
   duration_ms?: number | null
+  error?: ToolError | null
   result?: {
     kind: 'findings_count' | 'pass_count'
     value: number
@@ -22,17 +31,34 @@ export type ScannerRowData = {
   } | null
 }
 
+const SKIPPED_REASON: Record<ToolError, string> = {
+  timeout: 'timed out',
+  binary_missing: 'unavailable',
+  exec_failed: 'scan failed',
+}
+
+const SKIPPED_TITLE: Record<ToolError, string> = {
+  timeout:
+    'This scanner timed out before it finished — its results are not in the grade. Larger repos may need a longer budget; see Configure scanners.',
+  binary_missing:
+    'This scanner binary was unavailable, so it did not run. See Configure scanners.',
+  exec_failed:
+    'This scanner failed to run, so its results are not in the grade. See Configure scanners.',
+}
+
 export default function ScannerRow({ tool }: { tool: ScannerRowData }) {
   const findings = tool.result?.kind === 'findings_count' ? tool.result.value : null
   const pass = tool.result?.kind === 'pass_count' ? tool.result.value : null
+  const skipped = tool.state === 'skipped'
 
   return (
     <li
       data-testid={`scanner-row-${tool.id}`}
+      data-state={tool.state}
       className="flex items-center gap-4 py-3"
       style={{
         borderBottom: '1px solid var(--outline-variant, #abb3b7)',
-        opacity: 1,
+        opacity: skipped ? 0.85 : 1,
       }}
     >
       {/* Identity (220px fixed) */}
@@ -112,8 +138,17 @@ export default function ScannerRow({ tool }: { tool: ScannerRowData }) {
         >
           {formatDurationMs(tool.duration_ms)}
         </span>
-        <FindingsChip findings={findings} pass={pass} total={tool.result?.text} />
-        <DoneDot />
+        {skipped ? (
+          <>
+            <SkippedChip error={tool.error ?? null} />
+            <SkippedDot error={tool.error ?? null} />
+          </>
+        ) : (
+          <>
+            <FindingsChip findings={findings} pass={pass} total={tool.result?.text} />
+            <DoneDot />
+          </>
+        )}
       </div>
     </li>
   )
@@ -168,10 +203,29 @@ function FindingsChip({
   )
 }
 
+function SkippedChip({ error }: { error: ToolError | null }) {
+  const reason = error ? SKIPPED_REASON[error] : 'skipped'
+  return (
+    <span
+      data-testid="scanner-row-skipped-chip"
+      className="rounded-full font-semibold"
+      style={{
+        fontSize: 11,
+        padding: '2px 8px',
+        background: 'var(--cd-amber-soft, rgba(240, 191, 126, 0.16))',
+        color: 'var(--cd-amber, #f0bf7e)',
+      }}
+    >
+      {reason}
+    </span>
+  )
+}
+
 function DoneDot() {
   return (
     <span
-      aria-hidden
+      data-testid="scanner-row-status-done"
+      aria-label="Completed"
       className="inline-flex items-center justify-center rounded-full"
       style={{
         width: 22,
@@ -182,12 +236,44 @@ function DoneDot() {
     >
       <span
         className="material-symbols-outlined"
+        aria-hidden
         style={{
           fontSize: 14,
           fontVariationSettings: '"FILL" 1, "wght" 500',
         }}
       >
         check
+      </span>
+    </span>
+  )
+}
+
+function SkippedDot({ error }: { error: ToolError | null }) {
+  const title = error
+    ? SKIPPED_TITLE[error]
+    : 'This scanner did not produce results, so they are not in the grade.'
+  return (
+    <span
+      data-testid="scanner-row-status-skipped"
+      aria-label="Skipped — no results"
+      title={title}
+      className="inline-flex items-center justify-center rounded-full"
+      style={{
+        width: 22,
+        height: 22,
+        background: 'var(--cd-amber-soft, rgba(240, 191, 126, 0.16))',
+        color: 'var(--cd-amber, #f0bf7e)',
+      }}
+    >
+      <span
+        className="material-symbols-outlined"
+        aria-hidden
+        style={{
+          fontSize: 14,
+          fontVariationSettings: '"FILL" 1, "wght" 500',
+        }}
+      >
+        warning
       </span>
     </span>
   )

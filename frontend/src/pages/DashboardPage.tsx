@@ -620,11 +620,13 @@ function ReportCard({ data }: { data: DashboardPayload }) {
                 scanners: (data.last_assessment.scanners ?? []) as Array<{
                   id: string
                   label: string
+                  state: 'pending' | 'active' | 'done' | 'skipped'
                   version?: string | null
                   icon?: string | null
                   ran?: string | null
                   scope?: string | null
                   duration_ms?: number | null
+                  error?: 'timeout' | 'binary_missing' | 'exec_failed' | null
                   result?: {
                     kind: 'findings_count' | 'pass_count'
                     value: number

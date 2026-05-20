@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 import shutil
 import tempfile
 import time
@@ -34,7 +35,10 @@ from cliff.assessment.posture import (
     RepoCoords,
     run_all_posture_checks,
 )
-from cliff.assessment.scanners.runner import SEMGREP_RULESETS_LABEL
+from cliff.assessment.scanners.runner import (
+    SEMGREP_RULESETS_LABEL,
+    ScannerTimeoutError,
+)
 from cliff.assessment.scope import (
     capture_commit_sha,
     count_dependencies,
@@ -73,8 +77,29 @@ logger = logging.getLogger(__name__)
 
 
 _TRIVY_TIMEOUT_S: float = 120.0
-_SEMGREP_TIMEOUT_S: float = 120.0
 _CLONE_TIMEOUT_S: float = 60.0
+
+
+def _semgrep_timeout_s() -> float:
+    """Semgrep's per-run timeout budget (B07).
+
+    The 120s default was too tight for large repos — a 6.6k-file repo
+    reliably timed out, and the assessment then silently dropped all SAST
+    coverage. 300s matches PRD-0003's 5-minute total-assessment budget as
+    the per-scanner ceiling. ``CLIFF_SEMGREP_TIMEOUT_S`` lets operators of
+    very large repos extend it without a rebuild.
+    """
+    raw = os.environ.get("CLIFF_SEMGREP_TIMEOUT_S")
+    if raw:
+        try:
+            parsed = float(raw)
+            if parsed > 0:
+                return parsed
+        except ValueError:
+            logger.warning(
+                "ignoring invalid CLIFF_SEMGREP_TIMEOUT_S=%r; using default", raw
+            )
+    return 300.0
 
 
 # --------------------------------------------------------------------- cloning
@@ -231,16 +256,24 @@ async def run_assessment(
         semgrep_started = time.perf_counter()
         try:
             semgrep_result = await runner.run_semgrep(
-                repo_path, timeout=_SEMGREP_TIMEOUT_S
+                repo_path, timeout=_semgrep_timeout_s()
             )
             semgrep_ran = True
-        except Exception:
+        except Exception as exc:
             logger.warning("semgrep failed; continuing without it", exc_info=True)
             durations_ms["semgrep"] = _elapsed_ms(semgrep_started)
+            # B07 — carry a machine-readable reason so the dashboard can
+            # render a skipped scanner distinctly from a clean "0 findings"
+            # run. A timeout is the common case on large repos; anything
+            # else is an exec failure.
+            tool_error = (
+                "timeout" if isinstance(exc, ScannerTimeoutError) else "exec_failed"
+            )
             tools["semgrep"] = tools["semgrep"].model_copy(
                 update={
                     "state": "skipped",
                     "duration_ms": durations_ms["semgrep"],
+                    "error": tool_error,
                 }
             )
             await _emit_tool(on_tool, tools["semgrep"])

@@ -287,9 +287,61 @@ async def test_engine_semgrep_failure_is_graceful_skipped_state(
 
     final_by_id = {t.id: t for t in result.tools}
     assert final_by_id["semgrep"].state == "skipped"
+    # B07 — a non-timeout crash is classified as exec_failed.
+    assert final_by_id["semgrep"].error == "exec_failed"
     assert final_by_id["trivy"].state == "done"
     assert final_by_id["posture"].state == "done"
     assert result.grade in {"A", "B", "C", "D", "F"}
+
+
+@pytest.mark.asyncio
+async def test_engine_semgrep_timeout_is_skipped_with_timeout_error(
+    planted_repo: Path,
+) -> None:
+    """B07 — a Semgrep timeout produces ``state=skipped`` + ``error=timeout``.
+
+    The dashboard needs this distinction so a scanner that never finished
+    is never rendered as a clean "0 findings" run.
+    """
+    from cliff.assessment.scanners.runner import ScannerTimeoutError
+
+    runner = FakeScannerRunner(
+        semgrep_exc=ScannerTimeoutError("scanner subprocess timed out")
+    )
+    cloner = FakeRepoCloner(planted_repo)
+
+    result = await run_assessment(
+        "https://github.com/acme/demo",
+        gh_client=_gh_client_unable(),
+        runner=runner,
+        cloner=cloner,
+        assessment_id="asm-timeout",
+    )
+
+    semgrep = next(t for t in result.tools if t.id == "semgrep")
+    assert semgrep.state == "skipped"
+    assert semgrep.error == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_engine_semgrep_success_has_no_error(
+    planted_repo: Path,
+) -> None:
+    """B07 — a successful Semgrep run leaves ``error`` unset (``None``)."""
+    runner = FakeScannerRunner()
+    cloner = FakeRepoCloner(planted_repo)
+
+    result = await run_assessment(
+        "https://github.com/acme/demo",
+        gh_client=_gh_client_unable(),
+        runner=runner,
+        cloner=cloner,
+        assessment_id="asm-ok",
+    )
+
+    semgrep = next(t for t in result.tools if t.id == "semgrep")
+    assert semgrep.state == "done"
+    assert semgrep.error is None
 
 
 @pytest.mark.asyncio

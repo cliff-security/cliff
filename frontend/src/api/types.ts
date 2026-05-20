@@ -394,6 +394,369 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/integrations/ai/autodetect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Autodetect Scan
+         * @description Scan common locations for existing AI keys. Never returns the key.
+         */
+        get: operations["autodetect_scan_api_integrations_ai_autodetect_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/integrations/ai/autodetect/adopt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Autodetect Adopt
+         * @description Re-scan, validate, and persist a detected key.
+         *
+         *     Re-running the scan inside the handler (rather than trusting the
+         *     earlier GET) keeps adoption coherent if the user changed their env
+         *     between clicks.
+         */
+        post: operations["autodetect_adopt_api_integrations_ai_autodetect_adopt_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/integrations/ai/byok": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Byok
+         * @description Validate + persist a directly-pasted API key.
+         */
+        post: operations["byok_api_integrations_ai_byok_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/integrations/ai/disconnect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Disconnect
+         * @description Clear the active AI integration locally.
+         *
+         *     Idempotent: returns 204 whether or not there was anything to clear.
+         *     Surface-area note: revoking OpenRouter keys server-side would require
+         *     OpenRouter's client_secret, which we deliberately don't ship in the
+         *     self-hosted code path (ADR-0036). The frontend surfaces the
+         *     openrouter.ai/settings/keys link separately.
+         */
+        post: operations["disconnect_api_integrations_ai_disconnect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/integrations/ai/model": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Active Model
+         * @description Change the canonical active model.
+         *
+         *     Validates that the model id's provider prefix matches the active
+         *     integration. Workspace spawns pick up the new model immediately
+         *     via the model resolver; the singleton restarts so chat sessions
+         *     re-init against the new model on next request.
+         */
+        put: operations["set_active_model_api_integrations_ai_model_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/integrations/ai/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Provider Models
+         * @description Return the model picker options for *provider*.
+         *
+         *     For Ollama this hits ``{base_url}/api/tags`` so the picker reflects
+         *     what the user has actually pulled. The base URL comes from the
+         *     active integration's stored metadata if it matches *provider*,
+         *     else the catalog default (``http://localhost:11434``).
+         */
+        get: operations["list_provider_models_api_integrations_ai_models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/integrations/ai/openrouter/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Openrouter Start
+         * @description Begin an OAuth PKCE handshake.
+         *
+         *     Mints a session, starts a one-shot listener on port 3000, returns the
+         *     auth URL the frontend should open in a new tab.
+         */
+        post: operations["openrouter_start_api_integrations_ai_openrouter_start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/integrations/ai/openrouter/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Openrouter Status
+         * @description Frontend polls this every ~1s while a session is in flight.
+         */
+        get: operations["openrouter_status_api_integrations_ai_openrouter_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/integrations/ai/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Status */
+        get: operations["status_api_integrations_ai_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/integrations/github/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Connect */
+        post: operations["connect_api_integrations_github_connect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/integrations/github/diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Diagnose Push Access
+         * @description Verify push access for the currently-configured GitHub repo.
+         *
+         *     Resolution path (same as the executor preflight, so the badge and
+         *     the 412 page agree by construction):
+         *
+         *     1. ``_resolve_repo_env_vars`` reads the GitHub integration row +
+         *        vault token. Returns an empty dict if no enabled GitHub
+         *        integration exists.
+         *     2. Parse ``owner/repo`` out of ``CLIFF_REPO_URL``. A non-GitHub
+         *        remote is treated as "nothing to diagnose" and falls through to
+         *        404 — the badge is GitHub-App-specific.
+         *     3. Call :func:`check_repo_push_access` with the stored token. That
+         *        helper already returns UI-safe ``reason`` strings; we pass the
+         *        result through untouched.
+         *
+         *     The result is cached per repo URL for 5 minutes. ``?refresh=1``
+         *     forces a fresh GitHub call.
+         */
+        get: operations["diagnose_push_access_api_integrations_github_diagnose_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/integrations/github/disconnect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disconnect */
+        post: operations["disconnect_api_integrations_github_disconnect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/integrations/github/poll-now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Poll Now
+         * @description Force an immediate poll tick + return the resulting status.
+         *
+         *     The background polling loop honors GitHub's stored interval (5s
+         *     minimum, often higher after a ``slow_down``). When the user clicks
+         *     Authorize and comes back to Cliff, they shouldn't have to wait
+         *     for the next scheduled tick — the SPA hits this endpoint on the
+         *     visibility-change event so the modal flips to Connected within
+         *     one round-trip instead of up to a minute.
+         */
+        post: operations["poll_now_api_integrations_github_poll_now_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/integrations/github/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Setup Callback */
+        get: operations["setup_callback_api_integrations_github_setup_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/integrations/github/setup/manual": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Setup Manual
+         * @description Manual recovery for B33 — accept an ``installation_id`` posted from
+         *     the SPA when the GET callback never fired.
+         *
+         *     The shared ``opensec-local-test`` GitHub App's Setup URL is globally
+         *     hardcoded to ``http://localhost:8000/api/integrations/github/setup``
+         *     on github.com. Any Cliff deployment bound to a different host port
+         *     (Docker remap, parallel dev stack, reverse proxy) never receives
+         *     the GET callback. This endpoint lets the user paste the
+         *     ``installation_id`` from the redirect URL they ended up on — Cliff
+         *     then drives the same registration code path as the GET callback,
+         *     *including the CSRF state check* that prevents an attacker who
+         *     tricks the user into pasting a hostile ``installation_id`` from
+         *     binding it.
+         */
+        post: operations["setup_manual_api_integrations_github_setup_manual_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/integrations/github/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Status */
+        get: operations["status_api_integrations_github_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/onboarding/complete": {
         parameters: {
             query?: never;
@@ -425,11 +788,12 @@ export interface paths {
         put?: never;
         /**
          * List Github Repos
-         * @description Return the repos a PAT can reach, for onboarding's picker step.
+         * @description Return the repos the active GitHub auth can reach, for onboarding's picker.
          *
-         *     The token is **not** persisted here — only on a successful call to
-         *     ``POST /onboarding/repo``. Avoids dangling vault entries when the user
-         *     abandons the flow at the picker.
+         *     Token resolution: explicit ``github_token`` body wins (legacy PAT
+         *     flow), otherwise the route reads the App-flow user access token
+         *     from the vault. The token is **not** persisted here — only on a
+         *     successful call to ``POST /onboarding/repo``.
          *
          *     Auth/scope failures return 422 ``{code: "invalid_token"}``. Network and
          *     GitHub 5xx return 502 — onboarding's manual-URL fallback covers this.
@@ -801,9 +1165,26 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Model */
+        /**
+         * Get Model
+         * @description Return the canonical active model (ADR-0037).
+         *
+         *     Thin shim over :class:`AIIntegrationService` so the CLI (``cliffsec
+         *     model get``) and the new Settings UI agree byte-for-byte. Falls
+         *     back to the old ``opencode.json``-derived value when no AI
+         *     provider is connected so legacy users without an ``ai_integration``
+         *     row still get something meaningful.
+         */
         get: operations["get_model_api_settings_model_get"];
-        /** Update Model */
+        /**
+         * Update Model
+         * @description Persist a model change (ADR-0037).
+         *
+         *     Routes through :class:`AIIntegrationService.set_model` when a
+         *     provider is connected. On a fresh install with no provider yet,
+         *     falls through to the legacy ``config_manager.update_model`` so
+         *     ``cliffsec model set`` during install still works before BYOK.
+         */
         put: operations["update_model_api_settings_model_put"];
         post?: never;
         delete?: never;
@@ -857,9 +1238,9 @@ export interface paths {
         put?: never;
         /**
          * Test Provider
-         * @description Cheap probe of the configured provider+model (ADR-0031).
+         * @description End-to-end probe of the configured provider+model (ADR-0031).
          *
-         *     Sends a bounded ``"Say OK"`` chat call through OpenCode with an 8s
+         *     Sends a bounded ``"Say OK"`` chat call through OpenCode with a 30s
          *     timeout and classifies the outcome into
          *     ``{ok, latency_ms, error_code, error_message}``. Always returns HTTP
          *     200; ``ok`` reflects the probe result.
@@ -900,7 +1281,20 @@ export interface paths {
         put?: never;
         /**
          * Create Workspace Endpoint
-         * @description Create a workspace with isolated directory and rendered agents.
+         * @description Create-or-return a workspace for a finding.
+         *
+         *     Idempotent by design: one workspace per finding, forever. A second POST
+         *     for the same ``finding_id`` returns the existing workspace (200) instead
+         *     of creating a duplicate, so the knowledge base, agent runs, and sidebar
+         *     state stay attached to the original. New workspaces are 201 Created;
+         *     reused workspaces are 200 OK.
+         *
+         *     In both paths we (re-)flip the Finding out of ``new``/``triaged`` into
+         *     ``in_progress`` via ``mark_started_on_workspace_create``. This matters
+         *     for the reused-workspace path: re-running an assessment UPSERTs posture
+         *     findings back to ``status='new'`` even when a workspace with completed
+         *     work already exists, so without the re-flip the row would be stuck
+         *     rendering in Todo despite having a full plan/agent history behind it.
          */
         post: operations["create_workspace_endpoint_api_workspaces_post"];
         delete?: never;
@@ -940,11 +1334,20 @@ export interface paths {
         };
         /**
          * Stream Agent Execution
-         * @description Stream permission_request and done events during agent execution.
+         * @description Stream agent-pipeline progress + permission events.
          *
          *     The frontend connects to this while an agent is running. Events:
-         *     - permission_request: agent needs user approval for a tool
-         *     - done: agent execution has completed (success or failure)
+         *     - ``agent_run_started``: a new agent run was created
+         *       (``{run_id, agent_type, status}``).
+         *     - ``agent_run_completed``: an agent run finished — success OR failure
+         *       (``{run_id, agent_type, status}``). The side panel uses this to
+         *       invalidate the ``agent-runs`` query and re-render the activity
+         *       feed without waiting for the 5s idle poll. B36 / IMPL-0020.
+         *     - ``permission_request``: agent needs user approval for a tool.
+         *     - ``done``: signals the executor has finished its terminal run for
+         *       this workspace. The stream will close. Until then the stream stays
+         *       open even if no events are flowing — it's safe to open the
+         *       EventSource as soon as the side panel mounts (B36 / IMPL-0020).
          *
          *     If the client disconnects while a permission is pending, the pending
          *     approval is auto-denied to unblock the executor.
@@ -1352,6 +1755,36 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AIStatus
+         * @description Wire shape for ``GET /api/integrations/ai/status``.
+         *
+         *     ``model`` is the canonical active model — the one Cliff writes into
+         *     ``app_setting(key="model")`` and pushes into every workspace spawn.
+         *     Per ADR-0037 there is one canonical state and one read; the
+         *     on_key_change hook restarts the singleton OpenCode synchronously on
+         *     every model/key write, so there is no separate "what's loaded right
+         *     now" signal worth exposing on the wire (architect health-check, M9).
+         */
+        AIStatus: {
+            /** Connected At */
+            connected_at?: string | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model */
+            model?: string | null;
+            /** Provider */
+            provider?: ("openrouter" | "anthropic" | "openai" | "google" | "ollama" | "custom") | null;
+            /** Source */
+            source?: ("autodetect" | "openrouter-oauth" | "byok") | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "unconfigured" | "connected";
+        };
         /** AgentChipResponse */
         AgentChipResponse: {
             /** Agent Type */
@@ -1379,8 +1812,19 @@ export interface components {
             input_json?: {
                 [key: string]: unknown;
             } | null;
+            /** Last Error */
+            last_error?: string | null;
             /** Next Action Hint */
             next_action_hint?: string | null;
+            /**
+             * Permission Pending
+             * @default false
+             */
+            permission_pending: boolean;
+            /** Permission Request */
+            permission_request?: {
+                [key: string]: unknown;
+            } | null;
             /** Started At */
             started_at?: string | null;
             /**
@@ -1388,7 +1832,7 @@ export interface components {
              * @default queued
              * @enum {string}
              */
-            status: "queued" | "running" | "completed" | "failed" | "cancelled";
+            status: "queued" | "running" | "completed" | "failed" | "cancelled" | "rate_limited";
             /** Structured Output */
             structured_output?: {
                 [key: string]: unknown;
@@ -1411,7 +1855,7 @@ export interface components {
              * @default queued
              * @enum {string}
              */
-            status: "queued" | "running" | "completed" | "failed" | "cancelled";
+            status: "queued" | "running" | "completed" | "failed" | "cancelled" | "rate_limited";
         };
         /** AgentRunUpdate */
         AgentRunUpdate: {
@@ -1421,10 +1865,18 @@ export interface components {
             evidence_json?: {
                 [key: string]: unknown;
             } | null;
+            /** Last Error */
+            last_error?: string | null;
             /** Next Action Hint */
             next_action_hint?: string | null;
+            /** Permission Pending */
+            permission_pending?: boolean | null;
+            /** Permission Request */
+            permission_request?: {
+                [key: string]: unknown;
+            } | null;
             /** Status */
-            status?: ("queued" | "running" | "completed" | "failed" | "cancelled") | null;
+            status?: ("queued" | "running" | "completed" | "failed" | "cancelled" | "rate_limited") | null;
             /** Structured Output */
             structured_output?: {
                 [key: string]: unknown;
@@ -1596,6 +2048,8 @@ export interface components {
         AssessmentTool: {
             /** Duration Ms */
             duration_ms?: number | null;
+            /** Error */
+            error?: ("timeout" | "binary_missing" | "exec_failed") | null;
             /** Icon */
             icon: string;
             /** Id */
@@ -1626,6 +2080,48 @@ export interface components {
             text: string;
             /** Value */
             value: number;
+        };
+        /**
+         * AutodetectResponse
+         * @description Wire shape for ``GET /api/integrations/ai/autodetect`` — never the key.
+         */
+        AutodetectResponse: {
+            /** Found */
+            found: boolean;
+            /** Provider */
+            provider?: ("openrouter" | "anthropic" | "openai" | "google" | "ollama" | "custom") | null;
+            /** Source */
+            source?: string | null;
+        };
+        /**
+         * BYOKRequest
+         * @description Inbound payload for ``POST /api/integrations/ai/byok``.
+         *
+         *     ``api_key`` is a ``SecretStr`` so the value is redacted in every
+         *     Pydantic-rendered context — model_dump (without explicit unwrap),
+         *     validation errors, repr, logging. Call sites that need the raw key
+         *     must use ``api_key.get_secret_value()`` explicitly; that explicit
+         *     unwrap is the only place we want to deal with the raw string.
+         *
+         *     For Ollama the ``api_key`` is just a non-empty placeholder (the
+         *     transport doesn't authenticate) but the field stays required so the
+         *     wire shape doesn't fork. The UI sends "local" automatically.
+         */
+        BYOKRequest: {
+            /**
+             * Api Key
+             * Format: password
+             */
+            api_key: string;
+            /** Base Url */
+            base_url?: string | null;
+            /** Model */
+            model?: string | null;
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "openrouter" | "anthropic" | "openai" | "google" | "ollama" | "custom";
         };
         /**
          * BootstrapState
@@ -1881,6 +2377,70 @@ export interface components {
             tools?: components["schemas"]["AssessmentTool"][];
             vulnerabilities?: components["schemas"]["VulnerabilityCounts"] | null;
         };
+        /** DeviceFlowConnectResponse */
+        DeviceFlowConnectResponse: {
+            /** Expires In */
+            expires_in: number;
+            /** Install Url */
+            install_url: string;
+            /** Interval */
+            interval: number;
+            /** User Code */
+            user_code: string;
+            /** Verification Uri */
+            verification_uri: string;
+        };
+        /** DeviceFlowDisconnectResponse */
+        DeviceFlowDisconnectResponse: {
+            /** Manual Revoke Url */
+            manual_revoke_url: string;
+            /**
+             * Status
+             * @default disconnected
+             * @constant
+             */
+            status: "disconnected";
+        };
+        /**
+         * DeviceFlowManualSetupRequest
+         * @description Payload for the ``POST /setup/manual`` recovery endpoint (B33).
+         *
+         *     The user pastes the ``installation_id`` they saw in the redirect URL
+         *     after clicking Install on github.com — typically because the App's
+         *     globally-configured Setup URL pointed at a different deployment than
+         *     theirs (e.g. ``localhost:8000`` when their Cliff is on ``:8088``).
+         *
+         *     ``state`` is the same CSRF token that ``POST /connect`` returned in
+         *     its ``install_url`` query string. Validating it against an in-flight
+         *     row is what keeps the manual path from being a CSRF bypass: an
+         *     attacker who tricks the user into pasting an attacker-controlled
+         *     ``installation_id`` can't bind it without also knowing a state the
+         *     user's own /connect issued.
+         */
+        DeviceFlowManualSetupRequest: {
+            /** Installation Id */
+            installation_id: number;
+            /** State */
+            state: string;
+        };
+        /** DeviceFlowStatusResponse */
+        DeviceFlowStatusResponse: {
+            /** Error */
+            error?: string | null;
+            /** Expires At */
+            expires_at?: string | null;
+            /** Github Login */
+            github_login?: string | null;
+            /** Installation Id */
+            installation_id?: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "installation_pending" | "device_pending" | "connected" | "expired" | "denied" | "rate_limited" | "error";
+            /** User Code */
+            user_code?: string | null;
+        };
         /**
          * ExecuteAgentRequest
          * @description Optional body for ``POST /workspaces/{id}/agents/{type}/execute``.
@@ -2084,6 +2644,16 @@ export interface components {
         /** HealthStatus */
         HealthStatus: {
             /**
+             * Ai Provider Ready
+             * @default false
+             */
+            ai_provider_ready: boolean;
+            /**
+             * Cliff
+             * @default ok
+             */
+            cliff: string;
+            /**
              * Model
              * @default
              */
@@ -2098,11 +2668,6 @@ export interface components {
              * @default
              */
             opencode_version: string;
-            /**
-             * Cliff
-             * @default ok
-             */
-            cliff: string;
         };
         /** IngestJobProgress */
         IngestJobProgress: {
@@ -2174,6 +2739,8 @@ export interface components {
             action_tier: number;
             /** Adapter Type */
             adapter_type: string;
+            /** Auth Method */
+            auth_method?: ("github_app" | "pat") | null;
             /** Config */
             config?: {
                 [key: string]: unknown;
@@ -2183,6 +2750,8 @@ export interface components {
              * @default true
              */
             enabled: boolean;
+            /** Github Login */
+            github_login?: string | null;
             /** Id */
             id: string;
             /** Last Test Result */
@@ -2265,7 +2834,7 @@ export interface components {
              * Stage
              * @enum {string}
              */
-            stage: "todo" | "planning" | "generating" | "pushing" | "opening_pr" | "validating" | "plan_ready" | "pr_ready" | "pr_awaiting_val" | "fixed" | "false_positive" | "wont_fix" | "accepted" | "deferred";
+            stage: "todo" | "planning" | "generating" | "pushing" | "opening_pr" | "validating" | "plan_ready" | "pr_ready" | "pr_awaiting_val" | "awaiting_permission" | "failed" | "fixed" | "false_positive" | "wont_fix" | "accepted" | "deferred";
             /** Workspace Id */
             workspace_id?: string | null;
         };
@@ -2336,7 +2905,7 @@ export interface components {
         /** ListReposRequest */
         ListReposRequest: {
             /** Github Token */
-            github_token: string;
+            github_token?: string | null;
         };
         /**
          * MarkSummarySeenResponse
@@ -2456,7 +3025,7 @@ export interface components {
         /** OnboardingRepoRequest */
         OnboardingRepoRequest: {
             /** Github Token */
-            github_token: string;
+            github_token?: string | null;
             /** Repo Url */
             repo_url: string;
         };
@@ -2489,6 +3058,23 @@ export interface components {
             delta_pct_30d: number;
             /** History */
             history?: number[];
+        };
+        /** OpenRouterStartResponse */
+        OpenRouterStartResponse: {
+            /** Auth Url */
+            auth_url: string;
+            /** Session Id */
+            session_id: string;
+        };
+        /** OpenRouterStatusResponse */
+        OpenRouterStatusResponse: {
+            /** Detail */
+            detail?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "waiting" | "connected" | "denied" | "error" | "timeout";
         };
         /** PermissionDecision */
         PermissionDecision: {
@@ -2601,6 +3187,38 @@ export interface components {
             report_href: string;
         };
         /**
+         * ProviderModelOption
+         * @description One entry in the per-provider model picker dropdown.
+         */
+        ProviderModelOption: {
+            /** Description */
+            description?: string | null;
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+        };
+        /**
+         * ProviderModelsResponse
+         * @description Wire shape for ``GET /api/integrations/ai/models?provider=X``.
+         */
+        ProviderModelsResponse: {
+            /** Default Model */
+            default_model: string | null;
+            /** Models */
+            models: components["schemas"]["ProviderModelOption"][];
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "openrouter" | "anthropic" | "openai" | "google" | "ollama" | "custom";
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "catalog" | "live";
+        };
+        /**
          * ProviderTestRequest
          * @description Optional staged config. Alpha passes nothing and probes the currently
          *     configured provider/model/key; a future UI can preview unsaved staged
@@ -2625,6 +3243,37 @@ export interface components {
             latency_ms: number;
             /** Ok */
             ok: boolean;
+        };
+        /**
+         * PushAccessDiagnoseResponse
+         * @description Result of ``GET /api/integrations/github/diagnose`` (IMPL-0018, B35c).
+         *
+         *     The Settings page renders this directly: ``can_push=true`` → green
+         *     "Push verified" pill, otherwise a red "Push blocked" pill showing
+         *     ``reason`` and a deep-link to the setup guide.
+         *
+         *     ``reason`` is whatever :func:`check_repo_push_access` returned. That
+         *     function is the single canonical source of the user-facing copy for
+         *     every push-access failure mode — keeping the route a pass-through
+         *     means the executor's 412 error card (which renders the same
+         *     ``reason``) and this badge can never drift apart.
+         *
+         *     ``repo_url`` is the resolved GitHub repo URL we ran the check
+         *     against, so the UI can render "Push verified — owner/repo" without
+         *     re-deriving it. ``checked_at`` is the timestamp of the underlying
+         *     GitHub call, NOT of the response — i.e. a cached result echoes the
+         *     original probe time so the user can see "checked 2 min ago" and
+         *     decide whether to click Refresh.
+         */
+        PushAccessDiagnoseResponse: {
+            /** Can Push */
+            can_push: boolean;
+            /** Checked At */
+            checked_at: string;
+            /** Reason */
+            reason: string;
+            /** Repo Url */
+            repo_url: string;
         };
         /**
          * RegistryEntry
@@ -2657,6 +3306,11 @@ export interface components {
             description: string;
             /** Docs Url */
             docs_url?: string | null;
+            /**
+             * Github App Available
+             * @default false
+             */
+            github_app_available: boolean;
             /**
              * Icon
              * @default extension
@@ -2759,6 +3413,18 @@ export interface components {
             created_at?: string | null;
             /** Id */
             id: string;
+        };
+        /**
+         * SetModelRequest
+         * @description Inbound payload for ``PUT /api/integrations/ai/model``.
+         *
+         *     The model id must include a provider prefix; the service rejects ids
+         *     whose prefix doesn't match the currently active provider so a stale
+         *     setting never silently re-points at the wrong namespace.
+         */
+        SetModelRequest: {
+            /** Model */
+            model: string;
         };
         /** SeverityHistory */
         SeverityHistory: {
@@ -2920,13 +3586,15 @@ export interface components {
         };
         /**
          * VersionInfo
-         * @description Version handshake for the agent CLI (`cliff status`).
+         * @description Version handshake for the agent CLI (`cliffsec status`).
          *
          *     `min_cli` is the lowest CLI version this server promises to speak to.
          *     A CLI older than this should refuse to operate and tell the user to upgrade.
          *     `schema_version` bumps when the CLI/server contract changes incompatibly.
          */
         VersionInfo: {
+            /** Cliff */
+            cliff: string;
             /**
              * Min Cli
              * @default 0.1.0
@@ -2934,8 +3602,6 @@ export interface components {
             min_cli: string;
             /** Opencode */
             opencode: string;
-            /** Cliff */
-            cliff: string;
             /**
              * Schema Version
              * @default 1
@@ -3686,6 +4352,422 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    autodetect_scan_api_integrations_ai_autodetect_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutodetectResponse"];
+                };
+            };
+        };
+    };
+    autodetect_adopt_api_integrations_ai_autodetect_adopt_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIStatus"];
+                };
+            };
+        };
+    };
+    byok_api_integrations_ai_byok_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BYOKRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    disconnect_api_integrations_ai_disconnect_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    set_active_model_api_integrations_ai_model_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetModelRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_provider_models_api_integrations_ai_models_get: {
+        parameters: {
+            query: {
+                provider: "openrouter" | "anthropic" | "openai" | "google" | "ollama" | "custom";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderModelsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    openrouter_start_api_integrations_ai_openrouter_start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenRouterStartResponse"];
+                };
+            };
+        };
+    };
+    openrouter_status_api_integrations_ai_openrouter_status_get: {
+        parameters: {
+            query: {
+                session_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenRouterStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    status_api_integrations_ai_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIStatus"];
+                };
+            };
+        };
+    };
+    connect_api_integrations_github_connect_post: {
+        parameters: {
+            query?: {
+                return_to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceFlowConnectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    diagnose_push_access_api_integrations_github_diagnose_get: {
+        parameters: {
+            query?: {
+                refresh?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushAccessDiagnoseResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    disconnect_api_integrations_github_disconnect_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceFlowDisconnectResponse"];
+                };
+            };
+        };
+    };
+    poll_now_api_integrations_github_poll_now_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceFlowStatusResponse"];
+                };
+            };
+        };
+    };
+    setup_callback_api_integrations_github_setup_get: {
+        parameters: {
+            query: {
+                state: string;
+                installation_id: number;
+                setup_action?: "install" | "update";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    setup_manual_api_integrations_github_setup_manual_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceFlowManualSetupRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceFlowStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    status_api_integrations_github_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceFlowStatusResponse"];
                 };
             };
         };
@@ -4570,7 +5652,7 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
-            201: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
