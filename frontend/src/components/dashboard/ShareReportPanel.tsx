@@ -31,6 +31,10 @@ export default function ShareReportPanel({
   criteria: ShareReportCriterion[]
 }) {
   const dialogRef = useRef<HTMLDialogElement | null>(null)
+  // True while the effect below is the one calling dlg.close() (because the
+  // parent already set open=false). The native `close` event that close()
+  // fires would otherwise re-invoke the parent's onClose — a double-fire.
+  const closingFromEffect = useRef(false)
 
   // Upgrade to a true modal in real browsers; the `open` attribute alone
   // keeps the panel visible (and testable) where showModal is unavailable.
@@ -44,7 +48,8 @@ export default function ShareReportPanel({
         // showModal throws if the dialog is mid-transition; the `open`
         // prop has already rendered it visibly, so no fallback is needed.
       }
-    } else if (!open && dlg.open) {
+    } else if (!open && dlg.open && typeof dlg.close === 'function') {
+      closingFromEffect.current = true
       dlg.close()
     }
   }, [open])
@@ -71,7 +76,16 @@ export default function ShareReportPanel({
       onClick={(e) => {
         if (e.target === dialogRef.current) onClose()
       }}
-      onClose={onClose}
+      onClose={() => {
+        // Esc on the modal dialog fires `close` natively → notify the
+        // parent. But when the effect above drove the close (parent
+        // already set open=false), skip — onClose already ran.
+        if (closingFromEffect.current) {
+          closingFromEffect.current = false
+          return
+        }
+        onClose()
+      }}
     >
       <div style={{ padding: '24px 26px' }}>
         <div className="flex items-start justify-between gap-4">

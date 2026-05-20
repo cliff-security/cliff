@@ -184,4 +184,34 @@ describe('useAgentRuns — terminal-transition invalidation (B09 fix)', () => {
 
     expect(spy).not.toHaveBeenCalledWith({ queryKey: ['findings'] })
   })
+
+  it('invalidates when a run is first observed already terminal on a later poll', async () => {
+    // A fast agent can be created and fail entirely between two polls — the
+    // non-terminal state is never seen, so the run appears for the first
+    // time already terminal. The panel must still refresh.
+    let runs: unknown[] = []
+    server.use(
+      http.get('/api/workspaces/:wsId/agent-runs', () =>
+        HttpResponse.json(runs),
+      ),
+    )
+    const { Wrapper, client } = makeWrapper()
+    const spy = vi.spyOn(client, 'invalidateQueries')
+
+    const { result } = renderHook(() => useAgentRuns('ws-fast'), {
+      wrapper: Wrapper,
+    })
+    // First poll: empty — establishes the baseline.
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    spy.mockClear()
+
+    // Next poll: a brand-new run that is already terminal.
+    runs = runPayload('failed')
+    await result.current.refetch()
+
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith({ queryKey: ['findings'] })
+    })
+    expect(spy).toHaveBeenCalledWith({ queryKey: ['sidebar', 'ws-fast'] })
+  })
 })

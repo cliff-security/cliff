@@ -498,7 +498,7 @@ async def test_poll_step_ignores_skewed_local_clock_uses_github_authority(
     fake_clock: FakeClock,
     fake_client: FakeGitHubClient,
     integration_id: str,
-):
+) -> None:
     """B03 — a self-hosted container's clock can be skewed ahead of GitHub's.
 
     Before the fix, ``run_poll_step`` short-circuited to ``expired`` purely
