@@ -35,6 +35,7 @@ import IssueGradeHero, {
 } from '@/components/dashboard/IssueGradeHero'
 import LastAssessmentPanel from '@/components/dashboard/LastAssessmentPanel'
 import LevelUpPanel from '@/components/dashboard/LevelUpPanel'
+import ShareReportPanel from '@/components/dashboard/ShareReportPanel'
 import OpenBySeverityCard from '@/components/dashboard/OpenBySeverityCard'
 import PreviousAssessmentCard from '@/components/dashboard/PreviousAssessmentCard'
 import CompletionCelebration from '@/components/completion/CompletionCelebration'
@@ -449,6 +450,8 @@ function ReportCard({ data }: { data: DashboardPayload }) {
     Record<string, string | null>
   >({})
 
+  const [shareOpen, setShareOpen] = useState(false)
+
   const handleAutoFix = async (checkNames: string[]) => {
     // Fan out parallel POST /api/posture/fix/{check_name}. The route's 409
     // guard ("already running") is a deliberate no-op; any other rejection
@@ -497,9 +500,7 @@ function ReportCard({ data }: { data: DashboardPayload }) {
   }
 
   const handleShareReport = () => {
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      void navigator.clipboard.writeText(window.location.href)
-    }
+    setShareOpen(true)
   }
 
   return (
@@ -532,6 +533,13 @@ function ReportCard({ data }: { data: DashboardPayload }) {
       }
     >
       {completionBlock}
+      <ShareReportPanel
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        grade={grade}
+        repoName={repoName}
+        criteria={data.criteria ?? []}
+      />
       <div className="flex flex-col gap-4">
         <div className="cliff-fade-in">
           <AutoDetectBanner onConfigureManually={openAIProvider} />
