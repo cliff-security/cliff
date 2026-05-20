@@ -36,6 +36,7 @@ import IssueGradeHero, {
 import LastAssessmentPanel from '@/components/dashboard/LastAssessmentPanel'
 import LevelUpPanel from '@/components/dashboard/LevelUpPanel'
 import ShareReportPanel from '@/components/dashboard/ShareReportPanel'
+import { countQuickWins } from '@/components/dashboard/quickWins'
 import OpenBySeverityCard from '@/components/dashboard/OpenBySeverityCard'
 import PreviousAssessmentCard from '@/components/dashboard/PreviousAssessmentCard'
 import CompletionCelebration from '@/components/completion/CompletionCelebration'
@@ -139,7 +140,9 @@ function AssessmentSummaryGate({ data }: { data: DashboardPayload }) {
           postureFailing: Math.max(postureFailing, 0),
           posturePassing: data.posture_pass_count ?? 0,
           postureTotal: data.posture_total_count ?? 0,
-          quickWins: 0,
+          // B10 — derive from the same level-up gates the LevelUpPanel
+          // renders so the hero stat and the panel can never disagree.
+          quickWins: countQuickWins(data.level_up),
         }}
         onViewReportCard={() =>
           mutation.mutate(a.id, {
