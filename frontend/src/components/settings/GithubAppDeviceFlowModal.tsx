@@ -108,6 +108,11 @@ export function GithubAppDeviceFlowModal({
   const remainingSeconds = Math.floor((remainingMs % 60_000) / 1000)
   const timer = `${remainingMinutes}:${remainingSeconds.toString().padStart(2, '0')}`
 
+  // `connected` is its own phase: the flow succeeded and `onDismiss`
+  // fires after a 600 ms grace window. During that window we show a
+  // success confirmation, not the device-code steps — otherwise the
+  // user could re-open the GitHub device page after already finishing.
+  const connected = status?.status === 'connected'
   const terminal =
     status?.status === 'expired' ||
     status?.status === 'denied' ||
@@ -137,7 +142,7 @@ export function GithubAppDeviceFlowModal({
     window.open(connect.verification_uri, '_blank', 'noopener,noreferrer')
   }
 
-  const showDeviceSteps = !terminal
+  const showDeviceSteps = !terminal && !connected
 
   return (
     <div
@@ -248,6 +253,17 @@ export function GithubAppDeviceFlowModal({
           </>
         )}
 
+        {connected && (
+          <div className="rounded-xl bg-surface-container-low p-5 text-center">
+            <span className="material-symbols-outlined text-3xl text-primary">
+              check_circle
+            </span>
+            <p className="text-sm font-semibold text-on-surface mt-1">
+              Connected to GitHub
+            </p>
+          </div>
+        )}
+
         {terminal && (
           <div className="rounded-xl bg-surface-container-low p-4">
             <p className="text-sm font-semibold text-on-surface">
@@ -275,7 +291,7 @@ export function GithubAppDeviceFlowModal({
           </div>
         )}
 
-        {!terminal && (
+        {!terminal && !connected && (
           <div className="mt-4 flex justify-end">
             <button
               type="button"

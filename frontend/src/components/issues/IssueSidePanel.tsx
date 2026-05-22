@@ -1296,6 +1296,10 @@ function DefaultFooter({
                 return
               }
               if (!workspaceId) return
+              // Clear a stale executor error from a prior attempt so the
+              // footer only ever shows this attempt's failure (a fresh
+              // ``approvePlan.mutate`` resets approvePlan itself).
+              executeAgent.reset()
               // Q01R / B29 — flip ``plan.approved=true`` BEFORE kicking
               // the executor so the run-all loop's gate sees the approval
               // and the executor reads an approved plan from the sidebar.
@@ -1370,13 +1374,19 @@ function DefaultFooter({
                 return
               }
               if (!workspaceId) return
+              // Reset the mutations this retry won't re-fire, so a stale
+              // error from a prior attempt can't outrank this one in the
+              // footer (the mutation being fired resets itself).
               if (stage === 'executor_failed') {
+                executeAgent.reset()
                 approvePlan.mutate(undefined, {
                   onSuccess: () => {
                     executeAgent.mutate({ agentType: 'remediation_executor' })
                   },
                 })
               } else {
+                approvePlan.reset()
+                executeAgent.reset()
                 runAllPipeline.mutate()
               }
             }}

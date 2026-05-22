@@ -197,6 +197,85 @@ describe('IssueSidePanel — Approve & generate fix (Q01R / B29)', () => {
       screen.getByRole('link', { name: /how to fix/i }),
     ).toHaveAttribute('href', 'https://example.invalid/setup-github-app')
   })
+
+  it('shows the newest attempt error in the footer, not a stale one', async () => {
+    // Attempt 1: approve OK → executor 412. Attempt 2: approve itself
+    // 412s (executor never runs). The footer must show attempt 2's
+    // error — per-attempt `executeAgent.reset()` keeps attempt 1's
+    // stale executor error from winning the `??` precedence chain.
+    server.use(
+      http.post('/api/workspaces/:wsId/plan/approve', () =>
+        HttpResponse.json({
+          workspace_id: 'ws-1',
+          summary: null,
+          evidence: null,
+          owner: null,
+          plan: { approved: true, sections: [] },
+          ticket: null,
+          validation: null,
+        }),
+      ),
+      http.post('/api/workspaces/:wsId/agents/:type/execute', () =>
+        HttpResponse.json(
+          {
+            detail: {
+              error: 'github_app_permissions',
+              reason: 'first failure — executor push rejected',
+              remediation_link: 'https://example.invalid/fix-execute',
+            },
+          },
+          { status: 412 },
+        ),
+      ),
+      http.get('/api/workspaces/:wsId/agent-runs', () => HttpResponse.json([])),
+      // AI provider connected — otherwise the button gates on `blockedByAI`
+      // once the status query resolves, and the second click would just
+      // open the provider modal instead of retrying.
+      http.get('/api/integrations/ai/status', () =>
+        HttpResponse.json({
+          state: 'connected',
+          provider: 'anthropic',
+          source: 'byok',
+          connected_at: '2025-01-01T00:00:00Z',
+          metadata: null,
+          model: 'claude-haiku-4-5',
+        }),
+      ),
+    )
+    renderPanel(findingForStage('plan_ready'))
+    const button = () =>
+      screen.getByRole('button', { name: /Approve & generate fix/i })
+
+    fireEvent.click(button())
+    const err1 = await screen.findByTestId('footer-action-error')
+    expect(err1).toHaveTextContent(/first failure/i)
+
+    // Attempt 2: approve itself now fails — the executor never runs, so
+    // attempt 1's executor error must NOT linger in the footer.
+    server.use(
+      http.post('/api/workspaces/:wsId/plan/approve', () =>
+        HttpResponse.json(
+          {
+            detail: {
+              error: 'github_app_permissions',
+              reason: 'second failure — approve was rejected',
+              remediation_link: 'https://example.invalid/fix-approve',
+            },
+          },
+          { status: 412 },
+        ),
+      ),
+    )
+    fireEvent.click(button())
+    await waitFor(() =>
+      expect(screen.getByTestId('footer-action-error')).toHaveTextContent(
+        /second failure/i,
+      ),
+    )
+    expect(screen.getByTestId('footer-action-error')).not.toHaveTextContent(
+      /first failure/i,
+    )
+  })
 })
 
 describe('IssueSidePanel — Refine inline state (F5)', () => {
