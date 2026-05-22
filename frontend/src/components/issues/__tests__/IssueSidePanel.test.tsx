@@ -155,6 +155,48 @@ describe('IssueSidePanel — Approve & generate fix (Q01R / B29)', () => {
     await waitFor(() => expect(calls).toContain('execute:remediation_executor'))
     expect(calls).toEqual(['approve', 'execute:remediation_executor'])
   })
+
+  it('surfaces the executor 412 push-access preflight error in the footer', async () => {
+    // The 412 preflight creates no agent run — without inline surfacing
+    // the failure would vanish and the button would just flip back to
+    // idle ("nothing happens").
+    server.use(
+      http.post('/api/workspaces/:wsId/plan/approve', () =>
+        HttpResponse.json({
+          workspace_id: 'ws-1',
+          summary: null,
+          evidence: null,
+          owner: null,
+          plan: { approved: true, sections: [] },
+          ticket: null,
+          validation: null,
+        }),
+      ),
+      http.post('/api/workspaces/:wsId/agents/:type/execute', () =>
+        HttpResponse.json(
+          {
+            detail: {
+              error: 'github_app_permissions',
+              reason:
+                'git push probe failed: credentials rejected. The stored token cannot push to this repo.',
+              remediation_link: 'https://example.invalid/setup-github-app',
+            },
+          },
+          { status: 412 },
+        ),
+      ),
+      http.get('/api/workspaces/:wsId/agent-runs', () => HttpResponse.json([])),
+    )
+    renderPanel(findingForStage('plan_ready'))
+    fireEvent.click(
+      screen.getByRole('button', { name: /Approve & generate fix/i }),
+    )
+    const err = await screen.findByTestId('footer-action-error')
+    expect(err).toHaveTextContent(/credentials rejected/i)
+    expect(
+      screen.getByRole('link', { name: /how to fix/i }),
+    ).toHaveAttribute('href', 'https://example.invalid/setup-github-app')
+  })
 })
 
 describe('IssueSidePanel — Refine inline state (F5)', () => {

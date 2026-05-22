@@ -19,7 +19,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { api } from '../../api/client'
+import { api, parseApiError } from '../../api/client'
 import type { AgentRun, ExceptionReason, Finding, IssueStage } from '../../api/client'
 import {
   useAgentRuns,
@@ -1102,6 +1102,63 @@ function SidePanelFooter({
   )
 }
 
+/**
+ * Inline error surfaced under the "Approve & generate fix" / "Retry"
+ * footer buttons.
+ *
+ * Its load-bearing case is the executor's 412 push-access preflight:
+ * that response creates no agent run, so SPActivity has nothing to
+ * render — without this the error vanishes and the button just flips
+ * back to its idle label ("nothing happens" from the user's seat).
+ *
+ * Reads the backend's structured ``{reason, remediation_link}`` detail
+ * when present, falling back to the generic parsed message.
+ */
+function FooterActionError({ error }: { error: unknown }) {
+  const { message, detail } = parseApiError(error)
+  const obj =
+    detail && typeof detail === 'object'
+      ? (detail as { reason?: unknown; remediation_link?: unknown })
+      : null
+  const reason =
+    obj && typeof obj.reason === 'string' && obj.reason.trim()
+      ? obj.reason.trim()
+      : message || 'Something went wrong — please try again.'
+  const link =
+    obj && typeof obj.remediation_link === 'string' && obj.remediation_link
+      ? obj.remediation_link
+      : looksLikeGithubPermissionsError(reason)
+        ? GITHUB_APP_PERMS_DOC_URL
+        : null
+  return (
+    <div
+      role="alert"
+      data-testid="footer-action-error"
+      className="flex items-start gap-2 w-full rounded-lg bg-surface-container-lowest px-3 py-2"
+    >
+      <span
+        className="material-symbols-outlined text-error text-[16px] leading-none mt-[1px]"
+        aria-hidden
+      >
+        error
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[12px] text-on-surface">{reason}</p>
+        {link && (
+          <a
+            href={link}
+            target="_blank"
+            rel="noreferrer"
+            className="text-[11.5px] font-semibold text-primary hover:underline"
+          >
+            How to fix this
+          </a>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function DefaultFooter({
   finding,
   stage,
@@ -1223,40 +1280,49 @@ function DefaultFooter({
 
   if (stage === 'plan_ready') {
     const approvePending = approvePlan.isPending || executeAgent.isPending
+    // A failed approve/execute — most importantly the executor's 412
+    // push-access preflight, which creates no agent run and so would
+    // otherwise vanish (the footer just flips back to its idle label).
+    const actionError = executeAgent.error ?? approvePlan.error ?? null
     return (
-      <div className="flex items-center gap-2 w-full">
-        <PrimaryButton
-          icon="check_circle"
-          kbd="A"
-          onClick={() => {
-            if (blockedByAI) {
-              openAIProvider()
-              return
-            }
-            if (!workspaceId) return
-            // Q01R / B29 — flip ``plan.approved=true`` BEFORE kicking
-            // the executor so the run-all loop's gate sees the approval
-            // and the executor reads an approved plan from the sidebar.
-            // Without the approve call first the executor either no-ops
-            // (run-all path) or races against an un-approved plan.
-            approvePlan.mutate(undefined, {
-              onSuccess: () => {
-                executeAgent.mutate({ agentType: 'remediation_executor' })
-              },
-            })
-          }}
-          disabled={!workspaceId || approvePending}
-          title={blockedByAI ? aiRequired.tooltip ?? undefined : undefined}
-        >
-          {approvePending ? 'Approving…' : 'Approve & generate fix'}
-        </PrimaryButton>
-        <TextButton kbd="R" onClick={onRefine}>
-          Refine
-        </TextButton>
-        <span className="ml-auto" />
-        <ErrorButton icon="block" kbd="X" onClick={onRejectStart}>
-          Reject
-        </ErrorButton>
+      <div className="flex flex-col gap-2 w-full">
+        <div className="flex items-center gap-2 w-full">
+          <PrimaryButton
+            icon="check_circle"
+            kbd="A"
+            onClick={() => {
+              if (blockedByAI) {
+                openAIProvider()
+                return
+              }
+              if (!workspaceId) return
+              // Q01R / B29 — flip ``plan.approved=true`` BEFORE kicking
+              // the executor so the run-all loop's gate sees the approval
+              // and the executor reads an approved plan from the sidebar.
+              // Without the approve call first the executor either no-ops
+              // (run-all path) or races against an un-approved plan.
+              approvePlan.mutate(undefined, {
+                onSuccess: () => {
+                  executeAgent.mutate({ agentType: 'remediation_executor' })
+                },
+              })
+            }}
+            disabled={!workspaceId || approvePending}
+            title={blockedByAI ? aiRequired.tooltip ?? undefined : undefined}
+          >
+            {approvePending ? 'Approving…' : 'Approve & generate fix'}
+          </PrimaryButton>
+          <TextButton kbd="R" onClick={onRefine}>
+            Refine
+          </TextButton>
+          <span className="ml-auto" />
+          <ErrorButton icon="block" kbd="X" onClick={onRejectStart}>
+            Reject
+          </ErrorButton>
+        </div>
+        {actionError != null && !approvePending && (
+          <FooterActionError error={actionError} />
+        )}
       </div>
     )
   }
@@ -1288,36 +1354,45 @@ function DefaultFooter({
       approvePlan.isPending ||
       executeAgent.isPending ||
       runAllPipeline.isPending
+    // A retry can fail the same way the first attempt did — surface it
+    // (the executor's 412 preflight creates no run for SPActivity to show).
+    const retryError =
+      executeAgent.error ?? approvePlan.error ?? runAllPipeline.error ?? null
     return (
-      <div className="flex items-center gap-2 w-full">
-        <PrimaryButton
-          icon="refresh"
-          kbd="R"
-          onClick={() => {
-            if (blockedByAI) {
-              openAIProvider()
-              return
-            }
-            if (!workspaceId) return
-            if (stage === 'executor_failed') {
-              approvePlan.mutate(undefined, {
-                onSuccess: () => {
-                  executeAgent.mutate({ agentType: 'remediation_executor' })
-                },
-              })
-            } else {
-              runAllPipeline.mutate()
-            }
-          }}
-          disabled={!workspaceId || retryPending}
-          title={blockedByAI ? aiRequired.tooltip ?? undefined : undefined}
-        >
-          {retryPending ? 'Retrying…' : stage === 'executor_failed' ? 'Retry' : 'Retry'}
-        </PrimaryButton>
-        <span className="ml-auto" />
-        <ErrorButton icon="block" kbd="X" onClick={onRejectStart}>
-          Reject
-        </ErrorButton>
+      <div className="flex flex-col gap-2 w-full">
+        <div className="flex items-center gap-2 w-full">
+          <PrimaryButton
+            icon="refresh"
+            kbd="R"
+            onClick={() => {
+              if (blockedByAI) {
+                openAIProvider()
+                return
+              }
+              if (!workspaceId) return
+              if (stage === 'executor_failed') {
+                approvePlan.mutate(undefined, {
+                  onSuccess: () => {
+                    executeAgent.mutate({ agentType: 'remediation_executor' })
+                  },
+                })
+              } else {
+                runAllPipeline.mutate()
+              }
+            }}
+            disabled={!workspaceId || retryPending}
+            title={blockedByAI ? aiRequired.tooltip ?? undefined : undefined}
+          >
+            {retryPending ? 'Retrying…' : 'Retry'}
+          </PrimaryButton>
+          <span className="ml-auto" />
+          <ErrorButton icon="block" kbd="X" onClick={onRejectStart}>
+            Reject
+          </ErrorButton>
+        </div>
+        {retryError != null && !retryPending && (
+          <FooterActionError error={retryError} />
+        )}
       </div>
     )
   }
