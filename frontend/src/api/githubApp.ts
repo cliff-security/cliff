@@ -45,22 +45,6 @@ export interface DeviceFlowDisconnectResponse {
   manual_revoke_url: string
 }
 
-/** One GitHub App installation the device-flow user can bind to.
- *  Discovered via the user access token (ADR-0048). */
-export interface GithubAppInstallationOption {
-  installation_id: number
-  account_login: string
-  account_type: string
-}
-
-export interface DeviceFlowInstallationsResponse {
-  installations: GithubAppInstallationOption[]
-}
-
-export interface SelectInstallationPayload {
-  installation_id: number
-}
-
 export interface PushAccessDiagnoseResponse {
   can_push: boolean
   reason: string
@@ -104,20 +88,6 @@ export const githubAppApi = {
     request<DeviceFlowDisconnectResponse>(
       '/api/integrations/github/disconnect',
       { method: 'POST', body: '{}' },
-    ),
-  /** List the App installations discoverable via the device-flow token
-   *  (ADR-0048). Empty → the user hasn't installed the App yet; more
-   *  than one → the onboarding modal shows a picker. */
-  installations: () =>
-    request<DeviceFlowInstallationsResponse>(
-      '/api/integrations/github/installations',
-    ),
-  /** Bind the installation the user picked from the discovery picker
-   *  and connect (ADR-0048). */
-  selectInstallation: (payload: SelectInstallationPayload) =>
-    request<DeviceFlowStatusResponse>(
-      '/api/integrations/github/installations/select',
-      { method: 'POST', body: JSON.stringify(payload) },
     ),
   /** Probe push access against the currently-configured GitHub repo.
    *  Backend caches for 5 minutes; pass ``refresh: true`` to force a
@@ -192,50 +162,6 @@ export function useGithubAppPollNow() {
       // Push the poll result straight into the cache so the modal's
       // useGithubAppStatus picks it up without waiting for its next
       // refetch interval.
-      qc.setQueryData(['github-app', 'status'], data)
-    },
-  })
-}
-
-
-/**
- * Lists the App installations the device-flow token can bind (ADR-0048).
- *
- * The modal enables this once the device flow is authorized but no
- * installation has been resolved yet. An empty list means "install the
- * App"; more than one means "show a picker". Polls while *enabled* so
- * the install affordance updates as soon as the user installs.
- */
-export function useGithubAppInstallations(opts: { enabled?: boolean }) {
-  const { enabled = false } = opts
-  return useQuery({
-    queryKey: ['github-app', 'installations'],
-    queryFn: async (): Promise<GithubAppInstallationOption[]> => {
-      try {
-        const r = await githubAppApi.installations()
-        return r.installations
-      } catch (err) {
-        // 404 = no flow in progress. Treat as "nothing discovered yet"
-        // rather than a hard error so the modal stays calm.
-        if (err instanceof Error && err.message.startsWith('404:')) {
-          return []
-        }
-        throw err
-      }
-    },
-    enabled,
-    refetchInterval: enabled ? 3000 : false,
-  })
-}
-
-export function useGithubAppSelectInstallation() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (installationId: number) =>
-      githubAppApi.selectInstallation({ installation_id: installationId }),
-    onSuccess: (data) => {
-      // Push the resulting (connected) status straight into the cache so
-      // the modal flips to its dismissal path without a polling round-trip.
       qc.setQueryData(['github-app', 'status'], data)
     },
   })

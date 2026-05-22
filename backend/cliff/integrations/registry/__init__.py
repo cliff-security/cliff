@@ -57,6 +57,14 @@ class RegistryEntry(BaseModel):
     # Stays ``False`` for every other entry.
     github_app_available: bool = False
 
+    # ADR-0048 — the "Install or manage the Cliff GitHub App" URL
+    # (``github.com/apps/<slug>/installations/new``). Set alongside
+    # ``github_app_available`` for the github entry; the Settings UI
+    # renders it as an always-available affordance so a user can install
+    # the App on the right repo regardless of onboarding state. ``None``
+    # for every other entry.
+    github_app_install_url: str | None = None
+
 
 # ---------------------------------------------------------------------------
 # Registry loader

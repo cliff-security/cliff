@@ -1796,38 +1796,6 @@
         "title": "DeviceFlowDisconnectResponse",
         "type": "object"
       },
-      "DeviceFlowInstallationSelectRequest": {
-        "description": "Payload for ``POST /installations/select`` (ADR-0048).\n\nThe user picked one installation from the discovery picker. The\nbackend re-fetches ``/user/installations`` and rejects any id not in\nthat live set \u2014 a user can only bind an installation they actually\ncontrol, which is the security boundary ADR-0048 relies on.",
-        "properties": {
-          "installation_id": {
-            "exclusiveMinimum": 0.0,
-            "title": "Installation Id",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "installation_id"
-        ],
-        "title": "DeviceFlowInstallationSelectRequest",
-        "type": "object"
-      },
-      "DeviceFlowInstallationsResponse": {
-        "description": "Response of ``GET /installations`` (ADR-0048).\n\n``installations`` is the live set discovered via the user access\ntoken. Empty \u2192 the user hasn't installed the App yet (show the\ninstall affordance); one entry \u2192 onboarding auto-connects; more than\none \u2192 the UI shows a picker.",
-        "properties": {
-          "installations": {
-            "items": {
-              "$ref": "#/components/schemas/GithubAppInstallationOption"
-            },
-            "title": "Installations",
-            "type": "array"
-          }
-        },
-        "required": [
-          "installations"
-        ],
-        "title": "DeviceFlowInstallationsResponse",
-        "type": "object"
-      },
       "DeviceFlowManualSetupRequest": {
         "description": "Payload for the ``POST /setup/manual`` recovery endpoint (B33).\n\nThe user pastes the ``installation_id`` they saw in the redirect URL\nafter clicking Install on github.com \u2014 typically because the App's\nglobally-configured Setup URL pointed at a different deployment than\ntheirs (e.g. ``localhost:8000`` when their Cliff is on ``:8088``).\n\n``state`` is the same CSRF token that ``POST /connect`` returned in\nits ``install_url`` query string. Validating it against an in-flight\nrow is what keeps the manual path from being a CSRF bypass: an\nattacker who tricks the user into pasting an attacker-controlled\n``installation_id`` can't bind it without also knowing a state the\nuser's own /connect issued.",
         "properties": {
@@ -2663,30 +2631,6 @@
           }
         },
         "title": "FindingUpdate",
-        "type": "object"
-      },
-      "GithubAppInstallationOption": {
-        "description": "One App installation the device-flow user can bind to (ADR-0048).\n\nSurfaced by ``GET /installations`` when post-device-flow discovery\nfinds more than one installation \u2014 the onboarding picker renders one\nrow per option so the user chooses which account to connect.",
-        "properties": {
-          "account_login": {
-            "title": "Account Login",
-            "type": "string"
-          },
-          "account_type": {
-            "title": "Account Type",
-            "type": "string"
-          },
-          "installation_id": {
-            "title": "Installation Id",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "installation_id",
-          "account_login",
-          "account_type"
-        ],
-        "title": "GithubAppInstallationOption",
         "type": "object"
       },
       "GradeHistoryPoint": {
@@ -4370,6 +4314,17 @@
             "default": false,
             "title": "Github App Available",
             "type": "boolean"
+          },
+          "github_app_install_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Github App Install Url"
           },
           "icon": {
             "default": "extension",
@@ -6907,70 +6862,6 @@
           }
         },
         "summary": "Disconnect",
-        "tags": [
-          "github-app"
-        ]
-      }
-    },
-    "/api/integrations/github/installations": {
-      "get": {
-        "description": "List the App installations discoverable via the device-flow token.\n\nADR-0048 \u2014 the onboarding UI calls this once the flow row reaches the\npost-authorization ``installation_pending`` state. Empty \u2192 show the\n\"Install the Cliff GitHub App\" affordance; more than one \u2192 show a\npicker so the user binds the right account.",
-        "operationId": "list_installations_api_integrations_github_installations_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeviceFlowInstallationsResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "List Installations",
-        "tags": [
-          "github-app"
-        ]
-      }
-    },
-    "/api/integrations/github/installations/select": {
-      "post": {
-        "description": "Bind the installation the user picked and connect (ADR-0048).\n\nThe orchestrator re-fetches ``/user/installations`` and rejects any\nid the user can't actually administer \u2014 so a hostile id pasted into\nthe request can't be bound.",
-        "operationId": "select_installation_api_integrations_github_installations_select_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DeviceFlowInstallationSelectRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeviceFlowStatusResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Select Installation",
         "tags": [
           "github-app"
         ]

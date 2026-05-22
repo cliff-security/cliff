@@ -54,7 +54,6 @@ if TYPE_CHECKING:
     from cliff.integrations.audit import AuditLogger
     from cliff.integrations.github_app.client import (
         DeviceCodeResponse,
-        InstallationInfo,
         PollTokenResult,
         UserInfo,
     )
@@ -75,11 +74,12 @@ CSRF_BYTES = 24
 _POLLING_ERROR_MAX_CHARS = 200
 
 # Hard ceiling on how long a single background ``_poll_loop`` task lives.
-# Covers the 15-minute device-code window plus a generous tail for the
-# ADR-0048 installation-discovery phase (the user goes off to install the
-# App). Past this the task simply stops — the row is left as-is, so a
-# returning user's idempotent /connect re-spawns the loop. Without this
-# cap an authorized-but-never-installed flow would poll GitHub forever.
+# Comfortably covers the 15-minute device-code window. Normally the loop
+# ends well inside that — GitHub's ``expired_token`` poll result
+# terminates the row. The cap is a pure backstop: if GitHub somehow never
+# returns a terminal kind, the task still stops here rather than polling
+# forever. The row is left as-is, so a returning user's idempotent
+# /connect re-spawns the loop.
 _POLL_LOOP_MAX_SECONDS = 30 * 60
 
 
@@ -100,23 +100,10 @@ class IntegrationAlreadyConnectedError(RuntimeError):
     """
 
 
-class InstallationNotAvailableError(RuntimeError):
-    """Raised when a selected installation isn't bindable by this user.
-
-    Either the device flow hasn't produced a token yet, or the chosen
-    ``installation_id`` is not in the set ``/user/installations`` reports
-    for the authenticated user — which is the security boundary: a user
-    can only adopt an installation they actually control (ADR-0048).
-    """
-
-
 class GithubAppClientProtocol(Protocol):
     async def request_device_code(self) -> DeviceCodeResponse: ...
     async def poll_token(self, *, device_code: str) -> PollTokenResult: ...
     async def fetch_user(self, *, access_token: str) -> UserInfo: ...
-    async def list_installations(
-        self, *, access_token: str
-    ) -> list[InstallationInfo]: ...
 
 
 class _Clock(Protocol):
@@ -300,25 +287,6 @@ class DeviceFlowOrchestrator:
 
         client = self._client_factory()
 
-        # ADR-0048 — once the device flow has produced a user access token
-        # the row is in the installation-discovery phase. Re-poll
-        # ``/user/installations`` instead of the device-code endpoint
-        # (whose device_code we already consumed and deleted on success).
-        if await self._vault.has_credential(integration_id, GITHUB_TOKEN_KEY):
-            try:
-                token = await self._vault.retrieve(integration_id, GITHUB_TOKEN_KEY)
-            except KeyError:
-                return  # token vanished between the check and the read
-            await self._try_resolve_installation(
-                integration_id,
-                client,
-                access_token=token,
-                github_login=record.github_login,
-                token_expires_at=record.token_expires_at,
-                persist_pending=False,
-            )
-            return
-
         # B03 — no local-clock expiry short-circuit. ``device_code_expires_at``
         # is GitHub's deadline measured against GitHub's clock; comparing it to
         # a self-hosted container's wall clock (which can be skewed — Q03 saw a
@@ -387,56 +355,6 @@ class DeviceFlowOrchestrator:
             )
         )
 
-    async def list_available_installations(
-        self, integration_id: str
-    ) -> list[InstallationInfo]:
-        """Return the App installations the device-flow user can bind.
-
-        Empty when the device flow hasn't produced a token yet, or when
-        the user simply hasn't installed the App. Used by the onboarding
-        picker (ADR-0048).
-        """
-        try:
-            token = await self._vault.retrieve(integration_id, GITHUB_TOKEN_KEY)
-        except KeyError:
-            return []
-        client = self._client_factory()
-        installations = await client.list_installations(access_token=token)
-        return self._filter_our_installations(installations)
-
-    async def select_installation(
-        self, integration_id: str, installation_id: int
-    ) -> GithubAppInstallation:
-        """Bind the user-chosen *installation_id* and connect (ADR-0048).
-
-        Re-fetches ``/user/installations`` and rejects any id outside that
-        live set — a user can only adopt an installation they control.
-        """
-        record = await gh_repo.get_for_integration(self._db, integration_id)
-        if record is None:
-            raise InstallationNotAvailableError(
-                f"no GitHub App flow in progress for integration {integration_id}"
-            )
-        try:
-            token = await self._vault.retrieve(integration_id, GITHUB_TOKEN_KEY)
-        except KeyError as exc:
-            raise InstallationNotAvailableError(
-                "the device flow has not produced an access token yet"
-            ) from exc
-        client = self._client_factory()
-        installations = await client.list_installations(access_token=token)
-        ours = self._filter_our_installations(installations)
-        if installation_id not in {i.installation_id for i in ours}:
-            raise InstallationNotAvailableError(
-                f"installation {installation_id} is not available to this user"
-            )
-        return await self._finalize_connected(
-            integration_id,
-            installation_id=installation_id,
-            github_login=record.github_login,
-            token_expires_at=record.token_expires_at,
-        )
-
     async def start(self, integration_id: str) -> None:
         """Spawn a background polling task. No-op if one is already running."""
         if integration_id in self._tasks and not self._tasks[integration_id].done():
@@ -474,8 +392,7 @@ class DeviceFlowOrchestrator:
                 return
             if self._clock.time() >= deadline:
                 # Stop the task — but leave the row untouched. A returning
-                # user's idempotent /connect re-spawns the loop; the picker
-                # endpoint (select_installation) works without it anyway.
+                # user's idempotent /connect re-spawns the loop.
                 logger.info(
                     "poll loop for %s hit the %ss cap; stopping (row left in %s)",
                     integration_id,
@@ -537,25 +454,14 @@ class DeviceFlowOrchestrator:
                 self._expires_at_iso(result.expires_in) if result.expires_in else None
             )
 
-            # ADR-0048 — if the legacy /setup callback already bound an
-            # installation_id, connect straight away; otherwise discover
-            # the installation from the user access token.
-            if record.installation_id is not None:
-                await self._finalize_connected(
-                    integration_id,
-                    installation_id=None,
-                    github_login=github_login,
-                    token_expires_at=token_expires_at,
-                )
-            else:
-                await self._try_resolve_installation(
-                    integration_id,
-                    client,
-                    access_token=result.access_token,
-                    github_login=github_login,
-                    token_expires_at=token_expires_at,
-                    persist_pending=True,
-                )
+            # The device-flow user access token IS the connection — it's
+            # what every clone/scan/push path authenticates with (ADR-0048).
+            # No installation discovery: connect the moment the token lands.
+            await self._finalize_connected(
+                integration_id,
+                github_login=github_login,
+                token_expires_at=token_expires_at,
+            )
             return
 
         if kind == "authorization_pending":
@@ -591,99 +497,23 @@ class DeviceFlowOrchestrator:
             integration_id, status="error", error=f"unknown_kind:{kind}"
         )
 
-    # ------------------------------------------------------------------
-    # Installation discovery (ADR-0048)
-    # ------------------------------------------------------------------
-
-    def _filter_our_installations(
-        self, installations: list[InstallationInfo]
-    ) -> list[InstallationInfo]:
-        """Keep only installations of *our* App.
-
-        ``/user/installations`` reports installations of every App the
-        user has authorized, so the slug filter is what isolates ours.
-        """
-        return [i for i in installations if i.app_slug == self._app_slug]
-
-    async def _try_resolve_installation(
-        self,
-        integration_id: str,
-        client: GithubAppClientProtocol,
-        *,
-        access_token: str,
-        github_login: str | None,
-        token_expires_at: str | None,
-        persist_pending: bool,
-    ) -> None:
-        """Discover the App installation from *access_token* and connect
-        when exactly one is found.
-
-        Zero or many installations leave the row in the non-terminal
-        ``installation_pending`` state. ``persist_pending=True`` is the
-        first resolution right after the device flow — the row must be
-        moved into that state and the token recorded.
-        ``persist_pending=False`` is a later background re-discovery tick
-        where the row is already pending: nothing to write, just retry
-        on the next tick.
-        """
-        try:
-            installations = await client.list_installations(
-                access_token=access_token
-            )
-        except Exception:  # noqa: BLE001 — any failure: stay pending, retry
-            # logger.exception keeps the stack trace so a genuine bug here
-            # (vs. a transient GitHub blip) stays diagnosable.
-            logger.exception(
-                "installation discovery failed for %s", integration_id
-            )
-            if persist_pending:
-                await gh_repo.record_device_authorized(
-                    self._db,
-                    integration_id,
-                    github_login=github_login,
-                    token_expires_at=token_expires_at,
-                )
-            return
-
-        ours = self._filter_our_installations(installations)
-        if len(ours) == 1:
-            await self._finalize_connected(
-                integration_id,
-                installation_id=ours[0].installation_id,
-                github_login=github_login,
-                token_expires_at=token_expires_at,
-            )
-        elif persist_pending:
-            # Zero (user must install) or many (user must pick) — hold the
-            # row in installation_pending with the token stored.
-            await gh_repo.record_device_authorized(
-                self._db,
-                integration_id,
-                github_login=github_login,
-                token_expires_at=token_expires_at,
-            )
-
     async def _finalize_connected(
         self,
         integration_id: str,
         *,
-        installation_id: int | None,
         github_login: str | None,
         token_expires_at: str | None,
     ) -> GithubAppInstallation:
         """Mark the row connected, enable the integration, archive PATs.
 
-        Shared by every connect path: the legacy callback-bound success,
-        single-installation discovery, the background discovery tick, and
-        the picker. ``installation_id=None`` keeps whatever the ``/setup``
-        callback already bound. Returns the now-connected row.
+        Called once the device flow yields a user access token — that
+        token is the connection (ADR-0048). Returns the now-connected row.
         """
         record = await gh_repo.mark_connected(
             self._db,
             integration_id,
             github_login=github_login,
             token_expires_at=token_expires_at,
-            installation_id=installation_id,
         )
         assert record is not None  # the row we just updated
         await repo_integration.update_integration(

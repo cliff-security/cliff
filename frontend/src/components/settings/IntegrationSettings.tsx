@@ -360,6 +360,47 @@ function SetupPanel({
 }
 
 // ---------------------------------------------------------------------------
+// "Install or manage the Cliff GitHub App" link (ADR-0048)
+//
+// Installing the App on a repo is inherent to the GitHub App model — no
+// onboarding design removes it. So this affordance is *always* available
+// wherever GitHub is configured: on the connected card (next to the
+// push-access badge, so a user who connected but installed the App on
+// the wrong org is one click from fixing it) and on the catalog tile.
+// ---------------------------------------------------------------------------
+
+function GithubAppInstallLink({ url }: { url: string }) {
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      data-testid="github-app-install-link"
+      className="font-mono"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 5,
+        fontSize: 10.5,
+        letterSpacing: '0.06em',
+        color: 'var(--cd-fg-4)',
+        textDecoration: 'underline dotted',
+        textUnderlineOffset: 2,
+      }}
+    >
+      <span
+        className="material-symbols-outlined"
+        style={{ fontSize: 12 }}
+        aria-hidden
+      >
+        open_in_new
+      </span>
+      Install or manage the Cliff GitHub App
+    </a>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Configured integration card (with health status)
 // ---------------------------------------------------------------------------
 
@@ -589,10 +630,24 @@ function ConfiguredCard({
        *  on mount and renders green if the App can push, red with a
        *  How-to-fix link otherwise, or nothing if no GitHub integration
        *  is configured. Lives below the disconnect row so it doesn't
-       *  squeeze the existing controls on narrow widths. */}
+       *  squeeze the existing controls on narrow widths.
+       *
+       *  The install/manage link sits right under it (ADR-0048): when
+       *  the badge is red because the App isn't installed on this repo,
+       *  this is the one-click fix. */}
       {integration.provider_name.toLowerCase() === 'github' && (
-        <div style={{ marginTop: 10 }}>
+        <div
+          style={{
+            marginTop: 10,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+          }}
+        >
           <PushAccessBadge />
+          {registryEntry?.github_app_install_url && (
+            <GithubAppInstallLink url={registryEntry.github_app_install_url} />
+          )}
         </div>
       )}
     </div>
@@ -975,6 +1030,11 @@ export default function IntegrationSettings() {
                           >
                             Use a token instead
                           </button>
+                          {entry.github_app_install_url && (
+                            <GithubAppInstallLink
+                              url={entry.github_app_install_url}
+                            />
+                          )}
                         </div>
                       ) : (
                         <button

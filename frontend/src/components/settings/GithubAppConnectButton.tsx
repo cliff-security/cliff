@@ -9,19 +9,17 @@ import { GithubAppDeviceFlowModal } from './GithubAppDeviceFlowModal'
 /**
  * Single-button entry point for the GitHub App + Device Flow onboarding.
  *
- * Collapsed single-modal UX (ADR-0048):
- * 1. Click button → POST /connect → mount the GithubAppDeviceFlowModal
- *    directly. No install tab is opened up front — the device flow
- *    comes first.
+ * Single-modal UX (ADR-0048):
+ * 1. Click button → POST /connect → mount the GithubAppDeviceFlowModal.
  * 2. The modal walks the user through authorizing the device code.
- * 3. Once authorized, the backend discovers the GitHub App installation
- *    from the user access token (``GET /user/installations``). The
- *    modal then either connects automatically (one installation),
- *    shows an "Install the Cliff GitHub App" affordance (none), or a
- *    picker (several) — all in the same modal.
+ * 3. The moment the backend's poller catches the user access token the
+ *    integration is connected and the modal dismisses — the token IS
+ *    the connection.
  *
- * Discovery removes the dependency on the App's redirect callback, so
- * onboarding works on any self-host port (B02).
+ * The device flow has no inbound callback, so onboarding works on any
+ * self-host port or behind a reverse proxy (B02). Installing the Cliff
+ * GitHub App on a repo is a separate, always-available affordance on the
+ * Integrations page — not a step in this flow.
  */
 export function GithubAppConnectButton({
   className = '',
@@ -51,9 +49,9 @@ export function GithubAppConnectButton({
   // row exists), so the page is the only safe owner of that effect.
 
   const handleClick = async () => {
-    // ADR-0048 — go straight to the device-flow modal. The App-install
-    // step (when needed) is a secondary affordance the modal surfaces
-    // after the device is authorized, not a tab opened up front.
+    // ADR-0048 — go straight to the device-flow modal. Installing the
+    // App on a repo is a separate, always-available affordance on the
+    // Integrations page, not a step in this flow.
     const r = await connect.mutateAsync({ returnTo })
     setResponse(r)
   }

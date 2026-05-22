@@ -6,6 +6,7 @@ import asyncio
 import logging
 import time
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -336,10 +337,26 @@ def _github_app_available() -> bool:
     )
 
 
+def _github_app_install_url() -> str | None:
+    """ADR-0048: the ``github.com/apps/<slug>/installations/new`` URL, or
+    ``None`` when the App onboarding surface isn't configured. The Settings
+    UI renders this as an always-available "install or manage the App"
+    affordance."""
+    if not _github_app_available():
+        return None
+    slug = quote(app_settings.github_app_slug, safe="")
+    return f"https://github.com/apps/{slug}/installations/new"
+
+
 def _enrich_registry_entry(entry: RegistryEntry) -> RegistryEntry:
-    """Set ``github_app_available`` on the github entry; pass others through."""
+    """Set the github-app fields on the github entry; pass others through."""
     if entry.id == "github":
-        return entry.model_copy(update={"github_app_available": _github_app_available()})
+        return entry.model_copy(
+            update={
+                "github_app_available": _github_app_available(),
+                "github_app_install_url": _github_app_install_url(),
+            }
+        )
     return entry
 
 

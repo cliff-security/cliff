@@ -24,7 +24,6 @@ import httpx
 DEVICE_CODE_PATH = "/login/device/code"
 TOKEN_PATH = "/login/oauth/access_token"  # noqa: S105 — URL path, not a credential
 USER_PATH = "/user"
-USER_INSTALLATIONS_PATH = "/user/installations"
 REPO_PATH_TEMPLATE = "/repos/{owner}/{repo}"
 REPO_INSTALLATION_PATH_TEMPLATE = "/repos/{owner}/{repo}/installation"
 DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
@@ -83,23 +82,6 @@ class PollTokenResult:
 class UserInfo:
     login: str
     id: int
-
-
-@dataclass(frozen=True)
-class InstallationInfo:
-    """One GitHub App installation visible to a user access token.
-
-    Returned by ``GET /user/installations``. ``app_slug`` lets the caller
-    filter to our own App (the endpoint reports installations of every
-    App the user has, not just ours). ``account_login`` / ``account_type``
-    identify whose account the App is installed on — what the onboarding
-    picker renders when the user has more than one installation.
-    """
-
-    installation_id: int
-    app_slug: str
-    account_login: str
-    account_type: str
 
 
 # Cap exception/log payloads at this many characters of body text.
@@ -303,88 +285,6 @@ class GitHubDeviceFlowClient:
             raise GitHubDeviceFlowError(
                 f"GET /user response missing fields: {body!r}"
             ) from exc
-
-    async def list_installations(
-        self, *, access_token: str
-    ) -> list[InstallationInfo]:
-        """GET /user/installations — every App installation this token can see.
-
-        This is the load-bearing call for ADR-0048: instead of learning
-        ``installation_id`` from the App's redirect-callback (which pins
-        self-host onboarding to one port), we discover it from the device
-        flow's own user access token.
-
-        Returns installations of *every* App the user has — the caller
-        filters by ``app_slug`` to keep only ours. We page through with
-        ``per_page=100``; a single user having >100 App installs is not
-        a case worth a pagination loop.
-        """
-        url = f"{self._api_base}{USER_INSTALLATIONS_PATH}"
-        async with self._async_client() as client:
-            resp = await client.get(
-                url,
-                params={"per_page": 100},
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Accept": "application/vnd.github+json",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-            )
-        # GitHub surfaces primary AND secondary rate limits as either 429
-        # or 403 (docs: rest/using-the-rest-api/rate-limits-for-the-rest-api).
-        # A 403 is a rate limit when ``x-ratelimit-remaining`` is exhausted
-        # or the body says so — classify those as transient like a 429 so
-        # discovery retries instead of failing the flow.
-        rate_limited_403 = resp.status_code == 403 and (
-            resp.headers.get("x-ratelimit-remaining") == "0"
-            or "rate limit" in (resp.text or "").lower()
-            or "abuse" in (resp.text or "").lower()
-        )
-        if (
-            resp.status_code == 429
-            or rate_limited_403
-            or 500 <= resp.status_code < 600
-        ):
-            raise GitHubDeviceFlowTransientError(
-                f"list_installations transient: HTTP {resp.status_code} "
-                f"{_safe_error_summary(resp)}"
-            )
-        if resp.status_code != 200:
-            raise GitHubDeviceFlowError(
-                f"GET /user/installations failed: HTTP {resp.status_code} "
-                f"{_safe_error_summary(resp)}"
-            )
-        try:
-            body = resp.json()
-        except ValueError as exc:
-            raise GitHubDeviceFlowError(
-                "GET /user/installations returned a non-JSON response"
-            ) from exc
-        raw = body.get("installations") if isinstance(body, dict) else None
-        if not isinstance(raw, list):
-            raise GitHubDeviceFlowError(
-                f"GET /user/installations response missing 'installations': {body!r}"
-            )
-        installations: list[InstallationInfo] = []
-        for item in raw:
-            if not isinstance(item, dict):
-                continue
-            account = item.get("account")
-            account = account if isinstance(account, dict) else {}
-            try:
-                installations.append(
-                    InstallationInfo(
-                        installation_id=int(item["id"]),
-                        app_slug=str(item.get("app_slug") or ""),
-                        account_login=str(account.get("login") or ""),
-                        account_type=str(account.get("type") or ""),
-                    )
-                )
-            except (KeyError, TypeError, ValueError):
-                # A single malformed entry shouldn't sink the whole list —
-                # skip it and surface the installations we could parse.
-                continue
-        return installations
 
 
 # ---------------------------------------------------------------------------
