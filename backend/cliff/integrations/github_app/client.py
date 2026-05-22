@@ -18,6 +18,7 @@ import shutil
 import tempfile
 from dataclasses import dataclass
 from typing import Literal
+from urllib.parse import quote
 
 import httpx
 
@@ -27,6 +28,22 @@ USER_PATH = "/user"
 REPO_PATH_TEMPLATE = "/repos/{owner}/{repo}"
 REPO_INSTALLATION_PATH_TEMPLATE = "/repos/{owner}/{repo}/installation"
 DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
+INSTALL_URL_TEMPLATE = "https://github.com/apps/{slug}/installations/new"
+
+
+def build_install_url(slug: str, *, state: str | None = None) -> str:
+    """The github.com App-install URL for *slug*.
+
+    With *state* it carries the CSRF token the ``/setup`` callback
+    validates (the device-flow ``/connect`` contract). Without it, it's
+    the plain always-available "install or manage the App" link the
+    Settings UI renders (ADR-0048). ``quote(safe="")`` defends both the
+    slug (env-supplied) and the state against a stray ``/`` or ``?``.
+    """
+    base = INSTALL_URL_TEMPLATE.format(slug=quote(slug, safe=""))
+    if state is None:
+        return base
+    return f"{base}?state={quote(state, safe='')}"
 
 
 class GitHubDeviceFlowError(RuntimeError):

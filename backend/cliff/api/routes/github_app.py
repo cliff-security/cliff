@@ -19,7 +19,7 @@ import logging
 import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
-from urllib.parse import quote, urlencode, urlparse
+from urllib.parse import urlencode, urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
@@ -31,6 +31,7 @@ from cliff.db.connection import get_db
 from cliff.integrations.github_app import repo as gh_repo
 from cliff.integrations.github_app.client import (
     GitHubDeviceFlowClient,
+    build_install_url,
     check_repo_push_access,
 )
 from cliff.integrations.github_app.flow import (
@@ -268,16 +269,6 @@ def _require_vault_and_audit(request: Request) -> tuple[CredentialVault, AuditLo
     return vault, audit
 
 
-def _install_url(csrf_state: str) -> str:
-    # Quote the slug too — the value comes from env (trusted by intent),
-    # but defending against a typo with ``/`` or ``?`` in it is free.
-    slug = quote(settings.github_app_slug, safe="")
-    return (
-        f"https://github.com/apps/{slug}"
-        f"/installations/new?state={quote(csrf_state, safe='')}"
-    )
-
-
 def _resolve_frontend_base_url() -> str:
     """Pick the right origin for the post-install redirect.
 
@@ -429,7 +420,9 @@ async def connect(
         verification_uri=started.verification_uri,
         expires_in=started.expires_in,
         interval=started.interval,
-        install_url=_install_url(started.csrf_state),
+        install_url=build_install_url(
+            settings.github_app_slug, state=started.csrf_state
+        ),
     )
 
 
