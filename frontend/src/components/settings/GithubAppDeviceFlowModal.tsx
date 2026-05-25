@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   useGithubAppPollNow,
   useGithubAppStatus,
@@ -45,6 +46,7 @@ export function GithubAppDeviceFlowModal({
 }) {
   const { data: status } = useGithubAppStatus({ enabled: true })
   const pollNow = useGithubAppPollNow()
+  const qc = useQueryClient()
 
   const [expiresAtMs] = useState(() => Date.now() + connect.expires_in * 1000)
   const [remainingMs, setRemainingMs] = useState(connect.expires_in * 1000)
@@ -84,12 +86,20 @@ export function GithubAppDeviceFlowModal({
 
   useEffect(() => {
     if (status?.status === 'connected') {
+      // Refresh the integrations list — the backend creates the github
+      // integration row when the device flow's poll resolves to
+      // connected, but the query that drives Settings (and the picker
+      // visibility) doesn't auto-revalidate. Without this, the user
+      // sees the modal close successfully but the configured card +
+      // repo picker don't appear until a hard refresh.
+      qc.invalidateQueries({ queryKey: ['integrations'] })
+      qc.invalidateQueries({ queryKey: ['integrations', 'health'] })
       // Small delay so the user sees the success state before dismissal.
       const id = window.setTimeout(onDismiss, 600)
       return () => window.clearTimeout(id)
     }
     return undefined
-  }, [status?.status, onDismiss])
+  }, [status?.status, onDismiss, qc])
 
   // Move focus to the modal heading on mount + Escape to dismiss. Both
   // are basic dialog hygiene that screen readers + keyboard users

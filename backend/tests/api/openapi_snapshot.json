@@ -6895,17 +6895,6 @@
         "parameters": [
           {
             "in": "query",
-            "name": "state",
-            "required": true,
-            "schema": {
-              "maxLength": 128,
-              "minLength": 8,
-              "title": "State",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
             "name": "installation_id",
             "required": true,
             "schema": {
@@ -6926,6 +6915,24 @@
               ],
               "title": "Setup Action",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
             }
           }
         ],

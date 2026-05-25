@@ -24,7 +24,6 @@ import type {
 } from '@/api/client'
 import { GithubAppConnectButton } from './GithubAppConnectButton'
 import { GithubAppDeviceFlowModal } from './GithubAppDeviceFlowModal'
-import { GithubAppMigrationBanner } from './GithubAppMigrationBanner'
 import { PushAccessBadge } from './PushAccessBadge'
 import { RepoPickerDialog } from '@/components/repo/RepoPickerDialog'
 
@@ -666,22 +665,15 @@ export default function IntegrationSettings() {
   )
   const [setupEntry, setSetupEntry] = useState<RegistryEntry | null>(null)
 
-  // ADR-0035 / IMPL-0010 — show the App-flow surface only when the
-  // backend reports it's available, gated on the env var being set.
-  const githubEntry = (registry || []).find((r) => r.id === 'github')
-  const githubAppAvailable = githubEntry?.github_app_available === true
-
   // Use the synchronous auth_method tag the backend stamps on the github
   // integration row instead of racing /status. ``github_app`` = the user
-  // already authorized the device flow; ``pat`` = legacy onboarding,
-  // suitable to surface the migration banner to.
+  // already authorized the device flow; ``pat`` = legacy onboarding.
+  // Used by the "Pick a repo" success card below to greet the user
+  // by their GitHub login. Was previously also used by the migration
+  // banner (removed: new users have always used the App flow).
   const githubIntegration = (integrations || []).find(
     (i) => i.provider_name.toLowerCase() === 'github' && i.enabled,
   )
-  const showMigrationBanner =
-    githubAppAvailable &&
-    githubIntegration !== undefined &&
-    githubIntegration.auth_method === 'pat'
 
   // Page-level resume: if the user just came back from a successful
   // App install on github.com, /setup tagged the URL with
@@ -802,7 +794,7 @@ export default function IntegrationSettings() {
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-on-surface">
                   You're connected
-                  {githubIntegration.github_login
+                  {githubIntegration?.github_login
                     ? ` as @${githubIntegration.github_login}`
                     : ''}
                   . Pick a repo to start scanning.
@@ -844,9 +836,6 @@ export default function IntegrationSettings() {
         }}
       />
 
-      {showMigrationBanner && (
-        <GithubAppMigrationBanner onResponse={presentGithubAppFlow} />
-      )}
 
       {/* Configured integrations */}
       {(integrations || []).length > 0 && (

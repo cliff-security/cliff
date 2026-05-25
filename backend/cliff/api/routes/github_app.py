@@ -456,7 +456,6 @@ async def _register_installation(
 @router.get("/setup")
 async def setup_callback(
     request: Request,
-    state: str = Query(..., min_length=8, max_length=128),
     # SR-5: reject zero/negative IDs early — GitHub installation IDs are
     # always positive. Saves us from binding a row to a nonsense value
     # that GitHub will later refuse anyway.
@@ -467,12 +466,32 @@ async def setup_callback(
     # repos. We honour both, but tag the redirect so the SPA can show
     # different copy ("Connected" vs "Configuration updated").
     setup_action: Literal["install", "update"] = Query("install"),
+    # ``state`` is OPTIONAL. The onboarding flow's install_url carries
+    # a CSRF state so /setup can bind installation_id to the in-flight
+    # row. But post-onboarding installs (e.g. the picker's "Install on
+    # <org>" link, or a user installing on additional orgs from
+    # github.com directly) don't have an in-flight row — there's no
+    # state to pass. When state is absent we skip the binding step and
+    # just redirect the user to the SPA. The integration was already
+    # established via the device-flow token; the new installation_id
+    # surfaces via /user/installations on the next picker query.
+    state: str | None = Query(None, min_length=8, max_length=128),
     db: aiosqlite.Connection = Depends(get_db),
 ) -> RedirectResponse:
     _require_app_configured()
-    return_path = _pop_return_path(request, state)
 
     redirect_status = "updated" if setup_action == "update" else "complete"
+
+    if state is None:
+        # Post-onboarding install path: no state, no binding, just send
+        # the user back to Settings with a success tag so the picker
+        # can refresh its installation set.
+        return RedirectResponse(
+            _frontend_redirect(DEFAULT_RETURN_PATH, status=redirect_status),
+            status_code=302,
+        )
+
+    return_path = _pop_return_path(request, state)
 
     try:
         await _register_installation(
