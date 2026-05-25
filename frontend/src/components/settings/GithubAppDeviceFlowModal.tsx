@@ -164,23 +164,54 @@ export function GithubAppDeviceFlowModal({
               tabIndex={-1}
               className="text-lg font-semibold tracking-tight text-on-surface focus:outline-none"
             >
-              Authorize Cliff on this device
+              Install Cliff on GitHub
             </h3>
             <p className="text-sm text-on-surface-variant mt-1">
-              Two steps: copy the code, paste it on GitHub. We'll handle the
-              copy for you when you click Authorize.
+              Two parts: install the Cliff App on the repo you want to
+              secure, then authorize this device by pasting the code on
+              GitHub. We'll detect both automatically.
             </p>
           </div>
         </div>
 
         {showDeviceSteps && (
           <>
-            {/* Step 1 — the code, prominently displayed. Clicking the
-                Copy button copies it manually; clicking Authorize below
-                also copies + opens GitHub. */}
+            {/* Step 1 — install the App on the user's repo. The device
+                flow alone only issues a user access token; the App
+                still has to be installed for push access (PR creation)
+                and for the App to show up in the user's GitHub Apps
+                list. We don't wait for the install callback (Bug B02 —
+                the setup_url is globally pinned to one Cliff port), so
+                this is a fire-and-forget "go install on GitHub" link.
+                The install_url already carries a CSRF ``state``. */}
             <div className="rounded-xl bg-surface-container-low p-5">
               <p className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant mb-3">
-                Step 1 · Your one-time code
+                Step 1 · Install the App on your repo
+              </p>
+              <a
+                href={connect.install_url}
+                target="_blank"
+                rel="noreferrer"
+                data-testid="device-flow-install-link"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-surface-container-lowest px-5 py-3 text-sm font-semibold text-on-surface hover:bg-surface-container transition-colors"
+              >
+                <span className="material-symbols-outlined text-lg">
+                  open_in_new
+                </span>
+                Open GitHub to install
+              </a>
+              <p className="text-xs text-on-surface-variant mt-3 text-center">
+                Pick the repo you want Cliff to secure, then click
+                Install. Come back here for step 2.
+              </p>
+            </div>
+
+            {/* Step 2 — the code, prominently displayed. Clicking the
+                Copy button copies it manually; clicking Authorize below
+                also copies + opens GitHub. */}
+            <div className="mt-3 rounded-xl bg-surface-container-low p-5">
+              <p className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant mb-3">
+                Step 2 · Your one-time code
               </p>
               <div className="flex items-center justify-between gap-3">
                 <code className="font-mono text-3xl font-bold tracking-[0.3em] text-on-surface select-all">
@@ -200,11 +231,11 @@ export function GithubAppDeviceFlowModal({
               </div>
             </div>
 
-            {/* Step 2 — opens GitHub AND copies the code (one click,
+            {/* Step 3 — opens GitHub AND copies the code (one click,
                 two effects). */}
             <div className="mt-3 rounded-xl bg-surface-container-low p-5">
               <p className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant mb-3">
-                Step 2 · Paste it on GitHub to authorize
+                Step 3 · Paste it on GitHub to authorize
               </p>
               <a
                 href={connect.verification_uri}

@@ -489,8 +489,9 @@ export default function ConnectRepo() {
                     Install the cliff GitHub App
                   </p>
                   <p className="text-xs text-on-surface-variant mt-1">
-                    One-click install on github.com — pick the repo, authorize
-                    this device, you’re done. No tokens to manage.
+                    Two parts on the next screen: install the App on your
+                    repo, then paste a one-time code on GitHub to authorize
+                    this device. No tokens to manage.
                   </p>
                 </div>
               </div>
