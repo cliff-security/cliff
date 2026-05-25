@@ -15,6 +15,7 @@ Workflow (driven by the `/secure-repo` skill):
 
 from __future__ import annotations
 
+import shlex
 from typing import Any
 
 import click
@@ -541,7 +542,9 @@ def selftest(repo_url: str) -> None:
     import sys
 
     def _run(args: list[str]) -> dict[str, Any]:
-        proc = subprocess.run([sys.argv[0], *args], capture_output=True, text=True, check=False)
+        # Sanitize all user-controlled arguments to prevent command injection
+        safe_args = [shlex.quote(arg) for arg in args]
+        proc = subprocess.run([sys.argv[0], *safe_args], capture_output=True, text=True, check=False)
         sys.stdout.write(proc.stdout)
         if proc.returncode not in (0, 2, 5):
             sys.stderr.write(proc.stderr)
