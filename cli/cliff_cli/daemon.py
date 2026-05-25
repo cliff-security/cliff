@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import re
 import shutil
 import signal
 import socket
@@ -116,6 +117,22 @@ def _read_pidfile() -> int | None:
         PID_FILE.unlink(missing_ok=True)
         return None
     return pid
+
+
+def _validate_host(host: str) -> None:
+    """Validate that host is a safe hostname or IP address.
+    
+    Raises ValueError if the host contains shell metacharacters or other
+    suspicious patterns that could enable command injection.
+    """
+    # Allow only alphanumerics, dots, hyphens, and colons (for IPv6)
+    # This pattern matches valid hostnames and IP addresses
+    if not re.match(r"^[a-zA-Z0-9.:_\[\]-]+$", host):
+        raise ValueError(f"Invalid host format: {host}")
+    # Additional check: disallow common shell metacharacters even if regex passes
+    dangerous_chars = {"$", "`", "!", "&", "|", ";", "<", ">", "(", ")", "{", "}"}
+    if any(char in host for char in dangerous_chars):
+        raise ValueError(f"Host contains forbidden characters: {host}")
 
 
 def _port_free(port: int, host: str = DEFAULT_HOST) -> bool:
@@ -220,6 +237,18 @@ def start_cmd(detach: bool, port: int | None, host: str | None) -> None:
 
     bind_host = host or _read_env_file(ENV_FILE).get("CLIFF_APP_HOST", DEFAULT_HOST)
     bind_port = port or int(_read_env_file(ENV_FILE).get("CLIFF_APP_PORT", DEFAULT_PORT))
+    
+    # Validate host to prevent command injection via environment variables
+    try:
+        _validate_host(bind_host)
+    except ValueError as e:
+        emit_error(
+            str(e),
+            code="invalid_host",
+            hint="Use a valid hostname or IP address (e.g., 127.0.0.1, localhost, 0.0.0.0).",
+            exit_code=EXIT_ERROR,
+        )
+    
     env = _build_env(bind_host, bind_port)
 
     if not _port_free(bind_port, bind_host):
