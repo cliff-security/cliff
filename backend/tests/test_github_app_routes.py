@@ -303,6 +303,35 @@ async def test_setup_redirects_with_error_on_csrf_mismatch(
     assert "github_setup=error" in location
 
 
+@pytest.mark.asyncio
+async def test_setup_without_state_redirects_without_binding(
+    db_client: AsyncClient,
+    patched_app_settings,  # noqa: ARG001
+    patched_client_factory,  # noqa: ARG001
+):
+    """Post-onboarding install path: the user installed Cliff on an
+    additional owner from the picker's "Install on <owner>" link, which
+    intentionally carries no CSRF state. GitHub's redirect back to
+    /setup therefore has no state either. /setup should accept the
+    missing state, skip the installation_id binding step (there's no
+    in-flight row to bind to), and just send the user back to Settings
+    with the success tag so the picker can refresh.
+    """
+    resp = await db_client.get(
+        "/api/integrations/github/setup",
+        params={
+            "installation_id": "135510244",
+            "setup_action": "install",
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code in {302, 307}
+    location = resp.headers["location"]
+    assert "github_setup=complete" in location
+    assert "/settings?" in location
+    assert location.endswith("#integrations")
+
+
 # ---------------------------------------------------------------------------
 # /status
 # ---------------------------------------------------------------------------

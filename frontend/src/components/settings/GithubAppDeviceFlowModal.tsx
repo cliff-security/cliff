@@ -141,12 +141,10 @@ export function GithubAppDeviceFlowModal({
   }
 
   const handleAuthorize = () => {
-    // Copy the code as a side effect of the click; the anchor's native
-    // target=_blank navigation handles opening GitHub. We used to also
-    // call window.open here, but pairing it with e.preventDefault meant
-    // a blocked popup left the user with nothing — no new tab and no
-    // fallback navigation. Letting the anchor navigate natively is the
-    // popup-blocker-safe path.
+    // Side effects of the Step 3 click. Navigation itself comes from
+    // the anchor's native target=_blank — that path is gesture-trusted
+    // and survives popup blockers, whereas a paired window.open()
+    // (what we used to do) gets silently killed.
     void copyCode()
     setAuthorizeOpened(true)
   }

@@ -23,7 +23,9 @@ from cliff.api._engine_dep import (
     get_assessment_engine,
 )
 from cliff.assessment.posture.github_client import GithubClient, UnableToVerify
+from cliff.config import settings as cliff_settings
 from cliff.db.connection import get_db
+from cliff.integrations.github_app.client import build_install_url
 from cliff.db.dao.assessment import create_assessment, get_assessment
 from cliff.db.repo_integration import (
     create_integration,
@@ -387,8 +389,6 @@ async def list_github_repos(
             # legacy PAT tokens don't have installations to query.
             app_installed_full_names: set[str] | None = None
             if not (request.github_token or "").strip():
-                from cliff.config import settings as cliff_settings
-
                 installations = await client.list_user_installations_for_app(
                     cliff_settings.github_app_slug
                 )
@@ -453,16 +453,11 @@ async def list_github_repos(
 
     options.sort(key=_rank)
 
-    install_url: str | None = None
-    try:
-        from cliff.config import settings as cliff_settings
-        from cliff.integrations.github_app.client import build_install_url
-
-        if cliff_settings.github_app_client_id:
-            install_url = build_install_url(cliff_settings.github_app_slug)
-    except Exception:  # pragma: no cover — defensive; never fail the picker
-        install_url = None
-
+    install_url = (
+        build_install_url(cliff_settings.github_app_slug)
+        if cliff_settings.github_app_client_id
+        else None
+    )
     return ListReposResponse(repos=options, install_url=install_url)
 
 
