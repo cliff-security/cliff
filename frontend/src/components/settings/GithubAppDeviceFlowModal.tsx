@@ -131,15 +131,14 @@ export function GithubAppDeviceFlowModal({
   }
 
   const handleAuthorize = () => {
-    // Copy code → open authorize tab. Order matters: writeText must
-    // happen synchronously inside the click handler to count as a
-    // user gesture.
+    // Copy the code as a side effect of the click; the anchor's native
+    // target=_blank navigation handles opening GitHub. We used to also
+    // call window.open here, but pairing it with e.preventDefault meant
+    // a blocked popup left the user with nothing — no new tab and no
+    // fallback navigation. Letting the anchor navigate natively is the
+    // popup-blocker-safe path.
     void copyCode()
     setAuthorizeOpened(true)
-    // ``window.open`` is also gated by user gesture; keep this on the
-    // synchronous path of the click handler. Fallback href on the link
-    // covers cases where the popup blocker still trips.
-    window.open(connect.verification_uri, '_blank', 'noopener,noreferrer')
   }
 
   const showDeviceSteps = !terminal && !connected
@@ -211,14 +210,7 @@ export function GithubAppDeviceFlowModal({
                 href={connect.verification_uri}
                 target="_blank"
                 rel="noreferrer"
-                onClick={(e) => {
-                  // Drive the click through our handler so the copy +
-                  // window.open both fire as part of the gesture. We
-                  // still rely on the anchor's href as a fallback if
-                  // popup blockers cancel the explicit open.
-                  e.preventDefault()
-                  handleAuthorize()
-                }}
+                onClick={handleAuthorize}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 py-4 text-base font-semibold text-on-primary hover:bg-primary/90 transition-colors shadow-sm shadow-primary/20"
               >
                 <span className="material-symbols-outlined text-xl">

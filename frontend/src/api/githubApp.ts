@@ -245,6 +245,11 @@ export function useGithubAppResumeOnReturn(): {
    *  Calls the idempotent /connect to fetch the in-flight code and
    *  mounts the modal in the same way the URL-driven path does. */
   resume: () => Promise<void>
+  /** Mount the modal with a response the caller already has. Used by
+   *  GithubAppConnectButton so the modal lives at page level instead
+   *  of inside the button — the button can unmount the moment status
+   *  flips to in-flight, but the page-level modal survives. */
+  present: (r: DeviceFlowConnectResponse) => void
 } {
   const connect = useGithubAppConnect()
   const [response, setResponse] = useState<DeviceFlowConnectResponse | null>(
@@ -299,5 +304,6 @@ export function useGithubAppResumeOnReturn(): {
       triggered.current = false
     },
     resume,
+    present: setResponse,
   }
 }

@@ -1,3 +1,4 @@
+import type { DeviceFlowConnectResponse } from '@/api/githubApp'
 import { GithubAppConnectButton } from './GithubAppConnectButton'
 
 /**
@@ -8,8 +9,15 @@ import { GithubAppConnectButton } from './GithubAppConnectButton'
  *
  * Click → triggers the device flow exactly as a fresh "Connect GitHub"
  * would. On a successful connect the backend archives the PAT row.
+ *
+ * ``onResponse`` is forwarded to the inner connect button so the modal
+ * mounts at page level (see GithubAppConnectButton docs).
  */
-export function GithubAppMigrationBanner() {
+export function GithubAppMigrationBanner({
+  onResponse,
+}: {
+  onResponse?: (r: DeviceFlowConnectResponse) => void
+}) {
   return (
     <div
       role="region"
@@ -35,6 +43,7 @@ export function GithubAppMigrationBanner() {
       </div>
       <GithubAppConnectButton
         label="Switch"
+        onResponse={onResponse}
         className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-on-primary hover:bg-primary/90 transition-colors disabled:opacity-60 flex-shrink-0"
       />
     </div>

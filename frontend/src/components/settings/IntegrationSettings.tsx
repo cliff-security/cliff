@@ -692,6 +692,7 @@ export default function IntegrationSettings() {
     response: resumedFlow,
     clear: clearResumedFlow,
     resume: resumeGithubAppFlow,
+    present: presentGithubAppFlow,
   } = useGithubAppResumeOnReturn()
   // Detect a backend in-flight row (installation_pending /
   // device_pending) — the user clicked Connect but didn't finish
@@ -843,7 +844,9 @@ export default function IntegrationSettings() {
         }}
       />
 
-      {showMigrationBanner && <GithubAppMigrationBanner />}
+      {showMigrationBanner && (
+        <GithubAppMigrationBanner onResponse={presentGithubAppFlow} />
+      )}
 
       {/* Configured integrations */}
       {(integrations || []).length > 0 && (
@@ -1008,6 +1011,7 @@ export default function IntegrationSettings() {
                           ) : (
                             <GithubAppConnectButton
                               label="Connect"
+                              onResponse={presentGithubAppFlow}
                               className="cd-btn cd-btn--primary cd-btn--sm"
                             />
                           )}

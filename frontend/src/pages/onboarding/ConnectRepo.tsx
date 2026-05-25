@@ -86,6 +86,7 @@ export default function ConnectRepo() {
     response: resumedFlow,
     clear: clearResumedFlow,
     resume: resumeGithubAppFlow,
+    present: presentGithubAppFlow,
   } = useGithubAppResumeOnReturn()
   // ``installation_pending`` and ``device_pending`` mean a previous
   // /connect created a row but the device flow never finished — most
@@ -496,6 +497,7 @@ export default function ConnectRepo() {
               <GithubAppConnectButton
                 label="Install"
                 returnTo="/onboarding/connect"
+                onResponse={presentGithubAppFlow}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-5 py-3 text-base font-semibold text-on-primary hover:bg-primary/90 transition-colors disabled:opacity-60"
               />
               {/* Set the expectation that GitHub may sudo-mode prompt for

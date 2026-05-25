@@ -25,6 +25,7 @@ export function GithubAppConnectButton({
   className = '',
   label = 'Connect GitHub',
   returnTo,
+  onResponse,
 }: {
   className?: string
   label?: string
@@ -35,12 +36,21 @@ export function GithubAppConnectButton({
    * Defaults to /settings (server-side).
    */
   returnTo?: string
+  /**
+   * Hand the /connect response back to the parent instead of mounting
+   * a modal locally. The button's parent (a page or card) typically
+   * unmounts the button the moment status flips to in-flight — so any
+   * modal mounted *inside* the button gets destroyed before it ever
+   * renders. Passing this prop lifts the modal mount to the page level
+   * via :func:`useGithubAppResumeOnReturn`, where it survives the swap.
+   */
+  onResponse?: (r: DeviceFlowConnectResponse) => void
 }) {
   const connect = useGithubAppConnect()
   const disconnect = useGithubAppDisconnect()
-  const [response, setResponse] = useState<DeviceFlowConnectResponse | null>(
-    null,
-  )
+  const [localResponse, setLocalResponse] = useState<
+    DeviceFlowConnectResponse | null
+  >(null)
 
   // Note: detection of ``?github_setup=complete`` (the post-install
   // resume) lives at the page level in IntegrationSettings via
@@ -53,12 +63,16 @@ export function GithubAppConnectButton({
     // App on a repo is a separate, always-available affordance on the
     // Integrations page, not a step in this flow.
     const r = await connect.mutateAsync({ returnTo })
-    setResponse(r)
+    if (onResponse) {
+      onResponse(r)
+    } else {
+      setLocalResponse(r)
+    }
   }
 
   const handleTryAgain = async () => {
     await disconnect.mutateAsync().catch(() => undefined)
-    setResponse(null)
+    setLocalResponse(null)
     await handleClick()
   }
 
@@ -78,10 +92,10 @@ export function GithubAppConnectButton({
         </span>
         {connect.isPending ? 'Starting...' : label}
       </button>
-      {response && (
+      {localResponse && (
         <GithubAppDeviceFlowModal
-          connect={response}
-          onDismiss={() => setResponse(null)}
+          connect={localResponse}
+          onDismiss={() => setLocalResponse(null)}
           onTryAgain={handleTryAgain}
         />
       )}
