@@ -237,7 +237,15 @@ class GithubClient:
             if response.status_code != 200:
                 return UnableToVerify(reason=f"http_{response.status_code}")
 
-            body = response.json()
+            try:
+                body = response.json()
+            except ValueError:
+                # ``httpx.Response.json()`` raises ``json.JSONDecodeError``
+                # (a ``ValueError``) on empty or malformed bodies even
+                # with status 200. Degrade to UnableToVerify so the
+                # picker falls back to "app_installed=True by default"
+                # rather than 502-ing the whole request.
+                return UnableToVerify(reason="unexpected_body")
             installations = (
                 body.get("installations") if isinstance(body, dict) else None
             )
@@ -281,7 +289,12 @@ class GithubClient:
             if response.status_code != 200:
                 return UnableToVerify(reason=f"http_{response.status_code}")
 
-            body = response.json()
+            try:
+                body = response.json()
+            except ValueError:
+                # See companion method's note — malformed JSON degrades
+                # to UnableToVerify rather than raising into the route.
+                return UnableToVerify(reason="unexpected_body")
             repos = body.get("repositories") if isinstance(body, dict) else None
             if not isinstance(repos, list):
                 return UnableToVerify(reason="unexpected_body")

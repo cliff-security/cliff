@@ -276,6 +276,51 @@ describe('IssueSidePanel — Approve & generate fix (Q01R / B29)', () => {
       /first failure/i,
     )
   })
+
+  it('rejects unsafe remediation_link schemes and falls back to the docs URL', async () => {
+    // CodeRabbit catch: a backend bug (or attacker-controlled payload)
+    // that smuggles a ``javascript:`` scheme into ``remediation_link``
+    // would otherwise let a click execute script. The footer's URL
+    // validator must drop the unsafe link entirely. The reason still
+    // *looks like* a permissions error, so the fallback static docs
+    // URL is what we expect to render.
+    server.use(
+      http.post('/api/workspaces/:wsId/plan/approve', () =>
+        HttpResponse.json({
+          workspace_id: 'ws-1',
+          summary: null,
+          evidence: null,
+          owner: null,
+          plan: { approved: true, sections: [] },
+          ticket: null,
+          validation: null,
+        }),
+      ),
+      http.post('/api/workspaces/:wsId/agents/:type/execute', () =>
+        HttpResponse.json(
+          {
+            detail: {
+              error: 'github_app_permissions',
+              reason:
+                'git push probe failed: credentials rejected by GitHub.',
+              // eslint-disable-next-line no-script-url
+              remediation_link: 'javascript:alert(1)',
+            },
+          },
+          { status: 412 },
+        ),
+      ),
+      http.get('/api/workspaces/:wsId/agent-runs', () => HttpResponse.json([])),
+    )
+    renderPanel(findingForStage('plan_ready'))
+    fireEvent.click(
+      screen.getByRole('button', { name: /Approve & generate fix/i }),
+    )
+    const link = await screen.findByRole('link', { name: /how to fix/i })
+    const href = link.getAttribute('href') ?? ''
+    expect(href).not.toMatch(/^javascript:/i)
+    expect(href).toMatch(/^https:\/\//)
+  })
 })
 
 describe('IssueSidePanel — Refine inline state (F5)', () => {

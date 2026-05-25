@@ -1114,6 +1114,22 @@ function SidePanelFooter({
  * Reads the backend's structured ``{reason, remediation_link}`` detail
  * when present, falling back to the generic parsed message.
  */
+/** Accept only http/https URLs for the "How to fix" link target. The
+ *  backend builds remediation_link, but rendering it straight into an
+ *  ``<a href>`` would let an attacker-controlled or buggy upstream
+ *  smuggle in ``javascript:`` or other unsafe schemes — a click on
+ *  the link would then execute script. Bad URLs degrade to ``null``
+ *  and the caller falls back to the static docs URL when applicable. */
+function safeExternalHttpUrl(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  try {
+    const u = new URL(raw)
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.toString() : null
+  } catch {
+    return null
+  }
+}
+
 function FooterActionError({ error }: { error: unknown }) {
   const { message, detail } = parseApiError(error)
   const obj =
@@ -1124,12 +1140,13 @@ function FooterActionError({ error }: { error: unknown }) {
     obj && typeof obj.reason === 'string' && obj.reason.trim()
       ? obj.reason.trim()
       : message || 'Something went wrong — please try again.'
+  const backendLink =
+    obj && typeof obj.remediation_link === 'string'
+      ? safeExternalHttpUrl(obj.remediation_link)
+      : null
   const link =
-    obj && typeof obj.remediation_link === 'string' && obj.remediation_link
-      ? obj.remediation_link
-      : looksLikeGithubPermissionsError(reason)
-        ? GITHUB_APP_PERMS_DOC_URL
-        : null
+    backendLink ??
+    (looksLikeGithubPermissionsError(reason) ? GITHUB_APP_PERMS_DOC_URL : null)
   return (
     <div
       role="alert"

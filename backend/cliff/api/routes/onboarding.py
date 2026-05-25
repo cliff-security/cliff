@@ -25,7 +25,6 @@ from cliff.api._engine_dep import (
 from cliff.assessment.posture.github_client import GithubClient, UnableToVerify
 from cliff.config import settings as cliff_settings
 from cliff.db.connection import get_db
-from cliff.integrations.github_app.client import build_install_url
 from cliff.db.dao.assessment import create_assessment, get_assessment
 from cliff.db.repo_integration import (
     create_integration,
@@ -33,6 +32,7 @@ from cliff.db.repo_integration import (
     update_integration,
 )
 from cliff.db.repo_setting import upsert_setting
+from cliff.integrations.github_app.client import build_install_url
 from cliff.models import (
     AssessmentCreate,
     IntegrationConfigCreate,
