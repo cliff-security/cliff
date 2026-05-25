@@ -73,6 +73,15 @@ CSRF_BYTES = 24
 # always a server error page that bloats the row without adding signal.
 _POLLING_ERROR_MAX_CHARS = 200
 
+# Hard ceiling on how long a single background ``_poll_loop`` task lives.
+# Comfortably covers the 15-minute device-code window. Normally the loop
+# ends well inside that — GitHub's ``expired_token`` poll result
+# terminates the row. The cap is a pure backstop: if GitHub somehow never
+# returns a terminal kind, the task still stops here rather than polling
+# forever. The row is left as-is, so a returning user's idempotent
+# /connect re-spawns the loop.
+_POLL_LOOP_MAX_SECONDS = 30 * 60
+
 
 class InstallationCsrfMismatchError(RuntimeError):
     """Raised when /setup is hit with a CSRF state we never issued."""
@@ -276,10 +285,15 @@ class DeviceFlowOrchestrator:
         if record.polling_status not in {"installation_pending", "device_pending"}:
             return  # terminal, nothing to do
 
-        # Device-code expiry — short-circuit before hitting the network.
-        if self._is_expired(record):
-            await self._terminate(integration_id, status="expired", error=None)
-            return
+        client = self._client_factory()
+
+        # B03 — no local-clock expiry short-circuit. ``device_code_expires_at``
+        # is GitHub's deadline measured against GitHub's clock; comparing it to
+        # a self-hosted container's wall clock (which can be skewed — Q03 saw a
+        # +2h drift) expired still-valid codes prematurely. GitHub's own
+        # ``expired_token`` poll result is the single source of truth: an
+        # expired code returns that kind and ``_apply_poll_result`` terminates
+        # the row. The cost is one extra poll call per genuinely-expired code.
 
         try:
             device_code = await self._vault.retrieve(
@@ -291,7 +305,6 @@ class DeviceFlowOrchestrator:
             )
             return
 
-        client = self._client_factory()
         try:
             result = await client.poll_token(device_code=device_code)
         except _TRANSIENT_ERRORS as exc:
@@ -367,6 +380,7 @@ class DeviceFlowOrchestrator:
     # ------------------------------------------------------------------
 
     async def _poll_loop(self, integration_id: str) -> None:
+        deadline = self._clock.time() + _POLL_LOOP_MAX_SECONDS
         while True:
             record = await gh_repo.get_for_integration(self._db, integration_id)
             if record is None:
@@ -375,6 +389,16 @@ class DeviceFlowOrchestrator:
                 "installation_pending",
                 "device_pending",
             }:
+                return
+            if self._clock.time() >= deadline:
+                # Stop the task — but leave the row untouched. A returning
+                # user's idempotent /connect re-spawns the loop.
+                logger.info(
+                    "poll loop for %s hit the %ss cap; stopping (row left in %s)",
+                    integration_id,
+                    _POLL_LOOP_MAX_SECONDS,
+                    record.polling_status,
+                )
                 return
             # Honor GitHub's stored interval verbatim. We tried being
             # cleverer here (forcing a 2s tick during device_pending to
@@ -410,6 +434,14 @@ class DeviceFlowOrchestrator:
                 )
             with contextlib.suppress(KeyError):
                 await self._vault.delete(integration_id, GITHUB_DEVICE_CODE_KEY)
+            await self._audit.log(
+                AuditEvent(
+                    event_type="github_app.token_received",
+                    integration_id=integration_id,
+                    provider_name="github",
+                    status="success",
+                )
+            )
 
             github_login: str | None = None
             try:
@@ -422,44 +454,13 @@ class DeviceFlowOrchestrator:
                 self._expires_at_iso(result.expires_in) if result.expires_in else None
             )
 
-            await gh_repo.mark_connected(
-                self._db,
+            # The device-flow user access token IS the connection — it's
+            # what every clone/scan/push path authenticates with (ADR-0048).
+            # No installation discovery: connect the moment the token lands.
+            await self._finalize_connected(
                 integration_id,
                 github_login=github_login,
                 token_expires_at=token_expires_at,
-            )
-            await repo_integration.update_integration(
-                self._db,
-                integration_id,
-                IntegrationConfigUpdate(enabled=True),
-            )
-
-            # Archive any other enabled github integrations (PAT migration).
-            others = await gh_repo.list_other_enabled_github_integrations(
-                self._db, exclude_id=integration_id
-            )
-            for other in others:
-                await repo_integration.update_integration(
-                    self._db,
-                    other.id,
-                    IntegrationConfigUpdate(enabled=False),
-                )
-                await self._audit.log(
-                    AuditEvent(
-                        event_type="github_app.pat_archived",
-                        integration_id=other.id,
-                        provider_name="github",
-                        status="success",
-                    )
-                )
-
-            await self._audit.log(
-                AuditEvent(
-                    event_type="github_app.token_received",
-                    integration_id=integration_id,
-                    provider_name="github",
-                    status="success",
-                )
             )
             return
 
@@ -496,6 +497,50 @@ class DeviceFlowOrchestrator:
             integration_id, status="error", error=f"unknown_kind:{kind}"
         )
 
+    async def _finalize_connected(
+        self,
+        integration_id: str,
+        *,
+        github_login: str | None,
+        token_expires_at: str | None,
+    ) -> GithubAppInstallation:
+        """Mark the row connected, enable the integration, archive PATs.
+
+        Called once the device flow yields a user access token — that
+        token is the connection (ADR-0048). Returns the now-connected row.
+        """
+        record = await gh_repo.mark_connected(
+            self._db,
+            integration_id,
+            github_login=github_login,
+            token_expires_at=token_expires_at,
+        )
+        assert record is not None  # the row we just updated
+        await repo_integration.update_integration(
+            self._db,
+            integration_id,
+            IntegrationConfigUpdate(enabled=True),
+        )
+        # Archive any other enabled github integrations (PAT migration).
+        others = await gh_repo.list_other_enabled_github_integrations(
+            self._db, exclude_id=integration_id
+        )
+        for other in others:
+            await repo_integration.update_integration(
+                self._db,
+                other.id,
+                IntegrationConfigUpdate(enabled=False),
+            )
+            await self._audit.log(
+                AuditEvent(
+                    event_type="github_app.pat_archived",
+                    integration_id=other.id,
+                    provider_name="github",
+                    status="success",
+                )
+            )
+        return record
+
     async def _terminate(
         self,
         integration_id: str,
@@ -513,15 +558,6 @@ class DeviceFlowOrchestrator:
         await gh_repo.update_polling_status(
             self._db, integration_id, status=status, error=bounded_error  # type: ignore[arg-type]
         )
-
-    def _is_expired(self, record: GithubAppInstallation) -> bool:
-        if not record.device_code_expires_at:
-            return False
-        try:
-            expires = datetime.fromisoformat(record.device_code_expires_at)
-        except ValueError:
-            return False
-        return self._now_dt() >= expires
 
     def _remaining_seconds(self, record: GithubAppInstallation) -> int:
         if not record.device_code_expires_at:

@@ -124,6 +124,9 @@ class CriteriaSnapshot(BaseModel):
 
 ToolState = Literal["pending", "active", "done", "skipped"]
 ToolResultKind = Literal["findings_count", "pass_count"]
+#: Machine-readable reason a tool ended in ``state="skipped"`` (B07). Lets the
+#: dashboard distinguish "ran clean, 0 findings" from "never produced results".
+ToolError = Literal["timeout", "binary_missing", "exec_failed"]
 
 
 class AssessmentToolResult(BaseModel):
@@ -154,6 +157,10 @@ class AssessmentTool(BaseModel):
     duration_ms: int | None = None
     scope: str | None = None
     ran: str | None = None
+    #: Why a ``state="skipped"`` tool produced no results (B07). ``None`` for
+    #: every other state. The dashboard renders a distinct row for this so a
+    #: skipped scanner never reads as a successful "0 findings" run.
+    error: ToolError | None = None
 
 
 class AssessmentCreate(BaseModel):

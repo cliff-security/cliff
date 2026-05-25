@@ -9,29 +9,23 @@ import { GithubAppDeviceFlowModal } from './GithubAppDeviceFlowModal'
 /**
  * Single-button entry point for the GitHub App + Device Flow onboarding.
  *
- * New-tab UX (B33 / IMPL-0016):
- * 1. Click button → POST /connect → open the GitHub install URL in a
- *    NEW tab via ``window.open``. The original tab stays alive so it
- *    can poll for the install and offer a manual-recovery path if the
- *    callback never reaches this instance (the App's Setup URL is
- *    hardcoded on github.com to ``localhost:8000`` — every Cliff that
- *    isn't bound to that exact port hits the recovery flow).
- * 2. The original tab mounts the GithubAppDeviceFlowModal, which polls
- *    /status. It starts in ``installation_pending`` and flips to
- *    ``device_pending`` once the GET callback lands (or until the user
- *    pastes the installation_id into the ManualRecoveryCard the modal
- *    shows after 30s).
- * 3. Once in ``device_pending`` the user authorizes on the device-code
- *    page, the modal flips to Connected, and dismisses.
+ * Single-modal UX (ADR-0048):
+ * 1. Click button → POST /connect → mount the GithubAppDeviceFlowModal.
+ * 2. The modal walks the user through authorizing the device code.
+ * 3. The moment the backend's poller catches the user access token the
+ *    integration is connected and the modal dismisses — the token IS
+ *    the connection.
  *
- * The button used to do a same-tab ``window.location.href = ...``
- * which made the recovery flow impossible (the original tab navigated
- * away). New-tab is the load-bearing change for B33.
+ * The device flow has no inbound callback, so onboarding works on any
+ * self-host port or behind a reverse proxy (B02). Installing the Cliff
+ * GitHub App on a repo is a separate, always-available affordance on the
+ * Integrations page — not a step in this flow.
  */
 export function GithubAppConnectButton({
   className = '',
   label = 'Connect GitHub',
   returnTo,
+  onResponse,
 }: {
   className?: string
   label?: string
@@ -42,12 +36,21 @@ export function GithubAppConnectButton({
    * Defaults to /settings (server-side).
    */
   returnTo?: string
+  /**
+   * Hand the /connect response back to the parent instead of mounting
+   * a modal locally. The button's parent (a page or card) typically
+   * unmounts the button the moment status flips to in-flight — so any
+   * modal mounted *inside* the button gets destroyed before it ever
+   * renders. Passing this prop lifts the modal mount to the page level
+   * via :func:`useGithubAppResumeOnReturn`, where it survives the swap.
+   */
+  onResponse?: (r: DeviceFlowConnectResponse) => void
 }) {
   const connect = useGithubAppConnect()
   const disconnect = useGithubAppDisconnect()
-  const [response, setResponse] = useState<DeviceFlowConnectResponse | null>(
-    null,
-  )
+  const [localResponse, setLocalResponse] = useState<
+    DeviceFlowConnectResponse | null
+  >(null)
 
   // Note: detection of ``?github_setup=complete`` (the post-install
   // resume) lives at the page level in IntegrationSettings via
@@ -56,24 +59,20 @@ export function GithubAppConnectButton({
   // row exists), so the page is the only safe owner of that effect.
 
   const handleClick = async () => {
+    // ADR-0048 — go straight to the device-flow modal. Installing the
+    // App on a repo is a separate, always-available affordance on the
+    // Integrations page, not a step in this flow.
     const r = await connect.mutateAsync({ returnTo })
-    if (typeof window !== 'undefined') {
-      // Open the install URL in a NEW tab so this tab can keep polling
-      // /status. The user's flow: click Install on github.com → if
-      // GitHub redirects to a Cliff that doesn't exist on the
-      // hard-coded port the user can simply switch back to this tab
-      // and use the manual recovery card after 30s.
-      window.open(r.install_url, '_blank', 'noopener,noreferrer')
+    if (onResponse) {
+      onResponse(r)
+    } else {
+      setLocalResponse(r)
     }
-    // Mount the modal IMMEDIATELY (not waiting for the user to come
-    // back from GitHub) — that's what enables the 30s timeout that
-    // surfaces the manual recovery card on B33-affected deployments.
-    setResponse(r)
   }
 
   const handleTryAgain = async () => {
     await disconnect.mutateAsync().catch(() => undefined)
-    setResponse(null)
+    setLocalResponse(null)
     await handleClick()
   }
 
@@ -93,10 +92,10 @@ export function GithubAppConnectButton({
         </span>
         {connect.isPending ? 'Starting...' : label}
       </button>
-      {response && (
+      {localResponse && (
         <GithubAppDeviceFlowModal
-          connect={response}
-          onDismiss={() => setResponse(null)}
+          connect={localResponse}
+          onDismiss={() => setLocalResponse(null)}
           onTryAgain={handleTryAgain}
         />
       )}

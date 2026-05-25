@@ -7,6 +7,7 @@ deterministically.
 
 from __future__ import annotations
 
+import asyncio
 from collections import deque
 from typing import TYPE_CHECKING
 
@@ -491,20 +492,41 @@ async def test_poll_step_transient_github_5xx_does_not_terminate(
 
 
 @pytest.mark.asyncio
-async def test_poll_step_after_device_code_expiry_marks_expired(
+async def test_poll_step_ignores_skewed_local_clock_uses_github_authority(
     orchestrator: DeviceFlowOrchestrator,
+    vault: CredentialVault,
     db: aiosqlite.Connection,
     fake_clock: FakeClock,
+    fake_client: FakeGitHubClient,
     integration_id: str,
-):
+) -> None:
+    """B03 — a self-hosted container's clock can be skewed ahead of GitHub's.
+
+    Before the fix, ``run_poll_step`` short-circuited to ``expired`` purely
+    on the local clock crossing ``device_code_expires_at``. A +2h-skewed
+    container (Q03) expired still-valid codes. Now the flow always polls
+    GitHub: if GitHub still accepts the code, the connection completes even
+    though the *local* clock is well past the stored deadline.
+    """
     await orchestrator.initiate(integration_id)
-    # Skip past the 15-minute window without queuing any poll results.
+    # Local clock jumps far past the 15-minute window (simulated skew).
     fake_clock.advance(901)
+    # GitHub itself still honours the code and returns a token.
+    fake_client.poll_results.append(
+        PollTokenResult(
+            kind="success",
+            access_token="ghu_test",
+            refresh_token=None,
+            expires_in=None,
+        )
+    )
     await orchestrator.run_poll_step(integration_id)
 
     record = await gh_repo.get_for_integration(db, integration_id)
     assert record is not None
-    assert record.polling_status == "expired"
+    # Not expired — GitHub's authority wins over the skewed local clock.
+    assert record.polling_status == "connected"
+    assert await vault.retrieve(integration_id, GITHUB_TOKEN_KEY) == "ghu_test"
 
 
 # ---------------------------------------------------------------------------
@@ -541,6 +563,37 @@ async def test_disconnect_clears_credentials_and_installation_row(
 # ---------------------------------------------------------------------------
 # PAT archive on connect
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_poll_loop_stops_after_max_duration(
+    orchestrator: DeviceFlowOrchestrator,
+    db: aiosqlite.Connection,
+    fake_client: FakeGitHubClient,
+    integration_id: str,
+):
+    """The background poll loop must not run forever. A device that is
+    never authorized would otherwise keep the row non-terminal and the
+    loop spinning; the duration cap stops the task on its own. The row is
+    left untouched — a returning user's idempotent /connect re-spawns it.
+    """
+    await orchestrator.initiate(integration_id)
+    # Every poll stays pending — without the cap the loop never exits.
+    # FakeClock.sleep advances the clock, so the cap is reached fast.
+    for _ in range(2_000):
+        fake_client.poll_results.append(
+            PollTokenResult(kind="authorization_pending")
+        )
+
+    await orchestrator.start(integration_id)
+    task = orchestrator._tasks[integration_id]  # noqa: SLF001 — test seam
+    await asyncio.wait_for(task, timeout=5)
+    assert task.done()
+
+    record = await gh_repo.get_for_integration(db, integration_id)
+    assert record is not None
+    # The loop stopping does not mutate the row — still pending.
+    assert record.polling_status == "installation_pending"
 
 
 @pytest.mark.asyncio

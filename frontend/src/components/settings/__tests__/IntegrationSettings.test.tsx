@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import type { ReactNode } from 'react'
+import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { server } from '../../../mocks/server'
 import IntegrationSettings from '../IntegrationSettings'
@@ -14,7 +15,13 @@ function wrap(children: ReactNode) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  // IntegrationSettings calls useNavigate() (B06 — repo-picker redirect),
+  // so a router context is required.
+  return (
+    <QueryClientProvider client={client}>
+      <MemoryRouter>{children}</MemoryRouter>
+    </QueryClientProvider>
+  )
 }
 
 const githubRegistryEntry = (githubAppAvailable: boolean) => ({
@@ -31,6 +38,9 @@ const githubRegistryEntry = (githubAppAvailable: boolean) => ({
   docs_url: null,
   mcp_config: null,
   github_app_available: githubAppAvailable,
+  github_app_install_url: githubAppAvailable
+    ? 'https://github.com/apps/cliff-security/installations/new'
+    : null,
 })
 
 beforeEach(() => {
@@ -174,6 +184,48 @@ describe('IntegrationSettings — GitHub App branching', () => {
     // vault-listed repo.
     expect(await screen.findByTestId('repo-picker-dialog')).toBeInTheDocument()
     await screen.findByRole('button', { name: /octocat\/hello-world/i })
+  })
+
+  it('always shows the "install or manage the App" link on the github catalog tile', async () => {
+    // ADR-0048 — installing the App on a repo is inherent to the GitHub
+    // App model, so the affordance is never gated. On the catalog tile
+    // it sits alongside the Connect button.
+    setupHandlers({ githubAppAvailable: true })
+    render(wrap(<IntegrationSettings />))
+
+    const link = await screen.findByTestId('github-app-install-link')
+    expect(link.getAttribute('href')).toBe(
+      'https://github.com/apps/cliff-security/installations/new',
+    )
+  })
+
+  it('shows the install link on the connected GitHub card, next to the push badge', async () => {
+    // ADR-0048 — a user who connected but installed the App on the
+    // wrong org must be one click from fixing it. The link lives on the
+    // connected card regardless of push-access state.
+    setupHandlers({
+      githubAppAvailable: true,
+      integrations: [
+        {
+          id: 'app-row',
+          adapter_type: 'finding_source',
+          provider_name: 'GitHub',
+          enabled: true,
+          config: { repo_url: 'https://github.com/octocat/hello-world' },
+          last_test_result: null,
+          action_tier: 0,
+          updated_at: new Date().toISOString(),
+          auth_method: 'github_app',
+          github_login: 'octocat',
+        },
+      ],
+    })
+    render(wrap(<IntegrationSettings />))
+
+    const link = await screen.findByTestId('github-app-install-link')
+    expect(link.getAttribute('href')).toBe(
+      'https://github.com/apps/cliff-security/installations/new',
+    )
   })
 
   it('does not render the migration banner when App is unavailable', async () => {

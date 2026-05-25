@@ -23,6 +23,7 @@ from cliff.api._engine_dep import (
     get_assessment_engine,
 )
 from cliff.assessment.posture.github_client import GithubClient, UnableToVerify
+from cliff.config import settings as cliff_settings
 from cliff.db.connection import get_db
 from cliff.db.dao.assessment import create_assessment, get_assessment
 from cliff.db.repo_integration import (
@@ -31,6 +32,7 @@ from cliff.db.repo_integration import (
     update_integration,
 )
 from cliff.db.repo_setting import upsert_setting
+from cliff.integrations.github_app.client import build_install_url
 from cliff.models import (
     AssessmentCreate,
     IntegrationConfigCreate,
@@ -320,6 +322,15 @@ class RepoOption(BaseModel):
     ``can_push`` mirrors GitHub's ``permissions.push`` so the SPA can disable
     rows for repos the token can't operate on, instead of letting the user
     pick one and surface the failure two screens later.
+
+    ``app_installed`` is True when the Cliff GitHub App is installed on
+    the owner of this repo (i.e. the repo is in one of the user's
+    installations of our App). When False, the user can *see* the repo
+    via their token (they're in the org), but Cliff can't push to it
+    until the App is installed on that owner — surface the install link
+    in the UI rather than letting them pick a dead-end. Defaults to True
+    so legacy PAT-flow callers (which never had installations to begin
+    with) keep behaving as before; the App-flow path overrides this.
     """
 
     full_name: str
@@ -327,10 +338,15 @@ class RepoOption(BaseModel):
     private: bool
     default_branch: str
     can_push: bool
+    app_installed: bool = True
 
 
 class ListReposResponse(BaseModel):
     repos: list[RepoOption]
+    # Always-available "install the Cliff App on more owners" link for
+    # the picker's "Install on <owner>" hint. None when the App-flow
+    # surface isn't configured on this instance (legacy PAT-only).
+    install_url: str | None = None
 
 
 @router.post("/github/repos")
@@ -366,6 +382,23 @@ async def list_github_repos(
         async with httpx.AsyncClient(timeout=10.0) as http:
             client = GithubClient(http, token=token)
             result = await client.list_user_repos()
+            # Resolve which repos the App is actually installed on, so the
+            # picker can distinguish "you can read this via your org
+            # membership" from "Cliff can push here". Only the App-flow
+            # path (no explicit ``github_token`` body) goes through this —
+            # legacy PAT tokens don't have installations to query.
+            app_installed_full_names: set[str] | None = None
+            if not (request.github_token or "").strip():
+                installations = await client.list_user_installations_for_app(
+                    cliff_settings.github_app_slug
+                )
+                if isinstance(installations, list):
+                    accessible: set[str] = set()
+                    for inst_id in installations:
+                        repos = await client.list_installation_repo_full_names(inst_id)
+                        if isinstance(repos, set):
+                            accessible |= repos
+                    app_installed_full_names = accessible
     except Exception:  # pragma: no cover — client swallows most
         logger.exception("list_user_repos raised")
         raise HTTPException(status_code=502, detail="Could not reach GitHub.") from None
@@ -389,21 +422,43 @@ async def list_github_repos(
             continue
         perms = repo.get("permissions") or {}
         can_push = bool(perms.get("push")) if isinstance(perms, dict) else False
+        full_name = repo.get("full_name") or ""
+        # When the installations query failed (or this is the PAT path),
+        # default app_installed=True so we don't flag every repo as
+        # uninstalled — failing closed there would be a worse UX than
+        # the previous "no signal at all" baseline.
+        if app_installed_full_names is None:
+            app_installed = True
+        else:
+            app_installed = full_name in app_installed_full_names
         options.append(
             RepoOption(
-                full_name=repo.get("full_name") or "",
+                full_name=full_name,
                 html_url=repo.get("html_url") or "",
                 private=bool(repo.get("private")),
                 default_branch=repo.get("default_branch") or "main",
                 can_push=can_push,
+                app_installed=app_installed,
             )
         )
 
-    # Push-capable first — those are the only ones the user can actually
-    # remediate. GitHub already returns ``sort=updated`` desc within each
-    # group, which we preserve via stable sort.
-    options.sort(key=lambda r: 0 if r.can_push else 1)
-    return ListReposResponse(repos=options)
+    # Order: App-installed + pushable first (the only ones the user can
+    # remediate today), then App-installed + read-only, then everything
+    # the App isn't installed on. GitHub returns sort=updated within each
+    # group, preserved by stable sort.
+    def _rank(r: RepoOption) -> int:
+        if not r.app_installed:
+            return 2
+        return 0 if r.can_push else 1
+
+    options.sort(key=_rank)
+
+    install_url = (
+        build_install_url(cliff_settings.github_app_slug)
+        if cliff_settings.github_app_client_id
+        else None
+    )
+    return ListReposResponse(repos=options, install_url=install_url)
 
 
 # ---------------------------------------------------------------------------

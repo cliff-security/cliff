@@ -8,7 +8,7 @@
 [![Backend CI](https://img.shields.io/github/actions/workflow/status/cliff-security/cliff/backend.yml?branch=main&label=backend&color=6FE3B5&labelColor=0B101B)](https://github.com/cliff-security/cliff/actions/workflows/backend.yml)
 [![Frontend CI](https://img.shields.io/github/actions/workflow/status/cliff-security/cliff/frontend.yml?branch=main&label=frontend&color=6FE3B5&labelColor=0B101B)](https://github.com/cliff-security/cliff/actions/workflows/frontend.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-6FE3B5?labelColor=0B101B)](LICENSE)
-[![Status: beta](https://img.shields.io/badge/status-beta-6FE3B5?labelColor=0B101B)](ROADMAP.md)
+[![Status: beta](https://img.shields.io/badge/status-beta-F0BF7E?labelColor=0B101B)](ROADMAP.md)
 
 <img src="docs/assets/cliff-badge-A.svg" alt="Cliff verified — Grade A" />
 
@@ -16,15 +16,15 @@
 
 ---
 
-## Earn the trust. Without speaking security.
+# Earn the trust
 
-The security industry was built for companies with security teams. The next ten years won't have those companies.
+Modern software is assembled more than it's written. Your repo pulls in hundreds of open-source packages, and each of those pulls in more. When one ships a vulnerable or malicious release, every project downstream inherits it. That's a supply chain attack, and it's why security stopped being only a security team's job.
 
-Cliff is the open-source security teammate your repo doesn't have. Point it at your code — it scans with bundled Trivy and Semgrep, explains every finding in plain English, and remediates with your approval at every step. Or pipe in findings from your existing scanner. The whole loop runs in a single chat thread — no dashboards to flip between, no per-CVE retracing.
+Cliff hands that job to everyone else. Point it at your repo and it scans, explains every finding in plain English, and prepares the fix — you approve each step. You don't need to know what a CVE is, which findings actually matter, or how to remediate them. That's Cliff's job.
 
-Built on [OpenCode](https://github.com/anomalyco/opencode). Self-hosted, AGPL-3.0, BYOK. Runs natively on macOS and Linux, or in a single Docker container.
+[cliffsecurity.ai](https://cliffsecurity.ai) · self-hosted · runs natively on macOS and Linux, or in a single Docker container.
 
-> Beta. Single-user. Pre-1.0 — we're still hardening edges; see [ROADMAP.md](ROADMAP.md).
+> Beta. Single-user. Expect rough edges — see [ROADMAP.md](ROADMAP.md).
 
 <!--
   HERO PRODUCT SHOT — insert when the Cyberdeck UI ships:
@@ -33,70 +33,23 @@ Built on [OpenCode](https://github.com/anomalyco/opencode). Self-hosted, AGPL-3.
   </p>
 -->
 
-## What Cliff does
+## How Cliff works
 
-Two findings. Same workflow.
+Three steps, from install to a fix you can merge.
 
-### Case A — dismissed, with the reasoning on record
+**1 · Point Cliff at your repo.** One command. Cliff runs entirely on your machine. Your code never leaves it.
 
-**Finding** · CVSS 7.5 · `braces` — transitive in `package-lock.json`
+**2 · Cliff scans and explains.** It runs Trivy, Semgrep, and a set of posture checks, then turns every result into a finding written in plain English. You get a grade, A through F, and the short list of what stands between your repo and an A.
 
-> *A library you depend on has a flaw that could crash your app.*
+**3 · Cliff remediates, with your approval.** For each finding, a pipeline of focused agents works it through: what the vulnerability is, whether your code actually reaches it, and a fix plan with a clear definition of done. Then Cliff stops. Nothing touches your code until you approve the plan. Once you do, Cliff opens a draft pull request — you review it like any other contribution. Nothing auto-merges.
 
-> **You:** is this even real?
-
-```text
-cliff is reasoning
-✓ evidence        pulled CVE detail, mapped braces usage in lockfile
-✓ reachability    matchBase() — the vulnerable function — is never called from your code
-— exploitability  skipped, not reachable
-→ verdict         dismiss. logged with reasoning, trust score unchanged.
-```
-
-> **Cliff:** Not for you. Dismissed, with the reasoning on record. Your trust score didn't move.
-
-### Case B — remediated, with a draft PR awaiting your approval
-
-**Finding** · CVSS 8.7 · `axios` — direct dep in `package.json`
-
-> *A library you depend on could let attackers reach internal services.*
-
-> **You:** is this real or noise?
-
-```text
-cliff is reasoning
-✓ evidence        pulled CVE detail, mapped axios calls in source and lockfile
-✓ reachability    called from your /webhook handler with a user-supplied URL
-! exploitability  untrusted input flows directly into axios.get — confirmed exploitable
-→ verdict         remediate. fix prepared, awaiting your approval.
-```
-
-> **Cliff:** Real exploit path. Remediating now — fix is on its way as PR #142. You approve, it ships.
-
-Same loop for every finding. Cliff drives; you check the work.
+Each finding moves along one track: `new → triaged → in progress → remediated → validated → closed`. You stay in control of every transition that matters.
 
 ## Who Cliff is for
 
-- **OSS maintainers** with a backlog of Dependabot PRs they don't have time to read. *(V1 wedge.)*
-- **Founder-engineers at AI-native startups** answering a 200-question security questionnaire that landed Friday.
-- **Fractional security leads** serving a handful of small teams who need self-hosted, source-available tooling.
+Anyone responsible for software that didn't come with a security team.
 
-If you don't have a security team — or you *are* the security team — Cliff is for you.
-
-## How Cliff works
-
-Every finding moves through the same loop. Cliff drives; you check the work.
-
-| Step | Cliff | You |
-|------|-------|-----|
-| Triage | Reads the finding. Checks reachability. Writes the summary. | Skim the summary. |
-| Owner | Finds the team that owns the affected code via CODEOWNERS, recent commits, blame. | Confirm or override. |
-| Plan | Drafts the remediation plan with the mitigation, the fix, and the definition of done. | Approve, edit, or send it back. |
-| Ticket | Files the ticket in Linear, Jira, or GitHub Issues with the plan attached. | — |
-| PR | If a code fix exists, drafts the PR. Otherwise tracks the external work. | Review and merge. |
-| Validate | Rescans. Confirms closure. Recommends close or reopen. | Mark closed. |
-
-Each step persists into both the chat timeline and a structured sidebar. Re-opening a finding three months later picks up where it left off — security work that compounds, instead of resetting every Monday.
+A maintainer with a backlog of Dependabot PRs nobody has time to read. A founder whose product was built with AI and just got a 200-question security questionnaire. An engineer who became "the security person" by accident. If you want your project — and the people who depend on it — to be secure, and to be seen as secure, Cliff is for you. No security background required.
 
 ## Quick start
 
@@ -138,15 +91,11 @@ Cliff scans the codebase, opens a workspace per finding, and walks you from plan
 
 ## Road to A
 
-What if your security posture were as legible as your build status?
+Cliff grades your repo, A through F. An A is the highest standard Cliff measures: nothing critical outstanding, no secrets committed, and the posture basics in place. It's not a participation mark. It has to be earned.
 
-Cliff scores your repo against a posture rubric and walks you to grade A:
+When you reach it, Cliff gives you a summary card for your README — proof of the work, in a form anyone can verify. The public Cliff badge comes next. The point was never the badge itself. It's a standard of trust for open source: earned by doing the work, never bought.
 
-- No critical issues
-- High-severity backlog under control
-- No secrets in code
-- Posture checks passing
-- Lockfile up to date
+The badge at the top of this README is the one Cliff issues for itself.
 
 When the rubric clears, Cliff writes a completion summary you can paste in your README and share. The grade in the hero is the one Cliff issued for itself.
 
@@ -178,5 +127,5 @@ The default scan invokes Semgrep's hosted **registry rule packs** `p/security-au
 ---
 
 <div align="center">
-  <sub>AGPL-3.0 · <a href="https://cliffsecurity.ai">cliffsecurity.ai</a> · take care of security.</sub>
+  <sub>AGPL-3.0 · security should feel like shipping, not filing tickets.</sub>
 </div>

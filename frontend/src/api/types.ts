@@ -1596,6 +1596,8 @@ export interface components {
         AssessmentTool: {
             /** Duration Ms */
             duration_ms?: number | null;
+            /** Error */
+            error?: ("timeout" | "binary_missing" | "exec_failed") | null;
             /** Icon */
             icon: string;
             /** Id */

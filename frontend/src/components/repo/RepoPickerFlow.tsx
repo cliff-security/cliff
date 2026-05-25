@@ -13,9 +13,19 @@ const MISSING_REPO_SCOPE_CODE = 'missing_repo_scope'
 type FlowState =
   | { kind: 'listingRepos' }
   | { kind: 'tokenError'; error: OnboardingApiError }
-  | { kind: 'pickRepo'; repos: RepoOption[] }
-  | { kind: 'verifyingPick'; repos: RepoOption[]; chosen: string }
-  | { kind: 'pickError'; repos: RepoOption[]; error: OnboardingApiError }
+  | { kind: 'pickRepo'; repos: RepoOption[]; installUrl: string | null }
+  | {
+      kind: 'verifyingPick'
+      repos: RepoOption[]
+      chosen: string
+      installUrl: string | null
+    }
+  | {
+      kind: 'pickError'
+      repos: RepoOption[]
+      error: OnboardingApiError
+      installUrl: string | null
+    }
 
 export interface RepoPickerFlowProps {
   /**
@@ -87,9 +97,9 @@ export default function RepoPickerFlow({
     const myId = ++requestIdRef.current
     setState({ kind: 'listingRepos' })
     try {
-      const { repos } = await onboardingApi.listReposFromVault()
+      const { repos, install_url } = await onboardingApi.listReposFromVault()
       if (requestIdRef.current !== myId) return
-      setState({ kind: 'pickRepo', repos })
+      setState({ kind: 'pickRepo', repos, installUrl: install_url ?? null })
     } catch (err) {
       if (requestIdRef.current !== myId) return
       setState({ kind: 'tokenError', error: toOnboardingError(err) })
@@ -101,26 +111,35 @@ export default function RepoPickerFlow({
   }, [loadRepos])
 
   const verifyAndConnect = useCallback(
-    async (repoUrl: string, repos: RepoOption[]) => {
+    async (repoUrl: string, repos: RepoOption[], installUrl: string | null) => {
       const myId = ++requestIdRef.current
-      setState({ kind: 'verifyingPick', repos, chosen: repoUrl })
+      setState({ kind: 'verifyingPick', repos, chosen: repoUrl, installUrl })
       try {
         const response = await onboardingApi.connectRepoFromVault(repoUrl)
         if (requestIdRef.current !== myId) return
         onConnected(response)
       } catch (err) {
         if (requestIdRef.current !== myId) return
-        setState({ kind: 'pickError', repos, error: toOnboardingError(err) })
+        setState({
+          kind: 'pickError',
+          repos,
+          error: toOnboardingError(err),
+          installUrl,
+        })
       }
     },
     [onConnected],
   )
 
-  function handleManualSubmit(e: FormEvent, repos: RepoOption[]) {
+  function handleManualSubmit(
+    e: FormEvent,
+    repos: RepoOption[],
+    installUrl: string | null,
+  ) {
     e.preventDefault()
     const trimmed = manualUrl.trim()
     if (!trimmed) return
-    void verifyAndConnect(trimmed, repos)
+    void verifyAndConnect(trimmed, repos, installUrl)
   }
 
   if (state.kind === 'listingRepos') {
@@ -191,7 +210,10 @@ export default function RepoPickerFlow({
       <RepoPicker
         repos={state.repos}
         busy={state.kind === 'verifyingPick'}
-        onSelect={(repo) => void verifyAndConnect(repo.html_url, state.repos)}
+        installUrl={state.installUrl}
+        onSelect={(repo) =>
+          void verifyAndConnect(repo.html_url, state.repos, state.installUrl)
+        }
       />
 
       {state.kind === 'verifyingPick' && (
@@ -242,7 +264,7 @@ export default function RepoPickerFlow({
         </button>
         {manualOpen && (
           <form
-            onSubmit={(e) => handleManualSubmit(e, state.repos)}
+            onSubmit={(e) => handleManualSubmit(e, state.repos, state.installUrl)}
             className="mt-3 flex gap-2"
           >
             <input

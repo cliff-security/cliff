@@ -24,6 +24,7 @@ from cliff.engine.client import opencode_client
 from cliff.engine.config_manager import config_manager
 from cliff.integrations.audit import AuditEvent
 from cliff.integrations.connection_tester import run_connection_test
+from cliff.integrations.github_app.client import build_install_url
 from cliff.integrations.health import IntegrationHealthMonitor
 from cliff.integrations.registry import (
     RegistryEntry,
@@ -337,10 +338,24 @@ def _github_app_available() -> bool:
 
 
 def _enrich_registry_entry(entry: RegistryEntry) -> RegistryEntry:
-    """Set ``github_app_available`` on the github entry; pass others through."""
-    if entry.id == "github":
-        return entry.model_copy(update={"github_app_available": _github_app_available()})
-    return entry
+    """Set the github-app fields on the github entry; pass others through.
+
+    ADR-0048: ``github_app_install_url`` is the always-available
+    "install or manage the App" link the Settings UI renders. ``None``
+    when the App onboarding surface isn't configured.
+    """
+    if entry.id != "github":
+        return entry
+    available = _github_app_available()
+    install_url = (
+        build_install_url(app_settings.github_app_slug) if available else None
+    )
+    return entry.model_copy(
+        update={
+            "github_app_available": available,
+            "github_app_install_url": install_url,
+        }
+    )
 
 
 @router.get("/settings/integrations/registry", response_model=list[RegistryEntry])

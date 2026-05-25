@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   useIntegrations,
@@ -6,7 +7,6 @@ import {
   useDeleteIntegration,
   useUpdateIntegration,
   useRegistry,
-  useCredentials,
   useStoreCredential,
   useTestIntegration,
   useAllIntegrationsHealth,
@@ -24,7 +24,6 @@ import type {
 } from '@/api/client'
 import { GithubAppConnectButton } from './GithubAppConnectButton'
 import { GithubAppDeviceFlowModal } from './GithubAppDeviceFlowModal'
-import { GithubAppMigrationBanner } from './GithubAppMigrationBanner'
 import { PushAccessBadge } from './PushAccessBadge'
 import { RepoPickerDialog } from '@/components/repo/RepoPickerDialog'
 
@@ -360,6 +359,47 @@ function SetupPanel({
 }
 
 // ---------------------------------------------------------------------------
+// "Install or manage the Cliff GitHub App" link (ADR-0048)
+//
+// Installing the App on a repo is inherent to the GitHub App model — no
+// onboarding design removes it. So this affordance is *always* available
+// wherever GitHub is configured: on the connected card (next to the
+// push-access badge, so a user who connected but installed the App on
+// the wrong org is one click from fixing it) and on the catalog tile.
+// ---------------------------------------------------------------------------
+
+function GithubAppInstallLink({ url }: { url: string }) {
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      data-testid="github-app-install-link"
+      className="font-mono"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 5,
+        fontSize: 10.5,
+        letterSpacing: '0.06em',
+        color: 'var(--cd-fg-4)',
+        textDecoration: 'underline dotted',
+        textUnderlineOffset: 2,
+      }}
+    >
+      <span
+        className="material-symbols-outlined"
+        style={{ fontSize: 12 }}
+        aria-hidden
+      >
+        open_in_new
+      </span>
+      Install or manage the Cliff GitHub App
+    </a>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Configured integration card (with health status)
 // ---------------------------------------------------------------------------
 
@@ -375,7 +415,6 @@ function ConfiguredCard({
   const deleteIntegration = useDeleteIntegration()
   const githubAppDisconnect = useGithubAppDisconnect()
   const testIntegration = useTestIntegration()
-  const { data: credentials } = useCredentials(integration.id)
   const [testing, setTesting] = useState(false)
 
   const isGithubAppRow = integration.auth_method === 'github_app'
@@ -420,7 +459,12 @@ function ConfiguredCard({
   const level = resolveHealthLevel(health)
   const live = level === 'ok'
 
-  // Mono detail line — repo url if present, else adapter_type + cred count.
+  // Mono detail line — repo url if present, else adapter_type, then login.
+  // B04 — the raw vault credential count used to render here ("2
+  // credentials"). That's an internal storage detail the maintainer can't
+  // act on, and a count like "2" reads as a glitch. Connection identity
+  // (repo · @login · Live) is what actually matters; the health row
+  // already covers "credentials missing".
   const repoUrl =
     typeof integration.config?.repo_url === 'string' && integration.config.repo_url
       ? (integration.config.repo_url as string)
@@ -430,11 +474,6 @@ function ConfiguredCard({
     detailParts.push(repoUrl.replace(/^https?:\/\//, ''))
   } else {
     detailParts.push(integration.adapter_type.replace('_', ' '))
-  }
-  if (credentials && credentials.length > 0) {
-    detailParts.push(
-      `${credentials.length} credential${credentials.length !== 1 ? 's' : ''}`,
-    )
   }
   if (isGithubAppRow && integration.github_login) {
     detailParts.push(`@${integration.github_login}`)
@@ -590,10 +629,24 @@ function ConfiguredCard({
        *  on mount and renders green if the App can push, red with a
        *  How-to-fix link otherwise, or nothing if no GitHub integration
        *  is configured. Lives below the disconnect row so it doesn't
-       *  squeeze the existing controls on narrow widths. */}
+       *  squeeze the existing controls on narrow widths.
+       *
+       *  The install/manage link sits right under it (ADR-0048): when
+       *  the badge is red because the App isn't installed on this repo,
+       *  this is the one-click fix. */}
       {integration.provider_name.toLowerCase() === 'github' && (
-        <div style={{ marginTop: 10 }}>
+        <div
+          style={{
+            marginTop: 10,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+          }}
+        >
           <PushAccessBadge />
+          {registryEntry?.github_app_install_url && (
+            <GithubAppInstallLink url={registryEntry.github_app_install_url} />
+          )}
         </div>
       )}
     </div>
@@ -612,22 +665,15 @@ export default function IntegrationSettings() {
   )
   const [setupEntry, setSetupEntry] = useState<RegistryEntry | null>(null)
 
-  // ADR-0035 / IMPL-0010 — show the App-flow surface only when the
-  // backend reports it's available, gated on the env var being set.
-  const githubEntry = (registry || []).find((r) => r.id === 'github')
-  const githubAppAvailable = githubEntry?.github_app_available === true
-
   // Use the synchronous auth_method tag the backend stamps on the github
   // integration row instead of racing /status. ``github_app`` = the user
-  // already authorized the device flow; ``pat`` = legacy onboarding,
-  // suitable to surface the migration banner to.
+  // already authorized the device flow; ``pat`` = legacy onboarding.
+  // Used by the "Pick a repo" success card below to greet the user
+  // by their GitHub login. Was previously also used by the migration
+  // banner (removed: new users have always used the App flow).
   const githubIntegration = (integrations || []).find(
     (i) => i.provider_name.toLowerCase() === 'github' && i.enabled,
   )
-  const showMigrationBanner =
-    githubAppAvailable &&
-    githubIntegration !== undefined &&
-    githubIntegration.auth_method === 'pat'
 
   // Page-level resume: if the user just came back from a successful
   // App install on github.com, /setup tagged the URL with
@@ -638,6 +684,7 @@ export default function IntegrationSettings() {
     response: resumedFlow,
     clear: clearResumedFlow,
     resume: resumeGithubAppFlow,
+    present: presentGithubAppFlow,
   } = useGithubAppResumeOnReturn()
   // Detect a backend in-flight row (installation_pending /
   // device_pending) — the user clicked Connect but didn't finish
@@ -658,6 +705,7 @@ export default function IntegrationSettings() {
   // integration row on success.
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)
   const qc = useQueryClient()
+  const navigate = useNavigate()
 
   // Only enabled integrations count as "configured" — a disabled row
   // (e.g. a github integration created during an in-flight App install
@@ -746,7 +794,7 @@ export default function IntegrationSettings() {
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-on-surface">
                   You're connected
-                  {githubIntegration.github_login
+                  {githubIntegration?.github_login
                     ? ` as @${githubIntegration.github_login}`
                     : ''}
                   . Pick a repo to start scanning.
@@ -780,10 +828,14 @@ export default function IntegrationSettings() {
           // a fresh check rather than the pre-pick stale state.
           qc.invalidateQueries({ queryKey: ['integrations'] })
           qc.invalidateQueries({ queryKey: ['integrations-health'] })
+          // B06 — the picker banner promises "we'll run the assessment
+          // right after". Honour it: land the user on the dashboard where
+          // the assessment progress is shown, instead of leaving them on
+          // the Settings page with no transition.
+          navigate('/dashboard')
         }}
       />
 
-      {showMigrationBanner && <GithubAppMigrationBanner />}
 
       {/* Configured integrations */}
       {(integrations || []).length > 0 && (
@@ -948,6 +1000,7 @@ export default function IntegrationSettings() {
                           ) : (
                             <GithubAppConnectButton
                               label="Connect"
+                              onResponse={presentGithubAppFlow}
                               className="cd-btn cd-btn--primary cd-btn--sm"
                             />
                           )}
@@ -970,6 +1023,11 @@ export default function IntegrationSettings() {
                           >
                             Use a token instead
                           </button>
+                          {entry.github_app_install_url && (
+                            <GithubAppInstallLink
+                              url={entry.github_app_install_url}
+                            />
+                          )}
                         </div>
                       ) : (
                         <button
