@@ -7,66 +7,138 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+## [0.2.1] - 2026-05-25
 
-- **Renamed the Claude Code plugin from `secure-repo` to `cliff-security`,
-  and reshaped it from a monolithic SKILL into an action-dispatched skill
-  with versioned per-action playbooks.** The plugin now covers four
-  actions — `install`, `onboarding`, `secure-repo`, and `troubleshooting`
-  — each backed by a dedicated playbook in
-  `plugins/cliff-security/skills/cliff-security/knowledge/`. The top-level
-  `SKILL.md` is a thin dispatcher that picks the right playbook based on
-  user intent (or on `cliffsec status` exit code) and enforces the
-  cross-cutting hard rules (no auto-approve, no auto-merge, no
-  unapproved writes, no auto-submit issues). Each playbook carries a
-  `version:` field in its frontmatter that must match the SKILL's
-  `version` — a fail-loud integrity check against hand-edits or partial
-  upgrades.
-- **Plugin install path changed.** Users in Claude Code now run
-  `/plugin install cliff-security@cliff`. The marketplace remains
-  `cliff-security/cliff`; the in-tree path is `plugins/cliff-security/`.
+The first patch on top of 0.2.0. Three release-shaped pieces of work —
+the CLI binary rename to **`cliffsec`** (the PyPI distribution name
+`cliff` is owned by openstack's CLI framework, so this unblocks a
+future PyPI publish), the Claude Code plugin rename + restructure to
+**`cliff-security`** with per-action playbooks, and a rework of the
+GitHub App onboarding so the **device-flow user token *is* the
+connection** (ADR-0048 revised). Plus 22 QA-driven bug fixes batched
+from the Q02 and Q03 sessions.
 
-## [0.2.1] - 2026-05-19
+**The product is still called Cliff** — only the user-facing CLI
+command, the Claude Code plugin handle, and the PyPI distribution
+name change. Configuration paths (`~/.cliff/`), env vars (`CLIFF_*`),
+the `backend/cliff/` package, the Docker image, the GitHub repo, and
+the GitHub App slug are all unchanged.
 
-A name-only release: the CLI binary is renamed from `cliff` to `cliffsec`
-because the PyPI distribution name `cliff` is taken by openstack's CLI
-framework. **The product is still called Cliff** — only the command users
-type, and the distribution that ships it, change. Configuration paths
-(`~/.cliff/`), env vars (`CLIFF_*`), the Docker image name, the GitHub
-repo, and the `/secure-repo` Claude Code plugin are all unchanged.
-
-> **Upgrade:** the CLI binary is now `cliffsec`. Re-run `install-local.sh`
-> (or `install.sh`) — the installer replaces `~/.local/bin/cliff` with
-> `~/.local/bin/cliffsec` and recreates the CLI venv so no stale entry
-> point survives. Configuration paths (`~/.cliff/`) and env vars
-> (`CLIFF_*`) are unchanged. Users on 0.2.0 can also self-upgrade with
-> `cliff update` — this release ships the tarball under both the new
-> `cliffsec-0.2.1.tar.gz` name and a one-time `cliff-0.2.1.tar.gz`
-> alias so the 0.2.0 updater's pinned URL resolves. The alias is dropped
-> in 0.2.2.
+> **Upgrade:** the CLI binary is now `cliffsec`. Re-run
+> `install-local.sh` (or `install.sh`) — the installer replaces
+> `~/.local/bin/cliff` with `~/.local/bin/cliffsec` and recreates the
+> CLI venv so no stale entry point survives. Users on 0.2.0 can also
+> self-upgrade with `cliff update` — this release ships the tarball
+> under both the new `cliffsec-0.2.1.tar.gz` name and a one-time
+> `cliff-0.2.1.tar.gz` alias so the 0.2.0 updater's pinned URL
+> resolves. Aliases are dropped in 0.2.2.
+>
+> Claude Code plugin users: the install command changes to
+> `/plugin install cliff-security@cliff`. Run `/plugin uninstall
+> secure-repo@cliff` first if you have the old plugin.
 
 ### Changed
 
-- **Renamed the CLI binary from `cliff` to `cliffsec`.** PyPI
-  distribution name flipped from `cliff-cli` to `cliffsec`. Click
-  `prog_name` is now `cliffsec`; all help text, error hints, command
-  examples, the HTTP `User-Agent` header, and install-script banners
-  reference the new name. `install.sh` and `install-local.sh` clean up
-  the pre-rename `~/.local/bin/cliff` symlink during upgrade and wipe
-  the CLI venv so the old `bin/cliff` entry-point doesn't linger.
-- **Release assets renamed.** The local-install tarball is now
-  `cliffsec-${version}.tar.gz` (with `cliffsec.tar.gz` as the
+- **Renamed the CLI binary from `cliff` to `cliffsec` (PR #218).**
+  PyPI distribution name flipped from `cliff-cli` to `cliffsec`.
+  Click `prog_name` is now `cliffsec`; all help text, error hints,
+  command examples, the HTTP `User-Agent` header, and install-script
+  banners reference the new name. `install.sh` and `install-local.sh`
+  clean up the pre-rename `~/.local/bin/cliff` symlink during upgrade
+  and wipe the CLI venv so the old `bin/cliff` entry-point doesn't
+  linger.
+- **Release assets renamed (PR #218).** The local-install tarball is
+  now `cliffsec-${version}.tar.gz` (with `cliffsec.tar.gz` as the
   stable-name alias for the `latest` redirect); the CLI sdist is
-  `cliffsec-cli.tar.gz`; the SBOM is
-  `cliffsec-${version}.cdx.json`. The 0.2.1 release additionally
-  ships `cliff-${version}.tar.gz`, `cliff.tar.gz`, and
-  `cliff-cli.tar.gz` as one-time aliases so 0.2.0 installers can still
-  resolve their pinned download URLs. Aliases dropped in 0.2.2.
+  `cliffsec-cli.tar.gz`; the SBOM is `cliffsec-${version}.cdx.json`.
+  The 0.2.1 release additionally ships `cliff-${version}.tar.gz`,
+  `cliff.tar.gz`, and `cliff-cli.tar.gz` as one-time aliases so 0.2.0
+  installers can still resolve their pinned download URLs. Aliases
+  dropped in 0.2.2.
+- **Renamed the Claude Code plugin from `secure-repo` to
+  `cliff-security`, and reshaped it from a monolithic SKILL into an
+  action-dispatched skill with versioned per-action playbooks
+  (PR #219).** The plugin now covers four actions — `install`,
+  `onboarding`, `secure-repo`, and `troubleshooting` — each backed by
+  a dedicated playbook in
+  `plugins/cliff-security/skills/cliff-security/knowledge/`. The
+  top-level `SKILL.md` is a thin dispatcher that picks the right
+  playbook based on user intent (or on `cliffsec status` exit code)
+  and enforces the cross-cutting hard rules (no auto-approve, no
+  auto-merge, no unapproved writes, no auto-submit issues). Each
+  playbook carries a `version:` field in its frontmatter that must
+  match the SKILL's `version` — a fail-loud integrity check against
+  hand-edits or partial upgrades. Install command changes to
+  `/plugin install cliff-security@cliff`.
+- **GitHub App connection model: the device-flow user access token
+  *is* the connection (PR #224, ADR-0048 revised).** The original
+  ADR-0048 discovered an `installation_id` from the user token after
+  device flow; Q03-B02 validation surfaced three defects in that
+  design — `installation_id` was vestigial (clone/push authenticate
+  with the user token), "one installation → auto-connect" could bind
+  *any* installation the user could see (including an unrelated org,
+  producing a false-green that 412'd at push time), and the install
+  affordance was unreachable for users with one wrong installation.
+  Device-flow success now transitions straight to `connected`; the
+  `/user/installations` call, the `GET /installations` and
+  `POST /installations/select` routes, and the discovery helpers are
+  gone (**net −1500 lines**). The Integrations page surfaces an
+  always-on **"Install or manage the Cliff GitHub App"** link. The
+  honest per-repo gate (`check_repo_push_access` / the `/diagnose`
+  push badge / the executor 412 preflight) is unchanged.
 
 ### Fixed
 
-- **`__version__` in `cli/cliff_cli/__init__.py` was stale.** It was
-  pinned at `0.1.1` since the OpenSec→Cliff rename; bumped to `0.2.1`
+- **Q02 bug batch — 14 fixes from the QA session against `cliff-security/flask`
+  (PR #220).** Side-panel state-refresh after `agent_run_completed`
+  and `permission_request` SSE events (B16); OpenRouter polling
+  defense-in-depth via throttled `/ai/status` check so the OAuth
+  modal can't sit on "Waiting for you to authorize" forever (B06);
+  Docker Compose publishes `3000:3000` so the recommended OpenRouter
+  onboarding works without manual compose edits (B22); manual-recovery
+  card no longer hard-codes `localhost:8000` (B03); first-scan banner
+  on the Issues page for fresh installs (B24); error rendering uses
+  `parseApiError` instead of the raw 400 envelope (B04); posture and
+  vulnerability tile subtitles labeled (B07, B08); indefinite-article
+  helper fixes "an C" → "a C" on grade letters (B09); auto-fix action
+  labels surface what the N and M mean (B10); in-progress empty-state
+  copy (B11); confidence tooltip (B14); `authorising` → `authorizing`
+  (B22); `/history` page removed (closed findings already scroll into
+  view at the bottom of `/issues`) and router redirects `/history →
+  /issues` (B19, B20); Integrations catalog filters configured entries
+  out of the "Available" grid so GitHub appears exactly once (B15);
+  "Mark as fixed" surfaces a "We'll confirm this on the next
+  assessment" line (B17).
+- **Q03 bug batch — 8 fixes from the Maya Chen QA session against
+  `cliff-security/litellm` (PR #223).** Share-report button now
+  opens a completion-progress panel (criteria checklist + "N criteria
+  to your badge" preview at non-A grades) instead of silently copying
+  the URL (B11); a timed-out Semgrep used to render an identical
+  green ✓ to a clean "0 findings" run, silently dropping SAST from
+  the grade — timeout bumped 120s → 300s (override via
+  `CLIFF_SEMGREP_TIMEOUT_S`) and skipped scanners render a distinct
+  amber warning with the reason (B07); side panel could stall on
+  "Thinking…" after an agent failed when SSE was unavailable —
+  `useAgentRuns` invalidates `findings`+`sidebar` on terminal-status
+  transition so the poll fallback unsticks the panel (B09); Dashboard
+  hero hard-coded `quickWins: 0` while the LevelUp panel listed
+  auto-fixable checks — both now derive from the same `level_up.gates`
+  data so they can't disagree (B10); repo-picker redirects to
+  `/dashboard` after selection instead of leaving the user on
+  Settings (B06); doubled `python-diskcache: python-diskcache:`
+  vulnerability-title prefix collapsed (B08); GitHub device-code
+  expiry follows GitHub's `expired_token` poll result as the single
+  authority instead of short-circuiting on the container's wall
+  clock (B03); integration card no longer leaks a raw vault
+  credential count — shows `repo · @login · Live` instead (B04).
+- **Workspace footer silently swallowed the executor's 412
+  push-access preflight error (PR #224).** "Approve & generate fix"
+  appeared to do nothing when push access was missing. Added
+  `FooterActionError` — an inline `role="alert"` with a "How to fix
+  this" link — so the per-repo push gate is visible at the point of
+  action.
+- **`__version__` in `cli/cliff_cli/__init__.py` was stale (PR #218).**
+  Pinned at `0.1.1` since the OpenSec→Cliff rename; bumped to `0.2.1`
   alongside this release so `cliffsec --version` reports correctly.
 
 ## [0.2.0] - 2026-05-18
@@ -640,7 +712,9 @@ SLSA build provenance and a CycloneDX SBOM attestation.
   One-line migration:
   `docker run --rm --user 0 -v cliff_data:/data alpine chown -R 10001:10001 /data`.
 
-[Unreleased]: https://github.com/cliff-security/cliff/compare/v0.1.2-alpha...HEAD
+[Unreleased]: https://github.com/cliff-security/cliff/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/cliff-security/cliff/releases/tag/v0.2.1
+[0.2.0]: https://github.com/cliff-security/cliff/releases/tag/v0.2.0
 [0.1.2-alpha]: https://github.com/cliff-security/cliff/releases/tag/v0.1.2-alpha
 [0.1.1-alpha]: https://github.com/cliff-security/cliff/releases/tag/v0.1.1-alpha
 [0.1.0-alpha]: https://github.com/cliff-security/cliff/releases/tag/v0.1.0-alpha
