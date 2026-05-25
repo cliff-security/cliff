@@ -4,6 +4,10 @@
 # Local secrets (never commit)
 scripts/.h1auth
 
+# macOS Spotlight markers
+.metadata_never_index
+.DS_Store
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
