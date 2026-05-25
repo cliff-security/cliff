@@ -489,3 +489,74 @@ def test_doctor_json_envelope_on_empty_home(fake_home):
     names = {c["name"] for c in payload["checks"]}
     expected = {"uv", "venv", "python", "opencode", "trivy", "semgrep", "credential_key"}
     assert expected.issubset(names)
+
+
+# ---------------------------------------------------------------------------
+# security: command injection prevention
+# ---------------------------------------------------------------------------
+
+
+def test_validate_host_rejects_shell_injection_with_command():
+    """Validate that shell command injection payloads are rejected."""
+    from cliff_cli.daemon import _validate_host
+
+    injection_payloads = [
+        "127.0.0.1; echo pwned",
+        "$(whoami)",
+        "`id`",
+        "127.0.0.1 && rm -rf /",
+        "127.0.0.1 | cat /etc/passwd",
+        "127.0.0.1 > /tmp/out",
+        "127.0.0.1 < /tmp/in",
+        "127.0.0.1 & sleep 10",
+        "127.0.0.1 (whoami)",
+        "127.0.0.1 {echo,pwned}",
+    ]
+    for payload in injection_payloads:
+        with pytest.raises(ValueError):
+            _validate_host(payload)
+
+
+def test_validate_host_accepts_valid_hosts():
+    """Validate that legitimate hostnames and IPs are accepted."""
+    from cliff_cli.daemon import _validate_host
+
+    valid_hosts = [
+        "127.0.0.1",
+        "localhost",
+        "0.0.0.0",
+        "example.com",
+        "sub.example.com",
+        "192.168.1.1",
+        "::1",
+        "[::1]",
+        "2001:db8::1",
+        "[2001:db8::1]",
+    ]
+    for host in valid_hosts:
+        # Should not raise
+        _validate_host(host)
+
+
+def test_start_with_malicious_host_rejects(fake_home, monkeypatch):
+    """Test that start command rejects a malicious host parameter."""
+    home, daemon = fake_home
+    import importlib
+
+    import cliff_cli.cli as cli_mod
+
+    importlib.reload(cli_mod)
+
+    # Mock the VENV_BIN so the installation check passes
+    monkeypatch.setattr(daemon, "VENV_BIN", home / ".venv" / "bin")
+    (daemon.VENV_BIN / "uvicorn").parent.mkdir(parents=True, exist_ok=True)
+    (daemon.VENV_BIN / "uvicorn").touch()
+
+    runner = CliRunner()
+    # Try to start with a shell injection payload in the host
+    res = runner.invoke(
+        cli_mod.main, ["start", "--host", "127.0.0.1; echo pwned", "--detach"]
+    )
+    # Should fail with an error about invalid host
+    assert res.exit_code != 0
+    assert "invalid_host" in res.output or "Invalid host" in res.output
