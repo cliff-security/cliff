@@ -372,6 +372,11 @@ export interface RegistryEntry {
    * shared GitHub App + Device Flow onboarding surface is configured
    * on this instance. Stays false for every other entry. */
   github_app_available?: boolean;
+  /** ADR-0048 — the `github.com/apps/<slug>/installations/new` URL,
+   * set on the github entry when App onboarding is configured. The
+   * Settings UI renders it as an always-available "install or manage
+   * the Cliff GitHub App" affordance. Null for every other entry. */
+  github_app_install_url?: string | null;
 }
 
 export interface CredentialInfo {

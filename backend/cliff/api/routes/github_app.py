@@ -19,7 +19,7 @@ import logging
 import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
-from urllib.parse import quote, urlencode, urlparse
+from urllib.parse import urlencode, urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
@@ -31,6 +31,7 @@ from cliff.db.connection import get_db
 from cliff.integrations.github_app import repo as gh_repo
 from cliff.integrations.github_app.client import (
     GitHubDeviceFlowClient,
+    build_install_url,
     check_repo_push_access,
 )
 from cliff.integrations.github_app.flow import (
@@ -268,16 +269,6 @@ def _require_vault_and_audit(request: Request) -> tuple[CredentialVault, AuditLo
     return vault, audit
 
 
-def _install_url(csrf_state: str) -> str:
-    # Quote the slug too — the value comes from env (trusted by intent),
-    # but defending against a typo with ``/`` or ``?`` in it is free.
-    slug = quote(settings.github_app_slug, safe="")
-    return (
-        f"https://github.com/apps/{slug}"
-        f"/installations/new?state={quote(csrf_state, safe='')}"
-    )
-
-
 def _resolve_frontend_base_url() -> str:
     """Pick the right origin for the post-install redirect.
 
@@ -429,7 +420,9 @@ async def connect(
         verification_uri=started.verification_uri,
         expires_in=started.expires_in,
         interval=started.interval,
-        install_url=_install_url(started.csrf_state),
+        install_url=build_install_url(
+            settings.github_app_slug, state=started.csrf_state
+        ),
     )
 
 
@@ -463,7 +456,6 @@ async def _register_installation(
 @router.get("/setup")
 async def setup_callback(
     request: Request,
-    state: str = Query(..., min_length=8, max_length=128),
     # SR-5: reject zero/negative IDs early — GitHub installation IDs are
     # always positive. Saves us from binding a row to a nonsense value
     # that GitHub will later refuse anyway.
@@ -474,12 +466,32 @@ async def setup_callback(
     # repos. We honour both, but tag the redirect so the SPA can show
     # different copy ("Connected" vs "Configuration updated").
     setup_action: Literal["install", "update"] = Query("install"),
+    # ``state`` is OPTIONAL. The onboarding flow's install_url carries
+    # a CSRF state so /setup can bind installation_id to the in-flight
+    # row. But post-onboarding installs (e.g. the picker's "Install on
+    # <org>" link, or a user installing on additional orgs from
+    # github.com directly) don't have an in-flight row — there's no
+    # state to pass. When state is absent we skip the binding step and
+    # just redirect the user to the SPA. The integration was already
+    # established via the device-flow token; the new installation_id
+    # surfaces via /user/installations on the next picker query.
+    state: str | None = Query(None, min_length=8, max_length=128),
     db: aiosqlite.Connection = Depends(get_db),
 ) -> RedirectResponse:
     _require_app_configured()
-    return_path = _pop_return_path(request, state)
 
     redirect_status = "updated" if setup_action == "update" else "complete"
+
+    if state is None:
+        # Post-onboarding install path: no state, no binding, just send
+        # the user back to Settings with a success tag so the picker
+        # can refresh its installation set.
+        return RedirectResponse(
+            _frontend_redirect(DEFAULT_RETURN_PATH, status=redirect_status),
+            status_code=302,
+        )
+
+    return_path = _pop_return_path(request, state)
 
     try:
         await _register_installation(

@@ -205,6 +205,14 @@ async def mark_connected(
     github_login: str | None,
     token_expires_at: str | None,
 ) -> GithubAppInstallation | None:
+    """Flip the row to ``connected``.
+
+    Called once the device flow yields a user access token — that token
+    is the connection (ADR-0048). ``installation_id`` /
+    ``installation_completed_at`` are left untouched: they're bound
+    independently by the ``/setup`` callback if it fires, and are not
+    load-bearing for the connection either way.
+    """
     now = _now_iso()
     await db.execute(
         """
@@ -219,7 +227,15 @@ async def mark_connected(
             updated_at = ?
         WHERE integration_id = ?
         """,
-        (github_login, token_expires_at, now, now, now, now, integration_id),
+        (
+            github_login,
+            token_expires_at,
+            now,
+            now,
+            now,
+            now,
+            integration_id,
+        ),
     )
     await db.commit()
     return await get_for_integration(db, integration_id)

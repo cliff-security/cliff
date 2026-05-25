@@ -206,6 +206,109 @@ class GithubClient:
 
         return repos
 
+    async def list_user_installations_for_app(
+        self, app_slug: str, *, max_pages: int = 3, per_page: int = 100
+    ) -> list[int] | UnableToVerify:
+        """Return installation IDs of ``app_slug`` that the token can see.
+
+        Why this exists: ``GET /user/repos`` returns every repo the user
+        can read (incl. org repos via membership), but those repos are
+        only operable by the Cliff App if the App is *installed* on that
+        owner. The picker would otherwise let the user pick e.g.
+        ``cliff-security/cliff`` even when the App is only installed on
+        their personal account — push then fails three steps later.
+
+        We hit ``GET /user/installations`` and filter to installations
+        whose ``app_slug`` matches ours. ``filter[app_slug]=`` is not a
+        documented query param, so we filter client-side.
+        """
+        url: str | None = (
+            f"{GITHUB_API}/user/installations?per_page={per_page}"
+        )
+        ids: list[int] = []
+        for _ in range(max_pages):
+            if url is None:
+                break
+            try:
+                response = await self._get(url)
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                return UnableToVerify(reason=f"network: {exc.__class__.__name__}")
+
+            if response.status_code != 200:
+                return UnableToVerify(reason=f"http_{response.status_code}")
+
+            try:
+                body = response.json()
+            except ValueError:
+                # ``httpx.Response.json()`` raises ``json.JSONDecodeError``
+                # (a ``ValueError``) on empty or malformed bodies even
+                # with status 200. Degrade to UnableToVerify so the
+                # picker falls back to "app_installed=True by default"
+                # rather than 502-ing the whole request.
+                return UnableToVerify(reason="unexpected_body")
+            installations = (
+                body.get("installations") if isinstance(body, dict) else None
+            )
+            if not isinstance(installations, list):
+                return UnableToVerify(reason="unexpected_body")
+            for item in installations:
+                if not isinstance(item, dict):
+                    continue
+                app = item.get("app_slug")
+                inst_id = item.get("id")
+                if app == app_slug and isinstance(inst_id, int):
+                    ids.append(inst_id)
+
+            url = _parse_next_link(response.headers.get("Link"))
+
+        return ids
+
+    async def list_installation_repo_full_names(
+        self, installation_id: int, *, max_pages: int = 5, per_page: int = 100
+    ) -> set[str] | UnableToVerify:
+        """Return the ``owner/repo`` full names accessible to one installation.
+
+        ``GET /user/installations/{installation_id}/repositories`` returns
+        only repos the user can see *and* the installation can act on —
+        the intersection we need to decide which picker rows have the App
+        installed. Set return type because callers do membership checks.
+        """
+        url: str | None = (
+            f"{GITHUB_API}/user/installations/{installation_id}"
+            f"/repositories?per_page={per_page}"
+        )
+        names: set[str] = set()
+        for _ in range(max_pages):
+            if url is None:
+                break
+            try:
+                response = await self._get(url)
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                return UnableToVerify(reason=f"network: {exc.__class__.__name__}")
+
+            if response.status_code != 200:
+                return UnableToVerify(reason=f"http_{response.status_code}")
+
+            try:
+                body = response.json()
+            except ValueError:
+                # See companion method's note — malformed JSON degrades
+                # to UnableToVerify rather than raising into the route.
+                return UnableToVerify(reason="unexpected_body")
+            repos = body.get("repositories") if isinstance(body, dict) else None
+            if not isinstance(repos, list):
+                return UnableToVerify(reason="unexpected_body")
+            for item in repos:
+                if not isinstance(item, dict):
+                    continue
+                full_name = item.get("full_name")
+                if isinstance(full_name, str):
+                    names.add(full_name)
+
+            url = _parse_next_link(response.headers.get("Link"))
+
+        return names
+
     async def get_user_last_event(self, login: str) -> str | None | UnableToVerify:
         """Return the ISO timestamp of the user's most recent **public** event,
         or ``None`` if they have no public events at all.

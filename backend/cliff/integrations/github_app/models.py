@@ -7,7 +7,12 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 # Polling state machine — ``installation_pending`` and ``device_pending``
-# are non-terminal; the rest are terminal.
+# are non-terminal; the rest are terminal. Post-ADR-0048 there is no
+# installation-discovery phase: ``installation_pending`` simply means
+# "device pending, no ``/setup`` callback has bound an installation_id";
+# ``device_pending`` means the same but with one bound. Both just mean
+# "waiting for the user to authorize the device" — the names are kept
+# only to avoid a SQLite CHECK-constraint rebuild.
 GithubAppPollingStatus = Literal[
     "installation_pending",
     "device_pending",

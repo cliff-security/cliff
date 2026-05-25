@@ -64,6 +64,27 @@ describe('GithubAppDeviceFlowModal', () => {
     const link = screen.getByRole('link', { name: /copy code & open github/i })
     expect(link.getAttribute('href')).toBe('https://github.com/login/device')
     expect(screen.getByLabelText(/copy code/i)).toBeInTheDocument()
+
+    // The install step must be present and point at the install_url —
+    // the device-flow token alone isn't enough; the App still has to be
+    // installed on the user's repo for push access to work.
+    const installLink = screen.getByTestId('device-flow-install-link')
+    expect(installLink.getAttribute('href')).toBe(
+      'https://github.com/apps/cliff/installations/new?state=x',
+    )
+    expect(installLink.getAttribute('target')).toBe('_blank')
+
+    // Regression: the click handler must NOT preventDefault on the
+    // anchor — pairing preventDefault with a `window.open` call lets the
+    // popup blocker silently kill the new tab with no fallback. Native
+    // target=_blank navigation is gesture-trusted and survives popup
+    // blockers, so we rely on it.
+    const clickEvent = new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+    })
+    link.dispatchEvent(clickEvent)
+    expect(clickEvent.defaultPrevented).toBe(false)
   })
 
   it('auto-dismisses when the polled status flips to connected', async () => {
@@ -152,4 +173,5 @@ describe('GithubAppDeviceFlowModal', () => {
       await screen.findByText(/authorization was canceled/i),
     ).toBeInTheDocument()
   })
+
 })

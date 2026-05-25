@@ -40,17 +40,27 @@ export interface ListReposRequest {
 
 /** One row in the onboarding repo picker. ``can_push`` mirrors GitHub's
  *  repo ``permissions.push`` so we can disable rows for read-only repos
- *  rather than letting the user pick one and surface the failure later. */
+ *  rather than letting the user pick one and surface the failure later.
+ *
+ *  ``app_installed`` is True when the Cliff GitHub App is installed on
+ *  this repo's owner. False means the user can *see* the repo (via org
+ *  membership) but Cliff can't push to it until the App is installed
+ *  on that owner — surface an "Install on <owner>" hint instead of
+ *  letting them pick a dead-end. */
 export interface RepoOption {
   full_name: string
   html_url: string
   private: boolean
   default_branch: string
   can_push: boolean
+  app_installed?: boolean
 }
 
 export interface ListReposResponse {
   repos: RepoOption[]
+  /** Where to send the user when they need to install Cliff on another
+   *  owner (org). Null when the App-flow surface isn't configured. */
+  install_url?: string | null
 }
 
 export interface OnboardingCompleteRequest {

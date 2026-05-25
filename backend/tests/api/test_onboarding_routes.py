@@ -345,3 +345,71 @@ async def test_list_repos_network_failure_returns_502(db_client):
             json={"github_token": "ghp_ok"},
         )
     assert resp.status_code == 502
+
+
+async def test_list_repos_app_flow_filters_by_installation_and_returns_install_url(
+    db_client,
+):
+    """App-flow path (no explicit github_token in the body) should:
+    - Resolve the user's installations of the Cliff App
+    - Mark repos accessible to those installations as app_installed=True
+    - Mark repos visible via org membership but outside the install scope
+      as app_installed=False
+    - Sort App-installed pushable → App-installed read-only → not installed
+    - Include the install_url so the picker can render an "Install on
+      <owner>" hint for the dead-end rows.
+    """
+    repos = [
+        {
+            "full_name": "galanko/personal",  # in App's install set
+            "html_url": "https://github.com/galanko/personal",
+            "private": True,
+            "default_branch": "main",
+            "permissions": {"push": True},
+        },
+        {
+            "full_name": "cliff-security/cliff",  # org repo, App NOT installed
+            "html_url": "https://github.com/cliff-security/cliff",
+            "private": True,
+            "default_branch": "main",
+            "permissions": {"push": True},
+        },
+        {
+            "full_name": "galanko/readonly",  # in App's install set but ro
+            "html_url": "https://github.com/galanko/readonly",
+            "private": False,
+            "default_branch": "main",
+            "permissions": {"push": False},
+        },
+    ]
+    with (
+        patch(
+            "cliff.api.routes.onboarding._get_app_vault_token",
+            new=AsyncMock(return_value="ghu_vault_token"),
+        ),
+        _patch_list_user_repos(repos),
+        patch(
+            "cliff.api.routes.onboarding.GithubClient.list_user_installations_for_app",
+            new=AsyncMock(return_value=[42]),
+        ),
+        patch(
+            "cliff.api.routes.onboarding.GithubClient.list_installation_repo_full_names",
+            new=AsyncMock(return_value={"galanko/personal", "galanko/readonly"}),
+        ),
+    ):
+        resp = await db_client.post("/api/onboarding/github/repos", json={})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    by_name = {r["full_name"]: r for r in body["repos"]}
+    assert by_name["galanko/personal"]["app_installed"] is True
+    assert by_name["galanko/readonly"]["app_installed"] is True
+    assert by_name["cliff-security/cliff"]["app_installed"] is False
+    # Sort: App-installed pushable → App-installed read-only → App not installed.
+    assert [r["full_name"] for r in body["repos"]] == [
+        "galanko/personal",
+        "galanko/readonly",
+        "cliff-security/cliff",
+    ]
+    assert body["install_url"], "install_url should be present in App-flow response"
+    assert "github.com/apps/" in body["install_url"]

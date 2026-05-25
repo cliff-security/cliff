@@ -1,27 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   useGithubAppPollNow,
   useGithubAppStatus,
   type DeviceFlowConnectResponse,
 } from '@/api/githubApp'
-import { ManualRecoveryCard } from './ManualRecoveryCard'
-
-/** Pull the ``state`` query param out of the install_url returned by
- * POST /connect. Inlined here (not imported) so the modal doesn't
- * depend on its parent button. */
-function extractCsrfState(installUrl: string): string {
-  try {
-    return new URL(installUrl).searchParams.get('state') ?? ''
-  } catch {
-    return ''
-  }
-}
 
 /**
  * Modal that walks the user through the device flow once we have a
- * device code from POST /connect. Polls /status every 2s until a
- * terminal state arrives, then either dismisses (success) or surfaces
- * the error with a "Try again" affordance.
+ * device code from POST /connect. Polls /status every 2s.
+ *
+ * One phase (ADR-0048): device authorization. The user shows the
+ * one-time code, pastes it on github.com/login/device, authorizes the
+ * App. The moment the backend's poller catches the user access token
+ * the status flips to ``connected`` and this modal dismisses — the
+ * token IS the connection, there is no installation-discovery step.
+ *
+ * Installing the Cliff GitHub App on a repo is a separate concern,
+ * surfaced as an always-available "install or manage the App" link on
+ * the Integrations page — not a step inside this modal.
  *
  * GitHub does NOT honour ``?user_code=`` for pre-filling the device
  * page (we tested it — the param is stripped on the redirect to
@@ -36,16 +33,7 @@ function extractCsrfState(installUrl: string): string {
  * Design system: tonal layering, no `1px solid` borders, sentence
  * case, Material Symbols for icons.
  */
-const COUNTDOWN_VISIBLE_BELOW_MS = 2 * 60 * 1000  // start showing under 2 min
-
-// B33: how long we wait for the post-install GET callback to fire
-// before showing the manual recovery card. 30s is a balance between
-// "slow GitHub redirect" (median ~3-8s end-to-end on a healthy network)
-// and "GitHub never came back at all because the App's Setup URL
-// pointed at the wrong port". The user keeps a "still waiting…"
-// spinner alongside the recovery card so a slow network doesn't feel
-// rushed — the card is the *alternate* path, not a replacement.
-const MANUAL_RECOVERY_TIMEOUT_MS = 30 * 1000
+const COUNTDOWN_VISIBLE_BELOW_MS = 2 * 60 * 1000 // start showing under 2 min
 
 export function GithubAppDeviceFlowModal({
   connect,
@@ -58,6 +46,7 @@ export function GithubAppDeviceFlowModal({
 }) {
   const { data: status } = useGithubAppStatus({ enabled: true })
   const pollNow = useGithubAppPollNow()
+  const qc = useQueryClient()
 
   const [expiresAtMs] = useState(() => Date.now() + connect.expires_in * 1000)
   const [remainingMs, setRemainingMs] = useState(connect.expires_in * 1000)
@@ -97,36 +86,20 @@ export function GithubAppDeviceFlowModal({
 
   useEffect(() => {
     if (status?.status === 'connected') {
+      // Refresh the integrations list — the backend creates the github
+      // integration row when the device flow's poll resolves to
+      // connected, but the query that drives Settings (and the picker
+      // visibility) doesn't auto-revalidate. Without this, the user
+      // sees the modal close successfully but the configured card +
+      // repo picker don't appear until a hard refresh.
+      qc.invalidateQueries({ queryKey: ['integrations'] })
+      qc.invalidateQueries({ queryKey: ['integrations', 'health'] })
       // Small delay so the user sees the success state before dismissal.
       const id = window.setTimeout(onDismiss, 600)
       return () => window.clearTimeout(id)
     }
     return undefined
-  }, [status?.status, onDismiss])
-
-  // B33: surface the manual-recovery card after 30s of polling /status
-  // still in ``installation_pending`` (i.e. the GitHub-driven GET
-  // callback hasn't fired). The csrf state is extracted from the
-  // install_url — that's what the backend's manual-setup endpoint
-  // validates against, so a state that didn't come from this /connect
-  // can't bind a hostile installation_id.
-  const csrfState = extractCsrfState(connect.install_url)
-  const [showRecoveryCard, setShowRecoveryCard] = useState(false)
-  useEffect(() => {
-    const id = window.setTimeout(
-      () => setShowRecoveryCard(true),
-      MANUAL_RECOVERY_TIMEOUT_MS,
-    )
-    return () => window.clearTimeout(id)
-  }, [])
-  // Hide the card the moment we get past installation_pending — either
-  // the user pasted an id (status flipped to device_pending) or the
-  // GET callback arrived. Either way the card has done its job and the
-  // device-flow UI should take over uncluttered.
-  const installAttached =
-    !!status &&
-    status.installation_id !== null &&
-    status.status !== 'installation_pending'
+  }, [status?.status, onDismiss, qc])
 
   // Move focus to the modal heading on mount + Escape to dismiss. Both
   // are basic dialog hygiene that screen readers + keyboard users
@@ -145,10 +118,16 @@ export function GithubAppDeviceFlowModal({
   const remainingSeconds = Math.floor((remainingMs % 60_000) / 1000)
   const timer = `${remainingMinutes}:${remainingSeconds.toString().padStart(2, '0')}`
 
-  const terminal = status?.status === 'expired'
-    || status?.status === 'denied'
-    || status?.status === 'error'
-    || remainingMs <= 0
+  // `connected` is its own phase: the flow succeeded and `onDismiss`
+  // fires after a 600 ms grace window. During that window we show a
+  // success confirmation, not the device-code steps — otherwise the
+  // user could re-open the GitHub device page after already finishing.
+  const connected = status?.status === 'connected'
+  const terminal =
+    status?.status === 'expired' ||
+    status?.status === 'denied' ||
+    status?.status === 'error' ||
+    remainingMs <= 0
 
   const copyCode = async () => {
     try {
@@ -162,16 +141,15 @@ export function GithubAppDeviceFlowModal({
   }
 
   const handleAuthorize = () => {
-    // Copy code → open authorize tab. Order matters: writeText must
-    // happen synchronously inside the click handler to count as a
-    // user gesture.
+    // Side effects of the Step 3 click. Navigation itself comes from
+    // the anchor's native target=_blank — that path is gesture-trusted
+    // and survives popup blockers, whereas a paired window.open()
+    // (what we used to do) gets silently killed.
     void copyCode()
     setAuthorizeOpened(true)
-    // ``window.open`` is also gated by user gesture; keep this on the
-    // synchronous path of the click handler. Fallback href on the link
-    // covers cases where the popup blocker still trips.
-    window.open(connect.verification_uri, '_blank', 'noopener,noreferrer')
   }
+
+  const showDeviceSteps = !terminal && !connected
 
   return (
     <div
@@ -194,23 +172,54 @@ export function GithubAppDeviceFlowModal({
               tabIndex={-1}
               className="text-lg font-semibold tracking-tight text-on-surface focus:outline-none"
             >
-              Authorize Cliff on this device
+              Install Cliff on GitHub
             </h3>
             <p className="text-sm text-on-surface-variant mt-1">
-              Two steps: copy the code, paste it on GitHub. We'll handle the
-              copy for you when you click Authorize.
+              Two parts: install the Cliff App on the repo you want to
+              secure, then authorize this device by pasting the code on
+              GitHub. We'll detect both automatically.
             </p>
           </div>
         </div>
 
-        {!terminal && (
+        {showDeviceSteps && (
           <>
-            {/* Step 1 — the code, prominently displayed. Clicking the
-                Copy button copies it manually; clicking Authorize below
-                also copies + opens GitHub. */}
+            {/* Step 1 — install the App on the user's repo. The device
+                flow alone only issues a user access token; the App
+                still has to be installed for push access (PR creation)
+                and for the App to show up in the user's GitHub Apps
+                list. We don't wait for the install callback (Bug B02 —
+                the setup_url is globally pinned to one Cliff port), so
+                this is a fire-and-forget "go install on GitHub" link.
+                The install_url already carries a CSRF ``state``. */}
             <div className="rounded-xl bg-surface-container-low p-5">
               <p className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant mb-3">
-                Step 1 · Your one-time code
+                Step 1 · Install the App on your repo
+              </p>
+              <a
+                href={connect.install_url}
+                target="_blank"
+                rel="noreferrer"
+                data-testid="device-flow-install-link"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-surface-container-lowest px-5 py-3 text-sm font-semibold text-on-surface hover:bg-surface-container transition-colors"
+              >
+                <span className="material-symbols-outlined text-lg">
+                  open_in_new
+                </span>
+                Open GitHub to install
+              </a>
+              <p className="text-xs text-on-surface-variant mt-3 text-center">
+                Pick the repo you want Cliff to secure, then click
+                Install. Come back here for step 2.
+              </p>
+            </div>
+
+            {/* Step 2 — the code, prominently displayed. Clicking the
+                Copy button copies it manually; clicking Authorize below
+                also copies + opens GitHub. */}
+            <div className="mt-3 rounded-xl bg-surface-container-low p-5">
+              <p className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant mb-3">
+                Step 2 · Your one-time code
               </p>
               <div className="flex items-center justify-between gap-3">
                 <code className="font-mono text-3xl font-bold tracking-[0.3em] text-on-surface select-all">
@@ -230,24 +239,17 @@ export function GithubAppDeviceFlowModal({
               </div>
             </div>
 
-            {/* Step 2 — opens GitHub AND copies the code (one click,
+            {/* Step 3 — opens GitHub AND copies the code (one click,
                 two effects). */}
             <div className="mt-3 rounded-xl bg-surface-container-low p-5">
               <p className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant mb-3">
-                Step 2 · Paste it on GitHub to authorize
+                Step 3 · Paste it on GitHub to authorize
               </p>
               <a
                 href={connect.verification_uri}
                 target="_blank"
                 rel="noreferrer"
-                onClick={(e) => {
-                  // Drive the click through our handler so the copy +
-                  // window.open both fire as part of the gesture. We
-                  // still rely on the anchor's href as a fallback if
-                  // popup blockers cancel the explicit open.
-                  e.preventDefault()
-                  handleAuthorize()
-                }}
+                onClick={handleAuthorize}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 py-4 text-base font-semibold text-on-primary hover:bg-primary/90 transition-colors shadow-sm shadow-primary/20"
               >
                 <span className="material-symbols-outlined text-xl">
@@ -279,16 +281,18 @@ export function GithubAppDeviceFlowModal({
                 </>
               )}
             </p>
-
-            {/* B33: after 30s with no GET callback, surface the manual
-                recovery card. The "still waiting…" line above stays
-                visible alongside the card so a slow network doesn't
-                feel rushed — the card is an alternate path, not a
-                replacement for waiting. */}
-            {showRecoveryCard && !installAttached && csrfState && (
-              <ManualRecoveryCard csrfState={csrfState} />
-            )}
           </>
+        )}
+
+        {connected && (
+          <div className="rounded-xl bg-surface-container-low p-5 text-center">
+            <span className="material-symbols-outlined text-3xl text-primary">
+              check_circle
+            </span>
+            <p className="text-sm font-semibold text-on-surface mt-1">
+              Connected to GitHub
+            </p>
+          </div>
         )}
 
         {terminal && (
@@ -318,7 +322,7 @@ export function GithubAppDeviceFlowModal({
           </div>
         )}
 
-        {!terminal && (
+        {!terminal && !connected && (
           <div className="mt-4 flex justify-end">
             <button
               type="button"
@@ -346,7 +350,6 @@ function statusLabel(
   }
   switch (status) {
     case 'installation_pending':
-      return 'Waiting for install…'
     case 'device_pending':
       return 'Waiting for authorization…'
     case 'rate_limited':
