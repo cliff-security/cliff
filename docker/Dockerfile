@@ -158,6 +158,7 @@ RUN chmod +x /app/entrypoint.sh
 
 # Hand /app and the binaries directory to the runtime user. Done after all
 # COPY/RUN steps so we don't have to re-chown on every layer.
+# This ensures the non-root user has ownership of application files for secure execution.
 RUN chown -R cliff:cliff /app
 
 # ---------------------------------------------------------------------------
@@ -185,7 +186,9 @@ EXPOSE 8000 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Drop privileges. The entrypoint refuses to run as root.
+# Drop privileges and run as non-root user. The entrypoint refuses to run as root.
+# This ensures the container does not run as root, preventing privilege escalation attacks.
+# The 'cliff' user (UID 10001) was created earlier in the build process with proper permissions.
 USER cliff
 
 ENTRYPOINT ["/app/entrypoint.sh"]
