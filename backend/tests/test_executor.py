@@ -19,6 +19,7 @@ from cliff.agents.executor import (
     build_agent_prompt,
 )
 from cliff.agents.output_parser import ParseResult
+from cliff.agents.runtime.deps import WorkspaceDeps
 from cliff.models import AgentRun
 
 # ---------------------------------------------------------------------------
@@ -808,6 +809,74 @@ class TestAgentExecutor:
         assert result.parse_result.success is False
         assert result.sidebar_updated is False
         mock_sidebar.assert_not_called()
+
+
+class TestPaResolverWiring:
+    """The executor MUST resolve env+model on every PA call (no caching).
+
+    The two resolver closures wired in ``main.py`` are the single seam
+    between Cliff's canonical AI state (``ai_integration`` + vault +
+    ``app_setting(model)``) and the Pydantic AI ``Model`` instance the
+    no-tools agents run against. If the executor ever cached the
+    resolved values at ``__init__`` instead of awaiting them per run,
+    a UI provider-switch would not take effect until daemon restart —
+    a silent staleness regression. This lockdown prevents that.
+    """
+
+    @pytest.mark.asyncio
+    async def test_run_pa_no_tools_resolves_env_and_model_per_call(
+        self, mock_pool, mock_context_builder, monkeypatch,
+    ):
+        env_seq = [
+            {"OPENAI_API_KEY": "sk-first"},
+            {"OPENAI_API_KEY": "sk-second"},
+        ]
+        model_seq = ["openai/gpt-4o-mini", "openai/gpt-5-mini"]
+        env_resolver = AsyncMock(side_effect=env_seq)
+        model_resolver = AsyncMock(side_effect=model_seq)
+
+        captured_build_args: list[tuple[dict, str]] = []
+
+        def _capture_build_model(env, model_full_id):
+            captured_build_args.append((env, model_full_id))
+            return MagicMock(model_name=model_full_id.split("/", 1)[1])
+
+        async def _stub_run(agent_type, deps, model):
+            return {"normalized_title": "ok", "cve_ids": []}
+
+        monkeypatch.setattr(
+            "cliff.agents.executor.build_model", _capture_build_model,
+        )
+        monkeypatch.setattr(
+            "cliff.agents.executor.run_no_tools_agent", _stub_run,
+        )
+
+        executor = AgentExecutor(
+            mock_pool, mock_context_builder,
+            ai_env_resolver=env_resolver,
+            ai_model_resolver=model_resolver,
+        )
+        deps = WorkspaceDeps(
+            workspace_id="ws-1", workspace_dir="/tmp/ws",
+            finding={"id": "f-1"},
+        )
+
+        await executor._run_pa_no_tools(
+            "finding_enricher", deps, timeout=30.0,
+        )
+        await executor._run_pa_no_tools(
+            "finding_enricher", deps, timeout=30.0,
+        )
+
+        # Both resolvers awaited per call — no init-time caching.
+        assert env_resolver.await_count == 2
+        assert model_resolver.await_count == 2
+        # build_model received call N's resolved values — not call 1's
+        # values on the second invocation (the staleness regression).
+        assert captured_build_args == [
+            ({"OPENAI_API_KEY": "sk-first"}, "openai/gpt-4o-mini"),
+            ({"OPENAI_API_KEY": "sk-second"}, "openai/gpt-5-mini"),
+        ]
 
 
 class TestBuildAgentPrompt:
