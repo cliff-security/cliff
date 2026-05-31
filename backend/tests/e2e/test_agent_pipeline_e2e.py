@@ -245,32 +245,24 @@ async def test_execute_enricher_e2e(
         "PA path returned an empty structured_output dict"
     )
 
-    # If structured output was parsed successfully, verify persistence
-    if result.parse_result.success and result.parse_result.structured_output:
-        # Context file should exist on disk
-        enrichment_file = ws_dir / "context" / "enrichment.json"
-        assert enrichment_file.exists(), "enrichment.json not written to disk"
+    # success + non-empty structured_output are asserted above, so
+    # persistence MUST have run. Verify unconditionally.
+    enrichment_file = ws_dir / "context" / "enrichment.json"
+    assert enrichment_file.exists(), "enrichment.json not written to disk"
 
-        enrichment_data = json.loads(enrichment_file.read_text())
-        assert isinstance(enrichment_data, dict)
+    enrichment_data = json.loads(enrichment_file.read_text())
+    assert isinstance(enrichment_data, dict)
 
-        # CONTEXT.md should have been regenerated
-        context_md = ws_dir / "CONTEXT.md"
-        assert context_md.exists()
-        context_text = context_md.read_text()
-        assert "enrichment" in context_text.lower() or "CVE" in context_text
+    # CONTEXT.md should have been regenerated
+    context_md = ws_dir / "CONTEXT.md"
+    assert context_md.exists()
+    context_text = context_md.read_text()
+    assert "enrichment" in context_text.lower() or "CVE" in context_text
 
-        # Sidebar should have been updated
-        assert result.sidebar_updated is True
-        assert result.context_version is not None
-        assert result.context_version > 0
-    else:
-        # Even if parse failed, we should still have completed successfully
-        # (the LLM responded, just not in the expected format)
-        pytest.skip(
-            f"LLM responded but output wasn't structured JSON: "
-            f"{result.parse_result.error}"
-        )
+    # Sidebar should have been updated
+    assert result.sidebar_updated is True
+    assert result.context_version is not None
+    assert result.context_version > 0
 
 
 async def test_suggest_next_advances_after_enrichment(

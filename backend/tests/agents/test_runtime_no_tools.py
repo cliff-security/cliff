@@ -9,7 +9,7 @@ Covers the three checkpoints called out in IMPL-0022 §Test plan:
   applies its corrections to a PA-produced output dict (asset_label /
   scanner-version backfill still happens).
 * ``test_run_no_tools_agent_unknown_agent_type`` — defense-in-depth
-  KeyError for an agent type that isn't registered.
+  ValueError for an agent type that isn't registered.
 
 The ``TestModel`` substitute is Pydantic AI's first-class testing
 seam — it never talks to a real LLM but produces a validated instance
