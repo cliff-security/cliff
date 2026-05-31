@@ -11,14 +11,15 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
-from typing import TYPE_CHECKING
 
+# Imported at runtime (not under TYPE_CHECKING): Pydantic AI introspects a
+# tool's type hints via ``get_type_hints`` when it's registered, and with
+# ``from __future__ import annotations`` the ``RunContext[WorkspaceDeps]``
+# annotation is a string that must resolve against the module globals.
+from pydantic_ai import RunContext
+
+from cliff.agents.runtime.deps import WorkspaceDeps
 from cliff.agents.runtime.tools.permissions import gate_tool_call
-
-if TYPE_CHECKING:
-    from pydantic_ai import RunContext
-
-    from cliff.agents.runtime.deps import WorkspaceDeps
 
 # Wall-clock ceiling for a single command. The agent's overall budget is
 # the outer ``asyncio.wait_for`` in the executor (600 s); this keeps one

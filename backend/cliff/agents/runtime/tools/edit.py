@@ -14,16 +14,14 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import TYPE_CHECKING
 
+# Runtime imports (not TYPE_CHECKING): PA introspects tool hints at
+# registration; see the note in ``bash.py``.
+from pydantic_ai import RunContext
 from pydantic_ai.exceptions import ApprovalRequired
 
+from cliff.agents.runtime.deps import WorkspaceDeps
 from cliff.agents.runtime.tools.permissions import gate_tool_call
-
-if TYPE_CHECKING:
-    from pydantic_ai import RunContext
-
-    from cliff.agents.runtime.deps import WorkspaceDeps
 
 
 def _escapes_workspace(workspace_dir: str, path: str) -> bool:

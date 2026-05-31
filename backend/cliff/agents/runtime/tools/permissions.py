@@ -10,9 +10,15 @@ it; until then the two are identical and both are covered by tests.
 ``gate_tool_call`` is the new thin layer that translates a tier into
 Pydantic AI's human-in-the-loop vocabulary:
 
-* ``deny`` → raise :class:`ValueError`. The model gets a deterministic
-  error string and pivots, exactly as it did when OpenCode rejected the
-  command.
+* ``deny`` → raise :class:`pydantic_ai.exceptions.ModelRetry`. The model
+  gets a deterministic error message and pivots — exactly the intent
+  ADR-0047 describes ("the model gets a deterministic error and
+  pivots"). IMPL-0022 named ``ValueError`` for this, but PA propagates a
+  raw ``ValueError`` from a tool (crashing the run) rather than feeding
+  it back to the model; ``ModelRetry`` is PA's mechanism for a
+  tool-level recoverable error (``tool_manager.py`` converts it to a
+  ``RetryPromptPart``). A model that keeps retrying a denied command
+  hits PA's per-tool retry cap and the run fails — no infinite loop.
 * ``ask`` → raise :class:`pydantic_ai.exceptions.ApprovalRequired` when
   the call has not yet been approved. Pydantic AI converts that into a
   ``DeferredToolRequests`` output (the agent declares it in its
@@ -32,7 +38,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pydantic_ai.exceptions import ApprovalRequired
+from pydantic_ai.exceptions import ApprovalRequired, ModelRetry
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -147,14 +153,15 @@ def gate_tool_call(
     """Classify *tool*/*patterns* and enforce the tier via PA's HITL API.
 
     Returns the resolved tier (``"auto"`` or, on an approved re-run,
-    ``"ask"``) when execution should proceed. Raises ``ValueError`` for
+    ``"ask"``) when execution should proceed. Raises ``ModelRetry`` for
     ``deny`` and ``ApprovalRequired`` for an unapproved ``ask``.
     """
     tier = classify_tool_request(tool, patterns)
     if tier == "deny":
         # Unconditional — a catastrophic command is denied even if some
-        # caller somehow flags it approved.
-        raise ValueError(_deny_message(tool, patterns))
+        # caller somehow flags it approved. ModelRetry (not a raw
+        # exception) so the model sees the denial and pivots.
+        raise ModelRetry(_deny_message(tool, patterns))
     if tier == "ask" and not ctx.tool_call_approved:
         raise ApprovalRequired(
             metadata=metadata or {"tool": tool, "patterns": list(patterns)}

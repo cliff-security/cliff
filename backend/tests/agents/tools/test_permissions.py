@@ -12,7 +12,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from pydantic_ai.exceptions import ApprovalRequired
+from pydantic_ai.exceptions import ApprovalRequired, ModelRetry
 
 from cliff.agents.runtime.tools.permissions import (
     classify_tool_request,
@@ -88,13 +88,15 @@ class TestGateToolCall:
     def test_auto_returns_tier_and_does_not_raise(self):
         assert gate_tool_call(_ctx(), tool="bash", patterns=["git status"]) == "auto"
 
-    def test_deny_raises_value_error(self):
-        with pytest.raises(ValueError, match="Cliff safety policy"):
+    def test_deny_raises_model_retry(self):
+        # ModelRetry (not a raw exception): PA feeds it back to the model
+        # as a retry prompt so it pivots, instead of crashing the run.
+        with pytest.raises(ModelRetry, match="Cliff safety policy"):
             gate_tool_call(_ctx(), tool="bash", patterns=["sudo rm x"])
 
     def test_deny_raises_even_when_approved(self):
         """A catastrophic command stays denied regardless of approval."""
-        with pytest.raises(ValueError, match="Cliff safety policy"):
+        with pytest.raises(ModelRetry, match="Cliff safety policy"):
             gate_tool_call(_ctx(approved=True), tool="bash", patterns=["mkfs /dev/sda"])
 
     def test_ask_unapproved_raises_approval_required(self):

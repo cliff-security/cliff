@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from pydantic_ai import RunContext
+# Runtime imports (not TYPE_CHECKING): PA introspects tool hints at
+# registration; see the note in ``bash.py``.
+from pydantic_ai import RunContext
 
-    from cliff.agents.runtime.deps import WorkspaceDeps
+from cliff.agents.runtime.deps import WorkspaceDeps
 
 _MAX_READ_BYTES = 50 * 1024
 

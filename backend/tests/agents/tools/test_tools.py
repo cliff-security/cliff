@@ -11,7 +11,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from pydantic_ai.exceptions import ApprovalRequired
+from pydantic_ai.exceptions import ApprovalRequired, ModelRetry
 
 from cliff.agents.runtime.deps import WorkspaceDeps
 from cliff.agents.runtime.tools import bash, edit, gh, read, webfetch
@@ -51,8 +51,8 @@ class TestBash:
         assert "marker.txt" in result
 
     @pytest.mark.asyncio
-    async def test_deny_command_raises_value_error(self, tmp_path):
-        with pytest.raises(ValueError, match="Cliff safety policy"):
+    async def test_deny_command_raises_model_retry(self, tmp_path):
+        with pytest.raises(ModelRetry, match="Cliff safety policy"):
             await bash(_ctx(tmp_path), "sudo rm -rf /")
 
     @pytest.mark.asyncio

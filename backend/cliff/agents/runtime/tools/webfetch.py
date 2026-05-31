@@ -13,14 +13,13 @@ egress policy here (separate ADR); that's out of scope for PR #2.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import httpx
 
-if TYPE_CHECKING:
-    from pydantic_ai import RunContext
+# Runtime imports (not TYPE_CHECKING): PA introspects tool hints at
+# registration; see the note in ``bash.py``.
+from pydantic_ai import RunContext
 
-    from cliff.agents.runtime.deps import WorkspaceDeps
+from cliff.agents.runtime.deps import WorkspaceDeps
 
 _WEBFETCH_TIMEOUT_SECONDS = 30.0
 _MAX_BODY_BYTES = 50 * 1024

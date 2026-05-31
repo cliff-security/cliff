@@ -11,14 +11,12 @@ model-visible command string instead of asking the model to inline it.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+# Runtime imports (not TYPE_CHECKING): PA introspects tool hints at
+# registration; see the note in ``bash.py``.
+from pydantic_ai import RunContext
 
+from cliff.agents.runtime.deps import WorkspaceDeps
 from cliff.agents.runtime.tools.bash import bash
-
-if TYPE_CHECKING:
-    from pydantic_ai import RunContext
-
-    from cliff.agents.runtime.deps import WorkspaceDeps
 
 
 async def gh(ctx: RunContext[WorkspaceDeps], args: str) -> str:
