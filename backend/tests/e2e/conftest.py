@@ -14,6 +14,18 @@ from fastapi.testclient import TestClient
 from cliff.config import settings
 from cliff.engine.process import OpenCodeProcess
 
+# Isolate the e2e session's OpenCode from any running daemon. Without
+# this the e2e suite silently *shares* the daemon's OpenCode on the
+# default port 4096 (OpenCodeProcess.start() succeeds as long as the
+# port answers — even if the answerer is somebody else's process) and
+# inherits its model + config, making the settings/model tests flap
+# against whatever the user happened to have selected. Mutating
+# ``settings.opencode_port`` at conftest module-import time means the
+# session-scoped OpenCodeProcess below starts on 4097 and the fresh
+# OpenCodeClient we build per-test in ``app_client`` reads
+# ``settings.opencode_url`` with the new port baked in.
+settings.opencode_port = 4097
+
 # Skip all e2e tests if prerequisites are missing
 _opencode_available = settings.opencode_binary_path.exists() or which("opencode") is not None
 _api_key_set = bool(os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
@@ -81,13 +93,22 @@ def app_client(opencode_server):
         loop = asyncio.new_event_loop()
     loop.run_until_complete(init_db(":memory:"))
 
-    # Reset the singleton client to avoid stale connections
+    # Reset the singleton client to avoid stale connections AND to pick
+    # up the e2e-isolated port (4097 — see top of file). Without
+    # rebinding ``config_manager.opencode_client`` the settings/model
+    # route would still hit the daemon's OpenCode on 4096 because the
+    # module-level singleton was bound at first import — long before
+    # our port override.
     import cliff.api.routes.chat as chat_mod
     import cliff.api.routes.sessions as sessions_mod
+    import cliff.engine.client as client_mod
+    import cliff.engine.config_manager as config_mod
 
     fresh_client = OpenCodeClient(base_url=settings.opencode_url)
     sessions_mod.opencode_client = fresh_client
     chat_mod.opencode_client = fresh_client
+    config_mod.opencode_client = fresh_client
+    client_mod.opencode_client = fresh_client
 
     with TestClient(app) as client:
         yield client
