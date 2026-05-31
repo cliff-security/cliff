@@ -24,7 +24,36 @@ from cliff.engine.process import OpenCodeProcess
 # session-scoped OpenCodeProcess below starts on 4097 and the fresh
 # OpenCodeClient we build per-test in ``app_client`` reads
 # ``settings.opencode_url`` with the new port baked in.
-settings.opencode_port = 4097
+_E2E_OPENCODE_PORT = 4097
+
+
+def _verify_e2e_port_free(port: int) -> None:
+    """Refuse to run if ``port`` is already in use.
+
+    The 4097 → 4096 collision we just fixed could silently recur on a
+    different port if anything else (another e2e run, an unrelated dev
+    process) happens to be listening. Bind-test first; fail loud with
+    a clear remediation message so the next person isn't stuck
+    debugging a flake.
+    """
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("127.0.0.1", port))
+        except OSError as exc:
+            raise RuntimeError(
+                f"e2e OpenCode port {port} is already in use ({exc}). "
+                "Stop whatever's listening, or override via "
+                "CLIFF_OPENCODE_PORT before invoking pytest."
+            ) from exc
+
+
+# Honour CLIFF_OPENCODE_PORT if the operator pinned a different port;
+# otherwise default to the dedicated e2e port. Bind-test before mutating
+# settings so the failure is at conftest load, not mid-test.
+_E2E_OPENCODE_PORT = int(os.environ.get("CLIFF_OPENCODE_PORT", _E2E_OPENCODE_PORT))
+_verify_e2e_port_free(_E2E_OPENCODE_PORT)
+settings.opencode_port = _E2E_OPENCODE_PORT
 
 # Skip all e2e tests if prerequisites are missing
 _opencode_available = settings.opencode_binary_path.exists() or which("opencode") is not None
@@ -94,21 +123,33 @@ def app_client(opencode_server):
     loop.run_until_complete(init_db(":memory:"))
 
     # Reset the singleton client to avoid stale connections AND to pick
-    # up the e2e-isolated port (4097 — see top of file). Without
-    # rebinding ``config_manager.opencode_client`` the settings/model
-    # route would still hit the daemon's OpenCode on 4096 because the
-    # module-level singleton was bound at first import — long before
-    # our port override.
+    # up the e2e-isolated port (see top of file). Every module that did
+    # ``from cliff.engine.client import opencode_client`` at import time
+    # holds its OWN name binding to the original-port client — rebinding
+    # the source module alone doesn't fix them. List of importers comes
+    # from ``grep -rn "from cliff.engine.client import opencode_client"
+    # backend/cliff/``. ``ai/service.py`` re-imports inside its functions
+    # so it's auto-fixed by the source-module rebind; the rest must be
+    # rebound explicitly here, or routes like /health and /api/settings
+    # will silently hit the original-port client.
     import cliff.api.routes.chat as chat_mod
+    import cliff.api.routes.health as health_mod
     import cliff.api.routes.sessions as sessions_mod
+    import cliff.api.routes.settings as routes_settings_mod
     import cliff.engine.client as client_mod
     import cliff.engine.config_manager as config_mod
+    import cliff.integrations.normalizer as normalizer_mod
+    import cliff.main as cliff_main_mod
 
     fresh_client = OpenCodeClient(base_url=settings.opencode_url)
+    client_mod.opencode_client = fresh_client
     sessions_mod.opencode_client = fresh_client
     chat_mod.opencode_client = fresh_client
     config_mod.opencode_client = fresh_client
-    client_mod.opencode_client = fresh_client
+    health_mod.opencode_client = fresh_client
+    routes_settings_mod.opencode_client = fresh_client
+    normalizer_mod.opencode_client = fresh_client
+    cliff_main_mod.opencode_client = fresh_client
 
     with TestClient(app) as client:
         yield client
