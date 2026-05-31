@@ -84,7 +84,16 @@ async def run_no_tools_agent(
     that translates those into Cliff's existing ``AgentProcessError`` /
     ``AgentRateLimitError`` taxonomy.
     """
-    builder = _RUNTIME_BUILDERS[agent_type]
+    builder = _RUNTIME_BUILDERS.get(agent_type)
+    if builder is None:
+        # Defense in depth: the executor gates on NO_TOOLS_AGENT_TYPES
+        # before dispatch, but a direct caller (or a gate regression)
+        # would otherwise surface as a bare KeyError instead of the
+        # typed taxonomy the rest of the system expects.
+        raise ValueError(
+            f"Unknown no-tools agent type: {agent_type!r}. "
+            f"Registered: {sorted(_RUNTIME_BUILDERS)}."
+        )
     agent = builder(model)
     user_prompt = build_user_prompt(deps)
     result = await agent.run(user_prompt, deps=deps)

@@ -128,6 +128,25 @@ def template_engine() -> AgentTemplateEngine:
     return AgentTemplateEngine()
 
 
+# Shared resolvers: the pool needs them so OpenCode subprocesses get a
+# usable env; the executor needs the same callables so the PA no-tools
+# path can construct a Model. Module-level so a future fixture (or test)
+# doesn't accidentally diverge from the pair the pool uses.
+async def _e2e_env_resolver() -> dict[str, str]:
+    import os
+    key = os.environ.get("OPENAI_API_KEY", "")
+    return {"OPENAI_API_KEY": key} if key else {}
+
+
+async def _e2e_model_resolver() -> str | None:
+    # Pin to a cheap available OpenAI model. Without a canonical model
+    # the per-workspace opencode.json carries no ``model`` field and
+    # OpenCode falls back to a built-in default (typically Anthropic)
+    # that needs a key we haven't injected; the PA path likewise needs
+    # a model id with a provider prefix it can route.
+    return "openai/gpt-4.1-nano"
+
+
 @pytest.fixture
 async def pool(db):
     """Process pool using ports 4230-4240 to avoid conflicts with other E2E tests.
@@ -139,25 +158,10 @@ async def pool(db):
     Authentication header" — which is what we test, not what we want to
     test against.
     """
-    import os
-
-    async def _env_resolver() -> dict[str, str]:
-        key = os.environ.get("OPENAI_API_KEY", "")
-        return {"OPENAI_API_KEY": key} if key else {}
-
-    async def _model_resolver() -> str | None:
-        # Without a canonical model the per-workspace opencode.json carries
-        # no ``model`` field and OpenCode falls back to a built-in default
-        # (typically anthropic/claude-3-5-sonnet) that needs a key we
-        # haven't injected. Pin to a cheap, available OpenAI model so the
-        # /auth push for the OpenAI key actually matches the request's
-        # provider.
-        return "openai/gpt-4.1-nano"
-
     p = WorkspaceProcessPool(
         port_allocator=PortAllocator(start=4230, end=4240),
-        env_resolver=_env_resolver,
-        model_resolver=_model_resolver,
+        env_resolver=_e2e_env_resolver,
+        model_resolver=_e2e_model_resolver,
     )
     yield p
     await p.stop_all()
@@ -182,7 +186,15 @@ def context_builder(
 def executor(
     pool: WorkspaceProcessPool, context_builder: WorkspaceContextBuilder
 ) -> AgentExecutor:
-    return AgentExecutor(pool, context_builder)
+    # The PA no-tools path requires both resolvers — same callables the
+    # pool consumes so the executor and OpenCode subprocesses agree on
+    # which provider+key+model is active for this run (ADR-0047).
+    return AgentExecutor(
+        pool,
+        context_builder,
+        ai_env_resolver=_e2e_env_resolver,
+        ai_model_resolver=_e2e_model_resolver,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -221,9 +233,17 @@ async def test_execute_enricher_e2e(
         f"Agent failed: {result.error or result.parse_result.error}"
     )
 
-    # The LLM should have responded with something
-    assert result.parse_result.raw_text, "LLM returned empty response"
-    assert len(result.parse_result.raw_text) > 50, "Response suspiciously short"
+    # ADR-0047 — the PA no-tools path returns the validated dict directly,
+    # so ``raw_text`` is empty by design (OpenCode-era prose was the input
+    # to a separate parse step that this PR replaces). The shape contract
+    # is now ``structured_output``.
+    assert result.parse_result.success, (
+        f"Enricher PA call did not produce parseable output: "
+        f"{result.parse_result.error}"
+    )
+    assert result.parse_result.structured_output, (
+        "PA path returned an empty structured_output dict"
+    )
 
     # If structured output was parsed successfully, verify persistence
     if result.parse_result.success and result.parse_result.structured_output:
@@ -260,7 +280,12 @@ async def test_suggest_next_advances_after_enrichment(
     template_engine: AgentTemplateEngine,
     db,
 ):
-    """After enricher completes, suggest_next should return owner_resolver."""
+    """After enricher completes, suggest_next should return exposure_analyzer.
+
+    Per IMPL-0022 PR #1 (ADR-0047), ``owner_resolver`` was dropped from
+    the forward pipeline; the next step after enrichment is now
+    ``exposure_analyzer``. The agent stays callable directly.
+    """
     finding = _make_finding()
     workspace, ws_dir = await _seed_db_and_create_workspace(
         db, finding, dir_manager, template_engine
@@ -285,13 +310,14 @@ async def test_suggest_next_advances_after_enrichment(
     if not (result.parse_result.success and result.parse_result.structured_output):
         pytest.skip("Enricher didn't produce structured output — can't test pipeline advance")
 
-    # After enrichment: should suggest owner_resolver
+    # After enrichment: should suggest exposure_analyzer (next in
+    # PIPELINE_ORDER after owner_resolver was dropped).
     snapshot_after = await context_builder.get_context_snapshot(workspace.id)
     history_after = snapshot_after.pop("agent_run_history", [])
     suggestion_after = suggest_next(snapshot_after, history_after)
     assert suggestion_after is not None
-    assert suggestion_after.agent_type == "owner_resolver", (
-        f"Expected owner_resolver but got {suggestion_after.agent_type}"
+    assert suggestion_after.agent_type == "exposure_analyzer", (
+        f"Expected exposure_analyzer but got {suggestion_after.agent_type}"
     )
 
 
@@ -342,7 +368,16 @@ async def test_enricher_progress_callback(
     template_engine: AgentTemplateEngine,
     db,
 ):
-    """Verify the on_progress callback receives text during execution."""
+    """The no-tools PA path completes without invoking on_progress.
+
+    ADR-0047 — streaming text deltas was an OpenCode SSE-plumbing feature
+    that mattered when the no-tools agents emitted prose mid-flight. The
+    PA no-tools path is a single ``agent.run()`` that returns the
+    validated output dict in one call; there's nothing to stream. The
+    callback contract is preserved (``on_progress`` is still accepted)
+    so tool agents like remediation_executor — which DO stream — keep
+    their existing UX. PR #2 covers tool-agent streaming under PA.
+    """
     finding = _make_finding()
     workspace, ws_dir = await _seed_db_and_create_workspace(
         db, finding, dir_manager, template_engine
@@ -360,7 +395,11 @@ async def test_enricher_progress_callback(
     )
 
     assert result.status == "completed"
-    # We should have received at least one progress update
-    assert len(progress_texts) > 0, "No progress callbacks received"
-    # Progress text should contain something meaningful
-    assert any(len(t) > 10 for t in progress_texts), "Progress texts are too short"
+    # Locking down the behavior change: PA no-tools agents do NOT emit
+    # progress callbacks. If a future PR adds streaming for no-tools
+    # agents (or accidentally re-wires the OpenCode path here), this
+    # assertion fires and the change is conscious, not silent.
+    assert progress_texts == [], (
+        f"PA no-tools path emitted progress callbacks unexpectedly: "
+        f"{progress_texts!r}"
+    )

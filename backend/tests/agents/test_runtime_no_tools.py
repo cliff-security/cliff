@@ -120,7 +120,7 @@ async def test_run_no_tools_agent_unknown_agent_type(
     deps: WorkspaceDeps,
 ) -> None:
     """Unregistered agent types fail loud — never silently dispatch."""
-    with pytest.raises(KeyError):
+    with pytest.raises(ValueError, match="Unknown no-tools agent type"):
         await no_tools.run_no_tools_agent(
             "validation_orchestrator", deps, TestModel()
         )

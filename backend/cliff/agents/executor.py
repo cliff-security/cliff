@@ -1433,6 +1433,13 @@ class AgentExecutor:
             raise AgentProcessError(str(exc)) from exc
 
         last_rate_limit: ModelHTTPError | None = None
+        # Parse-retry budget for UnexpectedModelBehavior (weak/old models
+        # sometimes emit prose-only with no JSON shape; PA's own
+        # output_type retry only fires on schema-shaped-but-invalid
+        # responses, not on prose-only ones). One re-roll mirrors the
+        # OpenCode-era ``_RETRY_PROMPT`` corrective-retry that this PR
+        # otherwise drops.
+        parse_retries_used = 0
         for attempt in range(1, RATE_LIMIT_MAX_ATTEMPTS + 1):
             try:
                 # ``timeout`` is per-attempt: rate-limit backoff sleeps
@@ -1479,12 +1486,24 @@ class AgentExecutor:
                     f"Pydantic AI usage limit exceeded: {exc}"
                 ) from exc
             except UnexpectedModelBehavior as exc:
-                # The model produced invalid structured output and PA's
-                # internal retries gave up. Surface verbatim so
+                # Re-roll once: PA raises this on prose-only / empty /
+                # thinking-only responses, where its own output_type
+                # retry doesn't fire. A re-roll at the same prompt
+                # often produces a well-formed response on the next
+                # sample (temperature noise). Second occurrence is
+                # terminal — surface verbatim so
                 # ``_humanize_process_error`` can still pattern-match.
-                raise AgentProcessError(
-                    f"AI model returned an unparseable response: {exc}"
-                ) from exc
+                if parse_retries_used >= 1:
+                    raise AgentProcessError(
+                        f"AI model returned an unparseable response: {exc}"
+                    ) from exc
+                parse_retries_used += 1
+                logger.warning(
+                    "Agent %s returned an unparseable response on attempt "
+                    "%d via PA; re-rolling once: %s",
+                    agent_type, attempt, exc,
+                )
+                # No sleep — this is a model re-roll, not rate-limit backoff.
             except UserError as exc:
                 # Configuration bug — agent registration / output_type
                 # / deps shape wrong. Surface deterministically.
