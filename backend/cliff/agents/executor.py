@@ -18,6 +18,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import httpx
+from pydantic_ai.exceptions import (
+    ModelHTTPError,
+    UnexpectedModelBehavior,
+    UsageLimitExceeded,
+    UserError,
+)
 
 from cliff.agents.errors import (
     AgentBusyError,
@@ -26,6 +32,16 @@ from cliff.agents.errors import (
     AgentTimeoutError,
 )
 from cliff.agents.output_parser import ParseResult, parse_agent_response
+from cliff.agents.runtime.deps import WorkspaceDeps
+from cliff.agents.runtime.no_tools import (
+    NO_TOOLS_AGENT_TYPES,
+    derive_summary,
+    run_no_tools_agent,
+)
+from cliff.agents.runtime.provider import (
+    ProviderConfigurationError,
+    build_model,
+)
 from cliff.agents.sidebar_mapper import map_and_upsert
 from cliff.agents.template_engine import AgentTemplateEngine
 from cliff.db.repo_agent_run import (
@@ -43,7 +59,7 @@ from cliff.workspace.context_document import ContextDocument
 from cliff.workspace.workspace_dir import AGENT_TYPE_TO_SECTION, CONTEXT_SECTIONS
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
 
     import aiosqlite
 
@@ -651,9 +667,23 @@ class AgentExecutor:
         self,
         pool: WorkspaceProcessPool,
         context_builder: WorkspaceContextBuilder,
+        *,
+        ai_env_resolver: Callable[[], Awaitable[dict[str, str]]] | None = None,
+        ai_model_resolver: Callable[[], Awaitable[str | None]] | None = None,
     ) -> None:
+        """Construct the executor.
+
+        ``ai_env_resolver`` / ``ai_model_resolver`` (ADR-0047 / IMPL-0022
+        PR #1) — the canonical AI-state callables. The same pair the
+        process pool consumes for OpenCode env injection; the no-tools
+        Pydantic AI path consumes them to build a fresh ``Model`` per
+        agent run. Optional so unit tests that do not exercise the PA
+        path can leave them unset.
+        """
         self._pool = pool
         self._context_builder = context_builder
+        self._ai_env_resolver = ai_env_resolver
+        self._ai_model_resolver = ai_model_resolver
         self._pending_approvals: dict[str, _PendingApproval] = {}
         self._permission_queues: dict[str, asyncio.Queue] = {}  # workspace_id -> SSE queue
         self._active_runs: dict[str, str] = {}  # workspace_id -> agent_run_id
@@ -856,26 +886,39 @@ class AgentExecutor:
             },
         )
 
+        # Tool agents (e.g. remediation_executor) need more time for
+        # git clone, push, and PR creation. ``effective_timeout`` is
+        # initialised pre-try so the ``except AgentTimeoutError`` handler
+        # below can render the user-facing error label even for early-path
+        # timeouts.
+        effective_timeout = (
+            max(timeout, 600.0)
+            if agent_type in _TOOL_AGENT_TYPES
+            else timeout
+        )
+
         try:
-            # 3. Get or start workspace OpenCode process
-            try:
-                client = await self._pool.get_or_start(
-                    workspace_id, Path(workspace_dir), env_vars=env_vars
-                )
-            except (RuntimeError, TimeoutError) as exc:
-                raise AgentProcessError(str(exc)) from exc
-
-            # 4. Create fresh session
-            session = await client.create_session()
-
+            # 3. Load workspace data — finding row + prior agent context.
+            # The PA no-tools path needs nothing more; the OpenCode tool-
+            # agent path additionally spins up a workspace OpenCode
+            # process below.
             finding_data, prior_ctx = _load_workspace_data(
                 workspace_dir, agent_type
             )
 
-            # Tool agents (remediation_executor) use Jinja2 templates with
-            # tool access. Other agents use the no-tools JSON-only prompt
-            # for fast, reliable structured output.
             if agent_type in _TOOL_AGENT_TYPES:
+                # ============ OpenCode tool-agent path =================
+                # PR #2 (IMPL-0022) migrates this onto Pydantic AI tools
+                # and DeferredToolRequests; PR #1 leaves it untouched.
+                try:
+                    client = await self._pool.get_or_start(
+                        workspace_id, Path(workspace_dir), env_vars=env_vars
+                    )
+                except (RuntimeError, TimeoutError) as exc:
+                    raise AgentProcessError(str(exc)) from exc
+
+                session = await client.create_session()
+
                 engine = AgentTemplateEngine()
                 # Pass repo_url and gh_token directly into the template
                 # so the agent doesn't rely on shell env var expansion.
@@ -900,93 +943,96 @@ class AgentExecutor:
                     **extra_vars,
                 )
                 prompt = rendered.content
-            else:
-                prompt = build_agent_prompt(
-                    agent_type,
-                    finding=finding_data,
-                    prior_context=prior_ctx,
-                    user_note=user_note,
+
+                # EF-B17 — provider rate-limit retry with exponential
+                # backoff. Each attempt uses a fresh OpenCode session
+                # because the previous one already consumed the prompt
+                # that triggered the throttle. ``session`` is reassigned
+                # so downstream code (parse-failure retry below) keeps
+                # targeting the session that produced the eventually-
+                # successful response.
+                response_text = ""
+                for attempt in range(1, RATE_LIMIT_MAX_ATTEMPTS + 1):
+                    try:
+                        response_text = await self._send_and_collect(
+                            client, session.id, prompt,
+                            timeout=effective_timeout, on_progress=on_progress,
+                            on_permission=on_permission,
+                            agent_run_id=agent_run.id,
+                            agent_type=agent_type,
+                            db=db,
+                        )
+                        break
+                    except AgentRateLimitError as exc:
+                        if attempt >= RATE_LIMIT_MAX_ATTEMPTS:
+                            raise
+                        delay = _rate_limit_backoff_delay(attempt)
+                        logger.warning(
+                            "Agent %s rate-limited on attempt %d/%d; "
+                            "sleeping %.1fs before retry: %s",
+                            agent_type, attempt, RATE_LIMIT_MAX_ATTEMPTS,
+                            delay, exc,
+                        )
+                        await asyncio.sleep(delay)
+                        with contextlib.suppress(httpx.HTTPError, AttributeError):
+                            await client.delete_session(session.id)
+                        session = await client.create_session()
+
+                parse_result = parse_agent_response(
+                    response_text, agent_type=agent_type
                 )
 
-            # Tool agents (e.g. remediation_executor) need more time for
-            # git clone, push, and PR creation. ``effective_timeout`` is
-            # initialised pre-loop because the ``except AgentTimeoutError``
-            # handler reads it to render the user-facing error label —
-            # binding it inside the loop would leave it undefined on
-            # early-path timeouts.
-            effective_timeout = (
-                max(timeout, 600.0)
-                if agent_type in _TOOL_AGENT_TYPES
-                else timeout
-            )
-
-            # EF-B17 — provider rate-limit retry with exponential backoff.
-            # Each attempt uses a fresh OpenCode session because the previous
-            # one already consumed the prompt that triggered the throttle.
-            # ``session`` is reassigned so downstream code (parse-failure
-            # retry below) keeps targeting the session that produced the
-            # eventually-successful response.
-            response_text = ""
-            for attempt in range(1, RATE_LIMIT_MAX_ATTEMPTS + 1):
-                try:
-                    response_text = await self._send_and_collect(
-                        client, session.id, prompt,
+                # Retry once if parse failed — send a corrective follow-up
+                # on the same session so the LLM sees its own bad output.
+                if not parse_result.success and response_text.strip():
+                    logger.info(
+                        "Agent %s parse failed (error=%s), retrying with corrective prompt",
+                        agent_type,
+                        parse_result.error,
+                    )
+                    retry_text = await self._send_and_collect(
+                        client, session.id, _RETRY_PROMPT,
                         timeout=effective_timeout, on_progress=on_progress,
                         on_permission=on_permission,
                         agent_run_id=agent_run.id,
                         agent_type=agent_type,
+                        send_delay=0.0,
                         db=db,
                     )
-                    break
-                except AgentRateLimitError as exc:
-                    if attempt >= RATE_LIMIT_MAX_ATTEMPTS:
-                        # Out of budget — let the outer handler convert to
-                        # status=rate_limited with last_error populated.
-                        raise
-                    delay = _rate_limit_backoff_delay(attempt)
-                    logger.warning(
-                        "Agent %s rate-limited on attempt %d/%d; "
-                        "sleeping %.1fs before retry: %s",
-                        agent_type, attempt, RATE_LIMIT_MAX_ATTEMPTS,
-                        delay, exc,
+                    retry_result = parse_agent_response(
+                        retry_text, agent_type=agent_type
                     )
-                    await asyncio.sleep(delay)
-                    # Best-effort tear-down of the throttled session before
-                    # the next attempt. Without this we'd leak up to
-                    # RATE_LIMIT_MAX_ATTEMPTS-1 sessions per failed run in
-                    # the per-workspace OpenCode process.
-                    with contextlib.suppress(httpx.HTTPError, AttributeError):
-                        await client.delete_session(session.id)
-                    # Fresh session for the next try.
-                    session = await client.create_session()
-
-            # 7. Parse response
-            parse_result = parse_agent_response(
-                response_text, agent_type=agent_type
-            )
-
-            # 7b. Retry once if parse failed — send a corrective follow-up
-            # on the same session so the LLM sees its own bad output.
-            if not parse_result.success and response_text.strip():
-                logger.info(
-                    "Agent %s parse failed (error=%s), retrying with corrective prompt",
+                    if retry_result.success:
+                        parse_result = retry_result
+            else:
+                # ============ Pydantic AI no-tools path ================
+                # ADR-0047 / IMPL-0022 PR #1 — six no-tools agents run
+                # in-process through Pydantic AI. No subprocess, no SSE,
+                # no parse retry: PA validates against the per-agent
+                # ``output_type`` and the framework retries on validation
+                # failures itself.
+                #
+                # ``user_note`` is the PRD-0006 Phase 2 refinement input;
+                # only the remediation_planner honours it. Mirror the
+                # pre-migration ``build_agent_prompt`` gate so a planner
+                # re-run with a user note doesn't bleed into a
+                # subsequent enricher / exposure / evidence / validation
+                # call on the same workspace.
+                pa_user_note = (
+                    user_note if agent_type == "remediation_planner" else None
+                )
+                parse_result = await self._run_pa_no_tools(
                     agent_type,
-                    parse_result.error,
+                    WorkspaceDeps(
+                        workspace_id=workspace_id,
+                        workspace_dir=workspace_dir,
+                        finding=finding_data,
+                        prior_context=prior_ctx,
+                        env_vars=env_vars or {},
+                        user_note=pa_user_note,
+                    ),
+                    effective_timeout,
                 )
-                retry_text = await self._send_and_collect(
-                    client, session.id, _RETRY_PROMPT,
-                    timeout=effective_timeout, on_progress=on_progress,
-                    on_permission=on_permission,
-                    agent_run_id=agent_run.id,
-                    agent_type=agent_type,
-                    send_delay=0.0,
-                    db=db,
-                )
-                retry_result = parse_agent_response(
-                    retry_text, agent_type=agent_type
-                )
-                if retry_result.success:
-                    parse_result = retry_result
 
             # 7b-ref. Reference verification (Q01-B08). The finding_enricher
             # emits ``references`` as free-text and weaker models fabricate
@@ -1319,6 +1365,186 @@ class AgentExecutor:
                 error=str(exc),
                 duration_seconds=duration,
             )
+
+    async def _run_pa_no_tools(
+        self,
+        agent_type: str,
+        deps: WorkspaceDeps,
+        timeout: float,
+    ) -> ParseResult:
+        """Run one of the six no-tools agents through Pydantic AI.
+
+        Returns a :class:`ParseResult` shaped exactly like the OpenCode
+        path so the downstream verifier + persistence blocks stay one
+        diff away from their pre-migration behaviour. Translates the PA
+        exception taxonomy into Cliff's existing
+        ``AgentRateLimitError`` / ``AgentTimeoutError`` /
+        ``AgentProcessError`` so the existing ``except`` handlers in
+        ``execute()`` cover both substrates uniformly.
+
+        The provider-rate-limit retry budget mirrors the OpenCode loop
+        (``RATE_LIMIT_MAX_ATTEMPTS`` exponential-backoff retries). PA
+        validation-failure retries are handled internally by Pydantic
+        AI via ``output_type`` — we do not also wrap with the
+        ``_RETRY_PROMPT`` loop.
+        """
+        if agent_type not in NO_TOOLS_AGENT_TYPES:
+            # Defense-in-depth: caller (``execute``) already gates on
+            # ``_TOOL_AGENT_TYPES``. Surface a deterministic error
+            # instead of dispatching the wrong agent if that gate ever
+            # drifts.
+            raise AgentProcessError(
+                f"agent_type {agent_type!r} is not registered for the "
+                f"Pydantic AI no-tools path."
+            )
+
+        if self._ai_env_resolver is None or self._ai_model_resolver is None:
+            raise AgentProcessError(
+                "AI integration resolvers not wired into the executor. "
+                "This is a configuration error — Cliff cannot run an "
+                "agent without an active AI provider."
+            )
+
+        # The resolvers wired in ``main.py`` are pure ``app.state`` reads
+        # and won't raise in practice — but the constructor accepts any
+        # awaitable, so a future hook that does I/O (DB roundtrip, vault
+        # decrypt) could raise here. Translate so the outer
+        # ``except AgentProcessError`` handler renders a clean
+        # ``status=failed`` row instead of the generic "Unexpected
+        # error" fall-through.
+        env_result, model_result = await asyncio.gather(
+            self._ai_env_resolver(),
+            self._ai_model_resolver(),
+            return_exceptions=True,
+        )
+        if isinstance(env_result, BaseException):
+            raise AgentProcessError(
+                f"AI env resolver failed: {env_result}"
+            ) from env_result
+        if isinstance(model_result, BaseException):
+            raise AgentProcessError(
+                f"AI model resolver failed: {model_result}"
+            ) from model_result
+        ai_env = env_result
+        model_full_id = model_result
+        try:
+            model = build_model(ai_env, model_full_id)
+        except ProviderConfigurationError as exc:
+            raise AgentProcessError(str(exc)) from exc
+
+        last_rate_limit: ModelHTTPError | None = None
+        # Parse-retry budget for UnexpectedModelBehavior (weak/old models
+        # sometimes emit prose-only with no JSON shape; PA's own
+        # output_type retry only fires on schema-shaped-but-invalid
+        # responses, not on prose-only ones). One re-roll mirrors the
+        # OpenCode-era ``_RETRY_PROMPT`` corrective-retry that this PR
+        # otherwise drops.
+        parse_retries_used = 0
+        for attempt in range(1, RATE_LIMIT_MAX_ATTEMPTS + 1):
+            try:
+                # ``timeout`` is per-attempt: rate-limit backoff sleeps
+                # + retries mean total wall-clock can exceed it. Mirrors
+                # the OpenCode-era loop semantics.
+                structured_output = await asyncio.wait_for(
+                    run_no_tools_agent(agent_type, deps, model),
+                    timeout=timeout,
+                )
+                break
+            except TimeoutError as exc:
+                # ``asyncio.wait_for`` raises TimeoutError when the wall
+                # clock budget elapses — surface as Cliff's existing
+                # timeout error so the outer ``except`` handler updates
+                # the agent_run row with the standard "timed out" copy.
+                raise AgentTimeoutError(
+                    f"Pydantic AI agent {agent_type!r} did not complete "
+                    f"within {timeout:.0f}s."
+                ) from exc
+            except ModelHTTPError as exc:
+                # Log + raise with ``exc.message`` (not ``str(exc)``) —
+                # Pydantic AI's exception ``__str__`` for HTTP / parse
+                # errors embeds the raw provider response body, which
+                # may echo prompt content (and therefore any credentials
+                # the agent was working with). The message field is
+                # bounded; the body stays on the exception's chained
+                # ``__cause__`` for debugging at DEBUG level.
+                exc_message = getattr(exc, "message", str(exc))
+                if exc.status_code != 429:
+                    raise AgentProcessError(
+                        f"AI provider error ({exc.status_code}): {exc_message}"
+                    ) from exc
+                last_rate_limit = exc
+                if attempt >= RATE_LIMIT_MAX_ATTEMPTS:
+                    # Outer handler renders ``rate_limited`` status.
+                    raise AgentRateLimitError(
+                        f"AI provider rate limit: {exc_message}"
+                    ) from exc
+                delay = _rate_limit_backoff_delay(attempt)
+                logger.warning(
+                    "Agent %s rate-limited on attempt %d/%d via PA; "
+                    "sleeping %.1fs before retry: %s",
+                    agent_type, attempt, RATE_LIMIT_MAX_ATTEMPTS,
+                    delay, exc_message,
+                )
+                await asyncio.sleep(delay)
+            except UsageLimitExceeded as exc:
+                # PA's own per-run budget — exposed only if we wire it
+                # later. Treat as a process error so the user sees a
+                # clear failure rather than a silent swallow.
+                raise AgentProcessError(
+                    f"Pydantic AI usage limit exceeded: {exc}"
+                ) from exc
+            except UnexpectedModelBehavior as exc:
+                # Re-roll once: PA raises this on prose-only / empty /
+                # thinking-only responses, where its own output_type
+                # retry doesn't fire. A re-roll at the same prompt
+                # often produces a well-formed response on the next
+                # sample (temperature noise). Second occurrence is
+                # terminal.
+                #
+                # We log + raise with ``exc.message`` (not ``str(exc)``):
+                # UnexpectedModelBehavior.__str__ returns
+                # ``f"{message}, body:\n{body}"`` when the body is set,
+                # and the body is the raw model response — which can
+                # echo prompt content including any credentials the
+                # agent was working with. The bounded message keeps the
+                # info useful without leaking secrets to log sinks.
+                exc_message = getattr(exc, "message", str(exc))
+                if parse_retries_used >= 1:
+                    raise AgentProcessError(
+                        f"AI model returned an unparseable response: "
+                        f"{exc_message}"
+                    ) from exc
+                parse_retries_used += 1
+                logger.warning(
+                    "Agent %s returned an unparseable response on attempt "
+                    "%d via PA; re-rolling once: %s",
+                    agent_type, attempt, exc_message,
+                )
+                # No sleep — this is a model re-roll, not rate-limit backoff.
+            except UserError as exc:
+                # Configuration bug — agent registration / output_type
+                # / deps shape wrong. Surface deterministically.
+                raise AgentProcessError(
+                    f"Pydantic AI configuration error: {exc}"
+                ) from exc
+        else:  # pragma: no cover — for-else only fires when the loop
+            # exits without break (i.e. retries exhausted without raise).
+            # The raise above already short-circuits but the construct
+            # keeps the static analyser happy about ``structured_output``
+            # always being bound.
+            assert last_rate_limit is not None
+            raise AgentRateLimitError(str(last_rate_limit))
+
+        summary = derive_summary(agent_type, structured_output)
+        return ParseResult(
+            success=True,
+            raw_text="",
+            structured_output=structured_output,
+            summary=summary,
+            confidence=None,
+            suggested_next_action=None,
+            error=None,
+        )
 
     async def _send_and_collect(
         self,

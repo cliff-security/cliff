@@ -34,21 +34,23 @@ def _base_snapshot(**overrides):
 
 
 class TestPipelineOrder:
-    def test_pipeline_order_is_6_agent(self):
+    def test_pipeline_order_is_5_agent(self):
+        # IMPL-0022 PR #1 dropped owner_resolver from the forward walk —
+        # see docstring on cliff.agents.pipeline. The agent stays
+        # available for direct invocation but no longer runs in run-all.
         assert PIPELINE_ORDER == [
             "finding_enricher",
-            "owner_resolver",
             "exposure_analyzer",
             "evidence_collector",
             "remediation_planner",
             "remediation_executor",
         ]
 
-    def test_owner_resolver_in_pipeline_order(self):
-        """Q01-B09 — owner resolution is part of the forward walk so run-all
-        populates sidebar.owner; it sits right after the enricher."""
-        assert "owner_resolver" in PIPELINE_ORDER
-        assert PIPELINE_ORDER.index("owner_resolver") == 1
+    def test_owner_resolver_not_in_forward_pipeline(self):
+        """IMPL-0022 PR #1 — owner_resolver is excluded from the forward
+        walk; users invoke it directly when ownership is genuinely
+        unclear. VALID_AGENT_TYPES still includes it (see below)."""
+        assert "owner_resolver" not in PIPELINE_ORDER
 
     def test_validation_checker_not_in_pipeline_order(self):
         """Validation runs on-demand after remediation, never in the forward
@@ -73,12 +75,13 @@ class TestSuggestNext:
         assert result.priority == "recommended"
         assert result.action_type == "run_agent"
 
-    def test_enrichment_done_suggests_owner_resolver(self):
-        """Q01-B09 — after enrichment, the forward walk resolves ownership."""
+    def test_enrichment_done_suggests_exposure(self):
+        """IMPL-0022 PR #1 — owner_resolver dropped from forward walk; the
+        step after enrichment is now exposure_analyzer."""
         snapshot = _base_snapshot(enrichment={"normalized_title": "Test"})
         result = suggest_next(snapshot)
         assert result is not None
-        assert result.agent_type == "owner_resolver"
+        assert result.agent_type == "exposure_analyzer"
 
     def test_ownership_done_suggests_exposure(self):
         snapshot = _base_snapshot(**_PRE_EXPOSURE)

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **OpenAI BYOK save now works.** The validator probe was hardcoded to
+  `gpt-5`, which is in OpenAI's reasoning-model family and rejects
+  `max_tokens` with a 400. The non-classified-4xx catch-all rendered
+  that as the misleading "Your account doesn't have access. Check
+  billing setup at OpenAI." message, blocking every BYOK user from
+  saving an OpenAI key regardless of account state, balance, or model
+  permissions. Switched the probe to `gpt-4o-mini` — non-reasoning,
+  universally available, cheapest probe target, consistent with the
+  Anthropic probe's `claude-haiku-4-5`.
+
 ## [0.2.1] - 2026-05-25
 
 The first patch on top of 0.2.0. Three release-shaped pieces of work —

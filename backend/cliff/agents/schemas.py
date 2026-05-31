@@ -93,6 +93,29 @@ class ValidationOutput(BaseModel):
     model_config = {"extra": "allow"}
 
 
+class EvidenceOutput(BaseModel):
+    """Structured output from the Evidence Collector agent.
+
+    Filling the schema gap ADR-0043 §11.1 flagged: pre-migration the
+    evidence_collector emitted free-form ``structured_output`` validated
+    only by the runtime guard in ``services/evidence_guard.py``. Pydantic
+    AI uses this class as ``output_type`` so the parse failure mode is
+    "field-shape mismatch", not "no schema at all".
+    """
+
+    affected_files: list[dict[str, Any]] = Field(default_factory=list)
+    dependency_chain: list[str] = Field(default_factory=list)
+    dependency_type: str | None = None
+    current_version: str | None = None
+    fix_safety: str
+    fix_safety_reasoning: str | None = None
+    test_coverage: dict[str, Any] = Field(default_factory=dict)
+    recommended_approach: str
+    impact_assessment: str | None = None
+
+    model_config = {"extra": "allow"}
+
+
 class RemediationExecutorOutput(BaseModel):
     """Structured output from the Remediation Executor agent."""
 
@@ -111,6 +134,7 @@ AGENT_OUTPUT_SCHEMAS: dict[str, type[BaseModel]] = {
     "finding_enricher": EnrichmentOutput,
     "owner_resolver": OwnershipOutput,
     "exposure_analyzer": ExposureOutput,
+    "evidence_collector": EvidenceOutput,
     "remediation_planner": PlanOutput,
     "remediation_executor": RemediationExecutorOutput,
     "validation_checker": ValidationOutput,

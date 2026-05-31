@@ -4,10 +4,13 @@ Advisory, not enforcing. Users can run agents in any order, skip agents,
 or re-run agents. ``suggest_next()`` is a recommendation based on current
 workspace context state.
 
-Forward pipeline (5-agent): enricher → owner resolver → exposure → evidence
-→ planner → executor. Owner resolution is part of the forward walk (Q01-B09)
-so ``run-all`` populates ``sidebar.owner``. The validation checker stays
-on-demand — it verifies a fix that does not exist until the executor runs.
+Forward pipeline (5-agent): enricher → exposure → evidence → planner →
+executor. Owner resolution dropped from the forward walk per IMPL-0022
+PR #1 — the agent stays available for direct invocation when ownership
+is genuinely unclear, but most findings either carry a scanner-supplied
+owner or land on the workspace creator. The validation checker stays
+on-demand — it verifies a fix that does not exist until the executor
+runs.
 """
 
 from __future__ import annotations
@@ -25,12 +28,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Pipeline order — the forward suggested sequence. ``validation_checker`` is
-# deliberately absent: it runs on-demand after remediation, not in the
-# forward walk.
+# Pipeline order — the forward suggested sequence. ``validation_checker``
+# is deliberately absent (runs on-demand after remediation, not in the
+# forward walk); ``owner_resolver`` is also absent per IMPL-0022 PR #1
+# but stays callable directly. See the module docstring.
 PIPELINE_ORDER: list[str] = [
     "finding_enricher",
-    "owner_resolver",
     "exposure_analyzer",
     "evidence_collector",
     "remediation_planner",
@@ -47,7 +50,6 @@ MAX_RETRY_ITERATIONS = 3
 # Maps pipeline agents to the context section they check.
 _PIPELINE_CHECKS: list[tuple[str, str]] = [
     ("enrichment", "finding_enricher"),
-    ("ownership", "owner_resolver"),
     ("exposure", "exposure_analyzer"),
     ("evidence", "evidence_collector"),
     ("plan", "remediation_planner"),
@@ -125,7 +127,7 @@ def suggest_next(
                 priority="recommended",
             )
 
-    # All 4 pipeline sections present — check remediation status.
+    # All pipeline sections present — check remediation status.
     remediation = context_snapshot.get("remediation", {})
     status = (remediation.get("status") or "").lower() if remediation else ""
 
@@ -143,7 +145,6 @@ def suggest_next(
 
 _REASONS: dict[str, str] = {
     "enrichment": "CVE details and exploit info not yet collected",
-    "ownership": "Owner / responsible team not yet identified",
     "exposure": "Reachability and blast radius not yet assessed",
     "evidence": "Affected files and fix impact not yet analyzed",
     "plan": "No remediation plan created yet",

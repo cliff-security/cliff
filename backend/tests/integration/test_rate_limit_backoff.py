@@ -75,7 +75,7 @@ def _make_mock_agent_run() -> AgentRun:
     return AgentRun(
         id="run-rl-1",
         workspace_id="ws-rl",
-        agent_type="finding_enricher",
+        agent_type="remediation_executor",
         status="running",
     )
 
@@ -150,7 +150,7 @@ async def test_rate_limit_retry_then_success(monkeypatch, workspace_dir):
         patch("cliff.agents.executor._advance_finding_status", return_value=None),
     ):
         result = await executor.execute(
-            "ws-rl", "finding_enricher", db, workspace_dir=workspace_dir,
+            "ws-rl", "remediation_executor", db, workspace_dir=workspace_dir,
         )
     elapsed = time.monotonic() - start
 
@@ -209,7 +209,7 @@ async def test_rate_limit_exhausted_terminates_with_status_and_last_error(
         patch("cliff.agents.executor._advance_finding_status", return_value=None),
     ):
         result = await executor.execute(
-            "ws-rl", "finding_enricher", db, workspace_dir=workspace_dir,
+            "ws-rl", "remediation_executor", db, workspace_dir=workspace_dir,
         )
     elapsed = time.monotonic() - start
 
@@ -273,7 +273,7 @@ async def test_non_rate_limit_error_still_fails_immediately(monkeypatch, workspa
         patch("cliff.agents.executor.list_agent_runs", return_value=[]),
     ):
         result = await executor.execute(
-            "ws-rl", "finding_enricher", db, workspace_dir=workspace_dir,
+            "ws-rl", "remediation_executor", db, workspace_dir=workspace_dir,
         )
 
     assert result.status == "failed"
@@ -372,7 +372,7 @@ async def test_real_world_rate_limit_messages_classify_and_retry(
         patch("cliff.agents.executor._advance_finding_status", return_value=None),
     ):
         result = await executor.execute(
-            "ws-rl", "finding_enricher", db, workspace_dir=workspace_dir,
+            "ws-rl", "remediation_executor", db, workspace_dir=workspace_dir,
         )
 
     assert result.status == "rate_limited", (
@@ -451,7 +451,7 @@ async def test_lookalike_messages_do_not_trigger_rate_limit_retry(
         patch("cliff.agents.executor.list_agent_runs", return_value=[]),
     ):
         result = await executor.execute(
-            "ws-rl", "finding_enricher", db, workspace_dir=workspace_dir,
+            "ws-rl", "remediation_executor", db, workspace_dir=workspace_dir,
         )
 
     assert result.status == "failed", (
@@ -497,13 +497,17 @@ async def test_f1_minimist_style_scenario_recovers_under_throttling(
 
     executor = AgentExecutor(pool, builder)
 
-    # Mirror the F1-minimist agent sequence from Wave-1 evidence.
+    # Mirror the F1-minimist agent sequence from Wave-1 evidence. After
+    # ADR-0047 only the remediation_executor exercises the OpenCode
+    # SSE/rate-limit surface; the five consecutive runs preserve the
+    # original test intent (a sustained rate-limit-pressure scenario
+    # recovers row-by-row instead of failing on the first throttle).
     agent_sequence = [
-        ("finding_enricher", 0),     # first try succeeds (cold cache)
-        ("owner_resolver", 2),       # 2 throttles, then success
-        ("exposure_analyzer", 2),    # 2 throttles, then success
-        ("evidence_collector", 1),   # 1 throttle, then success
-        ("remediation_planner", 0),  # succeeds
+        ("remediation_executor", 0),  # first try succeeds (cold cache)
+        ("remediation_executor", 2),  # 2 throttles, then success
+        ("remediation_executor", 2),  # 2 throttles, then success
+        ("remediation_executor", 1),  # 1 throttle, then success
+        ("remediation_executor", 0),  # succeeds
     ]
 
     final_statuses: list[str] = []

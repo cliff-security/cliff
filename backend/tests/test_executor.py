@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from cliff.agents.errors import AgentBusyError
+from cliff.agents.errors import AgentBusyError, AgentTimeoutError
 from cliff.agents.executor import (
     TOOL_TIERS,
     AgentExecutor,
@@ -18,6 +18,8 @@ from cliff.agents.executor import (
     _PendingApproval,
     build_agent_prompt,
 )
+from cliff.agents.output_parser import ParseResult
+from cliff.agents.runtime.deps import WorkspaceDeps
 from cliff.models import AgentRun
 
 # ---------------------------------------------------------------------------
@@ -72,7 +74,7 @@ def _make_agent_response(**overrides):
     return f"Analysis complete.\n\n```json\n{json.dumps(data)}\n```"
 
 
-def _make_mock_agent_run(workspace_id="ws-1", agent_type="finding_enricher", status="running"):
+def _make_mock_agent_run(workspace_id="ws-1", agent_type="remediation_executor", status="running"):
     return AgentRun(
         id="run-123",
         workspace_id=workspace_id,
@@ -151,7 +153,7 @@ class TestAgentExecutor:
             patch("cliff.agents.executor._advance_finding_status", return_value=None),
         ):
             result = await executor.execute(
-                "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
+                "ws-1", "remediation_executor", mock_db, workspace_dir=workspace_dir
             )
 
         assert result.status == "completed"
@@ -204,7 +206,7 @@ class TestAgentExecutor:
             patch("cliff.agents.executor._advance_finding_status", return_value=None),
         ):
             result = await executor.execute(
-                "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
+                "ws-1", "remediation_executor", mock_db, workspace_dir=workspace_dir
             )
 
         assert result.status == "completed"
@@ -218,14 +220,14 @@ class TestAgentExecutor:
         )
 
         started = next(e for e in captured if e["type"] == "agent_run_started")
-        assert started["agent_type"] == "finding_enricher"
+        assert started["agent_type"] == "remediation_executor"
         assert started["status"] == "running"
         assert started["run_id"]  # non-empty
 
         completed = next(
             e for e in captured if e["type"] == "agent_run_completed"
         )
-        assert completed["agent_type"] == "finding_enricher"
+        assert completed["agent_type"] == "remediation_executor"
         assert completed["status"] == "completed"
         assert completed["run_id"] == started["run_id"]
 
@@ -260,7 +262,7 @@ class TestAgentExecutor:
             patch("cliff.agents.executor._advance_finding_status", return_value=None),
         ):
             await executor.execute(
-                "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
+                "ws-1", "remediation_executor", mock_db, workspace_dir=workspace_dir
             )
 
         completed = [e for e in captured if e["type"] == "agent_run_completed"]
@@ -295,7 +297,7 @@ class TestAgentExecutor:
             patch("cliff.agents.executor._advance_finding_status", return_value=None),
         ):
             await executor.execute(
-                "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
+                "ws-1", "remediation_executor", mock_db, workspace_dir=workspace_dir
             )
 
         # The pre-existing queue must have received the started event
@@ -334,7 +336,7 @@ class TestAgentExecutor:
             patch("cliff.agents.executor._advance_finding_status", return_value=None),
         ):
             result = await executor.execute(
-                "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
+                "ws-1", "remediation_executor", mock_db, workspace_dir=workspace_dir
             )
 
         assert result.status == "failed"
@@ -363,7 +365,7 @@ class TestAgentExecutor:
             ),pytest.raises(AgentBusyError, match="already running")
         ):
             await executor.execute(
-                "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
+                "ws-1", "remediation_executor", mock_db, workspace_dir=workspace_dir
             )
 
     @pytest.mark.asyncio
@@ -383,7 +385,7 @@ class TestAgentExecutor:
             patch("cliff.agents.executor.list_agent_runs", return_value=[]),
         ):
             result = await executor.execute(
-                "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
+                "ws-1", "remediation_executor", mock_db, workspace_dir=workspace_dir
             )
 
         assert result.status == "failed"
@@ -396,26 +398,33 @@ class TestAgentExecutor:
     @pytest.mark.asyncio
     async def test_timeout(self, mock_pool, mock_context_builder,
         mock_db, workspace_dir):
-        """Agent exceeds timeout → status=failed with timeout error."""
-        # Create a stream that never completes
-        client = AsyncMock()
-        client.create_session.return_value = MagicMock(id="session-1")
-        client.send_message.return_value = None
+        """Agent exceeds timeout → status=failed with timeout error.
 
-        async def slow_stream(session_id):
-            yield {"type": "text", "content": "Starting analysis..."}
-            await asyncio.sleep(10)  # Will be cancelled by timeout
-            yield {"type": "done"}
-
-        client.stream_events = slow_stream
-        mock_pool.get_or_start.return_value = client
-
+        Exercises the Pydantic AI no-tools path because that's where the
+        caller-supplied ``timeout`` is the wall-clock ceiling on the
+        ``asyncio.wait_for`` around ``agent.run()``. The OpenCode
+        tool-agent branch has a 600s floor (max(timeout, 600)) so a
+        sub-second ``timeout`` parameter is meaningless there — the
+        timeout-label regression that motivates the assertion below
+        sits on the PA branch in PR #1.
+        """
         executor = AgentExecutor(mock_pool, mock_context_builder)
+
+        async def _timeout_pa(agent_type, deps, timeout):
+            # Stand-in for the PA path's own ``asyncio.wait_for`` →
+            # ``AgentTimeoutError`` translation. The executor's outer
+            # ``except AgentTimeoutError`` handler is what renders the
+            # user-facing label this test guards.
+            raise AgentTimeoutError(
+                f"Pydantic AI agent did not complete within {timeout:.0f}s."
+            )
+
+        executor._run_pa_no_tools = _timeout_pa
 
         with (
             patch(
                 "cliff.agents.executor.create_agent_run",
-                return_value=_make_mock_agent_run(),
+                return_value=_make_mock_agent_run(agent_type="finding_enricher"),
             ),
             patch("cliff.agents.executor.update_agent_run"),
             patch("cliff.agents.executor.list_agent_runs", return_value=[]),
@@ -531,7 +540,7 @@ class TestAgentExecutor:
             patch("cliff.agents.executor.list_agent_runs", return_value=[]),
         ):
             result = await executor.execute(
-                "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
+                "ws-1", "remediation_executor", mock_db, workspace_dir=workspace_dir
             )
 
         assert result.status == "failed"
@@ -559,7 +568,7 @@ class TestAgentExecutor:
             patch("cliff.agents.executor._advance_finding_status", return_value=None),
         ):
             await executor.execute(
-                "ws-1", "finding_enricher", mock_db,
+                "ws-1", "remediation_executor", mock_db,
                 workspace_dir=workspace_dir,
                 on_progress=progress_calls.append,
             )
@@ -590,7 +599,7 @@ class TestAgentExecutor:
             patch("cliff.agents.executor._advance_finding_status", return_value=None),
         ):
             result = await executor.execute(
-                "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
+                "ws-1", "remediation_executor", mock_db, workspace_dir=workspace_dir
             )
 
         assert result.status == "completed"
@@ -614,7 +623,7 @@ class TestAgentExecutor:
             patch("cliff.agents.executor.list_agent_runs", return_value=[]),
         ):
             result = await executor.execute(
-                "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
+                "ws-1", "remediation_executor", mock_db, workspace_dir=workspace_dir
             )
 
         assert result.status == "failed"
@@ -623,22 +632,42 @@ class TestAgentExecutor:
     @pytest.mark.asyncio
     async def test_owner_resolver_agent_type(self, mock_pool, mock_context_builder,
         mock_db, workspace_dir):
-        """Verify executor works with different agent types."""
-        data = {
-            "summary": "Owner identified",
-            "result_card_markdown": "## Owner\n\nPlatform Team",
-            "structured_output": {
-                "recommended_owner": "Platform Team",
-                "candidates": [],
-            },
-            "confidence": 0.88,
-            "evidence_sources": ["CODEOWNERS"],
-            "suggested_next_action": "assess_exposure",
-        }
-        response_text = f"```json\n{json.dumps(data)}\n```"
-        mock_pool.get_or_start.return_value = _make_mock_client(response_text)
+        """Verify executor works with different agent types (PA path).
 
+        ADR-0047 — owner_resolver runs in-process through Pydantic AI.
+        ``_run_pa_no_tools`` is stubbed so the test stays focused on the
+        executor's orchestration (run row creation, sidebar update,
+        context advance), not the PA library itself — coverage of the
+        PA runtime layer lives in ``tests/agents/test_runtime_*.py``.
+        """
         executor = AgentExecutor(mock_pool, mock_context_builder)
+        fake_output = {
+            "recommended_owner": "Platform Team",
+            "candidates": [],
+            "reasoning": "CODEOWNERS",
+        }
+
+        async def _fake_pa(agent_type, deps, timeout):
+            # PRD-0006 Phase 2 — ``user_note`` is only honoured for
+            # remediation_planner. The PA call site gates it so re-runs
+            # with a refinement note don't bleed into owner / enricher /
+            # exposure / evidence / validation calls on the same
+            # workspace. Lock that in here.
+            assert deps.user_note is None, (
+                f"owner_resolver received user_note={deps.user_note!r}; "
+                "user_note must be planner-only on the PA path."
+            )
+            return ParseResult(
+                success=True,
+                raw_text="",
+                structured_output=fake_output,
+                summary="Owner identified",
+                confidence=None,
+                suggested_next_action=None,
+                error=None,
+            )
+
+        executor._run_pa_no_tools = _fake_pa
 
         with (
             patch(
@@ -656,6 +685,52 @@ class TestAgentExecutor:
 
         assert result.status == "completed"
         assert result.parse_result.summary == "Owner identified"
+
+    @pytest.mark.asyncio
+    async def test_planner_receives_user_note_via_pa_path(
+        self, mock_pool, mock_context_builder, mock_db, workspace_dir,
+    ):
+        """PRD-0006 Phase 2 — the planner's PA call DOES receive the user
+        refinement note. Pair with ``test_owner_resolver_agent_type``,
+        which asserts the gate strips it from every other agent type."""
+        executor = AgentExecutor(mock_pool, mock_context_builder)
+        captured: dict[str, str | None] = {}
+
+        async def _fake_pa(agent_type, deps, timeout):
+            captured["user_note"] = deps.user_note
+            return ParseResult(
+                success=True,
+                raw_text="",
+                structured_output={
+                    "plan_steps": ["Upgrade lodash to 4.17.21"],
+                    "definition_of_done": [],
+                },
+                summary="Plan ready",
+                confidence=None,
+                suggested_next_action=None,
+                error=None,
+            )
+
+        executor._run_pa_no_tools = _fake_pa
+
+        with (
+            patch(
+                "cliff.agents.executor.create_agent_run",
+                return_value=_make_mock_agent_run(agent_type="remediation_planner"),
+            ),
+            patch("cliff.agents.executor.update_agent_run"),
+            patch("cliff.agents.executor.list_agent_runs", return_value=[]),
+            patch("cliff.agents.executor.map_and_upsert"),
+            patch("cliff.agents.executor._advance_finding_status", return_value=None),
+        ):
+            result = await executor.execute(
+                "ws-1", "remediation_planner", mock_db,
+                workspace_dir=workspace_dir,
+                user_note="prefer a code-fix over a bump",
+            )
+
+        assert result.status == "completed"
+        assert captured["user_note"] == "prefer a code-fix over a bump"
 
     @pytest.mark.asyncio
     async def test_retry_on_parse_failure(self, mock_pool, mock_context_builder,
@@ -693,7 +768,7 @@ class TestAgentExecutor:
             patch("cliff.agents.executor._advance_finding_status", return_value=None),
         ):
             result = await executor.execute(
-                "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
+                "ws-1", "remediation_executor", mock_db, workspace_dir=workspace_dir
             )
 
         assert result.status == "completed"
@@ -727,13 +802,81 @@ class TestAgentExecutor:
             patch("cliff.agents.executor._advance_finding_status", return_value=None),
         ):
             result = await executor.execute(
-                "ws-1", "finding_enricher", mock_db, workspace_dir=workspace_dir
+                "ws-1", "remediation_executor", mock_db, workspace_dir=workspace_dir
             )
 
         assert result.status == "failed"
         assert result.parse_result.success is False
         assert result.sidebar_updated is False
         mock_sidebar.assert_not_called()
+
+
+class TestPaResolverWiring:
+    """The executor MUST resolve env+model on every PA call (no caching).
+
+    The two resolver closures wired in ``main.py`` are the single seam
+    between Cliff's canonical AI state (``ai_integration`` + vault +
+    ``app_setting(model)``) and the Pydantic AI ``Model`` instance the
+    no-tools agents run against. If the executor ever cached the
+    resolved values at ``__init__`` instead of awaiting them per run,
+    a UI provider-switch would not take effect until daemon restart —
+    a silent staleness regression. This lockdown prevents that.
+    """
+
+    @pytest.mark.asyncio
+    async def test_run_pa_no_tools_resolves_env_and_model_per_call(
+        self, mock_pool, mock_context_builder, monkeypatch,
+    ):
+        env_seq = [
+            {"OPENAI_API_KEY": "sk-first"},
+            {"OPENAI_API_KEY": "sk-second"},
+        ]
+        model_seq = ["openai/gpt-4o-mini", "openai/gpt-5-mini"]
+        env_resolver = AsyncMock(side_effect=env_seq)
+        model_resolver = AsyncMock(side_effect=model_seq)
+
+        captured_build_args: list[tuple[dict, str]] = []
+
+        def _capture_build_model(env, model_full_id):
+            captured_build_args.append((env, model_full_id))
+            return MagicMock(model_name=model_full_id.split("/", 1)[1])
+
+        async def _stub_run(agent_type, deps, model):
+            return {"normalized_title": "ok", "cve_ids": []}
+
+        monkeypatch.setattr(
+            "cliff.agents.executor.build_model", _capture_build_model,
+        )
+        monkeypatch.setattr(
+            "cliff.agents.executor.run_no_tools_agent", _stub_run,
+        )
+
+        executor = AgentExecutor(
+            mock_pool, mock_context_builder,
+            ai_env_resolver=env_resolver,
+            ai_model_resolver=model_resolver,
+        )
+        deps = WorkspaceDeps(
+            workspace_id="ws-1", workspace_dir="/tmp/ws",
+            finding={"id": "f-1"},
+        )
+
+        await executor._run_pa_no_tools(
+            "finding_enricher", deps, timeout=30.0,
+        )
+        await executor._run_pa_no_tools(
+            "finding_enricher", deps, timeout=30.0,
+        )
+
+        # Both resolvers awaited per call — no init-time caching.
+        assert env_resolver.await_count == 2
+        assert model_resolver.await_count == 2
+        # build_model received call N's resolved values — not call 1's
+        # values on the second invocation (the staleness regression).
+        assert captured_build_args == [
+            ({"OPENAI_API_KEY": "sk-first"}, "openai/gpt-4o-mini"),
+            ({"OPENAI_API_KEY": "sk-second"}, "openai/gpt-5-mini"),
+        ]
 
 
 class TestBuildAgentPrompt:
@@ -1073,6 +1216,15 @@ class TestPendingPermissionPersistence:
         assert set_idx < clear_idx
 
     @pytest.mark.asyncio
+    @pytest.mark.skip(
+        reason=(
+            "ADR-0047 / PR #1 — finding_enricher's old TOOL_TIERS route "
+            "is gone. Permission flow on the surviving OpenCode tool "
+            "agent uses _classify_tool_request, not TOOL_TIERS. PR #2 "
+            "rebuilds permission handling on DeferredToolRequests; this "
+            "test gets reborn there as a deferred-tools assertion."
+        ),
+    )
     async def test_auto_approve_in_stream(
         self, mock_pool, mock_context_builder,
         mock_db, workspace_dir
@@ -1116,7 +1268,7 @@ class TestPendingPermissionPersistence:
             patch("cliff.agents.executor._advance_finding_status", return_value=None),
         ):
             result = await executor.execute(
-                "ws-1", "finding_enricher", mock_db,
+                "ws-1", "remediation_executor", mock_db,
                 workspace_dir=workspace_dir,
             )
 
@@ -1125,6 +1277,15 @@ class TestPendingPermissionPersistence:
         client.grant_permission.assert_called_once_with("per_auto", session_id="ses-1")
 
     @pytest.mark.asyncio
+    @pytest.mark.skip(
+        reason=(
+            "ADR-0047 / PR #1 — TOOL_TIERS-routed user-approval flow is "
+            "gone with the no-tools agents. The surviving OpenCode tool "
+            "agent classifies bash per-command, so 'ls -la /tmp' auto-"
+            "approves and no callback fires. PR #2 rebuilds this on "
+            "DeferredToolRequests."
+        ),
+    )
     async def test_user_tier_surfaces_callback(
         self, mock_pool, mock_context_builder,
         mock_db, workspace_dir
@@ -1186,7 +1347,7 @@ class TestPendingPermissionPersistence:
             patch("cliff.agents.executor._advance_finding_status", return_value=None),
         ):
             result = await executor.execute(
-                "ws-1", "finding_enricher", mock_db,
+                "ws-1", "remediation_executor", mock_db,
                 workspace_dir=workspace_dir,
                 on_permission=on_perm,
             )

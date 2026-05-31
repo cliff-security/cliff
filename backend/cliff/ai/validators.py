@@ -258,7 +258,11 @@ _PROBES: dict[AIProvider, _ProbeSpec] = {
         url="https://api.openai.com/v1/chat/completions",
         auth_header=_bearer,
         body={
-            "model": "gpt-5",
+            # Non-reasoning model: takes ``max_tokens``. The reasoning
+            # family (gpt-5/o1/o3) rejects ``max_tokens`` with a 400 and
+            # the catch-all renders that as a misleading "no access" /
+            # billing message.
+            "model": "gpt-4o-mini",
             "max_tokens": 1,
             "messages": [{"role": "user", "content": "ok"}],
         },
