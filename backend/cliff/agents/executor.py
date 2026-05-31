@@ -1435,6 +1435,9 @@ class AgentExecutor:
         last_rate_limit: ModelHTTPError | None = None
         for attempt in range(1, RATE_LIMIT_MAX_ATTEMPTS + 1):
             try:
+                # ``timeout`` is per-attempt: rate-limit backoff sleeps
+                # + retries mean total wall-clock can exceed it. Mirrors
+                # the OpenCode-era loop semantics.
                 structured_output = await asyncio.wait_for(
                     run_no_tools_agent(agent_type, deps, model),
                     timeout=timeout,
