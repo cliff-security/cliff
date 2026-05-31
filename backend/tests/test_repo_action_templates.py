@@ -194,5 +194,8 @@ class TestCloningAgentsNeverWriteHostGitConfig:
             repo_url="https://github.com/acme/widget",
         )
         _assert_never_writes_host_git_config(rendered.content)
-        # Authenticated clone is carried by a token-embedded URL, not a config write.
+        # Authenticated clone is carried by the $GH_TOKEN shell var (injected into
+        # the workspace env), not a config write...
         assert "x-access-token:${GH_TOKEN}@" in rendered.content
+        # ...and the literal token value must never be echoed into the prompt.
+        assert "ghp_fake_token_for_render_test" not in rendered.content

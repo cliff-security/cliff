@@ -54,7 +54,8 @@ Search the repository to collect concrete evidence about where this vulnerabilit
    # touched. The credential stays in this run's env and repo/.git/config only.
    REPO_URL="{{ repo_url or '$CLIFF_REPO_URL' }}"
 {% if gh_token %}
-   export GH_TOKEN="{{ gh_token }}"
+   # $GH_TOKEN is already injected into this workspace's environment — do NOT
+   # re-assign it here (that would echo the literal token into this prompt).
    CLONE_URL="https://x-access-token:${GH_TOKEN}@${REPO_URL#https://}"
 {% else %}
    CLONE_URL="$REPO_URL"
