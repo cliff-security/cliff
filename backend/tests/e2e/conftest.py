@@ -48,16 +48,22 @@ def _verify_e2e_port_free(port: int) -> None:
             ) from exc
 
 
-# Honour CLIFF_OPENCODE_PORT if the operator pinned a different port;
-# otherwise default to the dedicated e2e port. Bind-test before mutating
-# settings so the failure is at conftest load, not mid-test.
-_E2E_OPENCODE_PORT = int(os.environ.get("CLIFF_OPENCODE_PORT", _E2E_OPENCODE_PORT))
-_verify_e2e_port_free(_E2E_OPENCODE_PORT)
-settings.opencode_port = _E2E_OPENCODE_PORT
-
-# Skip all e2e tests if prerequisites are missing
+# Compute e2e prerequisites first — the port check + settings mutation
+# below are e2e-only side effects, and a combined run like
+# ``pytest backend/tests`` imports this conftest at collection even when
+# e2e tests will be skipped. Gating both behind the availability flags
+# keeps a busy port from aborting a unit-only run and keeps the
+# settings.opencode_port singleton untouched for non-e2e tests.
 _opencode_available = settings.opencode_binary_path.exists() or which("opencode") is not None
 _api_key_set = bool(os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
+
+if _opencode_available and _api_key_set:
+    # Honour CLIFF_OPENCODE_PORT if the operator pinned a different port;
+    # otherwise default to the dedicated e2e port. Bind-test before
+    # mutating settings so the failure is at conftest load, not mid-test.
+    _E2E_OPENCODE_PORT = int(os.environ.get("CLIFF_OPENCODE_PORT", _E2E_OPENCODE_PORT))
+    _verify_e2e_port_free(_E2E_OPENCODE_PORT)
+    settings.opencode_port = _E2E_OPENCODE_PORT
 
 _skip_no_binary = pytest.mark.skipif(
     not _opencode_available, reason="OpenCode binary not found"
