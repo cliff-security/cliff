@@ -199,3 +199,6 @@ class TestCloningAgentsNeverWriteHostGitConfig:
         assert "x-access-token:${GH_TOKEN}@" in rendered.content
         # ...and the literal token value must never be echoed into the prompt.
         assert "ghp_fake_token_for_render_test" not in rendered.content
+        # Clone must be verified before anything runs against repo/ — a failed
+        # clone otherwise leaves later steps running from the wrong directory.
+        assert "test -d repo/.git" in rendered.content

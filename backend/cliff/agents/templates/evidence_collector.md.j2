@@ -61,6 +61,10 @@ Search the repository to collect concrete evidence about where this vulnerabilit
    CLONE_URL="$REPO_URL"
 {% endif %}
    git clone --depth 1 "$CLONE_URL" repo/
+   # Verify the clone succeeded — if repo/.git is missing, STOP here. Otherwise
+   # the search steps below would run from the wrong directory and report
+   # misleading "affected files" to the planner.
+   test -d repo/.git || { echo "clone failed: repo/.git missing"; exit 1; }
    cd repo/
    ```
 
