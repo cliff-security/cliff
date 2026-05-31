@@ -49,11 +49,22 @@ Search the repository to collect concrete evidence about where this vulnerabilit
 
 1. **Set up and clone the repository:**
    ```bash
+   # Authenticate the clone with a token-embedded URL built at runtime. We never
+   # write global- or system-scoped git config, so the host ~/.gitconfig is never
+   # touched. The credential stays in this run's env and repo/.git/config only.
+   REPO_URL="{{ repo_url or '$CLIFF_REPO_URL' }}"
 {% if gh_token %}
-   export GH_TOKEN="{{ gh_token }}"
-   git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+   # $GH_TOKEN is already injected into this workspace's environment — do NOT
+   # re-assign it here (that would echo the literal token into this prompt).
+   CLONE_URL="https://x-access-token:${GH_TOKEN}@${REPO_URL#https://}"
+{% else %}
+   CLONE_URL="$REPO_URL"
 {% endif %}
-   git clone --depth 1 "{{ repo_url or '$CLIFF_REPO_URL' }}" repo/
+   git clone --depth 1 "$CLONE_URL" repo/
+   # Verify the clone succeeded — if repo/.git is missing, STOP here. Otherwise
+   # the search steps below would run from the wrong directory and report
+   # misleading "affected files" to the planner.
+   test -d repo/.git || { echo "clone failed: repo/.git missing"; exit 1; }
    cd repo/
    ```
 
