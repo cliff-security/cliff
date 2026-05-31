@@ -174,3 +174,25 @@ class TestDependabotConfigGenerator:
                 repo_url="https://github.com/acme/widget",
                 params={},
             )
+
+
+class TestCloningAgentsNeverWriteHostGitConfig:
+    """The other two cloning templates aren't repo-actions (they go through
+    ``render_agent``), but they run git just the same — the executor even
+    pushes commits. Guard them against host-gitconfig writes too, so a
+    regression in either one fails the suite.
+    """
+
+    @pytest.mark.parametrize("agent_name", ["remediation_executor", "evidence_collector"])
+    def test_no_host_git_config_writes(
+        self, engine: AgentTemplateEngine, agent_name: str
+    ) -> None:
+        rendered = engine.render_agent(
+            agent_name,
+            finding={"title": "Test finding", "source_id": "CVE-2024-0001"},
+            gh_token="ghp_fake_token_for_render_test",
+            repo_url="https://github.com/acme/widget",
+        )
+        _assert_never_writes_host_git_config(rendered.content)
+        # Authenticated clone is carried by a token-embedded URL, not a config write.
+        assert "x-access-token:${GH_TOKEN}@" in rendered.content
