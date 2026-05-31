@@ -136,14 +136,25 @@ rules are absolute — a violation can corrupt the operator's machine:
 
 1. **Clone and set up:**
    ```bash
+   # Authenticate the clone with a token-embedded URL built at runtime. We never
+   # write global- or system-scoped git config — those always hit the operator's
+   # host ~/.gitconfig and cannot fail closed. The credential stays in this run's
+   # env and the throwaway repo/.git/config only.
+   REPO_URL="{{ repo_url or '$CLIFF_REPO_URL' }}"
 {% if gh_token %}
    export GH_TOKEN="{{ gh_token }}"
-   git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+   CLONE_URL="https://x-access-token:${GH_TOKEN}@${REPO_URL#https://}"
+{% else %}
+   CLONE_URL="$REPO_URL"
 {% endif %}
-   git clone --depth 50 "{{ repo_url or '$CLIFF_REPO_URL' }}" repo/
+   git clone --depth 50 "$CLONE_URL" repo/
    # Verify the clone succeeded — if repo/.git is missing, STOP here.
    test -d repo/.git || { echo "clone failed: repo/.git missing"; exit 1; }
    cd repo/
+   # Commit identity — repo-local only. `git config --local` writes
+   # repo/.git/config and errors if we're not in a repo; never reaches ~/.gitconfig.
+   git config --local user.email "cliff-bot@users.noreply.github.com"
+   git config --local user.name "Cliff Posture Bot"
    git checkout -b cliff/fix/{{ finding.source_id | lower | replace(' ', '-') | truncate(40, True, '') }}
    ```
 2. **Apply the fix.** Make minimal, focused changes following the plan.

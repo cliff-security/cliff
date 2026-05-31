@@ -21,6 +21,28 @@ def engine() -> AgentTemplateEngine:
     return AgentTemplateEngine()
 
 
+def _assert_never_writes_host_git_config(content: str) -> None:
+    """Templates must NEVER run ``git config --global`` (or ``--system``).
+
+    Those scopes always write the operator's host config and cannot fail
+    closed, so a dropped env var or a reordered/retried step would silently
+    pollute ``~/.gitconfig`` — injecting an expired ``x-access-token`` rewrite
+    and the ``Cliff Posture Bot`` identity, which then breaks the operator's
+    own ``git push``. Instead, clone auth is carried by a token-embedded clone
+    URL (confined to the throwaway ``repo/.git/config``) and commit identity is
+    set with ``git config --local`` (which errors out when not inside a repo).
+
+    Regression guard for the host-gitconfig-pollution bug.
+    """
+    assert "git config --global" not in content, (
+        "templates must not run `git config --global` — it always writes the "
+        "operator's host ~/.gitconfig and cannot fail closed"
+    )
+    assert "git config --system" not in content, (
+        "templates must not run `git config --system`"
+    )
+
+
 class TestSecurityMdGenerator:
     """Rendering contract for the SECURITY.md generator template."""
 
@@ -50,6 +72,10 @@ class TestSecurityMdGenerator:
         # never appear in the rendered prompt (it would otherwise reach the LLM).
         assert "x-access-token:${GH_TOKEN}" in content
         assert "ghp_fake_token_for_render_test" not in content
+
+        # Must never touch the operator's host ~/.gitconfig.
+        _assert_never_writes_host_git_config(content)
+        assert "git config --local user.name" in content
 
         # Must include the SECURITY.md target path instruction.
         assert "SECURITY.md" in content
@@ -105,6 +131,10 @@ class TestDependabotConfigGenerator:
         # Token value must never appear in the rendered prompt.
         assert "ghp_dependabot_token" not in content
         assert "x-access-token:${GH_TOKEN}" in content
+
+        # Must never touch the operator's host ~/.gitconfig.
+        _assert_never_writes_host_git_config(content)
+        assert "git config --local user.name" in content
 
         # Ecosystem detection instruction is the distinctive part of this template.
         for manifest in [
