@@ -41,8 +41,8 @@ class ContextDocument:
             "# Workspace context\n",
             ContextDocument.finding_section(finding),
             ContextDocument.knowledge_section(enrichment, ownership, exposure),
-            ContextDocument._evidence_section(evidence),
-            ContextDocument._plan_section(plan),
+            ContextDocument.evidence_section(evidence),
+            ContextDocument.plan_section(plan),
             ContextDocument._remediation_section(remediation),
             ContextDocument._validation_section(validation),
             ContextDocument._next_steps_section(
@@ -160,7 +160,7 @@ class ContextDocument:
         return "\n".join(lines)
 
     @staticmethod
-    def _evidence_section(evidence: dict[str, Any] | None) -> str:
+    def evidence_section(evidence: dict[str, Any] | None) -> str:
         if not evidence:
             return ""
 
@@ -202,7 +202,7 @@ class ContextDocument:
         return "\n".join(lines)
 
     @staticmethod
-    def _plan_section(plan: dict[str, Any] | None) -> str:
+    def plan_section(plan: dict[str, Any] | None) -> str:
         if not plan:
             return ""
 

@@ -43,11 +43,11 @@ def build_user_prompt(deps: WorkspaceDeps) -> str:
     if knowledge:
         sections.append(knowledge)
 
-    evidence = ContextDocument._evidence_section(deps.prior_context.get("evidence"))
+    evidence = ContextDocument.evidence_section(deps.prior_context.get("evidence"))
     if evidence:
         sections.append(evidence)
 
-    plan = ContextDocument._plan_section(deps.prior_context.get("plan"))
+    plan = ContextDocument.plan_section(deps.prior_context.get("plan"))
     if plan:
         sections.append(plan)
 

@@ -127,7 +127,7 @@ def suggest_next(
                 priority="recommended",
             )
 
-    # All 4 pipeline sections present — check remediation status.
+    # All pipeline sections present — check remediation status.
     remediation = context_snapshot.get("remediation", {})
     status = (remediation.get("status") or "").lower() if remediation else ""
 

@@ -9,7 +9,7 @@ Covers the three checkpoints called out in IMPL-0022 §Test plan:
   applies its corrections to a PA-produced output dict (asset_label /
   scanner-version backfill still happens).
 * ``test_run_no_tools_agent_unknown_agent_type`` — defense-in-depth
-  KeyError for an agent type that isn't registered.
+  ValueError for an agent type that isn't registered.
 
 The ``TestModel`` substitute is Pydantic AI's first-class testing
 seam — it never talks to a real LLM but produces a validated instance
@@ -120,7 +120,7 @@ async def test_run_no_tools_agent_unknown_agent_type(
     deps: WorkspaceDeps,
 ) -> None:
     """Unregistered agent types fail loud — never silently dispatch."""
-    with pytest.raises(KeyError):
+    with pytest.raises(ValueError, match="Unknown no-tools agent type"):
         await no_tools.run_no_tools_agent(
             "validation_orchestrator", deps, TestModel()
         )

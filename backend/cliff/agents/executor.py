@@ -1433,8 +1433,18 @@ class AgentExecutor:
             raise AgentProcessError(str(exc)) from exc
 
         last_rate_limit: ModelHTTPError | None = None
+        # Parse-retry budget for UnexpectedModelBehavior (weak/old models
+        # sometimes emit prose-only with no JSON shape; PA's own
+        # output_type retry only fires on schema-shaped-but-invalid
+        # responses, not on prose-only ones). One re-roll mirrors the
+        # OpenCode-era ``_RETRY_PROMPT`` corrective-retry that this PR
+        # otherwise drops.
+        parse_retries_used = 0
         for attempt in range(1, RATE_LIMIT_MAX_ATTEMPTS + 1):
             try:
+                # ``timeout`` is per-attempt: rate-limit backoff sleeps
+                # + retries mean total wall-clock can exceed it. Mirrors
+                # the OpenCode-era loop semantics.
                 structured_output = await asyncio.wait_for(
                     run_no_tools_agent(agent_type, deps, model),
                     timeout=timeout,
@@ -1450,22 +1460,30 @@ class AgentExecutor:
                     f"within {timeout:.0f}s."
                 ) from exc
             except ModelHTTPError as exc:
+                # Log + raise with ``exc.message`` (not ``str(exc)``) —
+                # Pydantic AI's exception ``__str__`` for HTTP / parse
+                # errors embeds the raw provider response body, which
+                # may echo prompt content (and therefore any credentials
+                # the agent was working with). The message field is
+                # bounded; the body stays on the exception's chained
+                # ``__cause__`` for debugging at DEBUG level.
+                exc_message = getattr(exc, "message", str(exc))
                 if exc.status_code != 429:
                     raise AgentProcessError(
-                        f"AI provider error ({exc.status_code}): {exc}"
+                        f"AI provider error ({exc.status_code}): {exc_message}"
                     ) from exc
                 last_rate_limit = exc
                 if attempt >= RATE_LIMIT_MAX_ATTEMPTS:
                     # Outer handler renders ``rate_limited`` status.
                     raise AgentRateLimitError(
-                        f"AI provider rate limit: {exc}"
+                        f"AI provider rate limit: {exc_message}"
                     ) from exc
                 delay = _rate_limit_backoff_delay(attempt)
                 logger.warning(
                     "Agent %s rate-limited on attempt %d/%d via PA; "
                     "sleeping %.1fs before retry: %s",
                     agent_type, attempt, RATE_LIMIT_MAX_ATTEMPTS,
-                    delay, exc,
+                    delay, exc_message,
                 )
                 await asyncio.sleep(delay)
             except UsageLimitExceeded as exc:
@@ -1476,12 +1494,33 @@ class AgentExecutor:
                     f"Pydantic AI usage limit exceeded: {exc}"
                 ) from exc
             except UnexpectedModelBehavior as exc:
-                # The model produced invalid structured output and PA's
-                # internal retries gave up. Surface verbatim so
-                # ``_humanize_process_error`` can still pattern-match.
-                raise AgentProcessError(
-                    f"AI model returned an unparseable response: {exc}"
-                ) from exc
+                # Re-roll once: PA raises this on prose-only / empty /
+                # thinking-only responses, where its own output_type
+                # retry doesn't fire. A re-roll at the same prompt
+                # often produces a well-formed response on the next
+                # sample (temperature noise). Second occurrence is
+                # terminal.
+                #
+                # We log + raise with ``exc.message`` (not ``str(exc)``):
+                # UnexpectedModelBehavior.__str__ returns
+                # ``f"{message}, body:\n{body}"`` when the body is set,
+                # and the body is the raw model response — which can
+                # echo prompt content including any credentials the
+                # agent was working with. The bounded message keeps the
+                # info useful without leaking secrets to log sinks.
+                exc_message = getattr(exc, "message", str(exc))
+                if parse_retries_used >= 1:
+                    raise AgentProcessError(
+                        f"AI model returned an unparseable response: "
+                        f"{exc_message}"
+                    ) from exc
+                parse_retries_used += 1
+                logger.warning(
+                    "Agent %s returned an unparseable response on attempt "
+                    "%d via PA; re-rolling once: %s",
+                    agent_type, attempt, exc_message,
+                )
+                # No sleep — this is a model re-roll, not rate-limit backoff.
             except UserError as exc:
                 # Configuration bug — agent registration / output_type
                 # / deps shape wrong. Surface deterministically.
