@@ -42,16 +42,22 @@ finishing the full workflow (clone → write → commit → push → PR) over po
 ### 1. Clone and set up
 
 ```bash
+# Authenticate the clone with a token-embedded URL built at runtime. We never
+# write global- or system-scoped git config — those always hit the host
+# ~/.gitconfig and cannot fail closed. The credential stays in this run's env
+# and the throwaway repo/.git/config only.
+REPO_URL="{{ repo_url }}"
 {% if gh_token %}
-# GH_TOKEN is already set in this workspace's environment — do NOT re-assign it.
-git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+CLONE_URL="https://x-access-token:${GH_TOKEN}@${REPO_URL#https://}"
+{% else %}
+CLONE_URL="$REPO_URL"
 {% endif %}
-# Identity for the commit — containers start without one. Run this once
-# before the clone so every subsequent `git commit` has a valid author.
-git config --global user.email "cliff-bot@users.noreply.github.com"
-git config --global user.name "Cliff Posture Bot"
-git clone --depth 50 "{{ repo_url }}" repo/
+git clone --depth 50 "$CLONE_URL" repo/
 cd repo/
+# Commit identity — repo-local only. `git config --local` writes repo/.git/config
+# and errors out if we're not inside a repo; it can never reach ~/.gitconfig.
+git config --local user.email "cliff-bot@users.noreply.github.com"
+git config --local user.name "Cliff Posture Bot"
 git checkout -b cliff/posture/security-md
 ```
 
