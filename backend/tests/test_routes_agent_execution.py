@@ -21,7 +21,7 @@ from cliff.agents.output_parser import ParseResult
 from cliff.api.routes.agent_execution import router
 from cliff.db.connection import get_db
 from cliff.integrations.github_app.client import RepoPushAccess
-from cliff.models import Workspace
+from cliff.models import AgentRun, Workspace
 
 # ---------------------------------------------------------------------------
 # App fixture with mock DB dependency
@@ -701,95 +701,118 @@ class TestParseOwnerRepoFromUrl:
 
 
 # ---------------------------------------------------------------------------
-# Permission approval endpoint — wires user click → executor.approve_tool /
-# deny_tool. Trust-critical: if approve/deny don't reach the parked
-# ``_PendingApproval``, the agent stalls forever.
+# Permission approval endpoint (ADR-0047 PR #2) — user click → background
+# ``executor.resume_executor`` carrying the approve/deny decision. The run
+# is parked on a durable DeferredToolRequests marker; resume continues it.
 # ---------------------------------------------------------------------------
+
+
+def _permission_route_patches(*, pending: bool):
+    """Patch the route's get_agent_run / get_workspace / env-resolver.
+
+    ``pending`` controls whether the agent_run reports a pending permission
+    request (the 404 gate keys off it).
+    """
+    from types import SimpleNamespace
+
+    run = AgentRun(
+        id="run-1",
+        workspace_id="ws-1",
+        agent_type="remediation_executor",
+        status="running",
+        permission_pending=pending,
+        permission_request={"tool": "bash", "patterns": ["rm -rf x"]}
+        if pending
+        else None,
+    )
+    workspace = SimpleNamespace(workspace_dir="/tmp/ws")
+    return (
+        patch(
+            "cliff.api.routes.agent_execution.get_agent_run",
+            AsyncMock(return_value=run),
+        ),
+        patch(
+            "cliff.api.routes.agent_execution.get_workspace",
+            AsyncMock(return_value=workspace),
+        ),
+        patch(
+            "cliff.api.routes.agent_execution._resolve_repo_env_vars",
+            AsyncMock(return_value={}),
+        ),
+    )
 
 
 class TestPermissionEndpoint:
     @pytest.mark.asyncio
-    async def test_approve_calls_executor_approve_tool(self, app, client):
+    async def test_approve_resumes_executor(self, app, client):
         executor = app.state.agent_executor
-        executor.approve_tool = lambda run_id: True
+        calls: list[tuple[str, bool]] = []
 
-        resp = await client.post(
-            "/api/workspaces/ws-1/agent-runs/run-1/permission",
-            json={"approved": True},
-        )
+        async def _resume(db, ws, rid, *, approved, workspace_dir,
+                          deny_message=None, env_vars=None):
+            calls.append((rid, approved))
 
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["status"] == "approved"
-        assert body["agent_run_id"] == "run-1"
+        executor.resume_executor = _resume
+        ps = _permission_route_patches(pending=True)
+        for p in ps:
+            p.start()
+        try:
+            resp = await client.post(
+                "/api/workspaces/ws-1/agent-runs/run-1/permission",
+                json={"approved": True},
+            )
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["status"] == "approved"
+            assert body["agent_run_id"] == "run-1"
+            # Background resume is scheduled; let it run a tick.
+            await asyncio.sleep(0.02)
+            assert calls == [("run-1", True)]
+        finally:
+            for p in ps:
+                p.stop()
 
     @pytest.mark.asyncio
-    async def test_deny_calls_executor_deny_tool(self, app, client):
+    async def test_deny_resumes_executor_with_denied(self, app, client):
         executor = app.state.agent_executor
-        executor.deny_tool = lambda run_id: True
+        calls: list[tuple[str, bool]] = []
 
-        resp = await client.post(
-            "/api/workspaces/ws-1/agent-runs/run-1/permission",
-            json={"approved": False},
-        )
+        async def _resume(db, ws, rid, *, approved, workspace_dir,
+                          deny_message=None, env_vars=None):
+            calls.append((rid, approved))
 
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["status"] == "denied"
-        assert body["agent_run_id"] == "run-1"
+        executor.resume_executor = _resume
+        ps = _permission_route_patches(pending=True)
+        for p in ps:
+            p.start()
+        try:
+            resp = await client.post(
+                "/api/workspaces/ws-1/agent-runs/run-1/permission",
+                json={"approved": False},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["status"] == "denied"
+            await asyncio.sleep(0.02)
+            assert calls == [("run-1", False)]
+        finally:
+            for p in ps:
+                p.stop()
 
     @pytest.mark.asyncio
     async def test_no_pending_returns_404(self, app, client):
-        executor = app.state.agent_executor
-        executor.approve_tool = lambda run_id: False
-        executor.deny_tool = lambda run_id: False
-
-        resp = await client.post(
-            "/api/workspaces/ws-1/agent-runs/gone/permission",
-            json={"approved": True},
-        )
-
-        assert resp.status_code == 404
-        assert "No pending permission request" in resp.json()["detail"]
-
-    @pytest.mark.asyncio
-    async def test_approve_routed_to_approve_not_deny(self, app, client):
-        """Trust guard — make sure ``approved=true`` doesn't accidentally
-        wire to deny_tool. Regression catcher for the conditional in
-        ``respond_to_permission``."""
-        approve_calls = []
-        deny_calls = []
-
-        executor = app.state.agent_executor
-        executor.approve_tool = lambda run_id: approve_calls.append(run_id) or True
-        executor.deny_tool = lambda run_id: deny_calls.append(run_id) or True
-
-        resp = await client.post(
-            "/api/workspaces/ws-1/agent-runs/run-77/permission",
-            json={"approved": True},
-        )
-
-        assert resp.status_code == 200
-        assert approve_calls == ["run-77"]
-        assert deny_calls == []
-
-    @pytest.mark.asyncio
-    async def test_deny_routed_to_deny_not_approve(self, app, client):
-        approve_calls = []
-        deny_calls = []
-
-        executor = app.state.agent_executor
-        executor.approve_tool = lambda run_id: approve_calls.append(run_id) or True
-        executor.deny_tool = lambda run_id: deny_calls.append(run_id) or True
-
-        resp = await client.post(
-            "/api/workspaces/ws-1/agent-runs/run-88/permission",
-            json={"approved": False},
-        )
-
-        assert resp.status_code == 200
-        assert deny_calls == ["run-88"]
-        assert approve_calls == []
+        ps = _permission_route_patches(pending=False)
+        for p in ps:
+            p.start()
+        try:
+            resp = await client.post(
+                "/api/workspaces/ws-1/agent-runs/gone/permission",
+                json={"approved": True},
+            )
+            assert resp.status_code == 404
+            assert "No pending permission request" in resp.json()["detail"]
+        finally:
+            for p in ps:
+                p.stop()
 
 
 # ---------------------------------------------------------------------------

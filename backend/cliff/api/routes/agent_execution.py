@@ -511,6 +511,7 @@ async def cancel_agent_run(
 
 class PermissionDecision(BaseModel):
     approved: bool
+    deny_message: str | None = None
 
 
 @router.post(
@@ -522,21 +523,49 @@ async def respond_to_permission(
     run_id: str,
     body: PermissionDecision,
     request: Request,
+    db=Depends(get_db),
 ):
-    """Approve or deny a pending tool-use permission request."""
+    """Approve or deny a paused executor tool call, resuming the run.
+
+    ADR-0047 / PR #2 — the remediation_executor pauses on a gated tool by
+    persisting a ``DeferredToolRequests`` marker (``agent_run.permission_
+    request`` + ``pa_message_history``). This endpoint resumes the run via
+    ``executor.resume_executor`` with the user's decision. Resume actually
+    re-runs the agent (it can take minutes), so it runs as a background
+    task and returns immediately — the frontend polls ``agent-runs`` for
+    the outcome (no SSE).
+    """
     executor = request.app.state.agent_executor
 
-    resolved = (
-        executor.approve_tool(run_id)
-        if body.approved
-        else executor.deny_tool(run_id)
-    )
-
-    if not resolved:
+    run = await get_agent_run(db, run_id)
+    if run is None or not run.permission_pending:
         raise HTTPException(
             status_code=404,
             detail="No pending permission request for this agent run",
         )
+    workspace = await get_workspace(db, workspace_id)
+    if workspace is None or not workspace.workspace_dir:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    env_vars = await _resolve_repo_env_vars(request, db, workspace=workspace)
+
+    async def _resume_in_background() -> None:
+        try:
+            await executor.resume_executor(
+                db,
+                workspace_id,
+                run_id,
+                approved=body.approved,
+                workspace_dir=workspace.workspace_dir,
+                deny_message=body.deny_message,
+                env_vars=env_vars,
+            )
+        except Exception:
+            logger.exception(
+                "Resume after permission decision failed for run %s", run_id
+            )
+
+    asyncio.create_task(_resume_in_background())
 
     return {
         "status": "approved" if body.approved else "denied",

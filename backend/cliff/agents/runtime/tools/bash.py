@@ -54,7 +54,9 @@ async def bash(ctx: RunContext[WorkspaceDeps], command: str) -> str:
         ctx,
         tool="bash",
         patterns=[command],
-        metadata={"tool": "bash", "command": command},
+        # ``patterns`` mirrors what the frontend approval prompt renders;
+        # ``command`` is the human-readable form for richer display.
+        metadata={"tool": "bash", "patterns": [command], "command": command},
     )
 
     def _run() -> subprocess.CompletedProcess[str]:

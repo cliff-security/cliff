@@ -112,6 +112,11 @@ async def _seed_workspace(db) -> tuple[str, str, Path]:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skip(
+    reason="OpenCode in-process approve flow (grant_permission + asyncio.Event) "
+    "removed in PR2.E; the durable DeferredToolRequests park→resume cycle is "
+    "covered by tests/agents/test_deferred_tools_persist.py."
+)
 @pytest.mark.asyncio
 async def test_approve_persists_marker_then_clears_and_resumes_agent(
     db,
@@ -195,6 +200,11 @@ async def test_approve_persists_marker_then_clears_and_resumes_agent(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(
+    reason="OpenCode in-process deny flow (grant_permission + asyncio.Event) "
+    "removed in PR2.E; the DeferredToolRequests deny path is covered by "
+    "tests/agents/test_deferred_tools_persist.py."
+)
 async def test_deny_persists_then_clears_and_denies_to_engine(db) -> None:
     finding_id, workspace_id, workspace_dir = await _seed_workspace(db)
 

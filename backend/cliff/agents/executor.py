@@ -24,6 +24,13 @@ from pydantic_ai.exceptions import (
     UsageLimitExceeded,
     UserError,
 )
+from pydantic_ai.messages import ModelMessagesTypeAdapter
+from pydantic_ai.tools import (
+    DeferredToolRequests,
+    DeferredToolResults,
+    ToolApproved,
+    ToolDenied,
+)
 
 from cliff.agents.errors import (
     AgentBusyError,
@@ -31,7 +38,8 @@ from cliff.agents.errors import (
     AgentRateLimitError,
     AgentTimeoutError,
 )
-from cliff.agents.output_parser import ParseResult, parse_agent_response
+from cliff.agents.output_parser import ParseResult
+from cliff.agents.runtime._prompts import build_user_prompt
 from cliff.agents.runtime.deps import WorkspaceDeps
 from cliff.agents.runtime.no_tools import (
     NO_TOOLS_AGENT_TYPES,
@@ -42,16 +50,21 @@ from cliff.agents.runtime.provider import (
     ProviderConfigurationError,
     build_model,
 )
+from cliff.agents.runtime.remediation_executor import (
+    build_agent as build_executor_agent,
+)
+from cliff.agents.runtime.tools.mcp import build_mcp_toolsets
 from cliff.agents.sidebar_mapper import map_and_upsert
-from cliff.agents.template_engine import AgentTemplateEngine
 from cliff.db.repo_agent_run import (
     create_agent_run,
+    get_agent_run,
+    get_pa_message_history,
     list_agent_runs,
     update_agent_run,
 )
 from cliff.db.repo_finding import get_finding, update_finding
 from cliff.db.repo_workspace import get_workspace
-from cliff.models import AgentRunCreate, AgentRunUpdate, FindingUpdate
+from cliff.models import AgentRun, AgentRunCreate, AgentRunUpdate, FindingUpdate
 from cliff.services.evidence_guard import guard_evidence_output
 from cliff.services.pr_verifier import verify_pr_url
 from cliff.services.reference_verifier import clean_references
@@ -62,6 +75,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     import aiosqlite
+    from pydantic_ai.models import Model
 
     from cliff.engine.pool import WorkspaceProcessPool
     from cliff.workspace.context_builder import WorkspaceContextBuilder
@@ -643,12 +657,58 @@ class AgentExecutionResult:
     # EF-B17 — ``rate_limited`` joins ``failed`` as a non-success terminal
     # state. Callers that key off ``status == 'failed'`` should also treat
     # ``rate_limited`` as terminal-non-success; see ``pipeline.run_pipeline``.
-    status: Literal["completed", "failed", "rate_limited"]
+    #
+    # ``awaiting_permission`` (ADR-0047 / IMPL-0022 PR #2) is a NON-terminal
+    # pause: the remediation_executor called a gated tool and the run is
+    # parked on a DeferredToolRequests marker until the user approves/denies
+    # via POST .../permission, which resumes it. ``run_pipeline`` stops on
+    # it (can't proceed past a pending approval) but it is NOT a failure.
+    status: Literal["completed", "failed", "rate_limited", "awaiting_permission"]
     parse_result: ParseResult
     sidebar_updated: bool = False
     context_version: int | None = None
     error: str | None = None
     duration_seconds: float = 0.0
+
+
+@dataclass
+class _PaExecutorOutcome:
+    """Result of one ``_run_pa_executor`` call — either the run completed
+    (``parse_result`` set) or it paused on a gated tool
+    (``permission_request`` + ``message_history_json`` set for resume)."""
+
+    parse_result: ParseResult | None
+    permission_request: dict[str, Any] | None
+    message_history_json: str | None
+
+
+def _build_permission_marker(reqs: DeferredToolRequests) -> dict[str, Any]:
+    """Shape a ``DeferredToolRequests`` into the ``permission_request`` marker
+    the frontend renders (``tool`` + ``patterns``) plus the ``tool_call_ids``
+    the resume path needs to resolve each pending approval."""
+    approvals = reqs.approvals
+    tool_call_ids = [p.tool_call_id for p in approvals]
+    primary = approvals[0]
+    meta = reqs.metadata.get(primary.tool_call_id, {}) if reqs.metadata else {}
+    return {
+        "tool": meta.get("tool", primary.tool_name),
+        "patterns": meta.get("patterns") or [],
+        "tool_call_ids": tool_call_ids,
+    }
+
+
+def _summarize_executor(output: dict[str, Any]) -> str:
+    """One-line summary for a remediation_executor run (the ``no_tools``
+    ``derive_summary`` table covers only the six no-tools agents)."""
+    status = output.get("status")
+    pr_url = output.get("pr_url")
+    if status == "pr_created" and pr_url:
+        return f"Opened draft PR: {pr_url}"
+    if status == "needs_approval":
+        return "Paused — remediation needs approval."
+    if status == "failed":
+        return output.get("error_details") or "Remediation failed."
+    return output.get("changes_summary") or "Changes applied."
 
 
 class AgentExecutor:
@@ -907,103 +967,33 @@ class AgentExecutor:
             )
 
             if agent_type in _TOOL_AGENT_TYPES:
-                # ============ OpenCode tool-agent path =================
-                # PR #2 (IMPL-0022) migrates this onto Pydantic AI tools
-                # and DeferredToolRequests; PR #1 leaves it untouched.
-                try:
-                    client = await self._pool.get_or_start(
-                        workspace_id, Path(workspace_dir), env_vars=env_vars
-                    )
-                except (RuntimeError, TimeoutError) as exc:
-                    raise AgentProcessError(str(exc)) from exc
-
-                session = await client.create_session()
-
-                engine = AgentTemplateEngine()
-                # Pass repo_url and gh_token directly into the template
-                # so the agent doesn't rely on shell env var expansion.
-                extra_vars: dict[str, Any] = {}
-                if env_vars:
-                    if env_vars.get("CLIFF_REPO_URL"):
-                        extra_vars["repo_url"] = env_vars["CLIFF_REPO_URL"]
-                    if env_vars.get("GH_TOKEN"):
-                        extra_vars["gh_token"] = env_vars["GH_TOKEN"]
-                if user_note and agent_type == "remediation_planner":
-                    extra_vars["user_note"] = user_note
-                rendered = engine.render_agent(
-                    agent_type,
-                    finding=finding_data,
-                    enrichment=prior_ctx.get("enrichment"),
-                    ownership=prior_ctx.get("ownership"),
-                    exposure=prior_ctx.get("exposure"),
-                    evidence=prior_ctx.get("evidence"),
-                    plan=prior_ctx.get("plan"),
-                    remediation=prior_ctx.get("remediation"),
-                    validation=prior_ctx.get("validation"),
-                    **extra_vars,
+                # ========= Pydantic AI tool-agent path (ADR-0047) =========
+                # The remediation_executor runs in-process with the five
+                # tool functions (bash/edit/read/webfetch/gh). When it calls
+                # a gated tool (rm -rf, edit outside the workspace, …) the
+                # tool raises ApprovalRequired and the run returns a
+                # DeferredToolRequests output — we park the marker + message
+                # history on the agent_run row and stop; the user resumes it
+                # via POST .../permission. (The old OpenCode subprocess path
+                # is deleted in PR2.E; its now-orphaned plumbing —
+                # _send_and_collect, the permission queue — goes with it.)
+                outcome = await self._run_pa_executor(
+                    WorkspaceDeps(
+                        workspace_id=workspace_id,
+                        workspace_dir=workspace_dir,
+                        finding=finding_data,
+                        prior_context=prior_ctx,
+                        env_vars=env_vars or {},
+                        user_note=None,
+                    ),
+                    effective_timeout,
+                    db=db,
                 )
-                prompt = rendered.content
-
-                # EF-B17 — provider rate-limit retry with exponential
-                # backoff. Each attempt uses a fresh OpenCode session
-                # because the previous one already consumed the prompt
-                # that triggered the throttle. ``session`` is reassigned
-                # so downstream code (parse-failure retry below) keeps
-                # targeting the session that produced the eventually-
-                # successful response.
-                response_text = ""
-                for attempt in range(1, RATE_LIMIT_MAX_ATTEMPTS + 1):
-                    try:
-                        response_text = await self._send_and_collect(
-                            client, session.id, prompt,
-                            timeout=effective_timeout, on_progress=on_progress,
-                            on_permission=on_permission,
-                            agent_run_id=agent_run.id,
-                            agent_type=agent_type,
-                            db=db,
-                        )
-                        break
-                    except AgentRateLimitError as exc:
-                        if attempt >= RATE_LIMIT_MAX_ATTEMPTS:
-                            raise
-                        delay = _rate_limit_backoff_delay(attempt)
-                        logger.warning(
-                            "Agent %s rate-limited on attempt %d/%d; "
-                            "sleeping %.1fs before retry: %s",
-                            agent_type, attempt, RATE_LIMIT_MAX_ATTEMPTS,
-                            delay, exc,
-                        )
-                        await asyncio.sleep(delay)
-                        with contextlib.suppress(httpx.HTTPError, AttributeError):
-                            await client.delete_session(session.id)
-                        session = await client.create_session()
-
-                parse_result = parse_agent_response(
-                    response_text, agent_type=agent_type
-                )
-
-                # Retry once if parse failed — send a corrective follow-up
-                # on the same session so the LLM sees its own bad output.
-                if not parse_result.success and response_text.strip():
-                    logger.info(
-                        "Agent %s parse failed (error=%s), retrying with corrective prompt",
-                        agent_type,
-                        parse_result.error,
+                if outcome.permission_request is not None:
+                    return await self._park_for_permission(
+                        db, workspace_id, agent_run, outcome, start_time
                     )
-                    retry_text = await self._send_and_collect(
-                        client, session.id, _RETRY_PROMPT,
-                        timeout=effective_timeout, on_progress=on_progress,
-                        on_permission=on_permission,
-                        agent_run_id=agent_run.id,
-                        agent_type=agent_type,
-                        send_delay=0.0,
-                        db=db,
-                    )
-                    retry_result = parse_agent_response(
-                        retry_text, agent_type=agent_type
-                    )
-                    if retry_result.success:
-                        parse_result = retry_result
+                parse_result = outcome.parse_result
             else:
                 # ============ Pydantic AI no-tools path ================
                 # ADR-0047 / IMPL-0022 PR #1 — six no-tools agents run
@@ -1034,204 +1024,20 @@ class AgentExecutor:
                     effective_timeout,
                 )
 
-            # 7b-ref. Reference verification (Q01-B08). The finding_enricher
-            # emits ``references`` as free-text and weaker models fabricate
-            # specific identifiers — GHSA IDs that 404, commit URLs with
-            # garbled SHAs — which then ship into the evidence sidebar with
-            # the same authority as a real NVD link. Drop the ones we can
-            # structurally disprove or that the host 404s. Best-effort: a
-            # verifier failure must never fail the run.
-            if (
-                parse_result.success
-                and agent_type == "finding_enricher"
-                and parse_result.structured_output
-            ):
-                try:
-                    ref_check = await clean_references(
-                        parse_result.structured_output.get("references")
-                    )
-                    if ref_check.dropped:
-                        logger.warning(
-                            "finding_enricher references dropped "
-                            "(workspace=%s run=%s): %s",
-                            workspace_id,
-                            agent_run.id,
-                            ref_check.dropped,
-                        )
-                        parse_result.structured_output["references"] = (
-                            ref_check.kept
-                        )
-                except (httpx.HTTPError, ValueError, TypeError):
-                    # Networking, bad URLs, or upstream shape surprises —
-                    # log but never fail the run on reference verification.
-                    logger.warning(
-                        "Reference verification raised for workspace %s",
-                        workspace_id,
-                        exc_info=True,
-                    )
-
-            # 7b-ev. Evidence guards (Q01-B11, B13). The evidence_collector
-            # classifies fix safety and reports the current version as
-            # free-text — both drift under model/concurrency variance. For a
-            # dependency finding Cliff already knows the authoritative
-            # versions from the scanner, so reconcile the agent's output
-            # against them (a major-version jump is never a ``safe_bump``;
-            # ``current_version`` is backfilled). Best-effort.
-            if (
-                parse_result.success
-                and agent_type == "evidence_collector"
-                and parse_result.structured_output
-            ):
-                try:
-                    corrections = guard_evidence_output(
-                        parse_result.structured_output, finding_data
-                    )
-                    if corrections:
-                        logger.info(
-                            "evidence_collector output corrected "
-                            "(workspace=%s run=%s): %s",
-                            workspace_id,
-                            agent_run.id,
-                            corrections,
-                        )
-                except (ValueError, TypeError, KeyError):
-                    # Evidence guard is pure data manipulation; the only
-                    # realistic raise surface is malformed structured
-                    # output. Log but never fail the run on it.
-                    logger.warning(
-                        "Evidence guard raised for workspace %s",
-                        workspace_id,
-                        exc_info=True,
-                    )
-
-            # 7c. PR URL verification (B16). The remediation_executor is the
-            # only agent that claims to have opened a PR. If the emitted
-            # ``pr_url`` can't be fetched from GitHub we flip the parse
-            # result to a failure BEFORE anything is persisted — otherwise
-            # we'd advance the finding to ``remediated`` with a hallucinated
-            # URL and the user would later click a dead link.
-            verification_error: str | None = None
-            if (
-                parse_result.success
-                and agent_type == "remediation_executor"
-                and (parse_result.structured_output or {}).get("status")
-                == "pr_created"
-            ):
-                gh_token = (env_vars or {}).get("GH_TOKEN") or (
-                    env_vars or {}
-                ).get("GITHUB_TOKEN")
-                claimed = (parse_result.structured_output or {}).get("pr_url")
-                verification = await verify_pr_url(claimed, token=gh_token)
-                if not verification.ok:
-                    verification_error = (
-                        "PR verification failed: "
-                        f"{verification.reason}. Agent claimed "
-                        f"pr_url={claimed!r}."
-                    )
-                    logger.warning(
-                        "remediation_executor emitted unverifiable pr_url "
-                        "(workspace=%s run=%s): %s",
-                        workspace_id,
-                        agent_run.id,
-                        verification_error,
-                    )
-                    # Strip the false claim so downstream persistence doesn't
-                    # store a dead link in the sidebar.
-                    cleaned = dict(parse_result.structured_output or {})
-                    cleaned["status"] = "failed"
-                    cleaned["pr_url"] = None
-                    cleaned["error_details"] = verification_error
-                    parse_result = ParseResult(
-                        success=False,
-                        raw_text=parse_result.raw_text,
-                        error=verification_error,
-                        structured_output=cleaned,
-                        summary=parse_result.summary,
-                        confidence=parse_result.confidence,
-                        suggested_next_action=parse_result.suggested_next_action,
-                    )
-
-            # 8. Persist results
-            sidebar_updated = False
-            context_version = None
-
-            if parse_result.success and parse_result.structured_output:
-                # 8a. Update context files + re-render templates
-                context_version = await self._context_builder.update_context(
-                    db,
-                    workspace_id,
-                    agent_type,
-                    parse_result.structured_output,
-                    summary=parse_result.summary,
-                )
-
-                # 8b. Update sidebar state (read-merge-write)
-                await map_and_upsert(
-                    db,
-                    workspace_id,
-                    agent_type,
-                    parse_result.structured_output,
-                )
-                sidebar_updated = True
-
-                # 8c. Auto-advance finding status (forward-only)
-                await _advance_finding_status(
-                    db,
-                    workspace_id,
-                    agent_type,
-                    parse_result.structured_output,
-                )
-
-            # 9. Update AgentRun in DB
-            duration = time.monotonic() - start_time
-            # An agent run is only "completed" when parse succeeded AND
-            # the PR (if any) verified. Without parse_result.success the
-            # sidebar/context were never written (block 8a-c was skipped),
-            # so rendering the row green would mis-signal a silent failure
-            # — caught by the architect review of EF-B17 (more rate-limit
-            # retries → more parse-failure-after-retry paths).
-            parse_failed = not parse_result.success
-            run_status: Literal["completed", "failed"] = (
-                "failed"
-                if verification_error or parse_failed
-                else "completed"
-            )
-            failure_message = (
-                verification_error
-                or (parse_result.error if parse_failed else None)
-            )
-            await update_agent_run(
+            # 7-9. Post-parse safeguards + persistence + run finalization.
+            # Extracted into ``_finalize_run`` so the DeferredToolRequests
+            # resume path (PR2.C) reaches the identical logic — one source
+            # of truth for "how an agent result is verified, persisted, and
+            # turned into an AgentExecutionResult".
+            return await self._finalize_run(
                 db,
-                agent_run.id,
-                AgentRunUpdate(
-                    status=run_status,
-                    summary_markdown=(
-                        failure_message
-                        if failure_message
-                        else parse_result.summary
-                    ),
-                    confidence=parse_result.confidence,
-                    structured_output=parse_result.structured_output,
-                    next_action_hint=parse_result.suggested_next_action,
-                    last_error=failure_message,
-                ),
-            )
-
-            self._cleanup_workspace_state(
-                workspace_id,
-                agent_run.id,
+                workspace_id=workspace_id,
                 agent_type=agent_type,
-                status=run_status,
-            )
-            return AgentExecutionResult(
-                agent_run_id=agent_run.id,
-                agent_type=agent_type,
-                status=run_status,
                 parse_result=parse_result,
-                sidebar_updated=sidebar_updated,
-                context_version=context_version,
-                duration_seconds=duration,
-                error=verification_error,
+                finding_data=finding_data,
+                env_vars=env_vars,
+                agent_run=agent_run,
+                start_time=start_time,
             )
 
         except AgentTimeoutError:
@@ -1366,6 +1172,225 @@ class AgentExecutor:
                 duration_seconds=duration,
             )
 
+    async def _finalize_run(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        workspace_id: str,
+        agent_type: str,
+        parse_result: ParseResult,
+        finding_data: dict[str, Any],
+        env_vars: dict[str, str] | None,
+        agent_run: AgentRun,
+        start_time: float,
+    ) -> AgentExecutionResult:
+        """Run post-parse safeguards, persist, and build the result.
+
+        Shared by ``execute`` (initial completion) and the
+        DeferredToolRequests resume path so both apply the identical
+        reference/evidence/PR safeguards, context+sidebar+status
+        persistence, and agent_run finalization.
+        """
+        # 7b-ref. Reference verification (Q01-B08). The finding_enricher
+        # emits ``references`` as free-text and weaker models fabricate
+        # specific identifiers — GHSA IDs that 404, commit URLs with
+        # garbled SHAs — which then ship into the evidence sidebar with
+        # the same authority as a real NVD link. Drop the ones we can
+        # structurally disprove or that the host 404s. Best-effort: a
+        # verifier failure must never fail the run.
+        if (
+            parse_result.success
+            and agent_type == "finding_enricher"
+            and parse_result.structured_output
+        ):
+            try:
+                ref_check = await clean_references(
+                    parse_result.structured_output.get("references")
+                )
+                if ref_check.dropped:
+                    logger.warning(
+                        "finding_enricher references dropped "
+                        "(workspace=%s run=%s): %s",
+                        workspace_id,
+                        agent_run.id,
+                        ref_check.dropped,
+                    )
+                    parse_result.structured_output["references"] = (
+                        ref_check.kept
+                    )
+            except (httpx.HTTPError, ValueError, TypeError):
+                # Networking, bad URLs, or upstream shape surprises —
+                # log but never fail the run on reference verification.
+                logger.warning(
+                    "Reference verification raised for workspace %s",
+                    workspace_id,
+                    exc_info=True,
+                )
+
+        # 7b-ev. Evidence guards (Q01-B11, B13). The evidence_collector
+        # classifies fix safety and reports the current version as
+        # free-text — both drift under model/concurrency variance. For a
+        # dependency finding Cliff already knows the authoritative
+        # versions from the scanner, so reconcile the agent's output
+        # against them (a major-version jump is never a ``safe_bump``;
+        # ``current_version`` is backfilled). Best-effort.
+        if (
+            parse_result.success
+            and agent_type == "evidence_collector"
+            and parse_result.structured_output
+        ):
+            try:
+                corrections = guard_evidence_output(
+                    parse_result.structured_output, finding_data
+                )
+                if corrections:
+                    logger.info(
+                        "evidence_collector output corrected "
+                        "(workspace=%s run=%s): %s",
+                        workspace_id,
+                        agent_run.id,
+                        corrections,
+                    )
+            except (ValueError, TypeError, KeyError):
+                # Evidence guard is pure data manipulation; the only
+                # realistic raise surface is malformed structured
+                # output. Log but never fail the run on it.
+                logger.warning(
+                    "Evidence guard raised for workspace %s",
+                    workspace_id,
+                    exc_info=True,
+                )
+
+        # 7c. PR URL verification (B16). The remediation_executor is the
+        # only agent that claims to have opened a PR. If the emitted
+        # ``pr_url`` can't be fetched from GitHub we flip the parse
+        # result to a failure BEFORE anything is persisted — otherwise
+        # we'd advance the finding to ``remediated`` with a hallucinated
+        # URL and the user would later click a dead link.
+        verification_error: str | None = None
+        if (
+            parse_result.success
+            and agent_type == "remediation_executor"
+            and (parse_result.structured_output or {}).get("status")
+            == "pr_created"
+        ):
+            gh_token = (env_vars or {}).get("GH_TOKEN") or (
+                env_vars or {}
+            ).get("GITHUB_TOKEN")
+            claimed = (parse_result.structured_output or {}).get("pr_url")
+            verification = await verify_pr_url(claimed, token=gh_token)
+            if not verification.ok:
+                verification_error = (
+                    "PR verification failed: "
+                    f"{verification.reason}. Agent claimed "
+                    f"pr_url={claimed!r}."
+                )
+                logger.warning(
+                    "remediation_executor emitted unverifiable pr_url "
+                    "(workspace=%s run=%s): %s",
+                    workspace_id,
+                    agent_run.id,
+                    verification_error,
+                )
+                # Strip the false claim so downstream persistence doesn't
+                # store a dead link in the sidebar.
+                cleaned = dict(parse_result.structured_output or {})
+                cleaned["status"] = "failed"
+                cleaned["pr_url"] = None
+                cleaned["error_details"] = verification_error
+                parse_result = ParseResult(
+                    success=False,
+                    raw_text=parse_result.raw_text,
+                    error=verification_error,
+                    structured_output=cleaned,
+                    summary=parse_result.summary,
+                    confidence=parse_result.confidence,
+                    suggested_next_action=parse_result.suggested_next_action,
+                )
+
+        # 8. Persist results
+        sidebar_updated = False
+        context_version = None
+
+        if parse_result.success and parse_result.structured_output:
+            # 8a. Update context files + re-render templates
+            context_version = await self._context_builder.update_context(
+                db,
+                workspace_id,
+                agent_type,
+                parse_result.structured_output,
+                summary=parse_result.summary,
+            )
+
+            # 8b. Update sidebar state (read-merge-write)
+            await map_and_upsert(
+                db,
+                workspace_id,
+                agent_type,
+                parse_result.structured_output,
+            )
+            sidebar_updated = True
+
+            # 8c. Auto-advance finding status (forward-only)
+            await _advance_finding_status(
+                db,
+                workspace_id,
+                agent_type,
+                parse_result.structured_output,
+            )
+
+        # 9. Update AgentRun in DB
+        duration = time.monotonic() - start_time
+        # An agent run is only "completed" when parse succeeded AND
+        # the PR (if any) verified. Without parse_result.success the
+        # sidebar/context were never written (block 8a-c was skipped),
+        # so rendering the row green would mis-signal a silent failure
+        # — caught by the architect review of EF-B17 (more rate-limit
+        # retries → more parse-failure-after-retry paths).
+        parse_failed = not parse_result.success
+        run_status: Literal["completed", "failed"] = (
+            "failed"
+            if verification_error or parse_failed
+            else "completed"
+        )
+        failure_message = (
+            verification_error
+            or (parse_result.error if parse_failed else None)
+        )
+        await update_agent_run(
+            db,
+            agent_run.id,
+            AgentRunUpdate(
+                status=run_status,
+                summary_markdown=(
+                    failure_message
+                    if failure_message
+                    else parse_result.summary
+                ),
+                confidence=parse_result.confidence,
+                structured_output=parse_result.structured_output,
+                next_action_hint=parse_result.suggested_next_action,
+                last_error=failure_message,
+            ),
+        )
+
+        self._cleanup_workspace_state(
+            workspace_id,
+            agent_run.id,
+            agent_type=agent_type,
+            status=run_status,
+        )
+        return AgentExecutionResult(
+            agent_run_id=agent_run.id,
+            agent_type=agent_type,
+            status=run_status,
+            parse_result=parse_result,
+            sidebar_updated=sidebar_updated,
+            context_version=context_version,
+            duration_seconds=duration,
+            error=verification_error,
+        )
+
     async def _run_pa_no_tools(
         self,
         agent_type: str,
@@ -1398,20 +1423,39 @@ class AgentExecutor:
                 f"Pydantic AI no-tools path."
             )
 
+        model = await self._resolve_active_model()
+        structured_output = await self._run_pa_call(
+            lambda: run_no_tools_agent(agent_type, deps, model),
+            agent_type=agent_type,
+            timeout=timeout,
+        )
+        summary = derive_summary(agent_type, structured_output)
+        return ParseResult(
+            success=True,
+            raw_text="",
+            structured_output=structured_output,
+            summary=summary,
+            confidence=None,
+            suggested_next_action=None,
+            error=None,
+        )
+
+    async def _resolve_active_model(self) -> Model:
+        """Resolve the active provider env + model id and build a PA Model.
+
+        Shared by the no-tools and executor PA paths. The resolvers wired
+        in ``main.py`` are pure ``app.state`` reads and won't raise in
+        practice, but the constructor accepts any awaitable — so a future
+        hook that does I/O (DB roundtrip, vault decrypt) could raise here.
+        Translate every failure into ``AgentProcessError`` so the outer
+        ``except`` handler renders a clean ``status=failed`` row.
+        """
         if self._ai_env_resolver is None or self._ai_model_resolver is None:
             raise AgentProcessError(
                 "AI integration resolvers not wired into the executor. "
                 "This is a configuration error — Cliff cannot run an "
                 "agent without an active AI provider."
             )
-
-        # The resolvers wired in ``main.py`` are pure ``app.state`` reads
-        # and won't raise in practice — but the constructor accepts any
-        # awaitable, so a future hook that does I/O (DB roundtrip, vault
-        # decrypt) could raise here. Translate so the outer
-        # ``except AgentProcessError`` handler renders a clean
-        # ``status=failed`` row instead of the generic "Unexpected
-        # error" fall-through.
         env_result, model_result = await asyncio.gather(
             self._ai_env_resolver(),
             self._ai_model_resolver(),
@@ -1425,48 +1469,52 @@ class AgentExecutor:
             raise AgentProcessError(
                 f"AI model resolver failed: {model_result}"
             ) from model_result
-        ai_env = env_result
-        model_full_id = model_result
         try:
-            model = build_model(ai_env, model_full_id)
+            return build_model(env_result, model_result)
         except ProviderConfigurationError as exc:
             raise AgentProcessError(str(exc)) from exc
 
+    async def _run_pa_call(
+        self,
+        coro_factory: Callable[[], Awaitable[Any]],
+        *,
+        agent_type: str,
+        timeout: float,
+    ) -> Any:
+        """Run a Pydantic AI coroutine with the shared rate-limit / timeout
+        / exception-translation loop, returning whatever it produces.
+
+        ``coro_factory`` is invoked fresh on each attempt (a re-roll or a
+        rate-limit retry needs a new coroutine). Used by both the no-tools
+        path (``run_no_tools_agent``) and the executor path
+        (``agent.run``). Translates the PA exception taxonomy into Cliff's
+        ``AgentTimeoutError`` / ``AgentRateLimitError`` / ``AgentProcessError``
+        so the ``execute``/resume ``except`` handlers cover both uniformly.
+        """
         last_rate_limit: ModelHTTPError | None = None
         # Parse-retry budget for UnexpectedModelBehavior (weak/old models
         # sometimes emit prose-only with no JSON shape; PA's own
         # output_type retry only fires on schema-shaped-but-invalid
         # responses, not on prose-only ones). One re-roll mirrors the
-        # OpenCode-era ``_RETRY_PROMPT`` corrective-retry that this PR
-        # otherwise drops.
+        # OpenCode-era ``_RETRY_PROMPT`` corrective-retry.
         parse_retries_used = 0
         for attempt in range(1, RATE_LIMIT_MAX_ATTEMPTS + 1):
             try:
-                # ``timeout`` is per-attempt: rate-limit backoff sleeps
-                # + retries mean total wall-clock can exceed it. Mirrors
-                # the OpenCode-era loop semantics.
-                structured_output = await asyncio.wait_for(
-                    run_no_tools_agent(agent_type, deps, model),
-                    timeout=timeout,
-                )
-                break
+                # ``timeout`` is per-attempt: rate-limit backoff sleeps +
+                # retries mean total wall-clock can exceed it. Mirrors the
+                # OpenCode-era loop semantics.
+                return await asyncio.wait_for(coro_factory(), timeout=timeout)
             except TimeoutError as exc:
-                # ``asyncio.wait_for`` raises TimeoutError when the wall
-                # clock budget elapses — surface as Cliff's existing
-                # timeout error so the outer ``except`` handler updates
-                # the agent_run row with the standard "timed out" copy.
                 raise AgentTimeoutError(
                     f"Pydantic AI agent {agent_type!r} did not complete "
                     f"within {timeout:.0f}s."
                 ) from exc
             except ModelHTTPError as exc:
-                # Log + raise with ``exc.message`` (not ``str(exc)``) —
-                # Pydantic AI's exception ``__str__`` for HTTP / parse
-                # errors embeds the raw provider response body, which
-                # may echo prompt content (and therefore any credentials
-                # the agent was working with). The message field is
-                # bounded; the body stays on the exception's chained
-                # ``__cause__`` for debugging at DEBUG level.
+                # Log + raise with ``exc.message`` (not ``str(exc)``) — PA's
+                # exception ``__str__`` embeds the raw provider response
+                # body, which may echo prompt content (and any credentials
+                # the agent was working with). The bounded message field is
+                # safe; the body stays on the chained ``__cause__``.
                 exc_message = getattr(exc, "message", str(exc))
                 if exc.status_code != 429:
                     raise AgentProcessError(
@@ -1474,7 +1522,6 @@ class AgentExecutor:
                     ) from exc
                 last_rate_limit = exc
                 if attempt >= RATE_LIMIT_MAX_ATTEMPTS:
-                    # Outer handler renders ``rate_limited`` status.
                     raise AgentRateLimitError(
                         f"AI provider rate limit: {exc_message}"
                     ) from exc
@@ -1487,27 +1534,17 @@ class AgentExecutor:
                 )
                 await asyncio.sleep(delay)
             except UsageLimitExceeded as exc:
-                # PA's own per-run budget — exposed only if we wire it
-                # later. Treat as a process error so the user sees a
-                # clear failure rather than a silent swallow.
                 raise AgentProcessError(
                     f"Pydantic AI usage limit exceeded: {exc}"
                 ) from exc
             except UnexpectedModelBehavior as exc:
                 # Re-roll once: PA raises this on prose-only / empty /
-                # thinking-only responses, where its own output_type
-                # retry doesn't fire. A re-roll at the same prompt
-                # often produces a well-formed response on the next
-                # sample (temperature noise). Second occurrence is
-                # terminal.
-                #
-                # We log + raise with ``exc.message`` (not ``str(exc)``):
-                # UnexpectedModelBehavior.__str__ returns
-                # ``f"{message}, body:\n{body}"`` when the body is set,
-                # and the body is the raw model response — which can
-                # echo prompt content including any credentials the
-                # agent was working with. The bounded message keeps the
-                # info useful without leaking secrets to log sinks.
+                # thinking-only responses, where its output_type retry
+                # doesn't fire. A re-roll at the same prompt often yields a
+                # well-formed response on the next sample. Second
+                # occurrence is terminal. Use ``exc.message`` (not
+                # ``str(exc)``) — its ``__str__`` appends the raw model
+                # body, which can echo prompt content / credentials.
                 exc_message = getattr(exc, "message", str(exc))
                 if parse_retries_used >= 1:
                     raise AgentProcessError(
@@ -1520,31 +1557,262 @@ class AgentExecutor:
                     "%d via PA; re-rolling once: %s",
                     agent_type, attempt, exc_message,
                 )
-                # No sleep — this is a model re-roll, not rate-limit backoff.
+                # No sleep — model re-roll, not rate-limit backoff.
             except UserError as exc:
-                # Configuration bug — agent registration / output_type
-                # / deps shape wrong. Surface deterministically.
                 raise AgentProcessError(
                     f"Pydantic AI configuration error: {exc}"
                 ) from exc
-        else:  # pragma: no cover — for-else only fires when the loop
-            # exits without break (i.e. retries exhausted without raise).
-            # The raise above already short-circuits but the construct
-            # keeps the static analyser happy about ``structured_output``
-            # always being bound.
-            assert last_rate_limit is not None
-            raise AgentRateLimitError(str(last_rate_limit))
+        # pragma: no cover — the 429 branch raises on the final attempt, so
+        # the loop never exits without returning or raising. Kept as a
+        # static-analysis backstop.
+        assert last_rate_limit is not None  # noqa: S101
+        raise AgentRateLimitError(str(last_rate_limit))
 
-        summary = derive_summary(agent_type, structured_output)
-        return ParseResult(
-            success=True,
-            raw_text="",
-            structured_output=structured_output,
-            summary=summary,
-            confidence=None,
-            suggested_next_action=None,
-            error=None,
+    async def _resolve_mcp_toolsets(
+        self, db: aiosqlite.Connection
+    ) -> list[Any]:
+        """Resolve the workspace's MCP servers into PA toolsets.
+
+        Best-effort — a broken integration must never block a remediation.
+        The executor's core loop (clone/fix/commit/push/PR) uses no MCP
+        tools; these are the configured integrations (ticketing, scanners).
+        """
+        resolver = getattr(self._context_builder, "_mcp_resolver", None)
+        if resolver is None:
+            return []
+        try:
+            result = await resolver.resolve_workspace(db)
+            return build_mcp_toolsets(result.mcp_configs or None)
+        except Exception:
+            logger.warning(
+                "MCP toolset resolution failed; running executor without MCP",
+                exc_info=True,
+            )
+            return []
+
+    async def _run_pa_executor(
+        self,
+        deps: WorkspaceDeps,
+        timeout: float,
+        *,
+        db: aiosqlite.Connection,
+        message_history: list[Any] | None = None,
+        deferred_tool_results: DeferredToolResults | None = None,
+    ) -> _PaExecutorOutcome:
+        """Run the remediation_executor through Pydantic AI.
+
+        On an initial run ``message_history`` is None and the user prompt is
+        built from ``deps``. On a resume after approve/deny, the caller
+        passes the deserialized ``message_history`` + ``deferred_tool_results``
+        and no new user prompt.
+
+        Returns a :class:`_PaExecutorOutcome`: a completed ``ParseResult``
+        (shaped like the no-tools path so ``_finalize_run`` handles it
+        identically) when the run finishes, or a ``permission_request``
+        marker + serialized ``message_history`` when a gated tool paused it.
+        """
+        model = await self._resolve_active_model()
+        mcp_toolsets = await self._resolve_mcp_toolsets(db)
+        agent = build_executor_agent(model, mcp_toolsets)
+        user_prompt = None if message_history is not None else build_user_prompt(deps)
+
+        result = await self._run_pa_call(
+            lambda: agent.run(
+                user_prompt,
+                deps=deps,
+                message_history=message_history,
+                deferred_tool_results=deferred_tool_results,
+            ),
+            agent_type="remediation_executor",
+            timeout=timeout,
         )
+
+        output = result.output
+        if isinstance(output, DeferredToolRequests):
+            # A gated tool (rm -rf, edit outside the workspace, …) raised
+            # ApprovalRequired. Persist the marker + the full conversation so
+            # POST .../permission can resume via ``deferred_tool_results``.
+            return _PaExecutorOutcome(
+                parse_result=None,
+                permission_request=_build_permission_marker(output),
+                message_history_json=result.all_messages_json().decode("utf-8"),
+            )
+
+        structured = output.model_dump()
+        return _PaExecutorOutcome(
+            parse_result=ParseResult(
+                success=True,
+                raw_text="",
+                structured_output=structured,
+                summary=_summarize_executor(structured),
+                confidence=None,
+                suggested_next_action=None,
+                error=None,
+            ),
+            permission_request=None,
+            message_history_json=None,
+        )
+
+    async def _park_for_permission(
+        self,
+        db: aiosqlite.Connection,
+        workspace_id: str,
+        agent_run: AgentRun,
+        outcome: _PaExecutorOutcome,
+        start_time: float,
+    ) -> AgentExecutionResult:
+        """Persist a paused executor run and return ``awaiting_permission``.
+
+        The agent_run row stays ``status='running'`` + ``permission_pending``
+        so ``issue_derivation`` routes the finding to the "Needs you" bucket;
+        the workspace stays busy (active-run state untouched) so no other
+        agent starts. ``resume_executor`` (via POST .../permission) continues
+        it; ``_finalize_run`` clears the busy state when it completes.
+        """
+        await update_agent_run(
+            db,
+            agent_run.id,
+            AgentRunUpdate(
+                permission_pending=True,
+                permission_request=outcome.permission_request,
+                pa_message_history=outcome.message_history_json,
+            ),
+        )
+        duration = time.monotonic() - start_time
+        return AgentExecutionResult(
+            agent_run_id=agent_run.id,
+            agent_type=agent_run.agent_type,
+            status="awaiting_permission",
+            parse_result=ParseResult(success=False, raw_text="", error=None),
+            duration_seconds=duration,
+        )
+
+    async def resume_executor(
+        self,
+        db: aiosqlite.Connection,
+        workspace_id: str,
+        run_id: str,
+        *,
+        approved: bool,
+        workspace_dir: str,
+        deny_message: str | None = None,
+        env_vars: dict[str, str] | None = None,
+    ) -> AgentExecutionResult:
+        """Resume a paused remediation_executor run after approve/deny.
+
+        Rebuilds the agent + workspace deps, deserializes the stored message
+        history, and re-enters the run with a ``DeferredToolResults`` carrying
+        the user's decision for every pending tool call. On completion →
+        ``_finalize_run`` (identical persistence to the initial path); if the
+        model immediately calls another gated tool → park again.
+        """
+        agent_run = await get_agent_run(db, run_id)
+        if (
+            agent_run is None
+            or not agent_run.permission_pending
+            or not agent_run.permission_request
+        ):
+            raise AgentProcessError(
+                "No pending permission request for this agent run."
+            )
+        history_json = await get_pa_message_history(db, run_id)
+        if not history_json:
+            raise AgentProcessError(
+                "Paused run has no stored message history; cannot resume."
+            )
+
+        start_time = time.monotonic()
+        # Clear the marker up front so a duplicate POST can't double-resume
+        # and a crash mid-resume reconciles to ``failed`` (not a stale pause).
+        await update_agent_run(
+            db,
+            run_id,
+            AgentRunUpdate(
+                permission_pending=False,
+                permission_request=None,
+                pa_message_history=None,
+            ),
+        )
+
+        try:
+            finding_data, prior_ctx = _load_workspace_data(
+                workspace_dir, agent_run.agent_type
+            )
+            deps = WorkspaceDeps(
+                workspace_id=workspace_id,
+                workspace_dir=workspace_dir,
+                finding=finding_data,
+                prior_context=prior_ctx,
+                env_vars=env_vars or {},
+                user_note=None,
+            )
+            message_history = ModelMessagesTypeAdapter.validate_json(
+                history_json
+            )
+            tool_call_ids = (agent_run.permission_request or {}).get(
+                "tool_call_ids", []
+            )
+            decision = (
+                ToolApproved()
+                if approved
+                else ToolDenied(
+                    message=deny_message
+                    or "The user denied this command. Choose another approach."
+                )
+            )
+            results = DeferredToolResults(
+                approvals={tcid: decision for tcid in tool_call_ids}
+            )
+
+            outcome = await self._run_pa_executor(
+                deps,
+                max(DEFAULT_TIMEOUT, 600.0),
+                db=db,
+                message_history=message_history,
+                deferred_tool_results=results,
+            )
+            if outcome.permission_request is not None:
+                return await self._park_for_permission(
+                    db, workspace_id, agent_run, outcome, start_time
+                )
+            return await self._finalize_run(
+                db,
+                workspace_id=workspace_id,
+                agent_type=agent_run.agent_type,
+                parse_result=outcome.parse_result,
+                finding_data=finding_data,
+                env_vars=env_vars,
+                agent_run=agent_run,
+                start_time=start_time,
+            )
+        except (AgentTimeoutError, AgentRateLimitError, AgentProcessError) as exc:
+            status: Literal["failed", "rate_limited"] = (
+                "rate_limited"
+                if isinstance(exc, AgentRateLimitError)
+                else "failed"
+            )
+            self._cleanup_workspace_state(
+                workspace_id, run_id, agent_type=agent_run.agent_type, status=status
+            )
+            await update_agent_run(
+                db,
+                run_id,
+                AgentRunUpdate(
+                    status=status,
+                    summary_markdown=_humanize_process_error(str(exc)),
+                    last_error=str(exc),
+                ),
+            )
+            return AgentExecutionResult(
+                agent_run_id=run_id,
+                agent_type=agent_run.agent_type,
+                status=status,
+                parse_result=ParseResult(
+                    success=False, raw_text="", error=str(exc)
+                ),
+                error=str(exc),
+                duration_seconds=time.monotonic() - start_time,
+            )
 
     async def _send_and_collect(
         self,

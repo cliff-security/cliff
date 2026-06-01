@@ -42,7 +42,7 @@ async def edit(ctx: RunContext[WorkspaceDeps], path: str, content: str) -> str:
         ctx,
         tool="edit",
         patterns=[path],
-        metadata={"tool": "edit", "path": path},
+        metadata={"tool": "edit", "patterns": [path], "path": path},
     )
 
     # Resolved-path containment — a second line of defense the textual
@@ -51,7 +51,12 @@ async def edit(ctx: RunContext[WorkspaceDeps], path: str, content: str) -> str:
         ctx.deps.workspace_dir, path
     ):
         raise ApprovalRequired(
-            metadata={"tool": "edit", "path": path, "reason": "escapes_workspace"}
+            metadata={
+                "tool": "edit",
+                "patterns": [path],
+                "path": path,
+                "reason": "escapes_workspace",
+            }
         )
 
     target = (Path(ctx.deps.workspace_dir) / path).resolve()
