@@ -199,8 +199,13 @@ async def run_pipeline(
             on_agent_complete(result)
 
         # EF-B17 — ``rate_limited`` is a terminal non-success state, same
-        # pipeline-stop semantics as ``failed``.
-        if result.status in ("failed", "rate_limited"):
+        # pipeline-stop semantics as ``failed``. ``awaiting_permission``
+        # (ADR-0047 PR #2) is a NON-terminal pause: the executor called a
+        # gated tool and is parked on a DeferredToolRequests marker until
+        # the user approves/denies. The pipeline still stops here (it can't
+        # advance past a pending approval); the resume happens out-of-band
+        # via POST .../permission, not by re-driving the pipeline.
+        if result.status in ("failed", "rate_limited", "awaiting_permission"):
             logger.warning(
                 "Pipeline stopped: %s ended %s in workspace %s",
                 suggestion.agent_type,

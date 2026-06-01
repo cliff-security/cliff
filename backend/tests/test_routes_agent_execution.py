@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, patch
@@ -21,7 +20,7 @@ from cliff.agents.output_parser import ParseResult
 from cliff.api.routes.agent_execution import router
 from cliff.db.connection import get_db
 from cliff.integrations.github_app.client import RepoPushAccess
-from cliff.models import Workspace
+from cliff.models import AgentRun, Workspace
 
 # ---------------------------------------------------------------------------
 # App fixture with mock DB dependency
@@ -701,275 +700,149 @@ class TestParseOwnerRepoFromUrl:
 
 
 # ---------------------------------------------------------------------------
-# Permission approval endpoint — wires user click → executor.approve_tool /
-# deny_tool. Trust-critical: if approve/deny don't reach the parked
-# ``_PendingApproval``, the agent stalls forever.
+# Permission approval endpoint (ADR-0047 PR #2) — user click → background
+# ``executor.resume_executor`` carrying the approve/deny decision. The run
+# is parked on a durable DeferredToolRequests marker; resume continues it.
 # ---------------------------------------------------------------------------
+
+
+def _permission_route_patches(*, pending: bool, run_workspace_id: str = "ws-1"):
+    """Patch the route's get_agent_run / get_workspace / env-resolver.
+
+    ``pending`` controls whether the agent_run reports a pending permission
+    request (the 404 gate keys off it). ``run_workspace_id`` sets the
+    workspace the run belongs to — the route's ownership gate 404s when it
+    differs from the URL's workspace id.
+    """
+    from types import SimpleNamespace
+
+    run = AgentRun(
+        id="run-1",
+        workspace_id=run_workspace_id,
+        agent_type="remediation_executor",
+        status="running",
+        permission_pending=pending,
+        permission_request={"tool": "bash", "patterns": ["rm -rf x"]}
+        if pending
+        else None,
+    )
+    workspace = SimpleNamespace(workspace_dir="/tmp/ws")
+    return (
+        patch(
+            "cliff.api.routes.agent_execution.get_agent_run",
+            AsyncMock(return_value=run),
+        ),
+        patch(
+            "cliff.api.routes.agent_execution.get_workspace",
+            AsyncMock(return_value=workspace),
+        ),
+        patch(
+            "cliff.api.routes.agent_execution._resolve_repo_env_vars",
+            AsyncMock(return_value={}),
+        ),
+    )
 
 
 class TestPermissionEndpoint:
     @pytest.mark.asyncio
-    async def test_approve_calls_executor_approve_tool(self, app, client):
+    async def test_approve_resumes_executor(self, app, client):
         executor = app.state.agent_executor
-        executor.approve_tool = lambda run_id: True
+        calls: list[tuple[str, bool]] = []
+        resumed = asyncio.Event()
 
-        resp = await client.post(
-            "/api/workspaces/ws-1/agent-runs/run-1/permission",
-            json={"approved": True},
-        )
+        async def _resume(db, ws, rid, *, approved, workspace_dir,
+                          deny_message=None, env_vars=None):
+            calls.append((rid, approved))
+            resumed.set()
 
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["status"] == "approved"
-        assert body["agent_run_id"] == "run-1"
+        executor.resume_executor = _resume
+        ps = _permission_route_patches(pending=True)
+        for p in ps:
+            p.start()
+        try:
+            resp = await client.post(
+                "/api/workspaces/ws-1/agent-runs/run-1/permission",
+                json={"approved": True},
+            )
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["status"] == "approved"
+            assert body["agent_run_id"] == "run-1"
+            # Background resume is scheduled; wait for it deterministically.
+            await asyncio.wait_for(resumed.wait(), timeout=2.0)
+            assert calls == [("run-1", True)]
+        finally:
+            for p in ps:
+                p.stop()
 
     @pytest.mark.asyncio
-    async def test_deny_calls_executor_deny_tool(self, app, client):
+    async def test_deny_resumes_executor_with_denied(self, app, client):
         executor = app.state.agent_executor
-        executor.deny_tool = lambda run_id: True
+        calls: list[tuple[str, bool]] = []
+        resumed = asyncio.Event()
 
-        resp = await client.post(
-            "/api/workspaces/ws-1/agent-runs/run-1/permission",
-            json={"approved": False},
-        )
+        async def _resume(db, ws, rid, *, approved, workspace_dir,
+                          deny_message=None, env_vars=None):
+            calls.append((rid, approved))
+            resumed.set()
 
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["status"] == "denied"
-        assert body["agent_run_id"] == "run-1"
+        executor.resume_executor = _resume
+        ps = _permission_route_patches(pending=True)
+        for p in ps:
+            p.start()
+        try:
+            resp = await client.post(
+                "/api/workspaces/ws-1/agent-runs/run-1/permission",
+                json={"approved": False},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["status"] == "denied"
+            await asyncio.wait_for(resumed.wait(), timeout=2.0)
+            assert calls == [("run-1", False)]
+        finally:
+            for p in ps:
+                p.stop()
 
     @pytest.mark.asyncio
     async def test_no_pending_returns_404(self, app, client):
-        executor = app.state.agent_executor
-        executor.approve_tool = lambda run_id: False
-        executor.deny_tool = lambda run_id: False
-
-        resp = await client.post(
-            "/api/workspaces/ws-1/agent-runs/gone/permission",
-            json={"approved": True},
-        )
-
-        assert resp.status_code == 404
-        assert "No pending permission request" in resp.json()["detail"]
-
-    @pytest.mark.asyncio
-    async def test_approve_routed_to_approve_not_deny(self, app, client):
-        """Trust guard — make sure ``approved=true`` doesn't accidentally
-        wire to deny_tool. Regression catcher for the conditional in
-        ``respond_to_permission``."""
-        approve_calls = []
-        deny_calls = []
-
-        executor = app.state.agent_executor
-        executor.approve_tool = lambda run_id: approve_calls.append(run_id) or True
-        executor.deny_tool = lambda run_id: deny_calls.append(run_id) or True
-
-        resp = await client.post(
-            "/api/workspaces/ws-1/agent-runs/run-77/permission",
-            json={"approved": True},
-        )
-
-        assert resp.status_code == 200
-        assert approve_calls == ["run-77"]
-        assert deny_calls == []
-
-    @pytest.mark.asyncio
-    async def test_deny_routed_to_deny_not_approve(self, app, client):
-        approve_calls = []
-        deny_calls = []
-
-        executor = app.state.agent_executor
-        executor.approve_tool = lambda run_id: approve_calls.append(run_id) or True
-        executor.deny_tool = lambda run_id: deny_calls.append(run_id) or True
-
-        resp = await client.post(
-            "/api/workspaces/ws-1/agent-runs/run-88/permission",
-            json={"approved": False},
-        )
-
-        assert resp.status_code == 200
-        assert deny_calls == ["run-88"]
-        assert approve_calls == []
-
-
-# ---------------------------------------------------------------------------
-# SSE stream — agent-pipeline progress events (B36 / IMPL-0020)
-# ---------------------------------------------------------------------------
-
-
-def _parse_sse_frames(body: str) -> list[dict[str, str]]:
-    """Tiny SSE parser for test bodies. Returns one dict per frame."""
-    frames: list[dict[str, str]] = []
-    current: dict[str, str] = {}
-    for raw in body.splitlines():
-        if not raw.strip():
-            if current:
-                frames.append(current)
-                current = {}
-            continue
-        if ":" not in raw:
-            continue
-        key, _, value = raw.partition(":")
-        key = key.strip()
-        value = value.lstrip(" ")
-        if key in {"event", "data", "id", "retry"}:
-            current[key] = value
-    if current:
-        frames.append(current)
-    return frames
-
-
-class TestAgentExecutionStream:
-    """B36 / IMPL-0020 — the SSE stream must surface pipeline progress.
-
-    Previously the stream only emitted ``permission_request`` and ``done``.
-    Background pipeline runs (enricher → … → planner) finished invisibly,
-    forcing users to F5 to see the next agent's row appear. The stream now
-    multiplexes ``agent_run_started`` and ``agent_run_completed`` so the
-    side panel can invalidate ``agent-runs`` the instant each run flips.
-    """
-
-    @pytest.mark.asyncio
-    async def test_stream_emits_agent_run_completed_event(self, app, client):
-        """Pushing ``agent_run_completed`` to the queue surfaces as a
-        named SSE frame (not folded into the permission_request default)."""
-        queue: asyncio.Queue = asyncio.Queue()
-        queue.put_nowait({
-            "type": "agent_run_completed",
-            "agent_type": "finding_enricher",
-            "run_id": "run-abc",
-            "status": "completed",
-        })
-        queue.put_nowait({"type": "done"})
-
-        executor = app.state.agent_executor
-        executor.ensure_permission_queue = lambda ws_id: queue
-        executor.get_active_run_id = lambda ws_id: None
-
-        resp = await client.get(
-            "/api/workspaces/ws-1/agent-execution/stream"
-        )
-        assert resp.status_code == 200
-        frames = _parse_sse_frames(resp.text)
-        events = [f.get("event") for f in frames]
-        assert "agent_run_completed" in events
-        completed = next(f for f in frames if f.get("event") == "agent_run_completed")
-        payload = json.loads(completed["data"])
-        assert payload["run_id"] == "run-abc"
-        assert payload["agent_type"] == "finding_enricher"
-        assert payload["status"] == "completed"
-
-    @pytest.mark.asyncio
-    async def test_stream_emits_agent_run_started_event(self, app, client):
-        """``agent_run_started`` is a separate named event from the same
-        queue. The frontend uses it to flip the stage chip the moment a
-        new agent kicks off."""
-        queue: asyncio.Queue = asyncio.Queue()
-        queue.put_nowait({
-            "type": "agent_run_started",
-            "agent_type": "owner_resolver",
-            "run_id": "run-xyz",
-            "status": "running",
-        })
-        queue.put_nowait({"type": "done"})
-
-        executor = app.state.agent_executor
-        executor.ensure_permission_queue = lambda ws_id: queue
-        executor.get_active_run_id = lambda ws_id: None
-
-        resp = await client.get(
-            "/api/workspaces/ws-1/agent-execution/stream"
-        )
-        assert resp.status_code == 200
-        frames = _parse_sse_frames(resp.text)
-        started = next(
-            (f for f in frames if f.get("event") == "agent_run_started"),
-            None,
-        )
-        assert started is not None
-        payload = json.loads(started["data"])
-        assert payload["run_id"] == "run-xyz"
-        assert payload["agent_type"] == "owner_resolver"
-
-    @pytest.mark.asyncio
-    async def test_stream_still_emits_permission_request_unchanged(
-        self, app, client
-    ):
-        """Backward-compat guard — the permission_request branch must
-        keep its current shape so the existing IssueSidePanel listener
-        keeps working."""
-        queue: asyncio.Queue = asyncio.Queue()
-        queue.put_nowait({
-            "type": "permission_request",
-            "id": "perm-1",
-            "tool": "bash",
-            "patterns": ["rm", "-rf"],
-            "run_id": "run-9",
-        })
-        queue.put_nowait({"type": "done"})
-
-        executor = app.state.agent_executor
-        executor.ensure_permission_queue = lambda ws_id: queue
-        executor.get_active_run_id = lambda ws_id: None
-
-        resp = await client.get(
-            "/api/workspaces/ws-1/agent-execution/stream"
-        )
-        frames = _parse_sse_frames(resp.text)
-        perm = next(f for f in frames if f.get("event") == "permission_request")
-        payload = json.loads(perm["data"])
-        assert payload == {
-            "id": "perm-1",
-            "tool": "bash",
-            "patterns": ["rm", "-rf"],
-            "run_id": "run-9",
-        }
-
-    @pytest.mark.asyncio
-    async def test_stream_does_not_close_on_initially_empty_queue(
-        self, app, client
-    ):
-        """IMPL-0020 — the stream must NOT short-circuit to ``done`` when
-        the workspace has no queue yet. The frontend opens the EventSource
-        as soon as the side panel mounts (before Start is clicked), so the
-        old early-exit raced the very ``agent_run_started`` event the
-        stream was meant to surface. The fix auto-vivifies a queue via
-        ``ensure_permission_queue`` so the stream waits for the executor
-        to publish its first event.
-        """
-        # Start with an empty queue (simulates "panel mounted, no run yet")
-        queue: asyncio.Queue = asyncio.Queue()
-
-        executor = app.state.agent_executor
-        # The route now calls ``ensure_permission_queue`` — stub it to
-        # return our queue (no fallback to ``get_permission_queue``).
-        executor.ensure_permission_queue = lambda ws_id: queue
-        executor.get_active_run_id = lambda ws_id: None
-
-        async def publish_later():
-            # Give the generator a tick to enter the wait-loop.
-            await asyncio.sleep(0.05)
-            queue.put_nowait({
-                "type": "agent_run_started",
-                "agent_type": "finding_enricher",
-                "run_id": "r1",
-                "status": "running",
-            })
-            queue.put_nowait({"type": "done"})
-
-        publisher = asyncio.create_task(publish_later())
+        ps = _permission_route_patches(pending=False)
+        for p in ps:
+            p.start()
         try:
-            resp = await client.get(
-                "/api/workspaces/ws-1/agent-execution/stream"
+            resp = await client.post(
+                "/api/workspaces/ws-1/agent-runs/gone/permission",
+                json={"approved": True},
             )
+            assert resp.status_code == 404
+            assert "No pending permission request" in resp.json()["detail"]
         finally:
-            await publisher
+            for p in ps:
+                p.stop()
 
-        assert resp.status_code == 200
-        frames = _parse_sse_frames(resp.text)
-        events = [f.get("event") for f in frames]
-        # The stream stayed open long enough to surface the started event.
-        assert "agent_run_started" in events
-        # And we did NOT yield a ``done`` before the started event fired.
-        started_idx = events.index("agent_run_started")
-        assert "done" not in events[:started_idx]
+    @pytest.mark.asyncio
+    async def test_run_owned_by_other_workspace_returns_404(self, app, client):
+        """A pending run that belongs to a different workspace must not be
+        resumable through this workspace's URL (no cross-workspace resume
+        with the wrong env)."""
+        executor = app.state.agent_executor
+        called = False
+
+        async def _resume(*a, **k):
+            nonlocal called
+            called = True
+
+        executor.resume_executor = _resume
+        # The run is pending but owned by ws-OTHER, not the URL's ws-1.
+        ps = _permission_route_patches(pending=True, run_workspace_id="ws-OTHER")
+        for p in ps:
+            p.start()
+        try:
+            resp = await client.post(
+                "/api/workspaces/ws-1/agent-runs/run-1/permission",
+                json={"approved": True},
+            )
+            assert resp.status_code == 404
+            assert called is False
+        finally:
+            for p in ps:
+                p.stop()

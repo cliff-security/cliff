@@ -150,6 +150,22 @@ async def update_agent_run(
     return await get_agent_run(db, run_id)
 
 
+async def get_pa_message_history(
+    db: aiosqlite.Connection, run_id: str
+) -> str | None:
+    """Read the stored PA message-history JSON for a paused executor run.
+
+    Kept off the API-facing :class:`AgentRun` model (the blob is large and
+    internal); the resume path reads it directly to rebuild the agent's
+    conversation via ``agent.run(message_history=...)``.
+    """
+    cursor = await db.execute(
+        "SELECT pa_message_history FROM agent_run WHERE id = ?", (run_id,)
+    )
+    row = await cursor.fetchone()
+    return row["pa_message_history"] if row else None
+
+
 async def reconcile_orphaned_agent_runs(db: aiosqlite.Connection) -> int:
     """Mark ``queued``/``running`` rows as ``failed`` at startup.
 
@@ -179,7 +195,8 @@ async def reconcile_orphaned_agent_runs(db: aiosqlite.Connection) -> int:
                completed_at = COALESCE(completed_at, ?),
                summary_markdown = COALESCE(summary_markdown, ?),
                permission_pending = 0,
-               permission_request = NULL
+               permission_request = NULL,
+               pa_message_history = NULL
          WHERE status IN ('queued', 'running')
         """,
         (now_iso, interrupted_msg),

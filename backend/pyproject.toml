@@ -38,6 +38,7 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM", "TCH"]
 [tool.ruff.lint.per-file-ignores]
 "cliff/api/routes/*.py" = ["B008", "TC001", "TC003"]  # FastAPI Depends() in default args; Pydantic models need types at runtime
 "cliff/models/*.py" = ["TC001", "TC003"]  # Pydantic models need types at runtime
+"cliff/agents/runtime/tools/*.py" = ["TC001", "TC002"]  # Pydantic AI introspects tool RunContext/deps hints at runtime
 "cliff/integrations/normalizer.py" = ["E501"]  # Long example strings inside the LLM prompt literal
 
 [tool.pytest.ini_options]

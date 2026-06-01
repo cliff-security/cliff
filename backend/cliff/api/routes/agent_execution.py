@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from sse_starlette.sse import EventSourceResponse
 
 from cliff.agents.errors import AgentBusyError, AgentProcessError
 from cliff.agents.pipeline import VALID_AGENT_TYPES, suggest_next
@@ -224,9 +222,6 @@ async def execute_agent(
                 agent_type,
                 db,
                 workspace_dir=workspace.workspace_dir,
-                on_permission=lambda evt: executor.push_permission_event(
-                    workspace_id, evt
-                ),
                 env_vars=env_vars,
                 user_note=user_note,
             )
@@ -377,9 +372,6 @@ async def run_all_pipeline(
                         agent_type,
                         db,
                         workspace_dir=workspace.workspace_dir,
-                        on_permission=lambda evt: (
-                            executor.push_permission_event(workspace_id, evt)
-                        ),
                         env_vars=env_vars,
                     )
                 except (AgentBusyError, AgentProcessError):
@@ -511,6 +503,7 @@ async def cancel_agent_run(
 
 class PermissionDecision(BaseModel):
     approved: bool
+    deny_message: str | None = None
 
 
 @router.post(
@@ -522,127 +515,52 @@ async def respond_to_permission(
     run_id: str,
     body: PermissionDecision,
     request: Request,
+    db=Depends(get_db),
 ):
-    """Approve or deny a pending tool-use permission request."""
+    """Approve or deny a paused executor tool call, resuming the run.
+
+    ADR-0047 / PR #2 — the remediation_executor pauses on a gated tool by
+    persisting a ``DeferredToolRequests`` marker (``agent_run.permission_
+    request`` + ``pa_message_history``). This endpoint resumes the run via
+    ``executor.resume_executor`` with the user's decision. Resume actually
+    re-runs the agent (it can take minutes), so it runs as a background
+    task and returns immediately — the frontend polls ``agent-runs`` for
+    the outcome (no SSE).
+    """
     executor = request.app.state.agent_executor
 
-    resolved = (
-        executor.approve_tool(run_id)
-        if body.approved
-        else executor.deny_tool(run_id)
-    )
-
-    if not resolved:
+    run = await get_agent_run(db, run_id)
+    if run is None or run.workspace_id != workspace_id or not run.permission_pending:
         raise HTTPException(
             status_code=404,
             detail="No pending permission request for this agent run",
         )
+    workspace = await get_workspace(db, workspace_id)
+    if workspace is None or not workspace.workspace_dir:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    env_vars = await _resolve_repo_env_vars(request, db, workspace=workspace)
+
+    async def _resume_in_background() -> None:
+        try:
+            await executor.resume_executor(
+                db,
+                workspace_id,
+                run_id,
+                approved=body.approved,
+                workspace_dir=workspace.workspace_dir,
+                deny_message=body.deny_message,
+                env_vars=env_vars,
+            )
+        except Exception:
+            logger.exception(
+                "Resume after permission decision failed for run %s", run_id
+            )
+
+    asyncio.create_task(_resume_in_background())
 
     return {
         "status": "approved" if body.approved else "denied",
         "agent_run_id": run_id,
     }
 
-
-# ---------------------------------------------------------------------------
-# Agent execution SSE stream
-# ---------------------------------------------------------------------------
-
-
-@router.get("/workspaces/{workspace_id}/agent-execution/stream")
-async def stream_agent_execution(
-    workspace_id: str,
-    request: Request,
-):
-    """Stream agent-pipeline progress + permission events.
-
-    The frontend connects to this while an agent is running. Events:
-    - ``agent_run_started``: a new agent run was created
-      (``{run_id, agent_type, status}``).
-    - ``agent_run_completed``: an agent run finished — success OR failure
-      (``{run_id, agent_type, status}``). The side panel uses this to
-      invalidate the ``agent-runs`` query and re-render the activity
-      feed without waiting for the 5s idle poll. B36 / IMPL-0020.
-    - ``permission_request``: agent needs user approval for a tool.
-    - ``done``: signals the executor has finished its terminal run for
-      this workspace. The stream will close. Until then the stream stays
-      open even if no events are flowing — it's safe to open the
-      EventSource as soon as the side panel mounts (B36 / IMPL-0020).
-
-    If the client disconnects while a permission is pending, the pending
-    approval is auto-denied to unblock the executor.
-    """
-    executor = request.app.state.agent_executor
-
-    async def event_generator():
-        # IMPL-0020 / B36 — auto-vivify the workspace's SSE queue so the
-        # generator always enters the wait-loop. The frontend opens the
-        # EventSource before Start is clicked; if we early-exit on an
-        # empty dict-entry the very first ``agent_run_started`` event is
-        # published to no listener. The loop exits cleanly on a real
-        # ``done`` event or client disconnect, so the queue can't leak.
-        queue = executor.ensure_permission_queue(workspace_id)
-
-        try:
-            while True:
-                # Check for client disconnect
-                if await request.is_disconnected():
-                    # Auto-deny any pending approval to unblock executor
-                    run_id = executor.get_active_run_id(workspace_id)
-                    if run_id:
-                        executor.deny_tool(run_id)
-                        logger.info(
-                            "Client disconnected, auto-denied permission "
-                            "for workspace %s run %s",
-                            workspace_id, run_id,
-                        )
-                    return
-
-                # Poll queue with timeout to allow disconnect checks
-                try:
-                    event = await asyncio.wait_for(queue.get(), timeout=2.0)
-                except TimeoutError:
-                    continue
-
-                event_type = event.get("type", "permission_request")
-                if event_type == "done":
-                    yield {"event": "done", "data": "{}"}
-                    return
-                if event_type in {
-                    "agent_run_started",
-                    "agent_run_completed",
-                }:
-                    # IMPL-0020 — pipeline progress fan-out. The side
-                    # panel invalidates ``agent-runs`` on either event;
-                    # the payload is the same shape for both so the
-                    # listener can be a single handler.
-                    yield {
-                        "event": event_type,
-                        "data": json.dumps({
-                            "run_id": event.get("run_id", ""),
-                            "agent_type": event.get("agent_type", ""),
-                            "status": event.get("status", ""),
-                        }),
-                    }
-                    continue
-                # Default: permission_request (existing shape).
-                yield {
-                    "event": "permission_request",
-                    "data": json.dumps({
-                        "id": event.get("id", ""),
-                        "tool": event.get("tool", "unknown"),
-                        "patterns": event.get("patterns", []),
-                        "run_id": event.get("run_id", ""),
-                    }),
-                }
-        except Exception:
-            logger.exception(
-                "Error in agent execution stream for workspace %s",
-                workspace_id,
-            )
-            yield {
-                "event": "error",
-                "data": json.dumps({"message": "Stream disconnected"}),
-            }
-
-    return EventSourceResponse(event_generator())
