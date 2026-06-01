@@ -9,7 +9,6 @@ persists results to context files, sidebar state, and the DB.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import random
 import time
@@ -111,22 +110,6 @@ PERMISSION_WAIT_BUFFER: float = 600.0
 RATE_LIMIT_MAX_ATTEMPTS: int = 3
 RATE_LIMIT_BASE_DELAY_SECONDS: float = 2.0
 RATE_LIMIT_MAX_DELAY_SECONDS: float = 16.0
-
-# Substring signals that an OpenCode error message wraps an upstream
-# provider rate-limit. Single source of truth — ``_humanize_process_error``
-# below uses the same set to render the user-facing copy.
-_RATE_LIMIT_SUBSTRINGS: tuple[str, ...] = (
-    "rate limit",
-    "429",
-    "too many requests",
-)
-
-
-def _looks_like_rate_limit(message: str) -> bool:
-    """Return True if ``message`` carries any of the rate-limit signals."""
-    lowered = message.lower()
-    return any(s in lowered for s in _RATE_LIMIT_SUBSTRINGS)
-
 
 def _rate_limit_backoff_delay(attempt: int) -> float:
     """Exponential backoff with full jitter for retry ``attempt`` (1-based).
@@ -258,16 +241,6 @@ def _classify_tool_request(tool: str, patterns: list[str]) -> str:
     # mcp, unknown tools
     return "ask"
 
-
-@dataclass
-class _PendingApproval:
-    """Tracks a permission request waiting for user approval."""
-
-    permission_id: str
-    tool: str
-    patterns: list[str]
-    event: asyncio.Event
-    approved: bool | None = None
 
 # ---------------------------------------------------------------------------
 # Per-agent output contracts (inlined in the prompt so the LLM always sees
@@ -507,13 +480,6 @@ Run {label} on the finding above. Respond with a single \
 Respond with ONLY the JSON block above. No preamble, no explanation, no tool use."""
 
 
-_RETRY_PROMPT = """\
-Your previous response could not be parsed as valid JSON. This is a \
-programmatic execution — the output MUST be a single ```json code block and \
-nothing else. Do not use tools, do not read files, do not add explanation \
-text. Respond now with ONLY the JSON block in the exact schema requested."""
-
-
 # ---------------------------------------------------------------------------
 # Finding status auto-advance after agent completions (WP6 / T6.1).
 # Status only moves forward — never regresses.
@@ -744,60 +710,7 @@ class AgentExecutor:
         self._context_builder = context_builder
         self._ai_env_resolver = ai_env_resolver
         self._ai_model_resolver = ai_model_resolver
-        self._pending_approvals: dict[str, _PendingApproval] = {}
-        self._permission_queues: dict[str, asyncio.Queue] = {}  # workspace_id -> SSE queue
         self._active_runs: dict[str, str] = {}  # workspace_id -> agent_run_id
-        self._permission_pending: dict[str, bool] = {}  # agent_run_id -> pauses stall detection
-
-    def approve_tool(self, run_id: str) -> bool:
-        """Approve a pending tool-use permission request.
-
-        Returns True if a pending approval was found and resolved.
-        """
-        pending = self._pending_approvals.get(run_id)
-        if not pending:
-            return False
-        pending.approved = True
-        pending.event.set()
-        return True
-
-    def deny_tool(self, run_id: str) -> bool:
-        """Deny a pending tool-use permission request.
-
-        Returns True if a pending approval was found and resolved.
-        """
-        pending = self._pending_approvals.get(run_id)
-        if not pending:
-            return False
-        pending.approved = False
-        pending.event.set()
-        return True
-
-    def push_permission_event(self, workspace_id: str, event: dict) -> None:
-        """Push a permission event to the workspace's SSE queue."""
-        queue = self._permission_queues.get(workspace_id)
-        if queue:
-            queue.put_nowait(event)
-
-    def get_permission_queue(self, workspace_id: str) -> asyncio.Queue | None:
-        """Get the permission event queue for a workspace (for SSE streaming)."""
-        return self._permission_queues.get(workspace_id)
-
-    def ensure_permission_queue(self, workspace_id: str) -> asyncio.Queue:
-        """Return the workspace's SSE queue, creating an empty one if absent.
-
-        IMPL-0020 / B36 — the side panel opens the EventSource as soon as
-        ``workspaceId`` is set (BEFORE the user clicks Start), so the
-        stream generator must auto-vivify a queue or it races the very
-        ``agent_run_started`` event it was meant to surface. Queue
-        lifetime is bounded by the workspace process; ``_cleanup_workspace_state``
-        pops the entry once the executor signals ``done``.
-        """
-        q = self._permission_queues.get(workspace_id)
-        if q is None:
-            q = asyncio.Queue()
-            self._permission_queues[workspace_id] = q
-        return q
 
     def get_active_run_id(self, workspace_id: str) -> str | None:
         """Get the currently active agent run ID for a workspace."""
@@ -811,69 +724,14 @@ class AgentExecutor:
         agent_type: str = "",
         status: str = "completed",
     ) -> None:
-        """Clean up per-workspace state after execution completes.
+        """Clear the active-run marker for a workspace after a run ends.
 
-        Before closing the queue with ``done``, push an
-        ``agent_run_completed`` progress event so the side-panel SSE
-        consumer can invalidate ``agent-runs`` the instant the row
-        flips. ``status`` reflects the run outcome (``completed``,
-        ``failed``, ``rate_limited``). B36 / IMPL-0020.
+        ``agent_type`` / ``status`` are kept on the signature for call-site
+        compatibility — they fed the old SSE ``agent_run_completed`` event
+        (removed in PR2.D); the frontend now learns the outcome from the
+        polled agent-runs query.
         """
-        self._pending_approvals.pop(agent_run_id, None)
-        self._permission_pending.pop(agent_run_id, None)
-        # IMPL-0020 — emit the run-completed progress event BEFORE the
-        # terminal ``done`` so the SSE consumer sees the transition.
-        # Published via ``push_permission_event`` (vs. queue.put_nowait
-        # directly) so the publish surface stays single-funnel and is
-        # cleanly interceptable by tests.
-        self.push_permission_event(
-            workspace_id,
-            {
-                "type": "agent_run_completed",
-                "agent_type": agent_type,
-                "run_id": agent_run_id,
-                "status": status,
-            },
-        )
         self._active_runs.pop(workspace_id, None)
-        queue = self._permission_queues.pop(workspace_id, None)
-        if queue:
-            # Signal completion to any SSE listener
-            queue.put_nowait({"type": "done"})
-
-    async def _patch_permission_marker(
-        self,
-        db: aiosqlite.Connection,
-        agent_run_id: str,
-        permission_id: str,
-        *,
-        pending: bool,
-        request: dict[str, Any] | None,
-    ) -> None:
-        """Set or clear the agent-permission marker. Never raises.
-
-        A DB hiccup here must not strand the agent — the SSE callback
-        still fires and reconcile-on-startup cleans up if everything
-        falls over.
-        """
-        if not agent_run_id:
-            return
-        try:
-            await update_agent_run(
-                db,
-                agent_run_id,
-                AgentRunUpdate(
-                    permission_pending=pending,
-                    permission_request=request,
-                ),
-            )
-        except Exception:  # noqa: BLE001
-            verb = "persist" if pending else "clear"
-            logger.exception(
-                "Failed to %s permission_pending marker "
-                "(agent_run=%s, permission=%s)",
-                verb, agent_run_id, permission_id,
-            )
 
     async def execute(
         self,
@@ -884,7 +742,6 @@ class AgentExecutor:
         workspace_dir: str,
         timeout: float = DEFAULT_TIMEOUT,
         on_progress: Callable[[str], None] | None = None,
-        on_permission: Callable[[dict], None] | None = None,
         env_vars: dict[str, str] | None = None,
         user_note: str | None = None,
     ) -> AgentExecutionResult:
@@ -897,8 +754,6 @@ class AgentExecutor:
             workspace_dir: Path to the workspace directory on disk.
             timeout: Maximum seconds to wait for the agent.
             on_progress: Optional callback for streaming text chunks.
-            on_permission: Optional callback when a tool needs user approval.
-                Called with {id, tool, patterns} dict.
             user_note: PRD-0006 Phase 2 — user refinement note. Only honored
                 when ``agent_type == 'remediation_planner'``; ignored for
                 other agents. Re-runs replace ``SidebarState.plan`` per the
@@ -923,28 +778,10 @@ class AgentExecutor:
             AgentRunCreate(agent_type=agent_type, status="running"),
         )
 
-        # Set up per-workspace state for permission event streaming.
-        # Use ``ensure_permission_queue`` (not direct assignment) so that
-        # if the side panel already opened the SSE stream and auto-vivified
-        # a queue, we publish into the SAME queue the consumer is awaiting.
-        # Otherwise the ``agent_run_started`` push below goes to a fresh
-        # queue with no listener, defeating B36 / IMPL-0020.
-        self.ensure_permission_queue(workspace_id)
+        # Mark the workspace busy for the run's lifetime. The frontend
+        # learns about start/finish + any pending approval from the polled
+        # agent-runs query (the SSE progress channel was removed in PR2.D).
         self._active_runs[workspace_id] = agent_run.id
-
-        # IMPL-0020 — fan an ``agent_run_started`` progress event out to
-        # any SSE listener so the side panel can flip the activity row
-        # the moment the pipeline advances, without waiting for the next
-        # poll tick (B36).
-        self.push_permission_event(
-            workspace_id,
-            {
-                "type": "agent_run_started",
-                "agent_type": agent_type,
-                "run_id": agent_run.id,
-                "status": "running",
-            },
-        )
 
         # Tool agents (e.g. remediation_executor) need more time for
         # git clone, push, and PR creation. ``effective_timeout`` is
@@ -1814,50 +1651,6 @@ class AgentExecutor:
                 duration_seconds=time.monotonic() - start_time,
             )
 
-    async def _send_and_collect(
-        self,
-        client: Any,
-        session_id: str,
-        prompt: str,
-        *,
-        timeout: float,
-        on_progress: Callable[[str], None] | None = None,
-        on_permission: Callable[[dict], None] | None = None,
-        agent_run_id: str = "",
-        agent_type: str = "",
-        send_delay: float = 0.5,
-        db: aiosqlite.Connection,
-    ) -> str:
-        """Send a prompt and collect the streamed response.
-
-        The send_delay gives the SSE stream time to connect before the
-        message is sent. Set to 0 for follow-up messages on an already-
-        connected session.
-        """
-
-        async def _send() -> None:
-            if send_delay > 0:
-                await asyncio.sleep(send_delay)
-            with contextlib.suppress(httpx.ReadTimeout):
-                await client.send_message(session_id, prompt)
-
-        send_task = asyncio.create_task(_send())
-        try:
-            return await self._collect_response(
-                client, session_id,
-                timeout=timeout,
-                on_progress=on_progress,
-                on_permission=on_permission,
-                agent_run_id=agent_run_id,
-                agent_type=agent_type,
-                db=db,
-            )
-        finally:
-            if not send_task.done():
-                send_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await send_task
-
     async def check_not_busy(
         self, db: aiosqlite.Connection, workspace_id: str
     ) -> None:
@@ -1870,242 +1663,3 @@ class AgentExecutor:
                     f"in workspace {workspace_id}"
                 )
 
-    async def _collect_response(
-        self,
-        client: Any,
-        session_id: str,
-        *,
-        timeout: float,
-        on_progress: Callable[[str], None] | None = None,
-        on_permission: Callable[[dict], None] | None = None,
-        agent_run_id: str = "",
-        agent_type: str = "",
-        stall_timeout: float = 60.0,
-        db: aiosqlite.Connection,
-    ) -> str:
-        """Collect the full response from OpenCode via SSE stream.
-
-        Accumulates text events until ``done`` or until no new events
-        arrive for ``stall_timeout`` seconds (stall detection — OpenCode
-        may not emit ``session.idle`` if the agent uses tools).
-
-        Handles permission.asked events: auto-approves safe tools,
-        waits for user approval on risky ones.
-
-        Raises AgentTimeoutError if the overall timeout is exceeded.
-        """
-        collected_text = ""
-        last_event_time = time.monotonic()
-        permission_wait_total = 0.0  # Total seconds spent waiting for user approval
-
-        # Tool agents need longer stall timeout for git/build operations
-        if agent_type in _TOOL_AGENT_TYPES:
-            stall_timeout = max(stall_timeout, 180.0)
-
-        # A genuinely hung agent emits no events of any kind. Catch that fast
-        # (Q01-B10) rather than dead-waiting the full overall ceiling — but
-        # use a wider window than the with-content stall so a slow first
-        # token under heavy concurrency (Q01-B12) is not mistaken for a hang.
-        no_output_stall = max(90.0, stall_timeout)
-
-        async def _handle_permission(event: dict) -> None:
-            """Handle a permission request based on tool tier."""
-            tool = event.get("tool", "unknown")
-            permission_id = event.get("id", "")
-            patterns = event.get("patterns", [])
-            tier = TOOL_TIERS.get(tool, "user")
-
-            # Tool agents (e.g. remediation_executor) no longer blanket-
-            # approve bash/edit/external_directory. Each request is
-            # classified by command/path: routine git/gh/build commands
-            # auto-approve, but destructive commands (rm, git reset --hard,
-            # …), pipe-to-shell, and any attempt to reach outside the
-            # workspace escalate to the user. Denylist-based — a
-            # defense-in-depth layer on top of GIT_CEILING_DIRECTORIES and
-            # the agent prompt, not a substitute for process sandboxing.
-            if agent_type in _TOOL_AGENT_TYPES:
-                tier = _classify_tool_request(tool, patterns)
-
-            if tier == "auto":
-                logger.info(
-                    "Auto-approving %s tool (permission %s)",
-                    tool, permission_id,
-                )
-                await client.grant_permission(
-                    permission_id, session_id=session_id,
-                )
-                return
-
-            if tier == "deny":
-                # Catastrophic command — reject immediately. Denying (vs.
-                # escalating) gives the agent fast feedback to recover or
-                # report, instead of stalling on an approval prompt the
-                # frontend doesn't surface yet.
-                logger.warning(
-                    "Auto-denying %s tool (permission %s) — command "
-                    "classified catastrophic: %s",
-                    tool, permission_id, event.get("patterns", []),
-                )
-                await client.deny_permission(
-                    permission_id, session_id=session_id,
-                )
-                return
-
-            # User-tier: store pending approval and wait
-            logger.info(
-                "Permission requested for %s tool (permission %s), "
-                "waiting for user approval",
-                tool, permission_id,
-            )
-            patterns_list = event.get("patterns", [])
-            pending = _PendingApproval(
-                permission_id=permission_id,
-                tool=tool,
-                patterns=patterns_list,
-                event=asyncio.Event(),
-            )
-            self._pending_approvals[agent_run_id] = pending
-
-            # Persist the marker so issue_derivation.derive() can route the
-            # finding to Review / awaiting_permission. Without this, the
-            # only signal is the in-memory dict + SSE event — which means
-            # a page reload, or a user not looking at this workspace,
-            # would never see the prompt.
-            await self._patch_permission_marker(
-                db,
-                agent_run_id,
-                permission_id,
-                pending=True,
-                request={
-                    "id": permission_id,
-                    "tool": tool,
-                    "patterns": patterns_list,
-                },
-            )
-
-            if on_permission:
-                on_permission({
-                    "id": permission_id,
-                    "tool": tool,
-                    "patterns": patterns_list,
-                    "run_id": agent_run_id,
-                })
-
-            # Pause stall detection while waiting for user decision
-            self._permission_pending[agent_run_id] = True
-            wait_start = time.monotonic()
-            await pending.event.wait()
-            wait_elapsed = time.monotonic() - wait_start
-            self._permission_pending.pop(agent_run_id, None)
-            nonlocal permission_wait_total
-            permission_wait_total += wait_elapsed
-            # Extend the stall timer to exclude user decision time
-            nonlocal last_event_time
-            last_event_time = time.monotonic()
-
-            # Clear the persisted marker. Covers approve, deny, AND the
-            # disconnect-auto-deny path (the SSE stream endpoint calls
-            # deny_tool on client disconnect, which sets pending.event).
-            await self._patch_permission_marker(
-                db, agent_run_id, permission_id, pending=False, request=None,
-            )
-
-            if pending.approved:
-                await client.grant_permission(
-                    permission_id, session_id=session_id,
-                )
-            else:
-                await client.deny_permission(
-                    permission_id, session_id=session_id,
-                )
-
-            self._pending_approvals.pop(agent_run_id, None)
-
-        async def _stream() -> str:
-            nonlocal collected_text, last_event_time
-            async for event in client.stream_events(session_id):
-                last_event_time = time.monotonic()
-                if event["type"] == "text":
-                    collected_text = event["content"]
-                    if on_progress:
-                        on_progress(event["content"])
-                elif event["type"] == "error":
-                    message = event.get("message", "unknown")
-                    wrapped = f"OpenCode error: {message}"
-                    # EF-B17 — classify provider rate-limit early so the
-                    # executor retry loop can apply exponential backoff
-                    # instead of treating it as a fatal process error.
-                    if _looks_like_rate_limit(message):
-                        raise AgentRateLimitError(wrapped)
-                    raise AgentProcessError(wrapped)
-                elif event["type"] == "done":
-                    return collected_text
-                elif event["type"] == "permission_request":
-                    await _handle_permission(event)
-                # "activity" events (tool calls, etc.) also reset the timer
-                # via last_event_time update above.
-            return collected_text
-
-        async def _stream_with_stall_detection() -> str:
-            """Wrap stream with stall detection.
-
-            The overall timeout excludes time spent waiting for user
-            permission decisions (tracked via permission_wait_total).
-            """
-            stream_start = time.monotonic()
-            stream_task = asyncio.create_task(_stream())
-            try:
-                while not stream_task.done():
-                    await asyncio.sleep(2.0)
-                    # Skip stall detection while waiting for user permission
-                    if self._permission_pending.get(agent_run_id):
-                        continue
-                    idle = time.monotonic() - last_event_time
-                    if idle > stall_timeout and collected_text:
-                        # Stream stalled with content — treat as complete
-                        stream_task.cancel()
-                        with contextlib.suppress(asyncio.CancelledError):
-                            await stream_task
-                        return collected_text
-                    if idle > no_output_stall and not collected_text:
-                        # No events of any kind for a long stretch and
-                        # nothing collected — the agent is hung. Fail fast
-                        # (Q01-B10); the run-all loop re-runs it next pass.
-                        stream_task.cancel()
-                        with contextlib.suppress(asyncio.CancelledError):
-                            await stream_task
-                        raise AgentTimeoutError(
-                            f"Agent produced no output for "
-                            f"{no_output_stall:.0f}s — treating as hung."
-                        )
-                    # Check effective timeout (wall clock minus permission wait)
-                    effective_elapsed = (
-                        time.monotonic() - stream_start - permission_wait_total
-                    )
-                    if effective_elapsed > timeout:
-                        stream_task.cancel()
-                        with contextlib.suppress(asyncio.CancelledError):
-                            await stream_task
-                        raise AgentTimeoutError(
-                            f"Agent did not complete within {timeout:.0f}s "
-                            f"(excludes {permission_wait_total:.0f}s user approval time)."
-                        )
-                return stream_task.result()
-            except asyncio.CancelledError:
-                stream_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await stream_task
-                raise
-
-        max_wall_clock = timeout + PERMISSION_WAIT_BUFFER
-        try:
-            return await asyncio.wait_for(
-                _stream_with_stall_detection(), timeout=max_wall_clock
-            )
-        except TimeoutError as exc:
-            effective_timeout = timeout + permission_wait_total
-            raise AgentTimeoutError(
-                f"Agent did not complete within {effective_timeout:.0f}s "
-                f"(includes {permission_wait_total:.0f}s user approval time). "
-                f"Collected {len(collected_text)} chars before timeout."
-            ) from exc

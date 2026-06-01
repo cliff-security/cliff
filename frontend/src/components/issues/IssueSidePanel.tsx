@@ -18,8 +18,7 @@
  * runs) is loaded lazily via existing hooks when a workspace exists.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
-import { api, parseApiError } from '../../api/client'
+import { parseApiError } from '../../api/client'
 import type { AgentRun, ExceptionReason, Finding, IssueStage } from '../../api/client'
 import {
   useAgentRuns,
@@ -173,61 +172,16 @@ export function IssueSidePanel({
     }
   }, [closePanel])
 
-  // SSE nudge — when the side panel is open on a workspace, subscribe to
-  // the agent-execution stream and cache-bust ``agent-runs`` whenever the
-  // backend emits a progress event. Three event types are handled today:
-  //   - ``permission_request`` (PR #165) — lights up the prompt row.
-  //   - ``agent_run_started`` (IMPL-0020, B36) — refreshes the activity
-  //     feed the instant the pipeline advances to the next agent.
-  //   - ``agent_run_completed`` (IMPL-0020, B36) — refreshes when a run
-  //     finishes (success or failure). The sidebar query is also
-  //     invalidated so the stage chip flips without the 5s idle poll.
-  // The polled ``agent-runs`` query (3s active / 5s idle) remains the
-  // source of truth; this just removes the F5 dependency. On any SSE
-  // error we silently fall back to polling — no user-visible failure,
-  // no reconnection storm.
-  const queryClient = useQueryClient()
-  useEffect(() => {
-    if (!workspaceId) return
-    let es: EventSource | null = null
-    try {
-      es = api.streamAgentExecution(workspaceId)
-    } catch {
-      return
-    }
-    const nudge = () => {
-      queryClient.invalidateQueries({
-        queryKey: ['agent-runs', workspaceId],
-      })
-      queryClient.invalidateQueries({
-        queryKey: ['sidebar', workspaceId],
-      })
-    }
-    // ``finding.derived.stage`` is computed by the backend from the
-    // latest agent run + sidebar, so the parent IssuesPage's row stage
-    // chip + section bucketing only re-derive when its findings query
-    // refetches. Bump it on the SSE events that actually advance the
-    // stage — agent_run_completed (terminal) and permission_request
-    // (pauses into "awaiting_permission" → "Needs you" section).
-    // agent_run_started fires once per sub-agent and never changes the
-    // stage, so it stays on the cheap per-workspace nudge.
-    const nudgeWithFindings = () => {
-      nudge()
-      queryClient.invalidateQueries({ queryKey: ['findings'] })
-    }
-    es.addEventListener('permission_request', nudgeWithFindings)
-    es.addEventListener('agent_run_started', nudge)
-    es.addEventListener('agent_run_completed', nudgeWithFindings)
-    es.addEventListener('error', () => {
-      // EventSource auto-reconnects on transient errors.
-    })
-    return () => {
-      es?.removeEventListener('permission_request', nudgeWithFindings)
-      es?.removeEventListener('agent_run_started', nudge)
-      es?.removeEventListener('agent_run_completed', nudgeWithFindings)
-      es?.close()
-    }
-  }, [workspaceId, queryClient])
+  // ADR-0047 / PR #2 — the agent-execution SSE channel is gone. It was
+  // only ever a refetch *nudge* over the polled ``agent-runs`` query (3s
+  // while a run is active / 5s idle), which is and always was the source
+  // of truth: the permission prompt renders from
+  // ``runningRun.permission_request`` and the activity feed from the
+  // agent_run rows — both already polled. With the executor now parking a
+  // durable DeferredToolRequests marker on the row, the poll surfaces the
+  // approval prompt and run-status transitions within one interval, so no
+  // push channel is needed. (The chat SSE — api.streamWorkspaceEvents — is
+  // unrelated and stays.)
 
   return (
     <aside

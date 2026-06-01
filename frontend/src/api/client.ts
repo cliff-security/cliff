@@ -788,10 +788,6 @@ export const api = {
       { method: 'POST' },
     ),
 
-  // Agent execution SSE stream (connect when agent starts, disconnect on completion)
-  streamAgentExecution: (workspaceId: string): EventSource =>
-    new EventSource(`/api/workspaces/${workspaceId}/agent-execution/stream`),
-
   // Permission approval (programmatic execute path)
   respondToPermission: (workspaceId: string, runId: string, approved: boolean) =>
     request<{ status: string; agent_run_id: string }>(

@@ -15,7 +15,6 @@ from cliff.agents.executor import (
     AgentExecutor,
     _classify_tool_request,
     _load_workspace_data,
-    _PendingApproval,
     build_agent_prompt,
 )
 from cliff.agents.output_parser import ParseResult
@@ -217,6 +216,11 @@ class TestAgentExecutor:
         # Sidebar should have been updated
         mock_sidebar.assert_called_once()
 
+    @pytest.mark.skip(
+        reason="SSE progress events (agent_run_started/completed) removed in "
+        "PR2.D; the frontend now learns run transitions from the polled "
+        "agent-runs query."
+    )
     @pytest.mark.asyncio
     async def test_execute_publishes_started_and_completed_events(
         self, mock_pool, mock_context_builder, mock_db, workspace_dir
@@ -280,6 +284,10 @@ class TestAgentExecutor:
         assert completed["status"] == "completed"
         assert completed["run_id"] == started["run_id"]
 
+    @pytest.mark.skip(
+        reason="SSE progress events removed in PR2.D; failure transitions "
+        "surface via the polled agent-runs query."
+    )
     @pytest.mark.asyncio
     async def test_execute_publishes_completed_with_failed_status_on_parse_failure(
         self, mock_pool, mock_context_builder, mock_db, workspace_dir
@@ -318,6 +326,10 @@ class TestAgentExecutor:
         assert len(completed) == 1
         assert completed[0]["status"] == "failed"
 
+    @pytest.mark.skip(
+        reason="The SSE permission queue (ensure_permission_queue) was removed "
+        "in PR2.D/E; there is no per-workspace event queue any more."
+    )
     @pytest.mark.asyncio
     async def test_execute_preserves_preexisting_permission_queue(
         self, mock_pool, mock_context_builder, mock_db, workspace_dir
@@ -1069,60 +1081,10 @@ class TestPermissionTiers:
         assert TOOL_TIERS.get("some_new_tool", "user") == "user"
 
 
-class TestPermissionApproval:
-    def test_approve_tool(self):
-        """approve_tool resolves a pending approval."""
-        pool = AsyncMock()
-        builder = AsyncMock()
-        executor = AgentExecutor(pool, builder)
-
-        pending = _PendingApproval(
-            permission_id="per_123",
-            tool="bash",
-            patterns=["ls -la"],
-            event=asyncio.Event(),
-        )
-        executor._pending_approvals["run-1"] = pending
-
-        assert executor.approve_tool("run-1") is True
-        assert pending.approved is True
-        assert pending.event.is_set()
-
-    def test_deny_tool(self):
-        """deny_tool resolves a pending approval with denied."""
-        pool = AsyncMock()
-        builder = AsyncMock()
-        executor = AgentExecutor(pool, builder)
-
-        pending = _PendingApproval(
-            permission_id="per_123",
-            tool="bash",
-            patterns=["rm -rf /"],
-            event=asyncio.Event(),
-        )
-        executor._pending_approvals["run-1"] = pending
-
-        assert executor.deny_tool("run-1") is True
-        assert pending.approved is False
-        assert pending.event.is_set()
-
-    def test_approve_nonexistent_returns_false(self):
-        """approve_tool returns False when no pending approval."""
-        pool = AsyncMock()
-        builder = AsyncMock()
-        executor = AgentExecutor(pool, builder)
-
-        assert executor.approve_tool("no-such-run") is False
-
-    def test_deny_nonexistent_returns_false(self):
-        """deny_tool returns False when no pending approval — the SSE
-        disconnect path relies on this being a no-op for already-resolved
-        runs, so the second deny doesn't blow up."""
-        pool = AsyncMock()
-        builder = AsyncMock()
-        executor = AgentExecutor(pool, builder)
-
-        assert executor.deny_tool("no-such-run") is False
+# TestPermissionApproval (approve_tool / deny_tool / _PendingApproval) was
+# deleted in PR2.E — the in-process asyncio.Event approval flow is gone.
+# Approve/deny now resume the run via executor.resume_executor; coverage
+# lives in tests/agents/test_deferred_tools_persist.py.
 
 
 class TestClassifyToolRequest:

@@ -18,50 +18,15 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import type { ReactNode } from 'react'
 import { MemoryRouter } from 'react-router'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { server } from '../mocks/server'
 import { IssueSidePanel } from '@/components/issues/IssueSidePanel'
 import type { AgentRun, Finding } from '@/api/client'
 
-// ---------------------------------------------------------------------------
-// EventSource is not available in jsdom. The side panel opens one for the
-// SSE nudge — stub it with a noop so the effect runs to completion without
-// hitting the real DOM API. The stub also lets us assert the URL the panel
-// asked for, which is the part of the nudge that's worth covering.
-// ---------------------------------------------------------------------------
-
-const openedEventSources: string[] = []
-
-class StubEventSource {
-  url: string
-  onerror: ((ev: Event) => unknown) | null = null
-  onmessage: ((ev: MessageEvent) => unknown) | null = null
-  onopen: ((ev: Event) => unknown) | null = null
-  constructor(url: string) {
-    this.url = url
-    openedEventSources.push(url)
-  }
-  addEventListener(): void {
-    /* noop */
-  }
-  removeEventListener(): void {
-    /* noop */
-  }
-  close(): void {
-    /* noop */
-  }
-}
-
-beforeEach(() => {
-  openedEventSources.length = 0
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ;(globalThis as any).EventSource = StubEventSource
-})
-
-afterEach(() => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  delete (globalThis as any).EventSource
-})
+// ADR-0047 / PR #2 — the panel no longer opens an agent-execution SSE
+// subscription; the permission prompt renders entirely from the polled
+// ``agent-runs`` query (``runningRun.permission_request``). No EventSource
+// stub is needed.
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -329,14 +294,4 @@ describe('<IssueSidePanel /> permission prompt', () => {
     expect(screen.queryByTestId('permission-approve')).not.toBeInTheDocument()
   })
 
-  it('opens an SSE subscription to the workspace agent-execution stream', async () => {
-    server.use(...baseHandlers([makeRun()]))
-    renderPanel(makeFinding())
-    await waitFor(() =>
-      expect(screen.getByTestId('permission-prompt')).toBeInTheDocument(),
-    )
-    expect(openedEventSources).toContain(
-      '/api/workspaces/ws-1/agent-execution/stream',
-    )
-  })
 })
