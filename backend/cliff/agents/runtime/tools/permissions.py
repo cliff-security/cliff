@@ -36,6 +36,7 @@ matches none of these patterns and stays on the ``auto`` path.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pydantic_ai.exceptions import ApprovalRequired, ModelRetry
@@ -47,6 +48,18 @@ if TYPE_CHECKING:
     from pydantic_ai import RunContext
 
     from cliff.agents.runtime.deps import WorkspaceDeps
+
+
+def escapes_workspace(workspace_dir: str, path: str) -> bool:
+    """True if *path* resolves outside *workspace_dir*.
+
+    Shared by the ``edit`` and ``read`` tools as a resolved-path
+    containment check — catches escapes the textual classifier can miss
+    (symlinks, normalized separators, absolute paths).
+    """
+    root = Path(workspace_dir).resolve()
+    target = (root / path).resolve()
+    return root != target and root not in target.parents
 
 
 # Never legitimate — hard-deny, don't even ask.
@@ -171,5 +184,6 @@ def gate_tool_call(
 
 __all__ = [
     "classify_tool_request",
+    "escapes_workspace",
     "gate_tool_call",
 ]

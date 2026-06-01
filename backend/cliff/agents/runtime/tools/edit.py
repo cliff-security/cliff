@@ -21,14 +21,7 @@ from pydantic_ai import RunContext
 from pydantic_ai.exceptions import ApprovalRequired
 
 from cliff.agents.runtime.deps import WorkspaceDeps
-from cliff.agents.runtime.tools.permissions import gate_tool_call
-
-
-def _escapes_workspace(workspace_dir: str, path: str) -> bool:
-    """True if *path* resolves outside *workspace_dir*."""
-    root = Path(workspace_dir).resolve()
-    target = (root / path).resolve()
-    return root != target and root not in target.parents
+from cliff.agents.runtime.tools.permissions import escapes_workspace, gate_tool_call
 
 
 async def edit(ctx: RunContext[WorkspaceDeps], path: str, content: str) -> str:
@@ -47,7 +40,7 @@ async def edit(ctx: RunContext[WorkspaceDeps], path: str, content: str) -> str:
 
     # Resolved-path containment — a second line of defense the textual
     # classifier can't fully cover (symlinks, normalized separators).
-    if not ctx.tool_call_approved and _escapes_workspace(
+    if not ctx.tool_call_approved and escapes_workspace(
         ctx.deps.workspace_dir, path
     ):
         raise ApprovalRequired(
@@ -66,8 +59,15 @@ async def edit(ctx: RunContext[WorkspaceDeps], path: str, content: str) -> str:
         return target.write_text(content)
 
     written = await asyncio.to_thread(_write)
-    rel = target.relative_to(Path(ctx.deps.workspace_dir).resolve())
-    return f"Wrote {written} byte(s) to {rel}."
+    # An approved escaping write resolves outside the workspace, so
+    # ``relative_to`` would raise — fall back to the absolute path for the
+    # confirmation message rather than crashing after a successful write.
+    root = Path(ctx.deps.workspace_dir).resolve()
+    try:
+        shown = target.relative_to(root)
+    except ValueError:
+        shown = target
+    return f"Wrote {written} byte(s) to {shown}."
 
 
 __all__ = ["edit"]

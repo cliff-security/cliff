@@ -830,6 +830,15 @@ class AgentExecutor:
                     return await self._park_for_permission(
                         db, workspace_id, agent_run, outcome, start_time
                     )
+                # By contract a non-paused outcome always carries a
+                # parse_result; guard the typed Optional so a contract
+                # violation surfaces as a failed run, not an AttributeError
+                # crash in _finalize_run.
+                if outcome.parse_result is None:
+                    raise AgentProcessError(
+                        "executor run returned neither a result nor a "
+                        "permission request"
+                    )
                 parse_result = outcome.parse_result
             else:
                 # ============ Pydantic AI no-tools path ================

@@ -530,7 +530,7 @@ async def respond_to_permission(
     executor = request.app.state.agent_executor
 
     run = await get_agent_run(db, run_id)
-    if run is None or not run.permission_pending:
+    if run is None or run.workspace_id != workspace_id or not run.permission_pending:
         raise HTTPException(
             status_code=404,
             detail="No pending permission request for this agent run",

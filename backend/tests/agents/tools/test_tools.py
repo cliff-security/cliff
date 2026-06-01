@@ -110,9 +110,21 @@ class TestEdit:
             await edit(_ctx(tmp_path), "link/escaped.txt", "x")
 
     @pytest.mark.asyncio
-    async def test_approved_write_outside_proceeds(self, tmp_path):
+    async def test_approved_inside_write_proceeds(self, tmp_path):
         result = await edit(_ctx(tmp_path, approved=True), "src/ok.py", "y\n")
         assert "Wrote" in result
+        assert (tmp_path / "src" / "ok.py").read_text() == "y\n"
+
+    @pytest.mark.asyncio
+    async def test_approved_escaping_write_proceeds_without_crash(self, tmp_path):
+        """An approved write that resolves OUTSIDE the workspace must
+        succeed and report an absolute path — not crash in ``relative_to``."""
+        outside = tmp_path.parent / "outside_repo"
+        outside.mkdir(exist_ok=True)
+        (tmp_path / "link").symlink_to(outside)
+        result = await edit(_ctx(tmp_path, approved=True), "link/escaped.txt", "z\n")
+        assert "Wrote" in result
+        assert (outside / "escaped.txt").read_text() == "z\n"
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +148,18 @@ class TestRead:
         result = await read(_ctx(tmp_path), "big.txt")
         assert "truncated" in result
         assert len(result) < 60 * 1024
+
+    @pytest.mark.asyncio
+    async def test_escaping_path_refused(self, tmp_path):
+        """``read`` is auto-tier with no approval surface, so a path that
+        resolves outside the workspace is refused outright — it must not
+        return the contents of an arbitrary host file."""
+        secret = tmp_path.parent / "secret.txt"
+        secret.write_text("top secret")
+        (tmp_path / "link").symlink_to(tmp_path.parent)
+        result = await read(_ctx(tmp_path), "link/secret.txt")
+        assert "refused" in result
+        assert "top secret" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +198,19 @@ class TestWebfetch:
         )
         result = await webfetch(_ctx(tmp_path), "https://api.example.com/x")
         assert "ok" in result
+
+    @pytest.mark.asyncio
+    async def test_oversize_body_truncated(self, tmp_path, httpx_mock):
+        """A body larger than the cap is truncated — the stream is only
+        read up to the limit, so a huge response can't blow memory."""
+        httpx_mock.add_response(
+            url="https://example.com/huge",
+            text="A" * (200 * 1024),
+            headers={"content-type": "text/plain"},
+        )
+        result = await webfetch(_ctx(tmp_path), "https://example.com/huge")
+        assert "truncated" in result
+        assert len(result.encode("utf-8")) < 200 * 1024
 
 
 # ---------------------------------------------------------------------------

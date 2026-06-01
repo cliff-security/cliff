@@ -3,6 +3,11 @@
 Auto-tier (no approval): reading is non-destructive. Output is capped at
 50 KB so a giant lockfile or minified bundle can't blow the model's
 context; larger files return a prefix plus a truncation marker.
+
+Reads are confined to the workspace directory. Unlike ``edit`` (which can
+escalate an escaping write to the user via ``ApprovalRequired``), ``read``
+runs on the auto tier with no approval surface, so an escaping path is
+refused outright rather than gated — there is no UI to approve it against.
 """
 
 from __future__ import annotations
@@ -15,6 +20,7 @@ from pathlib import Path
 from pydantic_ai import RunContext
 
 from cliff.agents.runtime.deps import WorkspaceDeps
+from cliff.agents.runtime.tools.permissions import escapes_workspace
 
 _MAX_READ_BYTES = 50 * 1024
 
@@ -23,8 +29,12 @@ async def read(ctx: RunContext[WorkspaceDeps], path: str) -> str:
     """Return the contents of *path* (relative to the workspace).
 
     Reads at most 50 KB; larger files are truncated with a marker so the
-    agent knows the view is partial.
+    agent knows the view is partial. Paths that resolve outside the
+    workspace are refused (the tool cannot read arbitrary host files).
     """
+    if escapes_workspace(ctx.deps.workspace_dir, path):
+        return f"[refused: {path} resolves outside the workspace]"
+
     target = (Path(ctx.deps.workspace_dir) / path).resolve()
 
     def _read() -> tuple[str, bool]:

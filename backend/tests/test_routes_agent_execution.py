@@ -706,17 +706,19 @@ class TestParseOwnerRepoFromUrl:
 # ---------------------------------------------------------------------------
 
 
-def _permission_route_patches(*, pending: bool):
+def _permission_route_patches(*, pending: bool, run_workspace_id: str = "ws-1"):
     """Patch the route's get_agent_run / get_workspace / env-resolver.
 
     ``pending`` controls whether the agent_run reports a pending permission
-    request (the 404 gate keys off it).
+    request (the 404 gate keys off it). ``run_workspace_id`` sets the
+    workspace the run belongs to — the route's ownership gate 404s when it
+    differs from the URL's workspace id.
     """
     from types import SimpleNamespace
 
     run = AgentRun(
         id="run-1",
-        workspace_id="ws-1",
+        workspace_id=run_workspace_id,
         agent_type="remediation_executor",
         status="running",
         permission_pending=pending,
@@ -746,10 +748,12 @@ class TestPermissionEndpoint:
     async def test_approve_resumes_executor(self, app, client):
         executor = app.state.agent_executor
         calls: list[tuple[str, bool]] = []
+        resumed = asyncio.Event()
 
         async def _resume(db, ws, rid, *, approved, workspace_dir,
                           deny_message=None, env_vars=None):
             calls.append((rid, approved))
+            resumed.set()
 
         executor.resume_executor = _resume
         ps = _permission_route_patches(pending=True)
@@ -764,8 +768,8 @@ class TestPermissionEndpoint:
             body = resp.json()
             assert body["status"] == "approved"
             assert body["agent_run_id"] == "run-1"
-            # Background resume is scheduled; let it run a tick.
-            await asyncio.sleep(0.02)
+            # Background resume is scheduled; wait for it deterministically.
+            await asyncio.wait_for(resumed.wait(), timeout=2.0)
             assert calls == [("run-1", True)]
         finally:
             for p in ps:
@@ -775,10 +779,12 @@ class TestPermissionEndpoint:
     async def test_deny_resumes_executor_with_denied(self, app, client):
         executor = app.state.agent_executor
         calls: list[tuple[str, bool]] = []
+        resumed = asyncio.Event()
 
         async def _resume(db, ws, rid, *, approved, workspace_dir,
                           deny_message=None, env_vars=None):
             calls.append((rid, approved))
+            resumed.set()
 
         executor.resume_executor = _resume
         ps = _permission_route_patches(pending=True)
@@ -791,7 +797,7 @@ class TestPermissionEndpoint:
             )
             assert resp.status_code == 200
             assert resp.json()["status"] == "denied"
-            await asyncio.sleep(0.02)
+            await asyncio.wait_for(resumed.wait(), timeout=2.0)
             assert calls == [("run-1", False)]
         finally:
             for p in ps:
@@ -809,6 +815,34 @@ class TestPermissionEndpoint:
             )
             assert resp.status_code == 404
             assert "No pending permission request" in resp.json()["detail"]
+        finally:
+            for p in ps:
+                p.stop()
+
+    @pytest.mark.asyncio
+    async def test_run_owned_by_other_workspace_returns_404(self, app, client):
+        """A pending run that belongs to a different workspace must not be
+        resumable through this workspace's URL (no cross-workspace resume
+        with the wrong env)."""
+        executor = app.state.agent_executor
+        called = False
+
+        async def _resume(*a, **k):
+            nonlocal called
+            called = True
+
+        executor.resume_executor = _resume
+        # The run is pending but owned by ws-OTHER, not the URL's ws-1.
+        ps = _permission_route_patches(pending=True, run_workspace_id="ws-OTHER")
+        for p in ps:
+            p.start()
+        try:
+            resp = await client.post(
+                "/api/workspaces/ws-1/agent-runs/run-1/permission",
+                json={"approved": True},
+            )
+            assert resp.status_code == 404
+            assert called is False
         finally:
             for p in ps:
                 p.stop()

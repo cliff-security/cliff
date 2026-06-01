@@ -34,13 +34,15 @@ from typing import TYPE_CHECKING, Any
 from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from pydantic_ai.toolsets import AbstractToolset
 
 logger = logging.getLogger(__name__)
 
 
 @contextmanager
-def _suppress_mcp_v2_deprecation():
+def _suppress_mcp_v2_deprecation() -> Iterator[None]:
     """Silence the PA-1.98 ``MCPServerStdio``/``MCPServerStreamableHTTP``
     deprecation at the construction site — see the module docstring for
     why these classes are the right choice on the pinned line."""
@@ -83,6 +85,11 @@ def _build_one(entry_id: str, cfg: dict[str, Any]) -> AbstractToolset[Any] | Non
 
     if server_type == "local":
         command = cfg["command"]
+        if not isinstance(command, (list, tuple)):
+            raise TypeError(
+                f"local MCP config 'command' must be a list, got "
+                f"{type(command).__name__}"
+            )
         if not command:
             raise ValueError("local MCP config has empty command")
         with _suppress_mcp_v2_deprecation():

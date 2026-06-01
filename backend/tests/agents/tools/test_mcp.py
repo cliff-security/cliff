@@ -73,3 +73,20 @@ def test_malformed_entry_skipped_not_fatal():
 def test_unknown_type_skipped():
     configs = {"weird": {"type": "carrier-pigeon", "enabled": True}}
     assert build_mcp_toolsets(configs) == []
+
+
+def test_string_command_skipped_not_split_into_chars():
+    """A ``command`` given as a string (not a list) is malformed: splitting
+    it via ``command[0]`` / ``command[1:]`` would launch ``"n"`` with the
+    rest as args. It must be skipped, not silently mangled."""
+    configs = {
+        "stringly": {"type": "local", "enabled": True, "command": "npx server"},
+        "github": {
+            "type": "local",
+            "enabled": True,
+            "command": ["npx", "server-github"],
+        },
+    }
+    toolsets = build_mcp_toolsets(configs)
+    assert len(toolsets) == 1
+    assert toolsets[0].tool_prefix == "github"
