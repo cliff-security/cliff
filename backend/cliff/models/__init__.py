@@ -170,6 +170,10 @@ class AgentRunUpdate(BaseModel):
     last_error: str | None = None
     permission_pending: bool | None = None
     permission_request: dict[str, Any] | None = None
+    # PA-serialized message history for resuming a paused executor run
+    # (migration 023). Internal-only — not surfaced on the API-facing
+    # ``AgentRun`` below; read back via ``repo_agent_run.get_pa_message_history``.
+    pa_message_history: str | None = None
 
 
 class AgentRun(BaseModel):
