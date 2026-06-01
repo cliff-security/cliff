@@ -651,14 +651,28 @@ class _PaExecutorOutcome:
 def _build_permission_marker(reqs: DeferredToolRequests) -> dict[str, Any]:
     """Shape a ``DeferredToolRequests`` into the ``permission_request`` marker
     the frontend renders (``tool`` + ``patterns``) plus the ``tool_call_ids``
-    the resume path needs to resolve each pending approval."""
+    the resume path needs to resolve each pending approval.
+
+    Cliff's gated tools always raise ``ApprovalRequired`` (→ ``approvals``),
+    so that list is non-empty in practice. We still guard the empty case:
+    PA also models *external* deferred ``calls`` (a mechanism Cliff doesn't
+    use), and an ``approvals``-empty ``DeferredToolRequests`` must park the
+    run cleanly rather than ``IndexError`` out of the dispatch path.
+    """
     approvals = reqs.approvals
     tool_call_ids = [p.tool_call_id for p in approvals]
-    primary = approvals[0]
-    meta = reqs.metadata.get(primary.tool_call_id, {}) if reqs.metadata else {}
+    metadata = reqs.metadata or {}
+    if approvals:
+        primary = approvals[0]
+        meta = metadata.get(primary.tool_call_id, {})
+        tool = meta.get("tool", primary.tool_name)
+        patterns = meta.get("patterns") or []
+    else:
+        tool = "unknown"
+        patterns = []
     return {
-        "tool": meta.get("tool", primary.tool_name),
-        "patterns": meta.get("patterns") or [],
+        "tool": tool,
+        "patterns": patterns,
         "tool_call_ids": tool_call_ids,
     }
 

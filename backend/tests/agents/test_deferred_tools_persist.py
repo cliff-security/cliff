@@ -20,10 +20,11 @@ import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pydantic_ai import DeferredToolRequests
 from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 
-from cliff.agents.executor import AgentExecutor
+from cliff.agents.executor import AgentExecutor, _build_permission_marker
 from cliff.models import AgentRun, AgentRunUpdate
 
 _FINDING = {
@@ -241,3 +242,25 @@ async def test_resume_with_corrupt_history_marks_failed_not_wedged(workspace_dir
     finally:
         for p in patches:
             p.stop()
+
+
+def test_build_permission_marker_from_approval():
+    """The normal shape: one gated tool → tool/patterns from metadata,
+    tool_call_ids the resume path replays."""
+    reqs = DeferredToolRequests(
+        approvals=[ToolCallPart(tool_name="bash", args={}, tool_call_id="tc-1")],
+        metadata={"tc-1": {"tool": "bash", "patterns": ["rm -rf build/"]}},
+    )
+    marker = _build_permission_marker(reqs)
+    assert marker == {
+        "tool": "bash",
+        "patterns": ["rm -rf build/"],
+        "tool_call_ids": ["tc-1"],
+    }
+
+
+def test_build_permission_marker_empty_approvals_does_not_index():
+    """An approvals-empty DeferredToolRequests (PA's external-`calls`
+    mechanism, which Cliff doesn't use) must park cleanly, not IndexError."""
+    marker = _build_permission_marker(DeferredToolRequests())
+    assert marker == {"tool": "unknown", "patterns": [], "tool_call_ids": []}
