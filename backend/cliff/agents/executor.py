@@ -1586,9 +1586,11 @@ class AgentExecutor:
             message_history = ModelMessagesTypeAdapter.validate_json(
                 history_json
             )
+            # ``or []`` (not a ``.get`` default) so an explicit null in the
+            # marker JSON can't slip a None into the comprehension below.
             tool_call_ids = (agent_run.permission_request or {}).get(
-                "tool_call_ids", []
-            )
+                "tool_call_ids"
+            ) or []
             decision = (
                 ToolApproved()
                 if approved
@@ -1644,6 +1646,39 @@ class AgentExecutor:
                 agent_run_id=run_id,
                 agent_type=agent_run.agent_type,
                 status=status,
+                parse_result=ParseResult(
+                    success=False, raw_text="", error=str(exc)
+                ),
+                error=str(exc),
+                duration_seconds=time.monotonic() - start_time,
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Catch-all so a resume can NEVER leave the run wedged at
+            # ``running`` + ``permission_pending`` (workspace busy forever).
+            # The setup steps inside the try — ModelMessagesTypeAdapter.
+            # validate_json on a corrupt/truncated history, or a malformed
+            # tool_call_ids — raise ValidationError/TypeError, which the
+            # specific handler above doesn't cover. Mark the run failed so
+            # the finding routes to the Retry CTA instead of hanging.
+            logger.exception(
+                "Resume failed unexpectedly for run %s; marking failed", run_id
+            )
+            self._cleanup_workspace_state(
+                workspace_id, run_id, agent_type=agent_run.agent_type, status="failed"
+            )
+            await update_agent_run(
+                db,
+                run_id,
+                AgentRunUpdate(
+                    status="failed",
+                    summary_markdown=_humanize_process_error(str(exc)),
+                    last_error=f"Resume failed: {exc}",
+                ),
+            )
+            return AgentExecutionResult(
+                agent_run_id=run_id,
+                agent_type=agent_run.agent_type,
+                status="failed",
                 parse_result=ParseResult(
                     success=False, raw_text="", error=str(exc)
                 ),

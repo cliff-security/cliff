@@ -199,3 +199,45 @@ async def test_resume_without_pending_marker_raises(workspace_dir):
             AsyncMock(), "ws-1", "run-x",
             approved=True, workspace_dir=workspace_dir,
         )
+
+
+@pytest.mark.asyncio
+async def test_resume_with_corrupt_history_marks_failed_not_wedged(workspace_dir):
+    """A corrupt pa_message_history must mark the run failed (recoverable),
+    never leave it wedged at running + permission_pending forever."""
+    store = _FakeRunStore()
+    store.state.update(
+        {
+            "permission_pending": True,
+            "permission_request": {
+                "tool": "bash",
+                "patterns": ["rm -rf x"],
+                "tool_call_ids": ["call-1"],
+            },
+            "pa_message_history": "{ this is not valid pydantic-ai json",
+        }
+    )
+    executor = _build_executor(store)
+
+    patches = (
+        patch("cliff.agents.executor.get_agent_run", store.get),
+        patch("cliff.agents.executor.update_agent_run", store.update),
+        patch("cliff.agents.executor.get_pa_message_history", store.get_history),
+        patch("cliff.agents.executor.list_agent_runs", return_value=[]),
+        patch("cliff.agents.executor.map_and_upsert"),
+        patch("cliff.agents.executor._advance_finding_status", return_value=None),
+    )
+    for p in patches:
+        p.start()
+    try:
+        result = await executor.resume_executor(
+            AsyncMock(), "ws-1", "run-x",
+            approved=True, workspace_dir=workspace_dir,
+        )
+        # Failed, not raised; marker cleared so the workspace isn't wedged.
+        assert result.status == "failed"
+        assert store.state["status"] == "failed"
+        assert store.state["permission_pending"] is False
+    finally:
+        for p in patches:
+            p.stop()
