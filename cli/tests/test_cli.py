@@ -416,11 +416,6 @@ def test_fix_creates_workspace_and_pauses_at_plan(cli, httpx_mock):
         },
     )
     httpx_mock.add_response(
-        url="http://test-server/api/workspaces/ws-1/sessions",
-        method="POST",
-        json={"session_id": "sess-1"},
-    )
-    httpx_mock.add_response(
         url="http://test-server/api/workspaces/ws-1/pipeline/run-all",
         method="POST",
         status_code=202,
@@ -485,11 +480,6 @@ def test_fix_tolerates_initial_404(cli, httpx_mock):
         },
     )
     httpx_mock.add_response(
-        url="http://test-server/api/workspaces/ws-1/sessions",
-        method="POST",
-        json={"session_id": "sess-1"},
-    )
-    httpx_mock.add_response(
         url="http://test-server/api/workspaces/ws-1/pipeline/run-all",
         method="POST",
         status_code=202,
@@ -533,11 +523,6 @@ def test_fix_timeout_emits_json_error(cli, httpx_mock):
             "updated_at": "2026-01-01T00:00:00Z",
             "derived": {"workspace_id": "ws-1"},
         },
-    )
-    httpx_mock.add_response(
-        url="http://test-server/api/workspaces/ws-1/sessions",
-        method="POST",
-        json={"session_id": "sess-1"},
     )
     httpx_mock.add_response(
         url="http://test-server/api/workspaces/ws-1/pipeline/run-all",
