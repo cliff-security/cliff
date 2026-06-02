@@ -160,7 +160,6 @@ async def test_manifest_written_during_workspace_creation(
     db: aiosqlite.Connection, vault: CredentialVault, tmp_path, sample_finding: Finding
 ):
     """Create a workspace with integrations and verify the manifest exists."""
-    from cliff.agents.template_engine import AgentTemplateEngine
     from cliff.db.repo_finding import create_finding
     from cliff.integrations.gateway import MCPConfigResolver
     from cliff.models import FindingCreate
@@ -182,8 +181,7 @@ async def test_manifest_written_during_workspace_creation(
 
     resolver = MCPConfigResolver(vault)
     dir_mgr = WorkspaceDirManager(base_dir=tmp_path)
-    tmpl = AgentTemplateEngine()
-    builder = WorkspaceContextBuilder(dir_mgr, tmpl, mcp_resolver=resolver)
+    builder = WorkspaceContextBuilder(dir_mgr, mcp_resolver=resolver)
 
     workspace = await builder.create_workspace(db, finding)
 
@@ -198,17 +196,11 @@ async def test_manifest_written_during_workspace_creation(
     assert manifest[0]["action_tier"] == 0
     assert "collect" in manifest[0]["capabilities"]
 
-    # Verify opencode.json also has mcp section.
-    oc_config = json.loads((tmp_path / workspace.id / "opencode.json").read_text())
-    assert "mcp" in oc_config
-    assert "github" in oc_config["mcp"]
-
 
 async def test_no_manifest_without_integrations(
     db: aiosqlite.Connection, vault: CredentialVault, tmp_path
 ):
     """Workspace without integrations should not have a manifest file."""
-    from cliff.agents.template_engine import AgentTemplateEngine
     from cliff.db.repo_finding import create_finding
     from cliff.integrations.gateway import MCPConfigResolver
     from cliff.models import FindingCreate
@@ -222,8 +214,7 @@ async def test_no_manifest_without_integrations(
 
     resolver = MCPConfigResolver(vault)
     dir_mgr = WorkspaceDirManager(base_dir=tmp_path)
-    tmpl = AgentTemplateEngine()
-    builder = WorkspaceContextBuilder(dir_mgr, tmpl, mcp_resolver=resolver)
+    builder = WorkspaceContextBuilder(dir_mgr, mcp_resolver=resolver)
 
     workspace = await builder.create_workspace(db, finding)
     manifest_path = tmp_path / workspace.id / "workspace-integrations.json"
@@ -241,7 +232,6 @@ async def test_workspace_integrations_api(
     """Full API flow: create workspace with integration, query integrations endpoint."""
     from unittest.mock import AsyncMock
 
-    from cliff.agents.template_engine import AgentTemplateEngine
     from cliff.db.repo_finding import create_finding
     from cliff.integrations.gateway import MCPConfigResolver
     from cliff.main import app
@@ -271,8 +261,7 @@ async def test_workspace_integrations_api(
 
     resolver = MCPConfigResolver(vault)
     dir_mgr = WorkspaceDirManager(base_dir=tmp_path)
-    tmpl = AgentTemplateEngine()
-    builder = WorkspaceContextBuilder(dir_mgr, tmpl, mcp_resolver=resolver)
+    builder = WorkspaceContextBuilder(dir_mgr, mcp_resolver=resolver)
     app.state.context_builder = builder
 
     workspace = await builder.create_workspace(db, finding)
@@ -293,7 +282,6 @@ async def test_workspace_integrations_api_empty(db: aiosqlite.Connection, tmp_pa
     """Workspace with no integrations returns empty list."""
     from unittest.mock import AsyncMock
 
-    from cliff.agents.template_engine import AgentTemplateEngine
     from cliff.db.repo_finding import create_finding
     from cliff.main import app
     from cliff.models import FindingCreate
@@ -314,8 +302,7 @@ async def test_workspace_integrations_api_empty(db: aiosqlite.Connection, tmp_pa
         FindingCreate(source_type="test", source_id="T-EMPTY", title="Empty test"),
     )
     dir_mgr = WorkspaceDirManager(base_dir=tmp_path)
-    tmpl = AgentTemplateEngine()
-    builder = WorkspaceContextBuilder(dir_mgr, tmpl)
+    builder = WorkspaceContextBuilder(dir_mgr)
     app.state.context_builder = builder
 
     workspace = await builder.create_workspace(db, finding)

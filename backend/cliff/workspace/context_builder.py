@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 
     import aiosqlite
 
-    from cliff.agents.template_engine import AgentTemplateEngine
     from cliff.integrations.gateway import MCPConfigResolver
     from cliff.models import Finding, Workspace
     from cliff.workspace.workspace_dir_manager import WorkspaceDirManager
@@ -34,11 +33,12 @@ logger = logging.getLogger(__name__)
 
 
 class WorkspaceContextBuilder:
-    """Orchestrates workspace lifecycle: directory + agents + DB metadata.
+    """Orchestrates workspace lifecycle: directory + context + DB metadata.
 
-    Wires Layer 0 (WorkspaceDirManager) and Layer 1 (AgentTemplateEngine)
-    together into a single service that manages the full workspace lifecycle.
-    Future API routes (Layer 4) will call this instead of raw repo functions.
+    Wraps Layer 0 (WorkspaceDirManager) into a single service that manages
+    the full workspace lifecycle — the per-workspace directory holds the
+    finding context (finding.json, CONTEXT.md, per-agent context sections)
+    the Pydantic AI agents read at run time (ADR-0047).
 
     All public methods are async (called from FastAPI routes) but delegate
     to synchronous L0/L1 operations directly — filesystem ops are fast local
@@ -48,12 +48,10 @@ class WorkspaceContextBuilder:
     def __init__(
         self,
         dir_manager: WorkspaceDirManager,
-        template_engine: AgentTemplateEngine,
         *,
         mcp_resolver: MCPConfigResolver | None = None,
     ) -> None:
         self._dir_manager = dir_manager
-        self._template_engine = template_engine
         self._mcp_resolver = mcp_resolver
 
     # ------------------------------------------------------------------
@@ -68,14 +66,13 @@ class WorkspaceContextBuilder:
         initial_focus: str | None = None,
         repo_url: str | None = None,
     ) -> Workspace:
-        """Create a complete workspace: DB row + directory + rendered agents.
+        """Create a complete workspace: DB row + directory + finding context.
 
         Steps:
             1. Create DB row
-            2. Resolve MCP configs from vault (if configured)
-            3. Create directory structure with finding context + MCP configs
-            4. Render and write agent templates
-            5. Store directory path in DB
+            2. Resolve workspace integrations from vault (if configured)
+            3. Create directory structure with finding context
+            4. Store directory path in DB
 
         ``repo_url`` is the snapshot of the GitHub integration's repo at the
         moment the workspace was opened (migration 013). Agents prefer this
@@ -99,28 +96,24 @@ class WorkspaceContextBuilder:
         # Idempotent — other statuses are left alone.
         await mark_started_on_workspace_create(db, finding.id)
 
-        # 2. Resolve MCP configs (if vault is configured)
-        mcp_servers = None
+        # 2. Resolve workspace integrations (if vault is configured) for the
+        # manifest agents read for available-tooling context.
         ws_integrations = None
         if self._mcp_resolver is not None:
             try:
                 result = await self._mcp_resolver.resolve_workspace(db)
-                mcp_servers = result.mcp_configs or None
                 ws_integrations = result.integrations
             except Exception:
                 logger.warning(
-                    "Failed to resolve MCP configs for workspace %s", workspace.id,
+                    "Failed to resolve workspace integrations for workspace %s",
+                    workspace.id,
                     exc_info=True,
                 )
 
-        # 3. Filesystem directory — model resolved from the active AI
-        # provider (IMPL-0011 Phase F1). When unconfigured (or vault
-        # missing), pass model=None and let the workspace inherit the
-        # singleton's DB-backed model from the legacy path.
-        model = await self._resolve_active_model(db)
-        ws_dir = self._dir_manager.create(
-            workspace.id, finding, mcp_servers=mcp_servers, model=model
-        )
+        # 3. Filesystem directory — finding context only (finding.json,
+        # finding.md, CONTEXT.md, empty context sections). The PA agents
+        # read these at run time (ADR-0047).
+        ws_dir = self._dir_manager.create(workspace.id, finding)
 
         # 3b. Write workspace integrations manifest
         if ws_integrations:
@@ -131,43 +124,11 @@ class WorkspaceContextBuilder:
                 json.dumps(manifest, indent=2) + "\n"
             )
 
-        # 4. Render agent templates (finding only — no enrichment yet).
-        # Pass repo_url so {{ repo_url }} resolves to the workspace's pinned
-        # URL from creation onward (EF-B16); the executor re-renders with the
-        # same value via CLIFF_REPO_URL at run time.
-        finding_dict = finding.model_dump(mode="json")
-        self._template_engine.write_agents(
-            ws_dir.agents_dir, finding=finding_dict, repo_url=repo_url
-        )
-
-        # 5. Store path in DB
+        # 4. Store path in DB
         await update_workspace_dir(db, workspace.id, str(ws_dir.root))
 
         logger.info("Created workspace %s at %s", workspace.id, ws_dir.root)
         return await get_workspace(db, workspace.id)  # type: ignore[return-value]
-
-    async def _resolve_active_model(self, db: aiosqlite.Connection) -> str | None:
-        """Return the OpenCode model id for the active AI integration.
-
-        Returns ``None`` if no AI integration is configured — the workspace
-        falls back to the singleton's DB-backed model (legacy paste-flow
-        path). On any error, log + return None so workspace creation
-        never blocks on AI configuration.
-        """
-        try:
-            from cliff.ai import catalog as ai_catalog
-            from cliff.ai import repo as ai_repo
-
-            active = await ai_repo.get_active(db)
-            if active is None:
-                return None
-            return ai_catalog.resolve_model(active.provider)
-        except Exception:
-            logger.warning(
-                "Could not resolve AI model from active integration",
-                exc_info=True,
-            )
-            return None
 
     # ------------------------------------------------------------------
     # Update context
@@ -182,7 +143,7 @@ class WorkspaceContextBuilder:
         *,
         summary: str | None = None,
     ) -> int:
-        """Write agent output to context, re-render agents, bump version.
+        """Write agent output to context, log the run, bump version.
 
         Args:
             db: Database connection.
@@ -209,22 +170,15 @@ class WorkspaceContextBuilder:
         # 1. Write context section (auto-regenerates CONTEXT.md)
         self._dir_manager.write_context_section(workspace_id, section, structured_output)
 
-        # 2. Re-render agent templates with full updated context
         ws_dir = self._dir_manager.get(workspace_id)
         if ws_dir is None:
             raise FileNotFoundError(f"Workspace directory not found: {workspace_id}")
 
-        finding_data = json.loads(ws_dir.finding_json.read_text())
-        all_context = self._dir_manager.read_all_context(workspace_id)
-        self._template_engine.write_agents(
-            ws_dir.agents_dir, finding=finding_data, **all_context
-        )
-
-        # 3. Log to agent-runs.jsonl
+        # 2. Log to agent-runs.jsonl
         run_log = AgentRunLog(ws_dir.agent_runs_log)
         run_log.append(agent_type=agent_type, status="completed", summary=summary)
 
-        # 4. Bump version in DB
+        # 3. Bump version in DB
         new_version = await increment_context_version(db, workspace_id)
 
         logger.info(

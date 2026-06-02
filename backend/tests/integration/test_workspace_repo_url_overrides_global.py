@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import pytest
 
-from cliff.agents.template_engine import AgentTemplateEngine
 from cliff.db.connection import get_db
 from cliff.db.repo_integration import create_integration
 from cliff.db.repo_workspace import get_workspace
@@ -25,14 +24,12 @@ pytestmark = pytest.mark.integration
 @pytest.fixture
 async def real_builder(db_client, tmp_path):
     """Swap the conftest mock for a REAL WorkspaceContextBuilder rooted at
-    ``tmp_path`` so ``create_workspace`` actually persists ``repo_url`` and
-    writes agent templates we can grep.
+    ``tmp_path`` so ``create_workspace`` actually persists ``repo_url``.
     """
     from cliff.main import app
 
     dir_manager = WorkspaceDirManager(base_dir=tmp_path)
-    template_engine = AgentTemplateEngine()
-    real = WorkspaceContextBuilder(dir_manager, template_engine, mcp_resolver=None)
+    real = WorkspaceContextBuilder(dir_manager, mcp_resolver=None)
     app.state.context_builder = real
     yield real
 
@@ -67,8 +64,8 @@ async def _create_finding(db_client, source_id: str = "ef-b16-1") -> str:
 async def test_explicit_repo_url_overrides_integration_snapshot(
     db_client, real_builder, tmp_path
 ):
-    """AC1+AC3: explicit body.repo_url wins; rendered agent templates
-    reference the explicit target, not the integration default."""
+    """AC1+AC3: explicit body.repo_url wins over the integration default and
+    is the value persisted on the workspace row."""
     await _configure_github_integration("https://github.com/global/default")
     finding_id = await _create_finding(db_client)
 
@@ -87,11 +84,6 @@ async def test_explicit_repo_url_overrides_integration_snapshot(
         break
     assert ws is not None
     assert ws.repo_url == "https://github.com/explicit/target"
-
-    agents_dir = tmp_path / workspace_id / ".opencode" / "agents"
-    evidence_md = (agents_dir / "evidence_collector.md").read_text()
-    assert "explicit/target" in evidence_md
-    assert "global/default" not in evidence_md
 
 
 async def test_omitted_repo_url_falls_back_to_integration(db_client, real_builder):

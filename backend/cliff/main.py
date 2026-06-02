@@ -15,7 +15,6 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from cliff.agents.executor import AgentExecutor
-from cliff.agents.template_engine import AgentTemplateEngine
 from cliff.ai import catalog as ai_catalog
 from cliff.api.routes import (
     agent_execution,
@@ -292,12 +291,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         mcp_resolver = MCPConfigResolver(app.state.vault, app.state.audit_logger)
         logger.info("MCP config resolver initialized")
 
-    # Layer 2: Context builder (workspace directory + agent templates + MCP resolver)
+    # Layer 2: Context builder (workspace directory + finding context + integrations)
     workspaces_base = settings.resolve_data_dir() / "workspaces"
     dir_manager = WorkspaceDirManager(base_dir=workspaces_base)
-    template_engine = AgentTemplateEngine()
     context_builder = WorkspaceContextBuilder(
-        dir_manager, template_engine, mcp_resolver=mcp_resolver
+        dir_manager, mcp_resolver=mcp_resolver
     )
     app.state.context_builder = context_builder
 

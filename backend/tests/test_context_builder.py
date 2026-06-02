@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 import aiosqlite
 import pytest
 
-from cliff.agents import AgentTemplateEngine
 from cliff.db.migrations import run_migrations
 from cliff.db.repo_finding import create_finding
 from cliff.db.repo_workspace import get_workspace
@@ -68,17 +67,8 @@ def dir_manager(tmp_path: Path) -> WorkspaceDirManager:
 
 
 @pytest.fixture
-def template_engine() -> AgentTemplateEngine:
-    return AgentTemplateEngine()
-
-
-@pytest.fixture
-def builder(
-    dir_manager: WorkspaceDirManager, template_engine: AgentTemplateEngine
-) -> WorkspaceContextBuilder:
-    return WorkspaceContextBuilder(
-        dir_manager=dir_manager, template_engine=template_engine
-    )
+def builder(dir_manager: WorkspaceDirManager) -> WorkspaceContextBuilder:
+    return WorkspaceContextBuilder(dir_manager=dir_manager)
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +82,7 @@ async def test_create_workspace_creates_dir_and_db(
     sample_finding: Finding,
     dir_manager: WorkspaceDirManager,
 ):
-    """create_workspace creates DB row + directory + agents."""
+    """create_workspace creates DB row + directory + finding context."""
     workspace = await builder.create_workspace(db, sample_finding)
 
     # DB row exists with workspace_dir set
@@ -101,32 +91,12 @@ async def test_create_workspace_creates_dir_and_db(
     assert workspace.workspace_dir is not None
     assert workspace.context_version == 0
 
-    # Directory exists on disk
+    # Directory exists on disk with the finding context the PA agents read.
     ws_dir = dir_manager.get(workspace.id)
     assert ws_dir is not None
     assert ws_dir.exists()
     assert ws_dir.finding_json.is_file()
     assert ws_dir.context_md.is_file()
-
-    # 8 agent files rendered (includes evidence_collector)
-    agent_files = list(ws_dir.agents_dir.glob("*.md"))
-    assert len(agent_files) == 8
-
-
-async def test_create_workspace_agents_contain_finding(
-    builder: WorkspaceContextBuilder,
-    db: aiosqlite.Connection,
-    sample_finding: Finding,
-    dir_manager: WorkspaceDirManager,
-):
-    """Rendered agents contain the finding title."""
-    workspace = await builder.create_workspace(db, sample_finding)
-    ws_dir = dir_manager.get(workspace.id)
-    assert ws_dir is not None
-
-    orchestrator = (ws_dir.agents_dir / "orchestrator.md").read_text()
-    assert "Remote Code Execution in log4j" in orchestrator
-    assert "mode: primary" in orchestrator
 
 
 # ---------------------------------------------------------------------------
@@ -157,34 +127,6 @@ async def test_update_context_writes_section(
     # CONTEXT.md updated
     context_md = ws_dir.context_md.read_text()
     assert "What we know so far" in context_md
-
-
-async def test_update_context_re_renders_agents(
-    builder: WorkspaceContextBuilder,
-    db: aiosqlite.Connection,
-    sample_finding: Finding,
-    dir_manager: WorkspaceDirManager,
-):
-    """After context update, agents are re-rendered with new data."""
-    workspace = await builder.create_workspace(db, sample_finding)
-
-    orchestrator_before = (
-        dir_manager.get(workspace.id).agents_dir / "orchestrator.md"  # type: ignore[union-attr]
-    ).read_text()
-    assert "- [x] **Enrichment**" not in orchestrator_before
-
-    await builder.update_context(
-        db,
-        workspace.id,
-        "finding_enricher",
-        {"summary": "Log4Shell confirmed", "cve_ids": ["CVE-2021-44228"]},
-    )
-
-    orchestrator_after = (
-        dir_manager.get(workspace.id).agents_dir / "orchestrator.md"  # type: ignore[union-attr]
-    ).read_text()
-    assert "- [x] **Enrichment**" in orchestrator_after
-    assert "CVE-2021-44228" in orchestrator_after
 
 
 async def test_update_context_increments_version(

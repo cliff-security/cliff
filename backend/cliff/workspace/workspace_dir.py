@@ -50,22 +50,8 @@ class WorkspaceDir:
     # --- Top-level files ---
 
     @property
-    def opencode_json(self) -> Path:
-        return self.root / "opencode.json"
-
-    @property
     def context_md(self) -> Path:
         return self.root / "CONTEXT.md"
-
-    # --- .opencode/ ---
-
-    @property
-    def opencode_dir(self) -> Path:
-        return self.root / ".opencode"
-
-    @property
-    def agents_dir(self) -> Path:
-        return self.root / ".opencode" / "agents"
 
     # --- context/ ---
 
