@@ -24,7 +24,6 @@ from cliff.api.routes import (
     ai_integrations,
     assessment,
     audit,
-    chat,
     completion,
     dashboard,
     findings,
@@ -34,7 +33,6 @@ from cliff.api.routes import (
     onboarding,
     posture,
     seed,
-    sessions,
     sidebar,
     version,
     workspaces,
@@ -476,8 +474,6 @@ app.add_middleware(
 # Routes
 app.include_router(health.router)
 app.include_router(version.router, prefix="/api")
-app.include_router(sessions.router, prefix="/api")
-app.include_router(chat.router, prefix="/api")
 app.include_router(findings.router, prefix="/api")
 app.include_router(workspaces.router, prefix="/api")
 app.include_router(messages.router, prefix="/api")

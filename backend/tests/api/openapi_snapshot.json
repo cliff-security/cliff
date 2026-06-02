@@ -1242,37 +1242,6 @@
         "title": "ChatPermissionDecision",
         "type": "object"
       },
-      "ChatSendRequest": {
-        "properties": {
-          "content": {
-            "title": "Content",
-            "type": "string"
-          }
-        },
-        "required": [
-          "content"
-        ],
-        "title": "ChatSendRequest",
-        "type": "object"
-      },
-      "ChatSendResponse": {
-        "properties": {
-          "session_id": {
-            "title": "Session Id",
-            "type": "string"
-          },
-          "status": {
-            "default": "sent",
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "session_id"
-        ],
-        "title": "ChatSendResponse",
-        "type": "object"
-      },
       "Completion": {
         "properties": {
           "assessment_id": {
@@ -3510,41 +3479,6 @@
         "title": "MessageCreate",
         "type": "object"
       },
-      "MessageInfo": {
-        "properties": {
-          "content": {
-            "default": "",
-            "title": "Content",
-            "type": "string"
-          },
-          "created_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Created At"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "role": {
-            "title": "Role",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "role"
-        ],
-        "title": "MessageInfo",
-        "type": "object"
-      },
       "ModelConfig": {
         "properties": {
           "model_full_id": {
@@ -4561,69 +4495,6 @@
           "message"
         ],
         "title": "RunAllResponse",
-        "type": "object"
-      },
-      "SessionDetail": {
-        "properties": {
-          "created_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Created At"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "messages": {
-            "default": [],
-            "items": {
-              "$ref": "#/components/schemas/MessageInfo"
-            },
-            "title": "Messages",
-            "type": "array"
-          },
-          "model": {
-            "default": "",
-            "title": "Model",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id"
-        ],
-        "title": "SessionDetail",
-        "type": "object"
-      },
-      "SessionSummary": {
-        "properties": {
-          "created_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Created At"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id"
-        ],
-        "title": "SessionSummary",
         "type": "object"
       },
       "SetModelRequest": {
@@ -5803,100 +5674,6 @@
         "summary": "Query Audit Log",
         "tags": [
           "audit"
-        ]
-      }
-    },
-    "/api/chat/{session_id}/send": {
-      "post": {
-        "description": "Send a message to an OpenCode session.",
-        "operationId": "send_message_api_chat__session_id__send_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "session_id",
-            "required": true,
-            "schema": {
-              "title": "Session Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ChatSendRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ChatSendResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Send Message",
-        "tags": [
-          "chat"
-        ]
-      }
-    },
-    "/api/chat/{session_id}/stream": {
-      "get": {
-        "description": "Stream SSE events from an OpenCode session to the browser.\n\nEmits three event types:\n- event: text, data: <text content>\n- event: error, data: {\"message\": \"...\"}\n- event: done, data: {}",
-        "operationId": "stream_events_api_chat__session_id__stream_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "session_id",
-            "required": true,
-            "schema": {
-              "title": "Session Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Stream Events",
-        "tags": [
-          "chat"
         ]
       }
     },
@@ -7299,95 +7076,6 @@
         "summary": "Seed Demo Data",
         "tags": [
           "seed"
-        ]
-      }
-    },
-    "/api/sessions": {
-      "get": {
-        "description": "List all active sessions.",
-        "operationId": "list_sessions_api_sessions_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/SessionSummary"
-                  },
-                  "title": "Response List Sessions Api Sessions Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "List Sessions",
-        "tags": [
-          "sessions"
-        ]
-      },
-      "post": {
-        "description": "Create a new OpenCode session.",
-        "operationId": "create_session_api_sessions_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SessionSummary"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Create Session",
-        "tags": [
-          "sessions"
-        ]
-      }
-    },
-    "/api/sessions/{session_id}": {
-      "get": {
-        "description": "Get session details including message history.",
-        "operationId": "get_session_api_sessions__session_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "session_id",
-            "required": true,
-            "schema": {
-              "title": "Session Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SessionDetail"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Session",
-        "tags": [
-          "sessions"
         ]
       }
     },

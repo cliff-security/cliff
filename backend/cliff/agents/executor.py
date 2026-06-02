@@ -67,7 +67,6 @@ from cliff.models import AgentRun, AgentRunCreate, AgentRunUpdate, FindingUpdate
 from cliff.services.evidence_guard import guard_evidence_output
 from cliff.services.pr_verifier import verify_pr_url
 from cliff.services.reference_verifier import clean_references
-from cliff.workspace.context_document import ContextDocument
 from cliff.workspace.workspace_dir import AGENT_TYPE_TO_SECTION, CONTEXT_SECTIONS
 
 if TYPE_CHECKING:
@@ -242,98 +241,6 @@ def _classify_tool_request(tool: str, patterns: list[str]) -> str:
     return "ask"
 
 
-# ---------------------------------------------------------------------------
-# Per-agent output contracts (inlined in the prompt so the LLM always sees
-# the exact schema, regardless of workspace state or session history).
-# ---------------------------------------------------------------------------
-
-_STRUCTURED_OUTPUT_CONTRACTS: dict[str, str] = {
-    "finding_enricher": """\
-"structured_output": {
-    "normalized_title": "string — clear, jargon-free title",
-    "cve_ids": ["CVE-YYYY-NNNNN"] or [],
-    "cvss_score": 0.0-10.0 or null,
-    "cvss_vector": "CVSS:3.1/AV:N/AC:L/..." or null,
-    "description": "what the vulnerability is and how it works",
-    "affected_versions": "version range, e.g. '< 2.3.1'" or null,
-    "fixed_version": "minimum fixed version" or null,
-    "known_exploits": true/false,
-    "exploit_details": "exploit maturity info" or null,
-    "references": ["https://..."] or []
-}""",
-    "owner_resolver": """\
-"structured_output": {
-    "recommended_owner": "string — team or person name",
-    "candidates": [{"name": "...", "confidence": 0.0-1.0, "reason": "..."}],
-    "reasoning": "why this owner was chosen"
-}""",
-    "exposure_analyzer": """\
-"structured_output": {
-    "recommended_urgency": "critical/high/medium/low",
-    "environment": "production/staging/development" or null,
-    "internet_facing": true/false or null,
-    "reachable": "description of reachability" or null,
-    "reachability_evidence": "evidence for reachability assessment" or null,
-    "business_criticality": "description" or null,
-    "blast_radius": "description of impact scope" or null
-}""",
-    "remediation_planner": """\
-"structured_output": {
-    "plan_steps": ["step 1", "step 2", ...],
-    "definition_of_done": ["criterion 1", ...],
-    "interim_mitigation": "immediate mitigation" or null,
-    "dependencies": ["dependency 1", ...],
-    "estimated_effort": "e.g. 2-4 hours" or null,
-    "validation_method": "how to verify the fix" or null
-}""",
-    "validation_checker": """\
-"structured_output": {
-    "verdict": "fixed/not_fixed/partially_fixed/inconclusive",
-    "recommendation": "close/reopen/needs_more_info",
-    "evidence": "what evidence supports the verdict" or null,
-    "remaining_concerns": ["concern 1", ...]
-}""",
-    "evidence_collector": """\
-"structured_output": {
-    "affected_files": [
-        {"path": "relative/path", "line": null,
-         "context": "what was found",
-         "file_type": "lock_file|manifest|source|config|test"}
-    ],
-    "dependency_chain": ["pkg_a depends on pkg_b depends on vulnerable_pkg"],
-    "dependency_type": "direct|transitive",
-    "current_version": "version string likely in repo" or null,
-    "fix_safety": "safe_bump|breaking_change|needs_migration|code_fix",
-    "fix_safety_reasoning": "why this classification was chosen",
-    "test_coverage": {
-        "relevant_tests": [],
-        "has_coverage": true/false,
-        "notes": "observations"
-    },
-    "recommended_approach": "concise description of safest fix approach",
-    "impact_assessment": "what will change and what risks exist"
-}""",
-    "remediation_executor": """\
-"structured_output": {
-    "status": "pr_created/changes_made/failed/needs_approval",
-    "pr_url": "https://github.com/.../pull/N" or null,
-    "branch_name": "cliff/fix/..." or null,
-    "changes_summary": "what files were changed and why",
-    "test_results": "pass/fail/skipped" or null,
-    "error_details": "description of failure" or null
-}""",
-}
-
-_AGENT_TYPE_LABELS: dict[str, str] = {
-    "finding_enricher": "vulnerability enrichment",
-    "owner_resolver": "ownership resolution",
-    "exposure_analyzer": "exposure and context analysis",
-    "evidence_collector": "evidence collection",
-    "remediation_planner": "remediation planning",
-    "remediation_executor": "remediation execution",
-    "validation_checker": "validation checking",
-}
-
 # Per-agent guidance appended to the prompt. Currently only the enricher,
 # whose ``references`` array is shipped verbatim into the evidence sidebar
 # as authoritative citations — weaker models fabricate specific identifiers
@@ -409,75 +316,6 @@ def _load_workspace_data(
             prior_context[section] = json.loads(section_path.read_text())
 
     return finding, prior_context
-
-
-def build_agent_prompt(
-    agent_type: str,
-    *,
-    finding: dict[str, Any],
-    prior_context: dict[str, dict[str, Any]] | None = None,
-    user_note: str | None = None,
-) -> str:
-    """Build the execution prompt for a specific agent type.
-
-    Includes the actual finding data and any prior agent results inline,
-    so the LLM has everything it needs without reading files.
-
-    ``user_note`` (PRD-0006 Phase 2 / IMPL-0007 §B4) — only meaningful for
-    ``agent_type == 'remediation_planner'``. When set, the planner is asked
-    to treat it as authoritative refinement input on a re-run.
-    """
-    label = _AGENT_TYPE_LABELS.get(agent_type, agent_type)
-    contract = _STRUCTURED_OUTPUT_CONTRACTS.get(agent_type, "")
-    structured_block = f",\n    {contract}" if contract else ""
-
-    # Format finding data using the same renderer as CONTEXT.md
-    finding_text = ContextDocument.finding_section(finding)
-
-    # Format prior context if available
-    prior_text = ""
-    if prior_context:
-        knowledge = ContextDocument.knowledge_section(
-            prior_context.get("enrichment"),
-            prior_context.get("ownership"),
-            prior_context.get("exposure"),
-        )
-        if knowledge:
-            prior_text = f"\n{knowledge}\n"
-
-    refinement_text = ""
-    if agent_type == "remediation_planner" and user_note:
-        refinement_text = (
-            "\n## User refinement\n\n"
-            "The user reviewed an earlier plan and asked you to revise it "
-            "with the following note. Treat this as authoritative — adjust "
-            "the plan steps, dependencies, and validation method to honor "
-            "this guidance without losing safety.\n\n"
-            f"> {user_note}\n"
-        )
-
-    guidance = _AGENT_GUIDANCE.get(agent_type, "")
-    guidance_text = f"\n{guidance}\n" if guidance else ""
-
-    return f"""\
-IMPORTANT: This is a programmatic agent execution request. Respond with ONLY \
-a JSON code block — no tool calls, no file reads, no conversation.
-
-{finding_text}{prior_text}{refinement_text}{guidance_text}
-Run {label} on the finding above. Respond with a single \
-```json code block matching this exact schema:
-
-```json
-{{
-    "summary": "one-line summary of your analysis",
-    "result_card_markdown": "## Heading\\n\\nMarkdown-formatted detailed results",
-    "confidence": 0.0-1.0,
-    "evidence_sources": ["source1", "source2"],
-    "suggested_next_action": "next agent type or action to take"{structured_block}
-}}
-```
-
-Respond with ONLY the JSON block above. No preamble, no explanation, no tool use."""
 
 
 # ---------------------------------------------------------------------------
@@ -863,9 +701,8 @@ class AgentExecutor:
                 # failures itself.
                 #
                 # ``user_note`` is the PRD-0006 Phase 2 refinement input;
-                # only the remediation_planner honours it. Mirror the
-                # pre-migration ``build_agent_prompt`` gate so a planner
-                # re-run with a user note doesn't bleed into a
+                # only the remediation_planner honours it. Gate it so a
+                # planner re-run with a user note doesn't bleed into a
                 # subsequent enricher / exposure / evidence / validation
                 # call on the same workspace.
                 pa_user_note = (
