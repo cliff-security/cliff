@@ -59,9 +59,9 @@ def test_env_var_names_match_opencode_expectations() -> None:
 
 def test_provider_env_var_names_covers_keys_and_base_urls() -> None:
     """Both the ``*_API_KEY`` and ``*_BASE_URL`` of every provider are
-    listed — callers scrub these from the host env before spawning
-    OpenCode so a polluted host (e.g. Claude Desktop's ANTHROPIC_BASE_URL)
-    can't leak in. (QA Q01 B07.)"""
+    listed — the canonical set of host env vars Cliff controls, e.g. for
+    scrubbing a polluted host (Claude Desktop's ANTHROPIC_BASE_URL) before
+    layering Cliff's own resolved values on top. (QA Q01 B07.)"""
     names = catalog.provider_env_var_names()
     assert "ANTHROPIC_API_KEY" in names
     assert "ANTHROPIC_BASE_URL" in names

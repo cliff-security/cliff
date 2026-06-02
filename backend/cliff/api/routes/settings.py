@@ -39,6 +39,7 @@ from cliff.models import (
     IntegrationHealthStatus,
     ModelConfig,
     ModelUpdateRequest,
+    ProviderInfo,
     TestConnectionResult,
 )
 
@@ -133,8 +134,8 @@ async def update_model(body: ModelUpdateRequest, request: Request, db=Depends(ge
 # ---------------------------------------------------------------------------
 
 
-@router.get("/settings/providers")
-async def list_providers():
+@router.get("/settings/providers", response_model=list[ProviderInfo])
+async def list_providers() -> list[ProviderInfo]:
     """Return the supported-provider catalog (ADR-0037).
 
     Built from the static :mod:`cliff.ai.catalog` — one entry per
@@ -143,7 +144,7 @@ async def list_providers():
     bare model id) is what the Settings model picker and ``cliffsec model
     list`` consume.
     """
-    payload: list[dict] = []
+    payload: list[ProviderInfo] = []
     for provider in catalog.all_providers():
         info = catalog.get(provider)
         models: dict[str, dict] = {}
@@ -154,12 +155,12 @@ async def list_providers():
             bare = opt.id.split("/", 1)[1] if "/" in opt.id else opt.id
             models[bare] = {"id": bare, "name": opt.label}
         payload.append(
-            {
-                "id": provider,
-                "name": info.docs_label,
-                "env": [info.env_var_name] if info.env_var_name else [],
-                "models": models,
-            }
+            ProviderInfo(
+                id=provider,
+                name=info.docs_label,
+                env=[info.env_var_name] if info.env_var_name else [],
+                models=models,
+            )
         )
     return payload
 

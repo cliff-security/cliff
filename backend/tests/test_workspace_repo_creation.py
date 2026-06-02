@@ -34,6 +34,7 @@ class TestSecurityMdRepoWorkspace:
         ws_dir = manager.base_dir / workspace_id
         assert ws_dir.is_dir()
         assert (ws_dir / "history").is_dir()
+        assert (ws_dir / "history" / "agent-runs.jsonl").is_file()
 
         # No finding-scoped files on a repo workspace.
         assert not (ws_dir / "finding.json").exists()

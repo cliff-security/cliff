@@ -30,8 +30,12 @@ async def real_builder(db_client, tmp_path):
 
     dir_manager = WorkspaceDirManager(base_dir=tmp_path)
     real = WorkspaceContextBuilder(dir_manager, mcp_resolver=None)
+    previous = app.state.context_builder
     app.state.context_builder = real
-    yield real
+    try:
+        yield real
+    finally:
+        app.state.context_builder = previous
 
 
 async def _configure_github_integration(repo_url: str) -> None:

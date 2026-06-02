@@ -93,8 +93,8 @@ cp -R cli "${STAGE_DIR}/cli"
 rm -rf "${STAGE_DIR}/cli/tests"
 prune_caches "${STAGE_DIR}/cli"
 
-# ---- scripts (just the two install helpers — install-local.sh isn't needed
-# at runtime, it's how the user got here in the first place) -----------------
+# ---- scripts (just the scanner install helper — install-local.sh isn't
+# needed at runtime, it's how the user got here in the first place) ----------
 
 mkdir -p "${STAGE_DIR}/scripts"
 cp scripts/install-scanners.sh "${STAGE_DIR}/scripts/"
@@ -113,8 +113,8 @@ If you got here directly, you almost certainly want the installer instead:
     curl -fsSL https://github.com/cliff-security/cliff/releases/latest/download/install-local.sh | sh
 
 The installer downloads this tarball, extracts it under ~/.cliff/app/,
-sets up a uv-managed Python venv, installs the opencode/trivy/semgrep
-binaries via the bundled scripts, and drops `cliffsec` into ~/.local/bin/.
+sets up a uv-managed Python venv, installs the trivy/semgrep binaries via
+the bundled script, and drops `cliffsec` into ~/.local/bin/.
 EOF
 
 # ---- archive ---------------------------------------------------------------
