@@ -102,7 +102,14 @@ not persist, run the post-clone steps with `git -C repo` (or chain with `&&`):
 
 ```bash
 REPO_URL="<the repository URL from the task>"
-CLONE_URL="https://x-access-token:${GH_TOKEN}@${REPO_URL#https://}"
+# Use a token-embedded URL only when $GH_TOKEN is set; otherwise clone the
+# URL directly (a private repo then fails at clone — return status=failed
+# with that error rather than retrying with an empty token).
+if [ -n "${GH_TOKEN:-}" ]; then
+  CLONE_URL="https://x-access-token:${GH_TOKEN}@${REPO_URL#https://}"
+else
+  CLONE_URL="$REPO_URL"
+fi
 git clone --depth 50 "$CLONE_URL" repo/ \\
   && git -C repo config --local user.email "cliff-bot@users.noreply.github.com" \\
   && git -C repo config --local user.name "Cliff Posture Bot" \\
@@ -271,7 +278,12 @@ Prioritise finishing the full workflow over polish.**
 
 ```bash
 REPO_URL="<the repository URL from the task>"
-CLONE_URL="https://x-access-token:${GH_TOKEN}@${REPO_URL#https://}"
+# Token-embedded URL only when $GH_TOKEN is set; otherwise clone directly.
+if [ -n "${GH_TOKEN:-}" ]; then
+  CLONE_URL="https://x-access-token:${GH_TOKEN}@${REPO_URL#https://}"
+else
+  CLONE_URL="$REPO_URL"
+fi
 git clone --depth 50 "$CLONE_URL" repo/ \\
   && git -C repo config --local user.email "cliff-bot@users.noreply.github.com" \\
   && git -C repo config --local user.name "Cliff Posture Bot" \\

@@ -128,6 +128,22 @@ async def test_normalize_fills_status_when_null():
 
 
 @pytest.mark.asyncio
+async def test_normalize_forces_status_new_over_stray_value():
+    """A stray status string (e.g. 'open') must not drop an otherwise-valid
+    finding — the normalizer always emits brand-new findings."""
+    items = [
+        {"source_type": "wiz", "source_id": "w-1", "title": "T", "status": "open"}
+    ]
+    with _patch_model(_model_returning(items)):
+        findings, errors = await normalize_findings(
+            "wiz", [{"id": "w-1"}], env=_ENV, model=_MODEL
+        )
+
+    assert errors == []
+    assert findings[0].status == "new"
+
+
+@pytest.mark.asyncio
 async def test_normalize_coerces_listwrapped_raw_payload():
     """The model sometimes wraps raw_payload in a single-element list."""
     payload = {"id": "w-1", "extra": True}

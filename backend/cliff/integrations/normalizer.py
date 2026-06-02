@@ -318,8 +318,10 @@ async def normalize_findings(
         # defaults the LLM may have left null.
         if item.get("source_type") is None:
             item["source_type"] = source
-        if item.get("status") is None:
-            item["status"] = "new"
+        # Normalized findings are always brand-new — force the status rather
+        # than trusting the model's value, so a stray string (e.g. "open")
+        # doesn't drop an otherwise-valid finding into ``errors``.
+        item["status"] = "new"
         # Coerce raw_payload: the model sometimes wraps the original object
         # in a single-element list.
         rp = item.get("raw_payload")

@@ -288,6 +288,35 @@ async def test_process_job_partial_failure():
 
 
 @pytest.mark.asyncio
+async def test_process_job_no_provider_marks_failed_not_retry():
+    """No resolved AI provider → terminal ``failed`` (not a fail→pending→retry
+    loop). The normalizer is a PA agent now and can't run without a provider."""
+    from cliff.db.connection import close_db, init_db
+    from cliff.db.repo_ingest_job import create_ingest_job, get_ingest_job
+
+    await init_db(":memory:")
+    from cliff.db.connection import _db as db
+
+    job = await create_ingest_job(
+        db, source="wiz", raw_data=[{"id": "1"}], chunk_size=1
+    )
+    from cliff.integrations.ingest_worker import _process_job
+
+    await _process_job(
+        db,
+        job.job_id,
+        env_resolver=AsyncMock(return_value={}),  # no provider env
+        model_resolver=AsyncMock(return_value=None),  # no canonical model
+    )
+
+    progress = await get_ingest_job(db, job.job_id)
+    assert progress.status == "failed"
+    assert progress.completed_chunks == 0
+    assert any("provider" in e.lower() for e in (progress.errors or []))
+    await close_db()
+
+
+@pytest.mark.asyncio
 async def test_process_job_cancellation():
     """Worker respects cancellation between chunks."""
     from cliff.db.connection import close_db, init_db

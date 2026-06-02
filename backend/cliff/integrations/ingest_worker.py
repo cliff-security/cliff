@@ -74,6 +74,26 @@ async def _process_job(
     env = await env_resolver()
     if not model:
         model = await model_resolver()
+
+    # No AI provider configured → every chunk would fail in build_model.
+    # Short-circuit to a terminal ``failed`` instead of looping
+    # fail → pending → re-poll until a provider appears (the normalizer is a
+    # PA agent now, so it can't run without a resolved provider + model).
+    if not env or not model:
+        logger.warning(
+            "Job %s: no AI provider configured (env=%s, model=%s) — marking failed",
+            job_id,
+            bool(env),
+            model,
+        )
+        await increment_failed_chunk(
+            db,
+            job_id,
+            "No AI provider configured — connect one in Settings, then retry.",
+        )
+        await set_job_status(db, job_id, "failed")
+        return
+
     await set_job_status(db, job_id, "processing")
 
     # For small imports, use per-finding chunks for better progress visibility
