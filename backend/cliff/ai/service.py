@@ -88,12 +88,11 @@ class AIIntegrationService:
     ) -> None:
         """Construct the service.
 
-        ``on_key_change`` (IMPL-0011 Phase F3 / ADR-0037) — optional async
-        callable invoked after every save / disconnect / model change
-        with the new env-var dict (or ``{}`` after disconnect). Used by
-        ``main.py`` lifespan to push fresh env into the singleton
-        OpenCode process and restart it. Kept optional so unit tests
-        don't need the engine wired up.
+        ``on_key_change`` (ADR-0037 / ADR-0047) — optional async callable
+        invoked after every save / disconnect / model change with the new
+        env-var dict (or ``{}`` after disconnect). Used by ``main.py``
+        lifespan to refresh the warm env + model cache. Kept optional so
+        unit tests don't need it wired up.
         """
         self._db = db
         self._vault = vault
@@ -110,11 +109,11 @@ class AIIntegrationService:
     async def get_status(self) -> AIStatus:
         """Compose the wire-shape status payload.
 
-        Returns the canonical model (the value workspace spawns use).
-        Per ADR-0037 / architect health-check M9, this is the **one**
-        read: the on_key_change hook restarts the singleton OpenCode
-        synchronously on every write, so a separate live probe + drift
-        signal added complexity without changing product behavior.
+        Returns the canonical model (the value each agent run uses). Per
+        ADR-0037 / ADR-0047 this is the **one** read: with the substrate
+        in-process there's no separate engine config to probe, so a live
+        probe + drift signal would add complexity without changing
+        product behavior.
         """
         record = await self.get_active()
         if record is None:
@@ -130,14 +129,15 @@ class AIIntegrationService:
         )
 
     async def resolve_env_for_workspace(self) -> dict[str, str]:
-        """Return the env-var dict to inject into a workspace OpenCode subprocess.
+        """Return the env-var dict the Pydantic AI model factory reads.
 
         Empty dict when unconfigured — the caller treats that as "no AI key
-        injected" and the agent-button gate keeps the UI from launching
+        resolved" and the agent-button gate keeps the UI from launching
         agents anyway.
 
         For providers that dispatch by base URL (``ollama``, ``custom``)
-        the base URL is also injected so OpenCode reaches the right host.
+        the base URL is also included so the model factory targets the
+        right host.
         Stored base URL (in ``ai_integration.metadata.base_url``) wins
         over the catalog's default.
         """
@@ -160,10 +160,9 @@ class AIIntegrationService:
                     record.provider,
                 )
                 return {}
-            # Empty credential → treat as unconfigured. Injecting an empty
-            # env var still routes through OpenCode and fails with an
-            # opaque 401, and would flip the readiness gate to a falsely
-            # usable state.
+            # Empty credential → treat as unconfigured. A blank key would
+            # still reach the provider and fail with an opaque 401, and
+            # would flip the readiness gate to a falsely usable state.
             if not raw_key:
                 logger.error(
                     "AI integration credential for provider %s decrypted to "

@@ -1,13 +1,10 @@
 """Permission tiering for the remediation_executor's tool calls.
 
 The classifier (``classify_tool_request`` + the two denylists +
-``_is_pipe_to_shell``) is ported **verbatim** from the OpenCode-era
-``cliff.agents.executor`` module — same patterns, same tier outputs — so
-the migration changes the *substrate*, not the safety policy. The
-OpenCode copy in ``executor.py`` is deleted in PR2.E once nothing reads
-it; until then the two are identical and both are covered by tests.
+``_is_pipe_to_shell``) is the single source of truth for the bash safety
+policy: the same patterns and tier outputs Cliff has always enforced.
 
-``gate_tool_call`` is the new thin layer that translates a tier into
+``gate_tool_call`` is the thin layer that translates a tier into
 Pydantic AI's human-in-the-loop vocabulary:
 
 * ``deny`` → raise :class:`pydantic_ai.exceptions.ModelRetry`. The model

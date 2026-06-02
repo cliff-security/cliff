@@ -1,14 +1,13 @@
 """Remediation Executor — Pydantic AI runtime (ADR-0045).
 
-The one tool-using agent (the other six are no-tools, migrated in PR #1).
-It clones the target repo into the workspace, applies the planner's fix,
-commits, pushes, and opens a draft PR — using the five in-process tools
-in :mod:`cliff.agents.runtime.tools`.
+The one tool-using agent (the other six are no-tools). It clones the
+target repo into the workspace, applies the planner's fix, commits,
+pushes, and opens a draft PR — using the five in-process tools in
+:mod:`cliff.agents.runtime.tools`.
 
-System prompt: lifted from the OpenCode-era Jinja template
-(``templates/remediation_executor.md.j2``) — the workspace-safety block,
-workflow, and hard rules are preserved verbatim because each hard rule
-corresponds to a real production regression. The dynamic finding /
+System prompt: the workspace-safety block, workflow, and hard rules are
+load-bearing — each hard rule corresponds to a real production regression,
+so treat them as a tested contract, not prose. The dynamic finding /
 enrichment / exposure / evidence / plan context that the template
 interpolated now arrives through the shared user prompt
 (:func:`cliff.agents.runtime._prompts.build_user_prompt`), exactly as the

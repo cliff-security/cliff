@@ -1,14 +1,12 @@
-"""In-process tool primitives for the Pydantic AI remediation_executor.
+"""In-process tool primitives for the Pydantic AI remediation_executor
+(ADR-0047 / IMPL-0022).
 
-PR #2 of the OpenCode → Pydantic AI migration (ADR-0047 / IMPL-0022).
-These five functions replace the tool dispatch OpenCode performed for the
-remediation_executor: ``bash``, ``edit``, ``read``, ``webfetch``, ``gh``.
-
-Each is a plain async callable taking a ``RunContext[WorkspaceDeps]`` as
-its first argument; :mod:`cliff.agents.runtime.remediation_executor`
-(PR2.B) registers them on the agent. The permission tiering — auto /
-ask / deny — lives in :mod:`cliff.agents.runtime.tools.permissions`,
-ported verbatim from the OpenCode-era classifier in ``executor.py``.
+The five tools the remediation_executor can call: ``bash``, ``edit``,
+``read``, ``webfetch``, ``gh``. Each is a plain async callable taking a
+``RunContext[WorkspaceDeps]`` as its first argument;
+:mod:`cliff.agents.runtime.remediation_executor` registers them on the
+agent. The permission tiering — auto / ask / deny — lives in
+:mod:`cliff.agents.runtime.tools.permissions`.
 """
 
 from __future__ import annotations

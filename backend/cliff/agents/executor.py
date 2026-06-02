@@ -1,9 +1,9 @@
 """AgentExecutor — runs a single sub-agent end-to-end.
 
 The executor is the bridge between "user wants to run an agent" and
-"agent results are persisted everywhere." It sends a prompt to the
-workspace's OpenCode process, collects the response, parses it, and
-persists results to context files, sidebar state, and the DB.
+"agent results are persisted everywhere." It runs the agent in-process
+via Pydantic AI (ADR-0047), then persists the structured output to
+context files, sidebar state, and the DB.
 """
 
 from __future__ import annotations
@@ -97,12 +97,11 @@ PERMISSION_WAIT_BUFFER: float = 600.0
 # Provider rate-limit backoff (EF-B17)
 # ---------------------------------------------------------------------------
 # Upstream LLM providers (Anthropic, OpenRouter, OpenAI) start returning 429
-# when the workspace pool runs more than one concurrent agent. OpenCode wraps
-# the upstream 429 into a ``session.error`` SSE event that surfaces to the
-# executor as an ``AgentRateLimitError``. Under pool>=2 (the Wave-2 cap)
-# this used to fail the run on the first throttle; we now retry with
-# exponential backoff + jitter up to ``RATE_LIMIT_MAX_ATTEMPTS`` before
-# terminating the run with status ``rate_limited``.
+# under concurrent agent runs. Pydantic AI raises the upstream 429 as a
+# ``ModelHTTPError``, which the executor classifies as an
+# ``AgentRateLimitError``. Rather than fail the run on the first throttle we
+# retry with exponential backoff + jitter up to ``RATE_LIMIT_MAX_ATTEMPTS``
+# before terminating the run with status ``rate_limited``.
 #
 # Tests monkey-patch these to 0.0 to avoid sleeping in unit suites.
 RATE_LIMIT_MAX_ATTEMPTS: int = 3
@@ -123,8 +122,8 @@ def _rate_limit_backoff_delay(attempt: int) -> float:
 
 # ---------------------------------------------------------------------------
 # Permission tier classification for tool-use approval.
-# Keys are the "permission" field from OpenCode's permission.asked events.
-# "auto" = grant immediately, "user" = surface to user for approval.
+# Keys are the tool name the runtime tool functions raise on; the value is
+# the tier: "auto" = grant immediately, "user" = surface to user for approval.
 # Unknown tools default to "user" (safe default).
 # ---------------------------------------------------------------------------
 
@@ -209,7 +208,7 @@ def _classify_tool_request(tool: str, patterns: list[str]) -> str:
       ``auto`` for everything else.
     - ``edit`` — ``ask`` if the target path is absolute or climbs out of
       the workspace via ``..``; otherwise ``auto``.
-    - ``external_directory`` — ``ask``. OpenCode raises this permission
+    - ``external_directory`` — ``ask``. The edit/read tools raise this
       precisely when a tool reaches *outside* the workspace cwd, so it is
       the literal "the agent tried to leave the directory" signal.
     - anything else / unparseable — ``ask`` (safe default).
@@ -400,9 +399,9 @@ def _humanize_process_error(raw: str) -> str:
     """Map opaque ``AgentProcessError`` strings to actionable user-facing text.
 
     Most agent failures actually originate at the AI provider (OpenRouter,
-    Anthropic, OpenAI) and reach us through OpenCode as opaque "OpenCode
-    error: …" wrappers. We unwrap the common ones — insufficient credits,
-    rate limits, unauthorized — into short markdown the sidebar can render
+    Anthropic, OpenAI) and reach us as opaque Pydantic AI ``ModelHTTPError``
+    wrappers. We unwrap the common ones — insufficient credits, rate limits,
+    unauthorized — into short markdown the sidebar can render
     verbatim, with a remediation link where one exists. Falling back on the
     raw string is fine for unknown cases since it still surfaces in
     ``evidence_json`` for debugging.
@@ -534,10 +533,10 @@ class AgentExecutor:
     Lifecycle:
         1. Check no other agent is running (→ AgentBusyError)
         2. Create AgentRun DB row (status=running)
-        3. Get/start workspace OpenCode process
-        4. Create fresh session, send prompt, collect response
-        5. Parse response, persist to context + sidebar + DB
-        6. Return AgentExecutionResult
+        3. Build a Pydantic AI ``Model`` from canonical AI state and run the
+           agent in-process (ADR-0047)
+        4. Validate the structured output, persist to context + sidebar + DB
+        5. Return AgentExecutionResult
     """
 
     def __init__(
@@ -643,9 +642,9 @@ class AgentExecutor:
 
         try:
             # 3. Load workspace data — finding row + prior agent context.
-            # The PA no-tools path needs nothing more; the OpenCode tool-
-            # agent path additionally spins up a workspace OpenCode
-            # process below.
+            # Both the no-tools and tool-agent paths run in-process via
+            # Pydantic AI; the only difference is whether tools + permission
+            # gating are wired in.
             finding_data, prior_ctx = _load_workspace_data(
                 workspace_dir, agent_type
             )
@@ -658,9 +657,7 @@ class AgentExecutor:
                 # tool raises ApprovalRequired and the run returns a
                 # DeferredToolRequests output — we park the marker + message
                 # history on the agent_run row and stop; the user resumes it
-                # via POST .../permission. (The old OpenCode subprocess path
-                # is deleted in PR2.E; its now-orphaned plumbing —
-                # _send_and_collect, the permission queue — goes with it.)
+                # via POST .../permission.
                 outcome = await self._run_pa_executor(
                     WorkspaceDeps(
                         workspace_id=workspace_id,
@@ -1091,19 +1088,17 @@ class AgentExecutor:
     ) -> ParseResult:
         """Run one of the six no-tools agents through Pydantic AI.
 
-        Returns a :class:`ParseResult` shaped exactly like the OpenCode
-        path so the downstream verifier + persistence blocks stay one
-        diff away from their pre-migration behaviour. Translates the PA
+        Returns a :class:`ParseResult` so the downstream verifier +
+        persistence blocks are substrate-agnostic. Translates the PA
         exception taxonomy into Cliff's existing
         ``AgentRateLimitError`` / ``AgentTimeoutError`` /
-        ``AgentProcessError`` so the existing ``except`` handlers in
-        ``execute()`` cover both substrates uniformly.
+        ``AgentProcessError`` so the ``except`` handlers in ``execute()``
+        cover it uniformly.
 
-        The provider-rate-limit retry budget mirrors the OpenCode loop
-        (``RATE_LIMIT_MAX_ATTEMPTS`` exponential-backoff retries). PA
-        validation-failure retries are handled internally by Pydantic
-        AI via ``output_type`` — we do not also wrap with the
-        ``_RETRY_PROMPT`` loop.
+        Provider 429s get a ``RATE_LIMIT_MAX_ATTEMPTS`` exponential-backoff
+        retry budget here. Validation-failure retries are handled internally
+        by Pydantic AI via ``output_type`` — we do not add a corrective-retry
+        loop on top.
         """
         if agent_type not in NO_TOOLS_AGENT_TYPES:
             # Defense-in-depth: caller (``execute``) already gates on
@@ -1187,14 +1182,13 @@ class AgentExecutor:
         # Parse-retry budget for UnexpectedModelBehavior (weak/old models
         # sometimes emit prose-only with no JSON shape; PA's own
         # output_type retry only fires on schema-shaped-but-invalid
-        # responses, not on prose-only ones). One re-roll mirrors the
-        # OpenCode-era ``_RETRY_PROMPT`` corrective-retry.
+        # responses, not on prose-only ones). One re-roll covers the
+        # prose-only case.
         parse_retries_used = 0
         for attempt in range(1, RATE_LIMIT_MAX_ATTEMPTS + 1):
             try:
                 # ``timeout`` is per-attempt: rate-limit backoff sleeps +
-                # retries mean total wall-clock can exceed it. Mirrors the
-                # OpenCode-era loop semantics.
+                # retries mean total wall-clock can exceed it.
                 return await asyncio.wait_for(coro_factory(), timeout=timeout)
             except TimeoutError as exc:
                 raise AgentTimeoutError(

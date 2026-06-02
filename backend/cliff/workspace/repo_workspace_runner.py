@@ -1,29 +1,27 @@
 """RepoAgentRunner — execute a single-shot generator agent in a repo workspace.
 
 Closes bug B6 from the dogfooding report. `WorkspaceDirManager.create_repo_workspace`
-scaffolds a directory and a rendered prompt but historically stopped there — the
-posture-fix route returned a ``workspace_id`` pointing at an inert folder and no
-PR was ever opened.
+scaffolds a clone directory but stops there — the posture-fix route returned a
+``workspace_id`` pointing at an inert folder and no PR was ever opened.
 
 This runner:
 
-1. Starts an OpenCode process in the workspace via the shared
-   ``WorkspaceProcessPool`` with ``GH_TOKEN``/``CLIFF_REPO_URL`` injected.
-2. Creates a fresh session, sends the rendered agent prompt, collects the
-   streamed response.
-3. Parses the JSON contract the template requires and extracts ``pr_url``.
-4. Persists the outcome to ``history/status.json`` inside the workspace so the
+1. Builds a Pydantic AI ``Model`` from canonical AI state and a repo-action
+   agent (bash/edit/read/gh tools), with ``GH_TOKEN``/``CLIFF_REPO_URL`` in
+   the deps env.
+2. Runs the agent in-process (``agent.run``) with ``auto_approve=True`` — the
+   ``output_type`` (``RepoActionOutput``) carries ``pr_url`` directly, so
+   there is no JSON contract to parse.
+3. Persists the outcome to ``history/status.json`` inside the workspace so the
    posture route can report status back to the UI without a new DB table.
-5. Stops the workspace process — repo-action workspaces are ephemeral.
 
-The permission model for repo workspaces is ``"allow"`` for bash/edit/webfetch
-(set up in the spawner via ``_build_repo_action_opencode_config``) because the
-user already authorised the single action by clicking "Let Cliff open a PR".
-No SSE permission queue is needed here.
+Repo-action runs auto-approve every gated tool (clone/edit/push/PR): the user
+already authorised the single action by clicking "Let Cliff open a PR", and
+there is no interactive approval path in a background posture-fix run.
 
-Contract: the runner never raises. All outcomes — success, bad LLM output,
-OpenCode process failure, timeout — collapse into a ``RepoAgentStatus`` row
-persisted to disk. Callers poll the status file.
+Contract: the runner never raises. All outcomes — success, bad model output,
+model error, timeout — collapse into a ``RepoAgentStatus`` row persisted to
+disk. Callers poll the status file.
 """
 
 from __future__ import annotations
@@ -68,14 +66,12 @@ logger = logging.getLogger(__name__)
 # create is measured in tens of seconds on GitHub; the rest is LLM latency.
 DEFAULT_TIMEOUT_SECONDS = 600.0
 
-# Stall detection is intentionally absent: OpenCode's SSE stream for tool
-# agents can go silent for long stretches while the model thinks between
-# tool invocations (especially after file reads during a multi-step
-# clone→detect→write→commit→push→PR flow). Premature stall cancels the
-# run after the agent has already produced side effects (cloned repo,
-# checked out a branch) but before it emits the final JSON contract, which
-# surfaces as confusing "No JSON block found" failures. We rely on the
-# overall ``DEFAULT_TIMEOUT_SECONDS`` (10 min) to bound the run instead.
+# Stall detection is intentionally absent: a tool-using agent can go quiet
+# for long stretches while the model thinks between tool invocations
+# (especially during a multi-step clone→detect→write→commit→push→PR flow).
+# A premature stall cancel would kill the run after it had already produced
+# side effects (cloned repo, checked out a branch). We rely on the overall
+# ``DEFAULT_TIMEOUT_SECONDS`` (10 min) to bound the run instead.
 
 RepoAgentPhase = Literal["queued", "running", "pr_created", "already_present", "failed"]
 
