@@ -15,7 +15,6 @@ from cliff.agents.executor import (
     AgentExecutor,
     _classify_tool_request,
     _load_workspace_data,
-    build_agent_prompt,
 )
 from cliff.agents.output_parser import ParseResult
 from cliff.agents.runtime.deps import WorkspaceDeps
@@ -955,77 +954,6 @@ class TestPaResolverWiring:
             ({"OPENAI_API_KEY": "sk-first"}, "openai/gpt-4o-mini"),
             ({"OPENAI_API_KEY": "sk-second"}, "openai/gpt-5-mini"),
         ]
-
-
-class TestBuildAgentPrompt:
-    def test_includes_output_contract(self):
-        """Prompt includes the per-agent structured_output schema."""
-        prompt = build_agent_prompt("finding_enricher", finding=_SAMPLE_FINDING)
-        assert "normalized_title" in prompt
-        assert "cve_ids" in prompt
-        assert "cvss_score" in prompt
-
-    def test_includes_json_instruction(self):
-        """Prompt explicitly requests JSON-only output."""
-        prompt = build_agent_prompt("finding_enricher", finding=_SAMPLE_FINDING)
-        assert "programmatic agent execution" in prompt.lower()
-        assert "no tool calls" in prompt.lower()
-        assert "no file reads" in prompt.lower()
-
-    def test_all_agent_types_have_contracts(self):
-        """Every known agent type produces a prompt with its output contract."""
-        agent_types = [
-            "finding_enricher",
-            "owner_resolver",
-            "exposure_analyzer",
-            "remediation_planner",
-            "validation_checker",
-        ]
-        for agent_type in agent_types:
-            prompt = build_agent_prompt(agent_type, finding=_SAMPLE_FINDING)
-            assert "structured_output" in prompt, f"Missing contract for {agent_type}"
-            assert "```json" in prompt
-
-    def test_unknown_agent_type_still_works(self):
-        """Unknown agent types produce a valid prompt without a specific contract."""
-        prompt = build_agent_prompt("unknown_agent", finding=_SAMPLE_FINDING)
-        assert "```json" in prompt
-        assert "summary" in prompt
-
-    def test_prompt_includes_finding_title(self):
-        """The actual finding title must appear in the prompt."""
-        prompt = build_agent_prompt("finding_enricher", finding=_SAMPLE_FINDING)
-        assert "Apache Tomcat vulnerable version on web-prod-17" in prompt
-
-    def test_prompt_includes_finding_description(self):
-        """The finding description must appear in the prompt."""
-        prompt = build_agent_prompt("finding_enricher", finding=_SAMPLE_FINDING)
-        assert "CVE-2023-46589" in prompt
-        assert "HTTP request smuggling" in prompt
-
-    def test_prompt_includes_finding_severity(self):
-        """Severity and asset must appear in the prompt."""
-        prompt = build_agent_prompt("finding_enricher", finding=_SAMPLE_FINDING)
-        assert "critical" in prompt
-        assert "Web Server 17" in prompt
-
-    def test_prompt_includes_prior_context(self):
-        """Prior enrichment data appears for agents that run after enricher."""
-        prompt = build_agent_prompt(
-            "owner_resolver",
-            finding=_SAMPLE_FINDING,
-            prior_context={"enrichment": _SAMPLE_ENRICHMENT},
-        )
-        assert "CVE-2023-46589" in prompt
-        assert "9.0.84" in prompt  # fixed_version from enrichment
-
-    def test_enricher_no_prior_context(self):
-        """Enricher prompt works fine without prior context."""
-        prompt = build_agent_prompt(
-            "finding_enricher", finding=_SAMPLE_FINDING, prior_context=None
-        )
-        assert "Apache Tomcat" in prompt
-        assert "What we know so far" not in prompt
 
 
 class TestLoadWorkspaceData:

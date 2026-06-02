@@ -138,9 +138,7 @@ def app_client(opencode_server):
     # so it's auto-fixed by the source-module rebind; the rest must be
     # rebound explicitly here, or routes like /health and /api/settings
     # will silently hit the original-port client.
-    import cliff.api.routes.chat as chat_mod
     import cliff.api.routes.health as health_mod
-    import cliff.api.routes.sessions as sessions_mod
     import cliff.api.routes.settings as routes_settings_mod
     import cliff.engine.client as client_mod
     import cliff.engine.config_manager as config_mod
@@ -149,8 +147,6 @@ def app_client(opencode_server):
 
     fresh_client = OpenCodeClient(base_url=settings.opencode_url)
     client_mod.opencode_client = fresh_client
-    sessions_mod.opencode_client = fresh_client
-    chat_mod.opencode_client = fresh_client
     config_mod.opencode_client = fresh_client
     health_mod.opencode_client = fresh_client
     routes_settings_mod.opencode_client = fresh_client

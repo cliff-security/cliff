@@ -10,8 +10,6 @@ import pytest
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
-from cliff.engine.models import SessionDetail, SessionSummary
-
 
 @asynccontextmanager
 async def _noop_lifespan(app):
@@ -56,31 +54,15 @@ def mock_opencode_process():
 
 @pytest.fixture
 def mock_opencode_client():
-    """Mock the OpenCode HTTP client in all route modules."""
-    with (
-        patch("cliff.api.routes.sessions.opencode_client") as mock_sessions,
-        patch("cliff.api.routes.chat.opencode_client") as mock_chat,
-    ):
-        # Default behaviors
-        for m in (mock_sessions, mock_chat):
-            m.create_session = AsyncMock(
-                return_value=SessionSummary(id="test-session-123")
-            )
-            m.list_sessions = AsyncMock(
-                return_value=[SessionSummary(id="test-session-123")]
-            )
-            m.get_session = AsyncMock(
-                return_value=SessionDetail(id="test-session-123", messages=[])
-            )
-            m.send_message = AsyncMock(return_value={"status": "ok"})
-            m.stream_events = AsyncMock()
-            m.health_check = AsyncMock(return_value=True)
+    """Legacy no-op fixture.
 
-        # Return both mocks so tests can override per-module
-        yield type("Mocks", (), {
-            "sessions": mock_sessions,
-            "chat": mock_chat,
-        })()
+    Previously mocked the singleton OpenCode client behind the generic
+    ``/api/sessions`` + ``/api/chat`` routes, deleted in the chat-spike
+    removal (IMPL-0022 PR #3a). Kept as a no-op so dependents (the
+    ``client`` fixture, a couple of Docker tests) don't need signature
+    churn — the health route's client is mocked by ``mock_opencode_process``.
+    """
+    yield None
 
 
 @pytest.fixture

@@ -2,26 +2,6 @@
 
 const BASE = '';  // Uses Vite proxy in dev
 
-// ---------------------------------------------------------------------------
-// OpenCode session types (Phase 1)
-// ---------------------------------------------------------------------------
-
-export interface SessionSummary {
-  id: string;
-  created_at?: string;
-}
-
-export interface SessionDetail extends SessionSummary {
-  messages: MessageInfo[];
-  model?: string;
-}
-
-export interface MessageInfo {
-  id: string;
-  role: string;
-  content: string;
-  created_at?: string;
-}
 
 export interface HealthStatus {
   cliff: string;
@@ -518,22 +498,6 @@ export function parseApiError(err: unknown): ParsedApiError {
 export const api = {
   // Health
   health: () => request<HealthStatus>('/health'),
-
-  // OpenCode sessions (legacy — shared singleton process)
-  createSession: () =>
-    request<SessionSummary>('/api/sessions', { method: 'POST' }),
-  listSessions: () => request<SessionSummary[]>('/api/sessions'),
-  getSession: (id: string) =>
-    request<SessionDetail>(`/api/sessions/${id}`),
-
-  // Chat — legacy (shared singleton process)
-  sendMessage: (sessionId: string, content: string) =>
-    request<{ session_id: string; status: string }>(
-      `/api/chat/${sessionId}/send`,
-      { method: 'POST', body: JSON.stringify({ content }) },
-    ),
-  streamEvents: (sessionId: string): EventSource =>
-    new EventSource(`/api/chat/${sessionId}/stream`),
 
   // Workspace-scoped sessions (isolated per-workspace OpenCode process)
   createWorkspaceSession: (workspaceId: string) =>

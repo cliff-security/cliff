@@ -8,7 +8,6 @@ import { FindingDetailPageRedirect } from '@/pages/FindingsRedirects'
 import IssuesPage from '@/pages/IssuesPage'
 import WorkspaceRedirect from '@/pages/WorkspaceRedirect'
 import SettingsPage from '@/pages/SettingsPage'
-import Spike from '@/pages/Spike'
 import Welcome from '@/pages/onboarding/Welcome'
 import ConnectRepo from '@/pages/onboarding/ConnectRepo'
 import ConfigureAI from '@/pages/onboarding/ConfigureAI'
@@ -56,7 +55,6 @@ export const router = createBrowserRouter([
       { path: 'history', element: <Navigate to="/issues" replace /> },
       { path: 'integrations', element: <Navigate to="/settings" replace /> },
       { path: 'settings', element: <SettingsPage /> },
-      { path: 'spike', element: <Spike /> },
     ],
   },
 ])

@@ -26,25 +26,6 @@ export function useHealth() {
 }
 
 // ---------------------------------------------------------------------------
-// OpenCode sessions (Phase 1)
-// ---------------------------------------------------------------------------
-
-export function useSessions() {
-  return useQuery({
-    queryKey: ['sessions'],
-    queryFn: () => api.listSessions(),
-  })
-}
-
-export function useSession(id: string | undefined) {
-  return useQuery({
-    queryKey: ['session', id],
-    queryFn: () => api.getSession(id!),
-    enabled: !!id,
-  })
-}
-
-// ---------------------------------------------------------------------------
 // Findings (Phase 4)
 // ---------------------------------------------------------------------------
 

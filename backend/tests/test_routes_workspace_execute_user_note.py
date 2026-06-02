@@ -136,39 +136,3 @@ async def test_user_note_too_long_returns_422(app, client) -> None:
             json={"user_note": "x" * 2001},
         )
     assert resp.status_code == 422
-
-
-def test_user_note_appears_in_planner_prompt() -> None:
-    """The planner's runtime prompt must include the user's note as an
-    authoritative refinement block."""
-    from cliff.agents.executor import build_agent_prompt
-
-    finding = {
-        "id": "f-1",
-        "source_type": "tenable",
-        "source_id": "vuln-001",
-        "title": "CVE-2024-1234",
-        "description": "RCE in libfoo",
-        "raw_severity": "high",
-    }
-
-    prompt_with_note = build_agent_prompt(
-        "remediation_planner",
-        finding=finding,
-        user_note="Skip the wrapper change in lib/normalize.ts.",
-    )
-    prompt_without = build_agent_prompt(
-        "remediation_planner",
-        finding=finding,
-    )
-
-    assert "Skip the wrapper change in lib/normalize.ts." in prompt_with_note
-    assert "User refinement" in prompt_with_note
-    assert "Skip the wrapper change" not in prompt_without
-    assert "User refinement" not in prompt_without
-
-    # Empty / None note must not introduce a refinement block.
-    prompt_empty = build_agent_prompt(
-        "remediation_planner", finding=finding, user_note=""
-    )
-    assert "User refinement" not in prompt_empty
