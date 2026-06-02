@@ -38,18 +38,14 @@ def _stub_onboarding_repo_probe():
 
 @pytest.fixture
 def mock_opencode_process():
-    """Mock the OpenCode process manager so tests don't need a real server."""
-    with (
-        patch("cliff.api.routes.health.opencode_process") as mock_proc,
-        patch("cliff.api.routes.health.opencode_client") as mock_health_client,
-    ):
-        mock_proc.health_check = AsyncMock(return_value=True)
-        mock_proc.is_running = True
-        mock_proc.is_healthy = True
-        mock_health_client.get_config = AsyncMock(
-            return_value={"model": "openai/gpt-4.1-nano"}
-        )
-        yield mock_proc
+    """Legacy no-op fixture.
+
+    The /health route no longer probes an OpenCode subprocess (the substrate
+    runs in-process via Pydantic AI; ADR-0047). Kept as a no-op so the
+    ``client`` fixture and a couple of Docker tests don't need signature
+    churn.
+    """
+    yield None
 
 
 @pytest.fixture

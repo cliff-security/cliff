@@ -406,6 +406,30 @@ class IntegrationHealthStatus(BaseModel):
     error_message: str | None = None
 
 
+class HealthStatus(BaseModel):
+    """``/health`` response.
+
+    Field shape is preserved across the OpenCode → Pydantic AI substrate
+    migration (ADR-0047) so the frontend health card and ``cliffsec status``
+    don't churn. The agent substrate now runs **in-process**, so ``opencode``
+    is always ``"ok"`` and ``opencode_version`` carries the Pydantic AI
+    version string (e.g. ``"pydantic-ai 1.98.x"``) rather than a subprocess
+    version.
+    """
+
+    cliff: str = "ok"
+    # Substrate health. In-process (Pydantic AI) — always "ok" when the app
+    # is up; kept for backward-compatible response shape.
+    opencode: str = "ok"
+    # Carries the substrate version string ("pydantic-ai <ver>").
+    opencode_version: str = ""
+    model: str = ""
+    # True only when an AI provider credential is present *and* reachable.
+    # A configured model string alone is not enough. ``cliffsec status``
+    # turns a False here into a ``no_ai_provider_credential`` blocker.
+    ai_provider_ready: bool = False
+
+
 # ---------------------------------------------------------------------------
 # Finding ingest models (ADR-0022 + ADR-0023)
 # ---------------------------------------------------------------------------
@@ -519,6 +543,7 @@ __all__ = [
     "CredentialInfo",
     "TestConnectionResult",
     "WorkspaceIntegration",
+    "HealthStatus",
     "IntegrationHealthStatus",
     # Ingest
     "IngestRequest",

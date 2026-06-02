@@ -2,49 +2,51 @@
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
+
 from fastapi import APIRouter, Request
 
 from cliff.config import settings
-from cliff.engine.client import opencode_client
-from cliff.engine.models import HealthStatus
-from cliff.engine.process import opencode_process
+from cliff.models import HealthStatus
 
 router = APIRouter()
 
 
+def _substrate_version() -> str:
+    """The Pydantic AI version string reported in place of the old OpenCode
+    subprocess version (the substrate runs in-process now)."""
+    try:
+        return f"pydantic-ai {_pkg_version('pydantic-ai')}"
+    except PackageNotFoundError:  # pragma: no cover — always installed
+        return "pydantic-ai"
+
+
 @router.get("/health", response_model=HealthStatus)
 async def health(request: Request) -> HealthStatus:
-    oc_healthy = await opencode_process.health_check()
+    # The agent substrate runs in-process via Pydantic AI — there's no
+    # subprocess to probe, so "opencode" is always "ok" when the app is up.
+    # The field shape is kept for backward compatibility (frontend health
+    # card + cliffsec status); see HealthStatus.
 
-    # Read model from OpenCode runtime (not the file, which can be stale).
-    model = ""
-    if oc_healthy:
-        try:
-            config = await opencode_client.get_config()
-            model = config.get("model", "")
-        except Exception:
-            pass
-    if not model:
-        model = settings.opencode_model
-
-    # ``ai_env_cache`` is the exact env dict the workspace process pool
-    # injects into every per-workspace OpenCode subprocess. A non-empty
-    # cache means a provider credential is present *and* resolved (vault
-    # decrypt succeeded) — i.e. genuinely reachable by the subprocess.
-    # ``ai_provider_credential_ok`` adds the last piece (Q01-B02): the
-    # resolved credential was live-probed at boot / on connect and did not
-    # come back as a definitive auth rejection. ``ai_provider_ready`` is
-    # only True when both hold — a present-but-revoked key reads as not
-    # ready, exactly as it behaves at agent-run time.
-    ai_env_cache = getattr(request.app.state, "ai_env_cache", None) or {}
-    credential_ok = getattr(
-        request.app.state, "ai_provider_credential_ok", False
+    # ``ai_model_cache`` is the canonical active model resolved at boot / on
+    # provider change; fall back to the configured default.
+    model = (
+        getattr(request.app.state, "ai_model_cache", None)
+        or settings.opencode_model
     )
+
+    # ``ai_env_cache`` is the resolved provider env. A non-empty cache means a
+    # provider credential is present *and* resolved (vault decrypt succeeded);
+    # ``ai_provider_credential_ok`` adds that it was live-probed and not a
+    # definitive auth rejection. ``ai_provider_ready`` requires both.
+    ai_env_cache = getattr(request.app.state, "ai_env_cache", None) or {}
+    credential_ok = getattr(request.app.state, "ai_provider_credential_ok", False)
 
     return HealthStatus(
         cliff="ok",
-        opencode="ok" if oc_healthy else "unavailable",
-        opencode_version=settings.opencode_version,
-        model=model,
+        opencode="ok",
+        opencode_version=_substrate_version(),
+        model=model or "",
         ai_provider_ready=bool(ai_env_cache) and credential_ok,
     )
