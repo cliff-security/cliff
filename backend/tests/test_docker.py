@@ -25,8 +25,6 @@ def test_docker_env_defaults():
     s = Settings()
     assert s.app_host == "0.0.0.0"
     assert s.app_port == 8000
-    assert s.opencode_host == "127.0.0.1"
-    assert s.opencode_port == 4096
 
 
 def test_spa_fallback_not_mounted_without_static_dir(client):
@@ -47,7 +45,7 @@ def test_health_still_works_without_static_dir(client):
 class TestSpaFallback:
     """Test SPA fallback when static_dir is configured with real files."""
 
-    def test_serves_index_html(self, tmp_path, mock_opencode_process, mock_opencode_client):
+    def test_serves_index_html(self, tmp_path):
         """SPA fallback serves index.html for unknown paths."""
         # Set up a fake static directory
         static_dir = tmp_path / "dist"
@@ -86,7 +84,7 @@ class TestDockerfileStructure:
         """Find the repo root."""
         current = Path(__file__).resolve().parent
         for _ in range(10):
-            if (current / ".opencode-version").exists():
+            if (current / "VERSION").exists():
                 return current
             current = current.parent
         return current
@@ -169,7 +167,7 @@ class TestReleaseHardening:
     def _repo_root(self) -> Path:
         current = Path(__file__).resolve().parent
         for _ in range(10):
-            if (current / ".opencode-version").exists():
+            if (current / "VERSION").exists():
                 return current
             current = current.parent
         return current

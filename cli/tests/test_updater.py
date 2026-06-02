@@ -197,7 +197,6 @@ def test_update_happy_path_replaces_install(fake_install, httpx_mock, monkeypatc
     _build_tarball(
         {
             "VERSION": b"0.1.7-alpha\n",
-            "scripts/install-opencode.sh": b"#!/bin/sh\nexit 0\n",
             "scripts/install-scanners.sh": b"#!/bin/sh\nexit 0\n",
         },
         tar_path,
@@ -228,7 +227,6 @@ def test_update_happy_path_replaces_install(fake_install, httpx_mock, monkeypatc
     assert (home / "app" / "VERSION").read_text().strip() == "0.1.7-alpha"
     assert "Updated 0.1.6-alpha -> 0.1.7-alpha" in res.output
     # Both bundled installers were run.
-    assert any("install-opencode.sh" in " ".join(c) for c in sh_calls)
     assert any("install-scanners.sh" in " ".join(c) for c in sh_calls)
     # Snapshots were cleaned up.
     assert not (home / "app.bak-0.1.6-alpha").exists()
@@ -251,7 +249,6 @@ def test_update_rolls_back_on_doctor_failure(
     _build_tarball(
         {
             "VERSION": b"0.1.7-alpha\n",
-            "scripts/install-opencode.sh": b"#!/bin/sh\nexit 0\n",
             "scripts/install-scanners.sh": b"#!/bin/sh\nexit 0\n",
         },
         tar_path,
@@ -300,7 +297,6 @@ def test_update_force_reinstalls_same_version(
     sha_url = tar_url + ".sha256"
     tar_path = tmp_path / "fake.tar.gz"
     _build_tarball({"VERSION": b"0.1.6-alpha\n",
-                    "scripts/install-opencode.sh": b"#!/bin/sh\n",
                     "scripts/install-scanners.sh": b"#!/bin/sh\n"}, tar_path)
     httpx_mock.add_response(url=tar_url, content=tar_path.read_bytes())
     httpx_mock.add_response(url=sha_url, status_code=404)
@@ -352,7 +348,6 @@ def test_verify_tarball_shape_accepts_valid_tarball(tmp_path):
     _build_tarball(
         {
             "VERSION": b"0.1.7\n",
-            "scripts/install-opencode.sh": b"#!/bin/sh\n",
             "scripts/install-scanners.sh": b"#!/bin/sh\n",
         },
         src,
@@ -446,7 +441,6 @@ def test_update_aborts_on_bad_checksum_without_touching_install(
     _build_tarball(
         {
             "VERSION": b"0.1.7-alpha\n",
-            "scripts/install-opencode.sh": b"#!/bin/sh\n",
             "scripts/install-scanners.sh": b"#!/bin/sh\n",
         },
         tar_path,
@@ -504,7 +498,6 @@ def test_two_failed_updates_keep_both_snapshots(
         _build_tarball(
             {
                 "VERSION": f"{version}\n".encode(),
-                "scripts/install-opencode.sh": b"#!/bin/sh\n",
                 "scripts/install-scanners.sh": b"#!/bin/sh\n",
             },
             tarball,
@@ -558,7 +551,6 @@ def test_rollback_survives_partial_rmtree(
     _build_tarball(
         {
             "VERSION": b"0.1.7-alpha\n",
-            "scripts/install-opencode.sh": b"#!/bin/sh\n",
             "scripts/install-scanners.sh": b"#!/bin/sh\n",
         },
         tarball,

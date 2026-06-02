@@ -14,21 +14,6 @@ from cliff.db.connection import close_db, init_db
 from cliff.integrations.vault import CredentialVault
 
 
-@pytest.fixture(autouse=True)
-def _stub_opencode_auth_sync(monkeypatch):
-    """Stub opencode_client.set_auth + get_config so the OpenCode auth.json
-    sync (set_auth) and the live-probe (get_config, ADR-0037) don't try to
-    hit a real 127.0.0.1:4096 inside the OAuth route tests."""
-    from unittest.mock import AsyncMock
-
-    from cliff.engine.client import opencode_client
-
-    monkeypatch.setattr(opencode_client, "set_auth", AsyncMock(return_value=True))
-    monkeypatch.setattr(
-        opencode_client, "get_config", AsyncMock(return_value={})
-    )
-
-
 @pytest.fixture
 def non_mocked_hosts() -> list[str]:
     """Let httpx requests to the local OAuth callback bypass pytest-httpx."""

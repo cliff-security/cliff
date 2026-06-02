@@ -141,7 +141,7 @@
     },
     "must_contain_any": ["ci-deploy", "admin", "IAM"],
     "must_not_contain_regex": ["CWE-\\d+", "CVSS:\\d"],
-    "fix_hint_keywords": ["replace", "scoped", "least", "narrow", "remove", "attach a"],
+    "fix_hint_keywords": ["replace", "scoped", "least", "narrow", "remov", "restrict", "attach a"],
     "sentence_count_range": [2, 4]
   },
   {

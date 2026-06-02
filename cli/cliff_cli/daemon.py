@@ -488,19 +488,6 @@ def _gather_doctor_checks() -> list[dict[str, Any]]:
     else:
         checks.append(_check("python", False, f"not found at {py_bin}"))
 
-    # opencode binary version match
-    opencode_bin = BIN_DIR / "opencode"
-    expected_opencode = ""
-    opencode_version_file = APP_DIR / ".opencode-version"
-    if opencode_version_file.is_file():
-        expected_opencode = opencode_version_file.read_text().strip()
-    if opencode_bin.is_file():
-        actual = _run_version([str(opencode_bin), "--version"], timeout=10)
-        ok = (not expected_opencode) or expected_opencode in actual
-        checks.append(_check("opencode", ok, actual or "?", expected=expected_opencode))
-    else:
-        checks.append(_check("opencode", False, f"not found at {opencode_bin}"))
-
     # trivy + semgrep against .scanner-versions
     pinned = _read_pinned_versions(APP_DIR / ".scanner-versions")
     for tool in ("trivy", "semgrep"):
@@ -515,7 +502,7 @@ def _gather_doctor_checks() -> list[dict[str, Any]]:
 
     # macOS Gatekeeper quarantine
     if sys.platform == "darwin":
-        for tool in ("opencode", "trivy", "semgrep"):
+        for tool in ("trivy", "semgrep"):
             path = BIN_DIR / tool
             if not path.is_file():
                 continue

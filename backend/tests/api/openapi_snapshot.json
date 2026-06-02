@@ -433,24 +433,6 @@
         "title": "AgentRunUpdate",
         "type": "object"
       },
-      "ApiKeyCreate": {
-        "properties": {
-          "key": {
-            "title": "Key",
-            "type": "string"
-          },
-          "provider": {
-            "title": "Provider",
-            "type": "string"
-          }
-        },
-        "required": [
-          "provider",
-          "key"
-        ],
-        "title": "ApiKeyCreate",
-        "type": "object"
-      },
       "Assessment": {
         "properties": {
           "branch": {
@@ -4085,7 +4067,7 @@
         "type": "object"
       },
       "ProviderTestRequest": {
-        "description": "Optional staged config. Alpha passes nothing and probes the currently\nconfigured provider/model/key; a future UI can preview unsaved staged\nconfig by populating these fields. Ignored today \u2014 probe uses whatever\nOpenCode has configured \u2014 but kept so the wire shape is stable.",
+        "description": "Optional staged config. Alpha passes nothing and probes the currently\nconfigured provider/model/key; a future UI can preview unsaved staged\nconfig by populating these fields. Ignored today \u2014 probe uses whatever\nthe canonical AI state has configured \u2014 but kept so the wire shape is\nstable.",
         "properties": {
           "api_key": {
             "anyOf": [
@@ -4971,7 +4953,7 @@
         "type": "object"
       },
       "VersionInfo": {
-        "description": "Version handshake for the agent CLI (`cliffsec status`).\n\n`min_cli` is the lowest CLI version this server promises to speak to.\nA CLI older than this should refuse to operate and tell the user to upgrade.\n`schema_version` bumps when the CLI/server contract changes incompatibly.",
+        "description": "``/version`` handshake for the agent CLI (``cliffsec status``).\n\n``min_cli`` is the lowest CLI version this server promises to speak to; a\nCLI older than this refuses to operate. ``schema_version`` bumps when the\nCLI/server contract changes incompatibly. ``opencode`` is retained for a\nbackward-compatible wire shape and now carries the in-process substrate\nversion (ADR-0047).",
         "properties": {
           "cliff": {
             "title": "Cliff",
@@ -4983,6 +4965,7 @@
             "type": "string"
           },
           "opencode": {
+            "default": "",
             "title": "Opencode",
             "type": "string"
           },
@@ -4993,8 +4976,7 @@
           }
         },
         "required": [
-          "cliff",
-          "opencode"
+          "cliff"
         ],
         "title": "VersionInfo",
         "type": "object"
@@ -7039,108 +7021,6 @@
         ]
       }
     },
-    "/api/settings/api-keys": {
-      "get": {
-        "operationId": "list_api_keys_api_settings_api_keys_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "List Api Keys",
-        "tags": [
-          "settings"
-        ]
-      }
-    },
-    "/api/settings/api-keys/{provider}": {
-      "delete": {
-        "operationId": "delete_api_key_api_settings_api_keys__provider__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "provider",
-            "required": true,
-            "schema": {
-              "title": "Provider",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Delete Api Key",
-        "tags": [
-          "settings"
-        ]
-      },
-      "put": {
-        "operationId": "set_api_key_api_settings_api_keys__provider__put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "provider",
-            "required": true,
-            "schema": {
-              "title": "Provider",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ApiKeyCreate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Set Api Key",
-        "tags": [
-          "settings"
-        ]
-      }
-    },
     "/api/settings/integrations": {
       "get": {
         "operationId": "list_integrations_endpoint_api_settings_integrations_get",
@@ -7616,7 +7496,7 @@
     },
     "/api/settings/model": {
       "get": {
-        "description": "Return the canonical active model (ADR-0037).\n\nThin shim over :class:`AIIntegrationService` so the CLI (``cliffsec\nmodel get``) and the new Settings UI agree byte-for-byte. Falls\nback to the old ``opencode.json``-derived value when no AI\nprovider is connected so legacy users without an ``ai_integration``\nrow still get something meaningful.",
+        "description": "Return the canonical active model (ADR-0037).\n\nThin shim over :class:`AIIntegrationService` so the CLI (``cliffsec\nmodel get``) and the Settings UI agree byte-for-byte. Returns an\nempty :class:`ModelConfig` when no AI provider is connected yet\n(fresh install) \u2014 the UI treats a blank ``model_full_id`` as \"no\nmodel set\" and the agent-launch gate keeps things safe.",
         "operationId": "get_model_api_settings_model_get",
         "responses": {
           "200": {
@@ -7636,7 +7516,7 @@
         ]
       },
       "put": {
-        "description": "Persist a model change (ADR-0037).\n\nRoutes through :class:`AIIntegrationService.set_model` when a\nprovider is connected. On a fresh install with no provider yet,\nfalls through to the legacy ``config_manager.update_model`` so\n``cliffsec model set`` during install still works before BYOK.",
+        "description": "Persist a model change (ADR-0037).\n\nRoutes through :class:`AIIntegrationService.set_model`, which writes\nthe canonical ``app_setting(model)``. Requires a connected provider \u2014\na model can't be chosen before picking who serves it.",
         "operationId": "update_model_api_settings_model_put",
         "requestBody": {
           "content": {
@@ -7678,6 +7558,7 @@
     },
     "/api/settings/providers": {
       "get": {
+        "description": "Return the supported-provider catalog (ADR-0037).\n\nBuilt from the static :mod:`cliff.ai.catalog` \u2014 one entry per\nprovider with its key env var and the curated model picker rows. The\nwire shape (``{id, name, env, models}`` with ``models`` keyed by the\nbare model id) is what the Settings model picker and ``cliffsec model\nlist`` consume.",
         "operationId": "list_providers_api_settings_providers_get",
         "responses": {
           "200": {
@@ -7695,28 +7576,9 @@
         ]
       }
     },
-    "/api/settings/providers/configured": {
-      "get": {
-        "operationId": "get_configured_providers_api_settings_providers_configured_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Get Configured Providers",
-        "tags": [
-          "settings"
-        ]
-      }
-    },
     "/api/settings/providers/test": {
       "post": {
-        "description": "End-to-end probe of the configured provider+model (ADR-0031).\n\nSends a bounded ``\"Say OK\"`` chat call through OpenCode with a 30s\ntimeout and classifies the outcome into\n``{ok, latency_ms, error_code, error_message}``. Always returns HTTP\n200; ``ok`` reflects the probe result.",
+        "description": "End-to-end probe of the configured provider+model (ADR-0031).\n\nSends a bounded ``\"Say OK\"`` call through Pydantic AI with a 30s\ntimeout and classifies the outcome into\n``{ok, latency_ms, error_code, error_message}``. Always returns HTTP\n200; ``ok`` reflects the probe result.",
         "operationId": "test_provider_api_settings_providers_test_post",
         "requestBody": {
           "content": {

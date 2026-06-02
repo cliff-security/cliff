@@ -487,5 +487,5 @@ def test_doctor_json_envelope_on_empty_home(fake_home):
     assert "venv" in payload["failing"]
     # The shape is stable: every check is named.
     names = {c["name"] for c in payload["checks"]}
-    expected = {"uv", "venv", "python", "opencode", "trivy", "semgrep", "credential_key"}
+    expected = {"uv", "venv", "python", "trivy", "semgrep", "credential_key"}
     assert expected.issubset(names)

@@ -31,39 +31,10 @@ def _stub_onboarding_repo_probe():
         yield
 
 
-# ---------------------------------------------------------------------------
-# OpenCode mocks (existing tests)
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture
-def mock_opencode_process():
-    """Legacy no-op fixture.
-
-    The /health route no longer probes an OpenCode subprocess (the substrate
-    runs in-process via Pydantic AI; ADR-0047). Kept as a no-op so the
-    ``client`` fixture and a couple of Docker tests don't need signature
-    churn.
-    """
-    yield None
-
-
-@pytest.fixture
-def mock_opencode_client():
-    """Legacy no-op fixture.
-
-    Previously mocked the singleton OpenCode client behind the generic
-    ``/api/sessions`` + ``/api/chat`` routes, deleted in the chat-spike
-    removal (IMPL-0022 PR #3a). Kept as a no-op so dependents (the
-    ``client`` fixture, a couple of Docker tests) don't need signature
-    churn — the health route's client is mocked by ``mock_opencode_process``.
-    """
-    yield None
-
-
-@pytest.fixture
-def client(mock_opencode_process, mock_opencode_client):
-    """FastAPI test client with mocked dependencies."""
+def client():
+    """FastAPI test client with a no-op lifespan (ADR-0047 — in-process
+    substrate, nothing to spawn)."""
     from cliff.main import app
 
     app.router.lifespan_context = _noop_lifespan

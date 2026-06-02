@@ -11,8 +11,7 @@
 #   backend/                pyproject.toml, uv.lock, cliff/
 #   frontend/dist/          prebuilt SPA (vite output)
 #   cli/                    cliff_cli source + pyproject.toml
-#   scripts/                install-opencode.sh, install-scanners.sh
-#   .opencode-version
+#   scripts/                install-scanners.sh
 #   .scanner-versions
 #   VERSION
 #   README-LOCAL-INSTALL.md (short pointer)
@@ -98,13 +97,11 @@ prune_caches "${STAGE_DIR}/cli"
 # at runtime, it's how the user got here in the first place) -----------------
 
 mkdir -p "${STAGE_DIR}/scripts"
-cp scripts/install-opencode.sh "${STAGE_DIR}/scripts/"
 cp scripts/install-scanners.sh "${STAGE_DIR}/scripts/"
 chmod +x "${STAGE_DIR}/scripts/"*.sh
 
 # ---- pinned versions + version metadata -----------------------------------
 
-cp .opencode-version "${STAGE_DIR}/"
 cp .scanner-versions "${STAGE_DIR}/"
 echo "${VERSION}" > "${STAGE_DIR}/VERSION"
 
