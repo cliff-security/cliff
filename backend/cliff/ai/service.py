@@ -4,7 +4,7 @@ One place to read+write AI provider state. Encrypts the key via the existing
 ``CredentialVault`` (ADR-0016) — the GitHub App work uses the same pattern
 (ADR-0035 / IMPL-0010). Workspace callers consume ``resolve_env_for_workspace``
 to merge the right ``*_API_KEY`` (and, where applicable, ``*_BASE_URL``) into
-per-workspace OpenCode env vars.
+the env the Pydantic AI model factory reads (ADR-0047).
 
 Provider state lives in two tables that are kept in lockstep:
 
@@ -42,7 +42,6 @@ from cliff.ai.models import (
     AIStatus,
     ValidationResult,
 )
-from cliff.config import settings as app_settings
 from cliff.db import repo_integration
 from cliff.db.repo_setting import delete_setting, get_setting, upsert_setting
 from cliff.integrations.audit import AuditEvent
@@ -62,13 +61,6 @@ logger = logging.getLogger(__name__)
 CREDENTIAL_KEY_NAME = "api_key"
 MODEL_SETTING_KEY = "model"
 
-# Providers OpenCode authenticates against via its /auth store. The
-# OpenCode provider id is identical to our literal in every case, so we
-# just need the *set* of authenticating providers — ``custom`` ships its
-# own provider config and ``ollama`` doesn't authenticate.
-_OPENCODE_AUTH_PROVIDERS: frozenset[AIProvider] = frozenset(
-    {"openrouter", "anthropic", "openai", "google"}
-)
 
 class ModelPrefixMismatchError(ValueError):
     """Raised when a model id's prefix doesn't match the active provider."""
@@ -136,25 +128,6 @@ class AIIntegrationService:
             metadata=record.metadata,
             model=canonical_model,
         )
-
-    async def sync_to_opencode(self) -> None:
-        """Push the active integration's key into OpenCode's auth.json.
-
-        Used at app startup to reconcile users who connected *before*
-        the auth.json sync was added — without this they'd boot with
-        an empty auth.json and hit "Missing Authentication header"
-        until they disconnected and reconnected.
-        """
-        record = await self.get_active()
-        if record is None:
-            return
-        try:
-            raw_key = await self._vault.retrieve(
-                record.integration_id, CREDENTIAL_KEY_NAME
-            )
-        except KeyError:
-            return
-        await self._sync_opencode_auth(record.provider, raw_key)
 
     async def resolve_env_for_workspace(self) -> dict[str, str]:
         """Return the env-var dict to inject into a workspace OpenCode subprocess.
@@ -394,10 +367,6 @@ class AIIntegrationService:
             integration_id=record.integration_id,
             verb=None,
         )
-        # Clear OpenCode's auth.json entry so a stale key can't keep
-        # authenticating after disconnect. Best-effort, same rationale
-        # as `_sync_opencode_auth`.
-        await self._clear_opencode_auth(record.provider)
         await self._fire_key_change()
         return deleted
 
@@ -414,9 +383,8 @@ class AIIntegrationService:
         OpenRouter" footgun before workspace spawn tries to use it.
 
         Returns the model id that was persisted. Fires the key-change
-        hook so the singleton OpenCode restarts with the new model in
-        its config; workspaces pick it up at next spawn via the model
-        resolver.
+        hook; workspaces pick the new model up at their next run via the
+        model resolver (ADR-0047).
         """
         if "/" not in model_full_id:
             raise ModelPrefixMismatchError(
@@ -438,7 +406,6 @@ class AIIntegrationService:
         await upsert_setting(
             self._db, MODEL_SETTING_KEY, {"full_id": model_full_id}
         )
-        _safe_write_opencode_config(model_full_id)
         await self._fire_key_change()
         logger.info("AI model set to %s", model_full_id)
         return model_full_id
@@ -502,7 +469,6 @@ class AIIntegrationService:
             return
 
         await upsert_setting(self._db, MODEL_SETTING_KEY, {"full_id": chosen})
-        _safe_write_opencode_config(chosen)
 
     async def _save_internal(
         self,
@@ -550,17 +516,6 @@ class AIIntegrationService:
             metadata=metadata,
         )
 
-        # 4. Sync OpenCode's auth.json. OpenCode 1.3.x reads auth.json
-        # in preference to the documented env var path on the outbound
-        # request — without this push, the workspace and singleton
-        # subprocesses get "Missing Authentication header" from
-        # upstream providers even though OPENROUTER_API_KEY / etc. are
-        # present in their env. We keep the env var injection too
-        # (defense in depth + works on future OpenCode versions that
-        # honor the docs), but this push is what actually authenticates
-        # the calls today.
-        await self._sync_opencode_auth(provider, raw_key)
-
         logger.info(
             "AI integration saved for provider %s via %s",
             provider,
@@ -568,59 +523,12 @@ class AIIntegrationService:
         )
         return record
 
-    async def _sync_opencode_auth(
-        self, provider: AIProvider, raw_key: str
-    ) -> None:
-        """Best-effort push of *raw_key* into OpenCode's auth.json.
-
-        ``opencode_client`` talks to the singleton on port 4096; auth.json
-        is global so workspace subprocesses pick the change up at their
-        next spawn. OpenCode 1.3.x consults auth.json in preference to env
-        vars on the outbound request — without this push the subprocesses
-        get "Missing Authentication header" even though ``*_API_KEY`` is
-        injected. Failures are warning-logged; the env-var path remains as
-        a fallback. ``custom`` + ``ollama`` skip this — neither uses
-        OpenCode's /auth store.
-        """
-        if provider not in _OPENCODE_AUTH_PROVIDERS:
-            return
-        try:
-            from cliff.engine.client import opencode_client
-
-            await opencode_client.set_auth(
-                provider, {"type": "api", "key": raw_key}
-            )
-        except Exception:  # noqa: BLE001
-            logger.warning(
-                "Could not push AI key to OpenCode /auth (env-var path "
-                "will be the only auth source)",
-                exc_info=True,
-            )
-
-    async def _clear_opencode_auth(self, provider: AIProvider) -> None:
-        """Overwrite OpenCode's auth.json entry with an empty key so the
-        disconnected provider can't continue authenticating."""
-        if provider not in _OPENCODE_AUTH_PROVIDERS:
-            return
-        try:
-            from cliff.engine.client import opencode_client
-
-            await opencode_client.set_auth(
-                provider, {"type": "api", "key": ""}
-            )
-        except Exception:  # noqa: BLE001
-            logger.warning(
-                "Could not clear OpenCode /auth on disconnect", exc_info=True
-            )
-
     async def _fire_key_change(self) -> None:
         """Call the on_key_change hook with the current env, if any.
 
-        Never raises — singleton restart failures are non-fatal for the
-        save path; the user can retry from the UI. Post-M9, this hook
-        IS the consistency boundary between canonical state and the
-        singleton OpenCode (the prior live-probe + drift signal was
-        redundant and has been removed).
+        Never raises — hook failures are non-fatal for the save path; the
+        user can retry from the UI. The hook lets callers (e.g. app
+        startup) refresh any cached env snapshot when the key changes.
         """
         if self._on_key_change is None:
             return
@@ -653,30 +561,6 @@ class AIIntegrationService:
                 status="success",
             )
         )
-
-
-# ---------------------------------------------------------------------------
-# Module-level helpers
-# ---------------------------------------------------------------------------
-
-
-def _safe_write_opencode_config(model_full_id: str) -> None:
-    """Reconcile the singleton ``opencode.json`` model; warn but never raise.
-
-    Skips the file write when the current on-disk value already matches
-    so a redundant ``set_model(X)`` after the connect path wrote the same
-    X doesn't trigger a needless rewrite + restart cycle. Invalidates the
-    live-probe cache so the next ``get_status`` reflects the new model.
-    """
-    if app_settings.opencode_model == model_full_id:
-        return
-    try:
-        app_settings.write_opencode_config(model_full_id)
-    except Exception:  # noqa: BLE001
-        logger.warning(
-            "Could not write opencode.json for %s", model_full_id, exc_info=True
-        )
-        return
 
 
 __all__ = [
