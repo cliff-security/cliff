@@ -180,8 +180,7 @@ export function IssueSidePanel({
   // agent_run rows — both already polled. With the executor now parking a
   // durable DeferredToolRequests marker on the row, the poll surfaces the
   // approval prompt and run-status transitions within one interval, so no
-  // push channel is needed. (The chat SSE — api.streamWorkspaceEvents — is
-  // unrelated and stays.)
+  // push channel is needed.
 
   return (
     <aside

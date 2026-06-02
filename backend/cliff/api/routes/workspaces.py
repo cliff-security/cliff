@@ -8,10 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel
-from sse_starlette.sse import EventSourceResponse
 
-from cliff.api.tasks import fire_and_forget_send
 from cliff.db.connection import get_db
 from cliff.db.repo_finding import (
     get_finding,
@@ -29,7 +26,6 @@ from cliff.models import Workspace, WorkspaceCreate, WorkspaceUpdate
 if TYPE_CHECKING:
     import aiosqlite
 
-    from cliff.engine.pool import WorkspaceProcessPool
     from cliff.workspace.context_builder import WorkspaceContextBuilder
 
 logger = logging.getLogger(__name__)
@@ -40,10 +36,6 @@ router = APIRouter(tags=["workspaces"])
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _get_pool(request: Request) -> WorkspaceProcessPool:
-    return request.app.state.process_pool
 
 
 def _get_context_builder(request: Request) -> WorkspaceContextBuilder:
@@ -240,181 +232,11 @@ async def update_workspace_endpoint(
 async def delete_workspace_endpoint(
     workspace_id: str, request: Request, db=Depends(get_db)
 ):
-    """Delete workspace: stop process, remove directory, delete DB row."""
-    pool = _get_pool(request)
-    await pool.stop(workspace_id)
-
+    """Delete workspace: remove directory + DB row."""
     context_builder = _get_context_builder(request)
     deleted = await context_builder.delete_workspace(db, workspace_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Workspace not found")
-
-
-# ---------------------------------------------------------------------------
-# Workspace-scoped sessions
-# ---------------------------------------------------------------------------
-
-
-@router.post("/workspaces/{workspace_id}/sessions")
-async def create_workspace_session(
-    workspace_id: str, request: Request, db=Depends(get_db)
-):
-    """Create an OpenCode session on this workspace's isolated process."""
-    workspace = await _get_workspace_or_404(db, workspace_id)
-    if not workspace.workspace_dir:
-        raise HTTPException(status_code=409, detail="Workspace has no directory")
-
-    pool = _get_pool(request)
-    env_vars = await _resolve_repo_env_vars(request, db, workspace=workspace)
-    client = await pool.get_or_start(
-        workspace_id, Path(workspace.workspace_dir), env_vars=env_vars
-    )
-    session = await client.create_session()
-    return {"session_id": session.id, "workspace_id": workspace_id}
-
-
-# ---------------------------------------------------------------------------
-# Workspace-scoped chat
-# ---------------------------------------------------------------------------
-
-
-class WorkspaceChatRequest(BaseModel):
-    session_id: str
-    content: str
-
-
-@router.post("/workspaces/{workspace_id}/chat/send")
-async def workspace_send_message(
-    workspace_id: str,
-    body: WorkspaceChatRequest,
-    request: Request,
-    db=Depends(get_db),
-):
-    """Send a message to this workspace's OpenCode process."""
-    workspace = await _get_workspace_or_404(db, workspace_id)
-    if not workspace.workspace_dir:
-        raise HTTPException(status_code=409, detail="Workspace has no directory")
-
-    pool = _get_pool(request)
-    env_vars = await _resolve_repo_env_vars(request, db, workspace=workspace)
-    client = await pool.get_or_start(
-        workspace_id, Path(workspace.workspace_dir), env_vars=env_vars
-    )
-
-    fire_and_forget_send(client.send_message(body.session_id, body.content))
-    return {"session_id": body.session_id, "status": "sent"}
-
-
-@router.get("/workspaces/{workspace_id}/chat/stream")
-async def workspace_stream_events(
-    workspace_id: str,
-    session_id: str,
-    request: Request,
-    db=Depends(get_db),
-):
-    """Stream SSE events from this workspace's OpenCode process."""
-    workspace = await _get_workspace_or_404(db, workspace_id)
-    if not workspace.workspace_dir:
-        raise HTTPException(status_code=409, detail="Workspace has no directory")
-
-    pool = _get_pool(request)
-    env_vars = await _resolve_repo_env_vars(request, db, workspace=workspace)
-    client = await pool.get_or_start(
-        workspace_id, Path(workspace.workspace_dir), env_vars=env_vars
-    )
-
-    async def event_generator():
-        try:
-            async for event in client.stream_events(session_id):
-                event_type = event.get("type", "message")
-                if event_type == "text":
-                    yield {"event": "text", "data": event.get("content", "")}
-                elif event_type == "error":
-                    yield {
-                        "event": "error",
-                        "data": json.dumps(
-                            {"message": event.get("message", "Unknown error")}
-                        ),
-                    }
-                elif event_type == "permission_request":
-                    yield {
-                        "event": "permission_request",
-                        "data": json.dumps({
-                            "id": event.get("id", ""),
-                            "tool": event.get("tool", "unknown"),
-                            "patterns": event.get("patterns", []),
-                            "session_id": session_id,
-                        }),
-                    }
-                elif event_type == "done":
-                    yield {"event": "done", "data": "{}"}
-                    return
-        except Exception:
-            logger.exception(
-                "Error streaming for workspace %s session %s",
-                workspace_id,
-                session_id,
-            )
-            yield {
-                "event": "error",
-                "data": json.dumps({"message": "Stream disconnected"}),
-            }
-
-    return EventSourceResponse(event_generator())
-
-
-# ---------------------------------------------------------------------------
-# Workspace-level permission approval (chat path)
-# ---------------------------------------------------------------------------
-
-
-class ChatPermissionDecision(BaseModel):
-    permission_id: str
-    session_id: str
-    approved: bool
-
-
-@router.post("/workspaces/{workspace_id}/chat/permission")
-async def respond_to_chat_permission(
-    workspace_id: str,
-    body: ChatPermissionDecision,
-    request: Request,
-    db=Depends(get_db),
-):
-    """Approve or deny a permission request from the chat path.
-
-    Unlike the agent-execution permission endpoint, this calls
-    OpenCode's permission API directly (no executor involved).
-    """
-    workspace = await _get_workspace_or_404(db, workspace_id)
-    if not workspace.workspace_dir:
-        raise HTTPException(status_code=409, detail="Workspace has no directory")
-
-    pool = _get_pool(request)
-    env_vars = await _resolve_repo_env_vars(request, db, workspace=workspace)
-    client = await pool.get_or_start(
-        workspace_id, Path(workspace.workspace_dir), env_vars=env_vars
-    )
-
-    try:
-        if body.approved:
-            await client.grant_permission(
-                body.permission_id, session_id=body.session_id,
-            )
-        else:
-            await client.deny_permission(
-                body.permission_id, session_id=body.session_id,
-            )
-    except Exception as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Failed to send permission decision to OpenCode: {exc}",
-        ) from exc
-
-    return {
-        "status": "approved" if body.approved else "denied",
-        "permission_id": body.permission_id,
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -432,17 +254,6 @@ async def get_workspace_context(workspace_id: str, request: Request):
         raise HTTPException(  # noqa: B904
             status_code=404, detail="Workspace directory not found"
         )
-
-
-@router.get("/workspaces/{workspace_id}/pool-status")
-async def workspace_pool_status(workspace_id: str, request: Request):
-    """Debug endpoint: show process pool status for this workspace."""
-    pool = _get_pool(request)
-    full_status = pool.status()
-    ws_status = full_status["workspaces"].get(workspace_id)
-    if ws_status is None:
-        return {"workspace_id": workspace_id, "process_running": False}
-    return {"workspace_id": workspace_id, "process_running": True, **ws_status}
 
 
 @router.get("/workspaces/{workspace_id}/integrations")

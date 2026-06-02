@@ -314,13 +314,9 @@ def fix(client: Client, issue_id: str, timeout: float) -> None:
         )
         workspace_id = ws["id"]
 
-    # Make sure a session exists for the workspace before running the
-    # pipeline. The session endpoint is idempotent enough for our purposes.
-    import contextlib
-
-    with contextlib.suppress(HTTPError):
-        client.post(f"/api/workspaces/{workspace_id}/sessions", json={})
-
+    # The pipeline runs its agents in-process via Pydantic AI — no OpenCode
+    # session to pre-create (the old POST /sessions step was a no-op since
+    # the substrate migration; ADR-0047).
     client.post(f"/api/workspaces/{workspace_id}/pipeline/run-all")
 
     # Poll the sidebar until either:
