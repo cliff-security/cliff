@@ -75,7 +75,6 @@ if TYPE_CHECKING:
     import aiosqlite
     from pydantic_ai.models import Model
 
-    from cliff.engine.pool import WorkspaceProcessPool
     from cliff.workspace.context_builder import WorkspaceContextBuilder
 
 logger = logging.getLogger(__name__)
@@ -543,7 +542,6 @@ class AgentExecutor:
 
     def __init__(
         self,
-        pool: WorkspaceProcessPool,
         context_builder: WorkspaceContextBuilder,
         *,
         ai_env_resolver: Callable[[], Awaitable[dict[str, str]]] | None = None,
@@ -551,14 +549,11 @@ class AgentExecutor:
     ) -> None:
         """Construct the executor.
 
-        ``ai_env_resolver`` / ``ai_model_resolver`` (ADR-0047 / IMPL-0022
-        PR #1) — the canonical AI-state callables. The same pair the
-        process pool consumes for OpenCode env injection; the no-tools
-        Pydantic AI path consumes them to build a fresh ``Model`` per
-        agent run. Optional so unit tests that do not exercise the PA
-        path can leave them unset.
+        ``ai_env_resolver`` / ``ai_model_resolver`` (ADR-0047 / IMPL-0022)
+        — the canonical AI-state callables the Pydantic AI path consumes
+        to build a fresh ``Model`` per agent run. Optional so unit tests
+        that do not exercise the PA path can leave them unset.
         """
-        self._pool = pool
         self._context_builder = context_builder
         self._ai_env_resolver = ai_env_resolver
         self._ai_model_resolver = ai_model_resolver

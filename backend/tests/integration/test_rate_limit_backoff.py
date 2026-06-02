@@ -81,7 +81,6 @@ def _make_executor() -> AgentExecutor:
     builder = AsyncMock()
     builder.update_context.return_value = 1
     return AgentExecutor(
-        AsyncMock(),
         builder,
         ai_env_resolver=AsyncMock(return_value={"OPENAI_API_KEY": "x"}),
         ai_model_resolver=AsyncMock(return_value="openai/gpt-4o-mini"),

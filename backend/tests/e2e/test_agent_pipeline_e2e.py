@@ -190,7 +190,6 @@ def executor(
     # pool consumes so the executor and OpenCode subprocesses agree on
     # which provider+key+model is active for this run (ADR-0047).
     return AgentExecutor(
-        pool,
         context_builder,
         ai_env_resolver=_e2e_env_resolver,
         ai_model_resolver=_e2e_model_resolver,
