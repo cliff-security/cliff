@@ -39,7 +39,12 @@ async def test_process_job_persists_plain_description(db):
     )
     mocked = AsyncMock(return_value=([fc], []))
     with patch("cliff.integrations.ingest_worker.normalize_findings", mocked):
-        await _process_job(db, job.job_id)
+        await _process_job(
+            db,
+            job.job_id,
+            env_resolver=AsyncMock(return_value={"OPENAI_API_KEY": "k"}),
+            model_resolver=AsyncMock(return_value="openai/gpt-4o-mini"),
+        )
 
     findings = await list_findings(db)
     assert len(findings) == 1

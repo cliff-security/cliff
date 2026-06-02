@@ -10,6 +10,7 @@ Run with: uv run pytest tests/agents/ -v
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,27 @@ from cliff.models import FindingCreate  # noqa: TCH001 — used in type assertio
 
 VALID_PRIORITIES = {"critical", "high", "medium", "low", "info"}
 FIXTURES_DIR = Path(__file__).resolve().parents[3] / "fixtures"
+
+# Real-LLM provider state for the normalizer (now an app-level PA agent —
+# ADR-0047 / IMPL-0022 PR #3b). These tests are skip-gated on an API key
+# being present (see conftest), so the env carries a usable provider key.
+_LLM_ENV = {
+    k: v for k, v in os.environ.items() if k.endswith(("_API_KEY", "_BASE_URL"))
+}
+
+
+def _eval_model() -> str:
+    """Pick a capable, cheap model for the real-LLM eval (override with
+    ``CLIFF_EVAL_MODEL``). Multi-item batch extraction needs a real model —
+    a nano-tier model under-extracts and fails the batch assertions."""
+    if override := os.environ.get("CLIFF_EVAL_MODEL"):
+        return override
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "anthropic/claude-haiku-4-5"
+    return "openai/gpt-4o-mini"
+
+
+_LLM_MODEL = _eval_model()
 
 
 def _load_fixture(name: str) -> list[dict]:
@@ -59,7 +81,7 @@ async def test_single_snyk_finding():
         }
     ]
 
-    findings, errors = await normalize_findings("snyk", raw)
+    findings, errors = await normalize_findings("snyk", raw, env=_LLM_ENV, model=_LLM_MODEL)
 
     assert len(findings) == 1, f"Expected 1 finding, got {len(findings)}. Errors: {errors}"
     f = findings[0]
@@ -89,7 +111,7 @@ async def test_single_wiz_finding():
         }
     ]
 
-    findings, errors = await normalize_findings("wiz", raw)
+    findings, errors = await normalize_findings("wiz", raw, env=_LLM_ENV, model=_LLM_MODEL)
 
     assert len(findings) == 1, f"Expected 1 finding, got {len(findings)}. Errors: {errors}"
     f = findings[0]
@@ -109,7 +131,7 @@ async def test_batch_snyk_5_findings():
     raw = _load_fixture("sample-snyk-export.json")
     assert len(raw) == 5
 
-    findings, errors = await normalize_findings("snyk", raw)
+    findings, errors = await normalize_findings("snyk", raw, env=_LLM_ENV, model=_LLM_MODEL)
 
     assert len(findings) >= 4, (
         f"Expected at least 4/5 findings, got {len(findings)}. Errors: {errors}"
@@ -128,7 +150,7 @@ async def test_batch_wiz_3_findings():
     raw = _load_fixture("sample-wiz-export.json")
     assert len(raw) == 3
 
-    findings, errors = await normalize_findings("wiz", raw)
+    findings, errors = await normalize_findings("wiz", raw, env=_LLM_ENV, model=_LLM_MODEL)
 
     assert len(findings) >= 2, (
         f"Expected at least 2/3 findings, got {len(findings)}. Errors: {errors}"
@@ -176,7 +198,7 @@ async def test_severity_mapping():
         },
     ]
 
-    findings, errors = await normalize_findings("snyk", raw)
+    findings, errors = await normalize_findings("snyk", raw, env=_LLM_ENV, model=_LLM_MODEL)
 
     assert len(findings) >= 3, f"Expected at least 3/4, got {len(findings)}. Errors: {errors}"
 
@@ -203,7 +225,7 @@ async def test_minimal_input_fields():
         }
     ]
 
-    findings, errors = await normalize_findings("snyk", raw)
+    findings, errors = await normalize_findings("snyk", raw, env=_LLM_ENV, model=_LLM_MODEL)
 
     assert len(findings) == 1, f"Expected 1 finding. Errors: {errors}"
     f = findings[0]
@@ -227,7 +249,7 @@ async def test_unknown_scanner_format():
         }
     ]
 
-    findings, errors = await normalize_findings("trivy", raw)
+    findings, errors = await normalize_findings("trivy", raw, env=_LLM_ENV, model=_LLM_MODEL)
 
     assert len(findings) == 1, f"Expected 1 finding. Errors: {errors}"
     f = findings[0]
@@ -248,7 +270,7 @@ async def test_large_batch_20_findings():
 
     assert len(raw) == 20
 
-    findings, errors = await normalize_findings("snyk", raw)
+    findings, errors = await normalize_findings("snyk", raw, env=_LLM_ENV, model=_LLM_MODEL)
 
     # gpt-4.1-nano truncates output for large batches — this is a known limitation.
     # The chunk fallback in ingest_worker handles this in production by retrying

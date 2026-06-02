@@ -23,7 +23,12 @@ from cliff.db.repo_ingest_job import (
 from cliff.integrations.normalizer import normalize_findings
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     import aiosqlite
+
+    EnvResolver = Callable[[], Awaitable[dict[str, str]]]
+    ModelResolver = Callable[[], Awaitable[str | None]]
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +54,13 @@ def estimate_tokens(raw_data: list[dict[str, Any]], chunk_size: int) -> int:
     return int(raw_chars / 3.5) + (num_chunks * 800)
 
 
-async def _process_job(db: aiosqlite.Connection, job_id: str) -> None:
+async def _process_job(
+    db: aiosqlite.Connection,
+    job_id: str,
+    *,
+    env_resolver: EnvResolver,
+    model_resolver: ModelResolver,
+) -> None:
     """Process a single ingest job chunk-by-chunk."""
     data = await get_ingest_job_raw_data(db, job_id)
     if data is None:
@@ -58,6 +69,11 @@ async def _process_job(db: aiosqlite.Connection, job_id: str) -> None:
         return
 
     source, raw_data, chunk_size, model = data
+    # App-level AI state: resolve the provider env once per job; fall back to
+    # the canonical active model when the job didn't pin one at enqueue time.
+    env = await env_resolver()
+    if not model:
+        model = await model_resolver()
     await set_job_status(db, job_id, "processing")
 
     # For small imports, use per-finding chunks for better progress visibility
@@ -79,7 +95,9 @@ async def _process_job(db: aiosqlite.Connection, job_id: str) -> None:
         chunk = raw_data[start:end]
 
         try:
-            valid, errors = await normalize_findings(source, chunk, model=model)
+            valid, errors = await normalize_findings(
+                source, chunk, env=env, model=model
+            )
             consecutive_failures = 0  # reset on success
         except Exception as exc:
             consecutive_failures += 1
@@ -111,7 +129,7 @@ async def _process_job(db: aiosqlite.Connection, job_id: str) -> None:
             for item in chunk:
                 try:
                     sub_valid, sub_errors = await normalize_findings(
-                        source, [item], model=model
+                        source, [item], env=env, model=model
                     )
                     valid.extend(sub_valid)
                     errors.extend(sub_errors)
@@ -159,8 +177,17 @@ async def _process_job(db: aiosqlite.Connection, job_id: str) -> None:
         await set_job_status(db, job_id, "completed")
 
 
-async def ingest_worker_loop(db: aiosqlite.Connection) -> None:
+async def ingest_worker_loop(
+    db: aiosqlite.Connection,
+    *,
+    env_resolver: EnvResolver,
+    model_resolver: ModelResolver,
+) -> None:
     """Main worker loop — polls for pending jobs and processes them.
+
+    ``env_resolver`` / ``model_resolver`` supply the app-level AI provider
+    env + active model (ADR-0047 / IMPL-0022 PR #3b) — the normalizer is an
+    app-level PA agent now, not a singleton-OpenCode call.
 
     This coroutine runs indefinitely until cancelled.
     """
@@ -171,7 +198,12 @@ async def ingest_worker_loop(db: aiosqlite.Connection) -> None:
             job_id = await get_next_pending_job_id(db)
             if job_id:
                 logger.info("Processing ingest job %s", job_id)
-                await _process_job(db, job_id)
+                await _process_job(
+                    db,
+                    job_id,
+                    env_resolver=env_resolver,
+                    model_resolver=model_resolver,
+                )
             else:
                 await asyncio.sleep(_POLL_INTERVAL)
         except asyncio.CancelledError:

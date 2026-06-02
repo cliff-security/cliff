@@ -19,12 +19,31 @@ key or OpenCode binary is present (see ``conftest.py``).
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 
 import pytest
 
 from cliff.integrations.normalizer import normalize_findings
+
+# Real-LLM provider state for the app-level normalizer (IMPL-0022 PR #3b);
+# skip-gated on an API key being present (see conftest).
+_LLM_ENV = {
+    k: v for k, v in os.environ.items() if k.endswith(("_API_KEY", "_BASE_URL"))
+}
+
+
+def _eval_model() -> str:
+    """Capable, cheap model for the real-LLM eval (override: ``CLIFF_EVAL_MODEL``)."""
+    if override := os.environ.get("CLIFF_EVAL_MODEL"):
+        return override
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "anthropic/claude-haiku-4-5"
+    return "openai/gpt-4o-mini"
+
+
+_LLM_MODEL = _eval_model()
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "plain_description_evals.json"
 
@@ -48,7 +67,7 @@ def _count_sentences(text: str) -> int:
 async def test_plain_description_shape(record: dict) -> None:
     """Each fixture produces a plain_description that passes shape checks."""
     findings, errors = await normalize_findings(
-        record["source"], [record["raw_finding"]]
+        record["source"], [record["raw_finding"]], env=_LLM_ENV, model=_LLM_MODEL
     )
     assert not errors, f"Normalizer errors for {record['id']}: {errors}"
     assert len(findings) == 1, f"Expected 1 finding, got {len(findings)}"

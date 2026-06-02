@@ -399,7 +399,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Background ingest worker (ADR-0023)
     ingest_task: asyncio.Task[None] | None = None
     if db_connection._db is not None:
-        ingest_task = asyncio.create_task(ingest_worker_loop(db_connection._db))
+        ingest_task = asyncio.create_task(
+            ingest_worker_loop(
+                db_connection._db,
+                env_resolver=_ai_env_resolver,
+                model_resolver=_ai_model_resolver,
+            )
+        )
 
     # Assessment watchdog — reaps wedged ``pending``/``running`` rows the
     # outer asyncio.timeout in ``api/_background.py`` couldn't catch (e.g.
