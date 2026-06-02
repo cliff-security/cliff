@@ -16,7 +16,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from cliff.config import settings
-from cliff.engine.models import VersionInfo
+from cliff.models import VersionInfo, substrate_version
 
 router = APIRouter()
 
@@ -31,7 +31,7 @@ _SCHEMA = "1"
 async def get_version() -> VersionInfo:
     return VersionInfo(
         cliff=settings.cliff_version,
-        opencode=settings.opencode_version,
+        opencode=substrate_version(),
         schema_version=_SCHEMA,
         min_cli=_MIN_CLI,
     )
