@@ -287,13 +287,6 @@ export interface ProviderInfo {
   }>;
 }
 
-export interface ApiKeyInfo {
-  provider: string;
-  key_masked: string;
-  has_credentials: boolean;
-  updated_at: string | null;
-}
-
 export interface IntegrationConfigItem {
   id: string;
   adapter_type: string;
@@ -620,20 +613,6 @@ export const api = {
 
   // Settings — Providers
   listProviders: () => request<ProviderInfo[]>('/api/settings/providers'),
-  getConfiguredProviders: () =>
-    request<{ providers: unknown; auth: Record<string, unknown[]> }>(
-      '/api/settings/providers/configured',
-    ),
-
-  // Settings — API Keys
-  listApiKeys: () => request<ApiKeyInfo[]>('/api/settings/api-keys'),
-  setApiKey: (provider: string, key: string) =>
-    request<ApiKeyInfo>(`/api/settings/api-keys/${provider}`, {
-      method: 'PUT',
-      body: JSON.stringify({ provider, key }),
-    }),
-  deleteApiKey: (provider: string) =>
-    requestVoid(`/api/settings/api-keys/${provider}`, { method: 'DELETE' }),
 
   // Settings — Integrations
   listIntegrations: () =>
