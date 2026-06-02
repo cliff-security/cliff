@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Cliff is a self-hosted cybersecurity remediation copilot. It ingests vulnerability findings, enriches them with AI agents, and guides users through planning, ticketing, validating, and closing remediations — all from a chat-led web workspace.
 
-Built on the [OpenCode](https://github.com/anomalyco/opencode) engine. Single-user community edition. AGPL-3.0 licensed.
+Agents run in-process on [Pydantic AI](https://ai.pydantic.dev/) (ADR-0047). Single-user community edition. AGPL-3.0 licensed.
 
 > **Historical names — Cliff was called OpenSec, then briefly at `galanko/cliff`.** Until May 2026 this project was named "OpenSec" and lived at `github.com/galanko/OpenSec`. It was renamed to Cliff (briefly at `github.com/galanko/cliff`) and then transferred to a dedicated org at `github.com/cliff-security/cliff` in May 2026 (GitHub redirects from both old URLs). Any mention of "OpenSec", `galanko/OpenSec`, or `galanko/cliff` you encounter — in commit history, old branch names like `chore/cliff-os-restructure` referencing OpenSec snapshots, archived ADRs, third-party content, environment variables prefixed `OPENSEC_*`, Python modules named `opensec.*`, or the `cliff-os` private umbrella's pre-rename docs — refers to this same project. Treat all three as the same thing; the renames were cosmetic and organizational.
 
@@ -27,12 +27,12 @@ When working on this codebase:
 |-------|-----------|----------|
 | Frontend | React + TypeScript + Vite + Tailwind | `frontend/` |
 | Backend | FastAPI (Python 3.11+) | `backend/` |
-| AI Engine | OpenCode (Go) — binary dependency, pinned in `.opencode-version` | managed subprocess |
-| Workspace Runtime | Per-workspace OpenCode processes with isolated context (ADR-0014) | `backend/cliff/workspace/`, `backend/cliff/engine/pool.py` |
+| AI substrate | Pydantic AI — agents run in-process (ADR-0047) | `backend/cliff/agents/runtime/` |
+| Workspace Runtime | Per-workspace isolated context directory (ADR-0014) | `backend/cliff/workspace/` |
 | Database | SQLite (single file) | `data/cliff.db` |
 | Deployment | Single Docker container, port 8000 | `docker/` |
 
-See `cliff-os/docs/architecture/overview.md` (private) for the full system diagram and `cliff-os/docs/adr/0014-workspace-runtime-architecture.md` (private) for the workspace isolation architecture.
+See `cliff-os/docs/architecture/overview.md` (private) for the full system diagram, `cliff-os/docs/adr/0047-pydantic-ai-substrate.md` (private) for the substrate, and `cliff-os/docs/adr/0014-workspace-runtime-architecture.md` (private) for the workspace isolation architecture.
 
 ## Design System: "Cyberdeck"
 
@@ -65,10 +65,10 @@ backend/              FastAPI app (Python)
   cliff/
     main.py           App entry point, lifespan, CORS
     config.py         Settings via env vars
-    engine/           OpenCode integration (process manager, HTTP client, process pool)
-    agents/           Agent template engine (Jinja2 templates for 6 agents)
+    agents/           Agent definitions + orchestration
+      runtime/        Pydantic AI agents, tools, provider factory (ADR-0047)
     workspace/        Workspace runtime (directory manager, context builder, agent run log)
-    api/routes/       REST endpoints (health, sessions, chat, workspace-scoped chat)
+    api/routes/       REST endpoints (health, findings, workspace, posture, …)
 frontend/             React SPA (TypeScript + Vite + Tailwind)
   src/
     pages/            Page components (Issues, Workspace, Integrations, Settings)
@@ -82,18 +82,15 @@ docker/               Dockerfile, docker-compose, supervisord config
 docs/
   assets/             Public images: wordmark, badge, demo gif, screenshots
                       (mirrored from cliff-os/docs/assets/ — see README there)
-scripts/              dev.sh, install-opencode.sh
+scripts/              dev.sh, install-scanners.sh
 fixtures/             Mock/demo data for adapters
 tests/                Cross-stack integration tests
-.opencode/agents/     Custom OpenCode agent definitions
-.opencode-version     Pinned OpenCode version
-opencode.json         OpenCode project config
 ```
 
 ## Key Domain Concepts
 
 - **Finding** — A vulnerability from a scanner. Flows through: `new` -> `triaged` -> `in_progress` -> `remediated` -> `validated` -> `closed`
-- **Workspace** — A remediation session for one Finding. Each workspace gets an isolated directory (`data/workspaces/<id>/`) with finding-specific context, rendered agent templates, and its own OpenCode process
+- **Workspace** — A remediation session for one Finding. Each workspace gets an isolated directory (`data/workspaces/<id>/`) with finding-specific context the in-process Pydantic AI agents read at run time
 - **AgentRun** — A single sub-agent execution (enricher, owner resolver, planner, etc.)
 - **SidebarState** — Persistent structured context per workspace (summary, evidence, owner, plan, ticket, validation)
 - **Adapter** — Interface to an external system. Four types: FindingSource, OwnershipContext, Ticketing, Validation
@@ -139,9 +136,6 @@ cd backend && uv run uvicorn cliff.main:app --reload --port 8000
 # Frontend only (needs backend running for API proxy)
 cd frontend && npm run dev
 
-# Install OpenCode binary (auto-downloads pinned version)
-scripts/install-opencode.sh
-
 # Tests
 cd backend && uv run pytest
 cd frontend && npm test
@@ -149,55 +143,30 @@ cd frontend && npm test
 
 ### How It Runs
 
-1. FastAPI starts on port 8000 and launches a singleton OpenCode process on port 4096 (for health/settings)
-2. When a user opens a workspace, a **per-workspace OpenCode process** starts on a port from range 4100-4199, with `cwd=data/workspaces/<id>/` (isolated context)
-3. Vite dev server starts on port 5173 and proxies `/api/*` to FastAPI
-4. Browser talks to Vite (5173) in dev, or FastAPI (8000) in production
-5. All OpenCode communication goes through FastAPI — frontend never talks to OpenCode directly
-6. Idle workspace processes are automatically stopped after 10 minutes (configurable via `CLIFF_WORKSPACE_IDLE_TIMEOUT_SECONDS`)
+1. FastAPI starts on port 8000. There is no agent subprocess — agents run **in-process** via Pydantic AI (ADR-0047)
+2. When a user opens a workspace, an isolated context directory is created at `data/workspaces/<id>/` (finding context + per-agent context sections the agents read at run time)
+3. Each agent run builds a fresh Pydantic AI `Model` from the canonical AI provider state (`backend/cliff/agents/runtime/provider.py`) and calls `agent.run()` in-process
+4. Vite dev server starts on port 5173 and proxies `/api/*` to FastAPI; browser talks to Vite (5173) in dev, or FastAPI (8000) in production
 
 ## Testing
 
 Every phase must have tests passing before it is considered complete.
 
 ```bash
-# Unit tests only (fast, no external deps)
+# Backend unit tests (fast, no external deps — agents use FunctionModel/TestModel)
 cd backend && uv run pytest -v -m 'not e2e'
-
-# E2E tests (needs OpenCode binary + OPENAI_API_KEY)
-cd backend && uv run pytest tests/e2e/ -v
-
-# All tests
-cd backend && uv run pytest -v
 
 # Lint
 cd backend && uv run ruff check cliff/ tests/
+
+# Frontend
+cd frontend && npm test && npx tsc --noEmit
 ```
 
-### Unit tests (187, ~0.9s)
-
-Mocked external dependencies — no real OpenCode needed:
-
-- `test_config.py` — Settings and path resolution
-- `test_models.py` — Pydantic model validation
-- `test_engine_client.py` — OpenCode HTTP client (mocked httpx)
-- `test_engine_process.py` — Subprocess lifecycle
-- `test_routes_*.py` — API endpoint behavior with mocked engine
-- `test_workspace_dir.py` — Workspace directory manager (Layer 0, 29 tests)
-- `test_agent_template_engine.py` — Agent template rendering (Layer 1, 18 tests)
-- `test_context_builder.py` — Context builder orchestration (Layer 2, 13 tests)
-- `test_process_pool.py` — Process pool with mocked subprocess (Layer 3, 15 tests)
-
-### E2E tests (25, ~50s)
-
-Real OpenCode subprocess + real LLM calls. Skipped automatically if OpenCode binary or API key is missing:
-
-- `e2e/test_health_e2e.py` — Health with real engine
-- `e2e/test_session_flow.py` — Session create/list/get
-- `e2e/test_chat_flow.py` — Send message, verify round-trip
-- `e2e/test_error_handling.py` — Error cases
-- `e2e/test_settings_e2e.py` — Model/provider/API key management
-- `e2e/test_process_pool_e2e.py` — Real per-workspace OpenCode processes (10 tests: concurrent workspaces, port exhaustion, crash recovery, idle cleanup)
+Backend agent tests drive the Pydantic AI runtime with `FunctionModel` /
+`TestModel`, so no real LLM or network is needed — except the live eval
+(`tests/agents/test_plain_description_eval.py`), which is skipped unless an
+`OPENAI_API_KEY` / `ANTHROPIC_API_KEY` is set.
 
 ## Git Workflow
 
@@ -230,27 +199,25 @@ Each workspace gets an isolated environment. See `cliff-os/docs/adr/0014-workspa
 | Layer | Component | Status |
 |-------|-----------|--------|
 | 0 | `WorkspaceDirManager` — filesystem CRUD, CONTEXT.md generation | Complete |
-| 1 | `AgentTemplateEngine` — Jinja2 templates for 6 agents | Complete |
-| 2 | `WorkspaceContextBuilder` — orchestrates L0 + L1 + DB metadata | Complete |
-| 3 | `WorkspaceProcessPool` — per-workspace OpenCode processes | Complete |
-| 4 | API integration — workspace-scoped sessions, chat, context routes | Complete |
+| 1 | `WorkspaceContextBuilder` — orchestrates the dir + finding context + DB metadata | Complete |
+| 2 | Pydantic AI runtime (`agents/runtime/`) — in-process agents + tools (ADR-0047) | Complete |
+| 3 | API integration — workspace-scoped agent-run + context routes | Complete |
 
-Key files: `backend/cliff/workspace/`, `backend/cliff/engine/pool.py`, `backend/cliff/agents/`
+Key files: `backend/cliff/workspace/`, `backend/cliff/agents/runtime/`, `backend/cliff/agents/executor.py`
 
 ## AI provider integration (ADR-0037, supersedes ADR-0036)
 
-Cliff's AI provider key flows into per-workspace OpenCode subprocesses
-via env vars at spawn time, plus a parallel push to OpenCode's `auth.json`
-(both paths because OpenCode 1.3.x prefers `auth.json` on the outbound
-request). Six supported providers: OpenRouter, Anthropic, OpenAI, Google,
-Ollama, custom OpenAI-compatible.
+Cliff's AI provider key is resolved at each agent run into the env the
+Pydantic AI model factory (`agents/runtime/provider.py`) reads (ADR-0047).
+Six supported providers: OpenRouter, Anthropic, OpenAI, Google, Ollama,
+custom OpenAI-compatible.
 
 **One canonical state, derived everywhere else.** Provider + key live in
 `ai_integration` + `credential` vault entry. Active model is
-`app_setting(key="model")`. Per-workspace `opencode.json` and the
-singleton `opencode.json` are reconciled from these two at every save +
-spawn. `CLIFF_AI_MODEL_OVERRIDE_*` env vars are a DEV/CI escape hatch
-only — the UI picker is the canonical write path.
+`app_setting(key="model")`. The lifespan warms an env + model cache from
+these and refreshes it on every connect / disconnect / model change.
+`CLIFF_AI_MODEL_OVERRIDE_*` env vars are a DEV/CI escape hatch only — the
+UI picker is the canonical write path.
 
 **Three onboarding tiers (ADR-0035):**
 
@@ -269,10 +236,10 @@ override via the picker in Settings. (Previously the OpenRouter default
 was `tencent/hy3-preview`; that was a single-upstream-provider model and
 broke under concurrent agent runs, so it was demoted to a picker option.)
 
-**Drift detection.** `GET /api/integrations/ai/status` returns both the
-canonical model and a live probe of OpenCode's `/config`. When they
-disagree the Settings card shows a red banner with a one-click reconcile,
-and `cliffsec status` reports `drifted: true` with both values.
+**No drift signal.** With the substrate in-process there is no separate
+engine config to drift from — `GET /api/integrations/ai/status` returns
+the single canonical model. (The earlier live-probe-vs-canonical drift
+banner was an OpenCode-era concern.)
 
 Key files: `backend/cliff/ai/`, `backend/cliff/api/routes/ai_integrations.py`,
 `frontend/src/components/ai-provider/`. User-facing guide:
