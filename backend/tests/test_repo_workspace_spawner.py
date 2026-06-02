@@ -9,6 +9,7 @@ exercise the DB side without running the real OpenCode process.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock
 
 import aiosqlite
 import pytest
@@ -20,6 +21,26 @@ from cliff.workspace.workspace_dir_manager import WorkspaceKind
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+def _spawner() -> _DefaultRepoWorkspaceSpawner:
+    """A spawner with stub AI resolvers — these tests exercise the
+    filesystem + DB scaffolding, not the (background) agent run, which the
+    autouse fixture below neutralizes."""
+    return _DefaultRepoWorkspaceSpawner(
+        env_resolver=AsyncMock(return_value={}),
+        model_resolver=AsyncMock(return_value=None),
+    )
+
+
+@pytest.fixture(autouse=True)
+def _no_background_agent(monkeypatch):
+    """Stop the spawner's fire-and-forget ``RepoAgentRunner.run`` from racing
+    these scaffolding assertions (it would flip ``workspace.state``)."""
+    monkeypatch.setattr(
+        "cliff.workspace.repo_workspace_runner.RepoAgentRunner.run",
+        AsyncMock(return_value=None),
+    )
 
 
 @pytest.fixture
@@ -35,7 +56,7 @@ async def db(tmp_path: Path, monkeypatch):
 
 
 async def test_spawner_inserts_workspace_row(db: aiosqlite.Connection) -> None:
-    spawner = _DefaultRepoWorkspaceSpawner(pool=None)
+    spawner = _spawner()
 
     workspace_id = await spawner.spawn_repo_workspace(
         kind=WorkspaceKind.repo_action_security_md,
@@ -61,7 +82,7 @@ async def test_spawner_inserts_workspace_row(db: aiosqlite.Connection) -> None:
 
 
 async def test_spawner_row_visible_via_dao(db: aiosqlite.Connection) -> None:
-    spawner = _DefaultRepoWorkspaceSpawner(pool=None)
+    spawner = _spawner()
     workspace_id = await spawner.spawn_repo_workspace(
         kind=WorkspaceKind.repo_action_dependabot,
         repo_url="https://github.com/acme/widget",
@@ -82,7 +103,7 @@ async def test_spawner_collision_raises_integrity_error(
     same check. The spawner propagates the IntegrityError so the route can
     turn it into a 409.
     """
-    spawner = _DefaultRepoWorkspaceSpawner(pool=None)
+    spawner = _spawner()
 
     await spawner.spawn_repo_workspace(
         kind=WorkspaceKind.repo_action_security_md,
@@ -108,7 +129,7 @@ async def test_runner_finalize_releases_partial_index(
     """
     from cliff.db.repo_workspace import set_workspace_state
 
-    spawner = _DefaultRepoWorkspaceSpawner(pool=None)
+    spawner = _spawner()
     first = await spawner.spawn_repo_workspace(
         kind=WorkspaceKind.repo_action_security_md,
         repo_url="https://github.com/acme/widget",

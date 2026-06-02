@@ -175,11 +175,21 @@ def gate_tool_call(
         # caller somehow flags it approved. ModelRetry (not a raw
         # exception) so the model sees the denial and pivots.
         raise ModelRetry(_deny_message(tool, patterns))
-    if tier == "ask" and not ctx.tool_call_approved:
+    if tier == "ask" and not ctx.tool_call_approved and not _auto_approved(ctx):
         raise ApprovalRequired(
             metadata=metadata or {"tool": tool, "patterns": list(patterns)}
         )
     return tier
+
+
+def _auto_approved(ctx: RunContext[WorkspaceDeps]) -> bool:
+    """Repo-action runs pre-approve the ``ask`` tier (see WorkspaceDeps).
+
+    ``deny`` is checked before this and still hard-denies, so a pre-approved
+    run can do destructive-but-conceivable things (rm, git reset) but never
+    catastrophic ones (sudo, mkfs, curl|sh).
+    """
+    return bool(getattr(ctx.deps, "auto_approve", False))
 
 
 __all__ = [

@@ -10,6 +10,7 @@ context window.
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
 
 # Imported at runtime (not under TYPE_CHECKING): Pydantic AI introspects a
@@ -59,6 +60,13 @@ async def bash(ctx: RunContext[WorkspaceDeps], command: str) -> str:
         metadata={"tool": "bash", "patterns": [command], "command": command},
     )
 
+    # Merge the workspace env *over* the process environment — never replace
+    # it. ``ctx.deps.env_vars`` carries only a few keys (GH_TOKEN,
+    # CLIFF_REPO_URL); passing it as the whole environment would strip PATH,
+    # HOME, etc. and break ``git`` / ``gh`` (the commands the remediation +
+    # repo-action agents exist to run).
+    run_env = {**os.environ, **(ctx.deps.env_vars or {})}
+
     def _run() -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             command,
@@ -69,7 +77,7 @@ async def bash(ctx: RunContext[WorkspaceDeps], command: str) -> str:
             capture_output=True,
             text=True,
             timeout=_BASH_TIMEOUT_SECONDS,
-            env=ctx.deps.env_vars or None,
+            env=run_env,
         )
 
     try:

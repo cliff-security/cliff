@@ -26,7 +26,6 @@ from cliff.config import settings
 if TYPE_CHECKING:
     import aiosqlite
 
-    from cliff.engine.pool import WorkspaceProcessPool
     from cliff.models import AssessmentResult, AssessmentTool
     from cliff.workspace.workspace_dir_manager import WorkspaceKind
 
@@ -35,6 +34,8 @@ logger = logging.getLogger(__name__)
 
 StepCallback = Callable[[str], Awaitable[None]]
 ToolCallback = Callable[["AssessmentTool"], Awaitable[None]]
+EnvResolver = Callable[[], Awaitable[dict[str, str]]]
+ModelResolver = Callable[[], Awaitable[str | None]]
 
 
 class AssessmentEngineProtocol(Protocol):
@@ -179,8 +180,17 @@ _CHECK_NAME_FOR_KIND: dict[str, str] = {
 class _DefaultRepoWorkspaceSpawner:
     """Production spawner backed by ``WorkspaceDirManager.create_repo_workspace``."""
 
-    def __init__(self, pool: WorkspaceProcessPool | None) -> None:
-        self._pool = pool
+    def __init__(
+        self,
+        *,
+        env_resolver: EnvResolver,
+        model_resolver: ModelResolver,
+    ) -> None:
+        # The repo-action generator runs in-process via Pydantic AI now
+        # (IMPL-0022 PR #3c); these resolve the app-level AI provider env +
+        # active model for ``RepoAgentRunner``.
+        self._env_resolver = env_resolver
+        self._model_resolver = model_resolver
 
     async def spawn_repo_workspace(
         self,
@@ -225,14 +235,10 @@ class _DefaultRepoWorkspaceSpawner:
                     shutil.rmtree(workspace_root, ignore_errors=True)
                     raise
 
-        if self._pool is None:
-            logger.warning(
-                "repo workspace %s created without a pool — agent will not run",
-                workspace_id,
-            )
-            return workspace_id
-
-        runner = RepoAgentRunner(self._pool)
+        runner = RepoAgentRunner(
+            env_resolver=self._env_resolver,
+            model_resolver=self._model_resolver,
+        )
 
         async def _run() -> None:
             try:
@@ -254,6 +260,21 @@ class _DefaultRepoWorkspaceSpawner:
 
 
 def get_repo_workspace_spawner(request: Request) -> RepoWorkspaceSpawnerProtocol:
-    """Default provider — returns the real spawner wired to the app's pool."""
-    pool = getattr(request.app.state, "process_pool", None)
-    return _DefaultRepoWorkspaceSpawner(pool=pool)
+    """Default provider — wires the spawner to the app-level AI resolvers.
+
+    Reads the canonical AI env + model from ``app.state`` at run time (the
+    lifespan refresh keeps these current), so a background repo-agent run
+    picks up a provider/model change without a restart.
+    """
+    app = request.app
+
+    async def _env_resolver() -> dict[str, str]:
+        return dict(getattr(app.state, "ai_env_cache", {}) or {})
+
+    async def _model_resolver() -> str | None:
+        return getattr(app.state, "ai_model_cache", None)
+
+    return _DefaultRepoWorkspaceSpawner(
+        env_resolver=_env_resolver,
+        model_resolver=_model_resolver,
+    )
