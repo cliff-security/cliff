@@ -1219,29 +1219,6 @@
         "title": "CategoryProgress",
         "type": "object"
       },
-      "ChatPermissionDecision": {
-        "properties": {
-          "approved": {
-            "title": "Approved",
-            "type": "boolean"
-          },
-          "permission_id": {
-            "title": "Permission Id",
-            "type": "string"
-          },
-          "session_id": {
-            "title": "Session Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "permission_id",
-          "session_id",
-          "approved"
-        ],
-        "title": "ChatPermissionDecision",
-        "type": "object"
-      },
       "Completion": {
         "properties": {
           "assessment_id": {
@@ -2658,6 +2635,7 @@
         "type": "object"
       },
       "HealthStatus": {
+        "description": "``/health`` response.\n\nField shape is preserved across the OpenCode \u2192 Pydantic AI substrate\nmigration (ADR-0047) so the frontend health card and ``cliffsec status``\ndon't churn. The agent substrate now runs **in-process**, so ``opencode``\nis always ``\"ok\"`` and ``opencode_version`` carries the Pydantic AI\nversion string (e.g. ``\"pydantic-ai 1.98.x\"``) rather than a subprocess\nversion.",
         "properties": {
           "ai_provider_ready": {
             "default": false,
@@ -2675,7 +2653,7 @@
             "type": "string"
           },
           "opencode": {
-            "default": "unknown",
+            "default": "ok",
             "title": "Opencode",
             "type": "string"
           },
@@ -5193,24 +5171,6 @@
           "updated_at"
         ],
         "title": "Workspace",
-        "type": "object"
-      },
-      "WorkspaceChatRequest": {
-        "properties": {
-          "content": {
-            "title": "Content",
-            "type": "string"
-          },
-          "session_id": {
-            "title": "Session Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "session_id",
-          "content"
-        ],
-        "title": "WorkspaceChatRequest",
         "type": "object"
       },
       "WorkspaceCreate": {
@@ -7952,7 +7912,7 @@
     },
     "/api/workspaces/{workspace_id}": {
       "delete": {
-        "description": "Delete workspace: stop process, remove directory, delete DB row.",
+        "description": "Delete workspace: remove directory + DB row.",
         "operationId": "delete_workspace_endpoint_api_workspaces__workspace_id__delete",
         "parameters": [
           {
@@ -8481,158 +8441,6 @@
         ]
       }
     },
-    "/api/workspaces/{workspace_id}/chat/permission": {
-      "post": {
-        "description": "Approve or deny a permission request from the chat path.\n\nUnlike the agent-execution permission endpoint, this calls\nOpenCode's permission API directly (no executor involved).",
-        "operationId": "respond_to_chat_permission_api_workspaces__workspace_id__chat_permission_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ChatPermissionDecision"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Respond To Chat Permission",
-        "tags": [
-          "workspaces"
-        ]
-      }
-    },
-    "/api/workspaces/{workspace_id}/chat/send": {
-      "post": {
-        "description": "Send a message to this workspace's OpenCode process.",
-        "operationId": "workspace_send_message_api_workspaces__workspace_id__chat_send_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/WorkspaceChatRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Workspace Send Message",
-        "tags": [
-          "workspaces"
-        ]
-      }
-    },
-    "/api/workspaces/{workspace_id}/chat/stream": {
-      "get": {
-        "description": "Stream SSE events from this workspace's OpenCode process.",
-        "operationId": "workspace_stream_events_api_workspaces__workspace_id__chat_stream_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "session_id",
-            "required": true,
-            "schema": {
-              "title": "Session Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Workspace Stream Events",
-        "tags": [
-          "workspaces"
-        ]
-      }
-    },
     "/api/workspaces/{workspace_id}/context": {
       "get": {
         "description": "Return the full context snapshot for the sidebar.",
@@ -9050,88 +8858,6 @@
         "summary": "Approve Plan",
         "tags": [
           "agent-execution"
-        ]
-      }
-    },
-    "/api/workspaces/{workspace_id}/pool-status": {
-      "get": {
-        "description": "Debug endpoint: show process pool status for this workspace.",
-        "operationId": "workspace_pool_status_api_workspaces__workspace_id__pool_status_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Workspace Pool Status",
-        "tags": [
-          "workspaces"
-        ]
-      }
-    },
-    "/api/workspaces/{workspace_id}/sessions": {
-      "post": {
-        "description": "Create an OpenCode session on this workspace's isolated process.",
-        "operationId": "create_workspace_session_api_workspaces__workspace_id__sessions_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Create Workspace Session",
-        "tags": [
-          "workspaces"
         ]
       }
     },

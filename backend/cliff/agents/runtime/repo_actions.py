@@ -225,10 +225,12 @@ git -C repo add SECURITY.md \\
   && git -C repo push -u origin HEAD
 ```
 
-Then open the PR (the `gh` tool already carries the token):
+Then open the draft PR. `gh pr create` must run **inside** the clone (it
+reads the repo from the checkout's remote, and the token from `$GH_TOKEN`);
+`gh` has no directory flag, so `cd` into the clone in the same `bash` call:
 
-```
-gh -C repo pr create --draft --title "docs: add SECURITY.md" --body-file /tmp/cliff-pr-body.md
+```bash
+cd repo && gh pr create --draft --title "docs: add SECURITY.md" --body-file /tmp/cliff-pr-body.md
 ```
 
 ## Rules
@@ -375,10 +377,12 @@ git -C repo add .github/dependabot.yml \\
   && git -C repo push -u origin HEAD
 ```
 
-Then open the PR:
+Then open the draft PR from inside the clone (`gh` has no directory flag, so
+`cd` in the same `bash` call; it reads the token from `$GH_TOKEN`):
 
-```
-gh -C repo pr create --draft --title "ci: add Dependabot config" --body-file /tmp/cliff-pr-body.md
+```bash
+cd repo && gh pr create --draft \\
+  --title "ci: add Dependabot config" --body-file /tmp/cliff-pr-body.md
 ```
 
 ## Rules
