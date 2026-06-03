@@ -546,11 +546,12 @@ def _gather_doctor_checks() -> list[dict[str, Any]]:
         )
 
     # Port — only the app port matters now (the substrate is in-process).
-    for port in (DEFAULT_PORT,):
+    # Probe the *configured* port (CLIFF_APP_PORT), not the hard-coded default,
+    # so a non-default deployment doesn't miss a real port-in-use failure.
+    for port in _cliff_ports():
         free = _port_free(port)
-        warn_only = port != DEFAULT_PORT
         checks.append(
-            _check(f"port.{port}", free, "free" if free else "in use", warn_only=warn_only)
+            _check(f"port.{port}", free, "free" if free else "in use", warn_only=False)
         )
 
     # Data dir writable

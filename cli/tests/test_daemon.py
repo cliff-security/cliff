@@ -491,3 +491,24 @@ def test_doctor_json_envelope_on_empty_home(fake_home):
     # The OpenCode binary check is gone (ADR-0047) — lock the migration.
     assert "opencode" not in names
     assert "opencode" not in payload["failing"]
+    # The port check targets the default app port when none is configured.
+    assert "port.8000" in names
+
+
+def test_doctor_probes_configured_app_port(fake_home):
+    """doctor must probe the *configured* CLIFF_APP_PORT, not the hard-coded
+    default — otherwise a non-default deployment misses port-in-use failures."""
+    home, daemon = fake_home
+    daemon.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    daemon.ENV_FILE.write_text("CLIFF_APP_PORT=9123\n")
+    import importlib
+
+    import cliff_cli.cli as cli_mod
+
+    importlib.reload(cli_mod)
+
+    res = CliRunner().invoke(cli_mod.main, ["doctor", "--json"])
+    payload = json.loads(res.output.strip().splitlines()[-1])
+    names = {c["name"] for c in payload["checks"]}
+    assert "port.9123" in names
+    assert "port.8000" not in names
