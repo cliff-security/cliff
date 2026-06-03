@@ -33,7 +33,7 @@ cliffsec doctor --json
 cliffsec logs --lines 100 || true
 cliffsec --version
 cliffsec update --check || true   # exit 0 = up to date, exit 2 = newer available
-ps -ef | grep -E '(cliff|opencode|uvicorn)' | grep -v grep || true
+ps -ef | grep -E '(cliff|uvicorn)' | grep -v grep || true
 uname -a
 ```
 
@@ -48,9 +48,7 @@ Cross-reference Phase A output against this table. The mapping is **fixed** — 
 | `status` exit 3, no PID file at `~/.cliff/run/cliff.pid` | Daemon was never started (or Cliff isn't installed) | `cliffsec start --detach` if installed, else route to `install.md` |
 | `status` exit 3, PID file exists but the recorded process is gone | Crashed orphan, ports possibly leaked | `cliffsec stop` (sweeps owned children) then `cliffsec start --detach` |
 | `doctor` shows `port.<configured-app-port>` failing | Port conflict | Pick a free port, then `cliffsec config set CLIFF_APP_PORT=<port>` and `cliffsec restart` |
-| `doctor` shows `port.4096` or `port.4100..4102` failing AND status is daemon-down | OpenCode child leaked from a previous crash | `cliffsec stop` (the sweep reclaims orphans) then `cliffsec start --detach` |
-| `doctor` shows `opencode` failing with "not found" | OpenCode binary missing or never installed | Re-run the install one-liner (see `install.md`) |
-| `doctor` shows `opencode.quarantine` failing on macOS | Gatekeeper quarantined the binary | `xattr -dr com.apple.quarantine ~/.cliff/bin/opencode` (and `trivy` / `semgrep` if they show the same) |
+| `doctor` shows `<tool>.quarantine` failing on macOS | Gatekeeper quarantined a scanner binary | `xattr -dr com.apple.quarantine ~/.cliff/bin/trivy` (and `semgrep` if it shows the same) |
 | `doctor` shows `venv` failing | Backend venv corrupt or removed | Re-run the install one-liner |
 | `doctor` shows `credential_key` missing | Encryption key not in env file | Re-run the install one-liner (it generates and persists the key) |
 | `doctor` shows `migrations` failing with a SQLite error | DB schema state is bad | **Bug** — escalate (Phase E). Do not propose deleting the DB without explicit user request — it would lose findings + workspaces. |

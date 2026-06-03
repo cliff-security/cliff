@@ -92,7 +92,7 @@ describe('<PostureCheckItem /> state machine', () => {
           checkName="security_md"
           state="failed"
           label="SECURITY.md is missing"
-          error="OpenCode crashed mid-commit"
+          error="agent crashed mid-commit"
         />
       </ul>,
     )
@@ -112,7 +112,7 @@ describe('<PostureCheckItem /> state machine', () => {
     ).toBeInTheDocument()
     // Error text remains available for screen readers.
     expect(
-      screen.getByText('OpenCode crashed mid-commit'),
+      screen.getByText('agent crashed mid-commit'),
     ).toHaveClass('sr-only')
   })
 })

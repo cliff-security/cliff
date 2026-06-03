@@ -16,8 +16,6 @@ VERSION="$(cat /app/VERSION 2>/dev/null || echo unknown)"
 echo "=== Cliff ${VERSION} ==="
 echo "  Data dir:    $DATA_DIR"
 echo "  App port:    ${CLIFF_APP_PORT:-8000}"
-echo "  Engine port: ${CLIFF_OPENCODE_PORT:-4096}"
-echo "  Engine bin:  ${CLIFF_OPENCODE_BIN:-/app/bin/opencode}"
 echo "  Running as:  $(id -un) (uid=$(id -u))"
 echo "==============="
 

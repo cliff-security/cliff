@@ -54,9 +54,8 @@ fail() { printf '%sFAIL%s %s\n' "${RED}" "${RESET}" "$1" >&2; exit 1; }
 
 # ---- platform detection ----------------------------------------------------
 #
-# Per-binary arch detection lives in install-opencode.sh and
-# install-scanners.sh; here we only sort by OS family and reject the
-# environments we know don't work.
+# Per-binary arch detection lives in install-scanners.sh; here we only
+# sort by OS family and reject the environments we know don't work.
 
 case "$(uname -s)" in
   Darwin) OS="darwin" ;;

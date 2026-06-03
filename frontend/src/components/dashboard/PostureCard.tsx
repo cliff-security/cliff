@@ -629,7 +629,7 @@ function PostureFixStatusStrip({ workspaceId }: { workspaceId: string }) {
   let label = 'Starting the generator agent…'
 
   if (status === 'queued') {
-    label = 'Agent queued — spinning up OpenCode…'
+    label = 'Agent queued — starting…'
   } else if (status === 'running') {
     label = 'Agent running — cloning, writing, committing, pushing…'
   } else if (status === 'pr_created') {

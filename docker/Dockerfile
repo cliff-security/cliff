@@ -1,7 +1,7 @@
 # =============================================================================
 # Cliff — Multi-stage Docker build
 # Stage 1: Build frontend (Node)
-# Stage 2: Production runtime (Python + OpenCode Go binary)
+# Stage 2: Production runtime (Python)
 # =============================================================================
 
 # Build-time args propagated through both stages so the resulting image
@@ -50,7 +50,7 @@ LABEL org.opencontainers.image.title="Cliff" \
       org.opencontainers.image.revision="${CLIFF_REVISION}" \
       org.opencontainers.image.created="${CLIFF_CREATED}"
 
-# System dependencies: supervisor, curl, git for health checks, cloning, and OpenCode download
+# System dependencies: supervisor, curl, git for health checks and cloning
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         supervisor \
@@ -96,8 +96,8 @@ COPY THIRD-PARTY-LICENSES.md /app/THIRD-PARTY-LICENSES.md
 ENV CLIFF_BIN_DIR=/app/bin
 
 # PRD-0003 v0.2 — Trivy + Semgrep binaries for the assessment engine
-# (ADR-0028 subprocess-only execution). Both land in /app/bin alongside
-# OpenCode; CLIFF_SCANNER_BIN_DIR points the runner at this directory.
+# (ADR-0028 subprocess-only execution). Both land in /app/bin;
+# CLIFF_SCANNER_BIN_DIR points the runner at this directory.
 ARG TRIVY_VERSION=0.70.0
 RUN ARCH="$(dpkg --print-architecture)" \
     && case "$ARCH" in \

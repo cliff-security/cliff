@@ -38,7 +38,6 @@ backend/tests/
 
 # Dev files
 *.md
-!.opencode-version
 # Re-include legal manifests the runtime image must carry. Adding them
 # back here (after the ``*.md`` blanket) restores them to the build
 # context so the Dockerfile's ``COPY LICENSE`` / ``COPY NOTICE`` /
