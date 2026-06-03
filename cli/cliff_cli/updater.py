@@ -3,9 +3,8 @@
 `cliffsec update` checks GitHub Releases for a newer version, downloads the
 tarball, snapshots the current ``app/`` and ``bin/`` (rename, not copy — fast,
 atomic on the same filesystem), extracts the new version, re-runs the
-bundled ``install-opencode.sh`` / ``install-scanners.sh`` to rehydrate
-``bin/``, runs the doctor checks, and either restarts the daemon or rolls
-back on failure.
+bundled ``install-scanners.sh`` to rehydrate ``bin/``, runs the doctor
+checks, and either restarts the daemon or rolls back on failure.
 
 Data and config are never touched. ``data/``, ``config/``, and ``cli-venv/``
 stay where they are.

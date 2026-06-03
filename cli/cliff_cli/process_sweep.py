@@ -1,19 +1,15 @@
 """Owner-safe process discovery and cleanup for the Cliff CLI.
 
-Used by ``cliffsec stop`` / ``restart`` / ``uninstall`` to find leaked Cliff
-processes (parent uvicorn + child OpenCode binaries) when the parent died
-abruptly and left orphans holding ports.
+Used by ``cliffsec stop`` / ``restart`` / ``uninstall`` to find a leaked Cliff
+server (the uvicorn parent) when it died abruptly and left an orphan holding
+the app port. The agent substrate runs in-process via Pydantic AI (ADR-0047),
+so there are no child processes to reap — only the uvicorn parent.
 
-Hard ownership rule: a process is Cliff-owned **iff** its cmdline matches
-one of two patterns:
-
-1. The parent uvicorn — argv contains the literal token ``uvicorn`` and the
-   target ``cliff.main:app``.
-2. Our installed opencode binary — ``argv[0]`` (or the executable path) is
-   exactly ``$CLIFF_HOME/bin/opencode``.
+Hard ownership rule: a process is Cliff-owned **iff** its cmdline contains the
+literal token ``uvicorn`` and the target ``cliff.main:app``.
 
 Port presence is *never* sufficient to declare a process ours. A process
-sitting on port 4096 with an unrelated cmdline is a "squatter": reported,
+sitting on the app port with an unrelated cmdline is a "squatter": reported,
 never signalled. This is the safety contract: we never kill someone else's
 process just because it happens to be on a port we'd like.
 """
@@ -26,21 +22,17 @@ import socket
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Literal
 
 import psutil
 
-OPENCODE_SINGLETON_PORT = 4096
-WORKSPACE_PORT_RANGE = range(4100, 4200)
-
 
 @dataclass(frozen=True)
 class FoundProcess:
-    """An Cliff process the user is allowed to signal."""
+    """A Cliff process the user is allowed to signal."""
 
     pid: int
-    kind: Literal["uvicorn", "opencode"]
+    kind: Literal["uvicorn"]
     cmdline: str
     ports: tuple[int, ...] = field(default_factory=tuple)
 
@@ -111,11 +103,8 @@ def _listening_ports_by_pid() -> dict[int, list[int]]:
     return out
 
 
-def _classify(
-    proc: psutil.Process,
-    cliff_opencode_bin: Path,
-) -> Literal["uvicorn", "opencode"] | None:
-    """Return 'uvicorn' / 'opencode' if proc matches our ownership rules, else None."""
+def _classify(proc: psutil.Process) -> Literal["uvicorn"] | None:
+    """Return 'uvicorn' if proc is our server, else None."""
     try:
         cmdline = proc.cmdline()
     except (psutil.AccessDenied, psutil.NoSuchProcess):
@@ -123,22 +112,11 @@ def _classify(
     if not cmdline:
         return None
 
-    # Rule 1: parent uvicorn for our app.
+    # The parent uvicorn for our app.
     has_uvicorn = any("uvicorn" in arg for arg in cmdline)
     has_app = any("cliff.main:app" in arg for arg in cmdline)
     if has_uvicorn and has_app:
         return "uvicorn"
-
-    # Rule 2: our opencode binary at the exact installed path.
-    target = str(cliff_opencode_bin)
-    if cmdline[0] == target:
-        return "opencode"
-    try:
-        exe = proc.exe()
-    except (psutil.AccessDenied, psutil.NoSuchProcess):
-        exe = ""
-    if exe == target:
-        return "opencode"
 
     return None
 
@@ -156,13 +134,12 @@ def _is_same_user(proc: psutil.Process) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def find_cliff_processes(cliff_home: Path) -> list[FoundProcess]:
+def find_cliff_processes() -> list[FoundProcess]:
     """Find every Cliff-owned process running as the current user.
 
     Skips processes we can't inspect (AccessDenied, NoSuchProcess) and never
-    matches by port alone — see module docstring for the ownership rules.
+    matches by port alone — see module docstring for the ownership rule.
     """
-    opencode_bin = cliff_home / "bin" / "opencode"
     ports_by_pid = _listening_ports_by_pid()
     found: list[FoundProcess] = []
     self_pid = os.getpid()
@@ -173,7 +150,7 @@ def find_cliff_processes(cliff_home: Path) -> list[FoundProcess]:
                 continue
             if not _is_same_user(proc):
                 continue
-            kind = _classify(proc, opencode_bin)
+            kind = _classify(proc)
             if kind is None:
                 continue
             cmdline_str = " ".join(proc.cmdline())

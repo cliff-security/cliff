@@ -189,7 +189,7 @@ def stop_env(fake_home, monkeypatch):
         "alive_pids": set(),
     }
 
-    monkeypatch.setattr(daemon, "find_cliff_processes", lambda home_: list(state["owned"]))
+    monkeypatch.setattr(daemon, "find_cliff_processes", lambda: list(state["owned"]))
     monkeypatch.setattr(
         daemon,
         "find_port_squatters",
@@ -254,19 +254,19 @@ def test_stop_kills_recorded_parent_via_pidfile(stop_env, tmp_path):
 def test_stop_kills_owned_orphan_when_no_pidfile(stop_env):
     home, daemon, state, FoundProcess, _ = stop_env  # noqa: N806
     state["owned"] = [
-        FoundProcess(pid=5000, kind="opencode", cmdline="opencode serve", ports=(4096,))
+        FoundProcess(pid=5000, kind="uvicorn", cmdline="uvicorn cliff.main:app", ports=(8000,))
     ]
     state["kills"] = (state["owned"], [])
     runner = CliRunner()
     res = runner.invoke(daemon.stop_cmd)
     assert res.exit_code == 0
     assert state["kill_calls"] == [([5000], False)]
-    assert "found stale opencode pid=5000" in res.output
+    assert "found stale uvicorn pid=5000" in res.output
 
 
 def test_stop_with_force_passes_force_to_killer(stop_env):
     home, daemon, state, FoundProcess, _ = stop_env  # noqa: N806
-    state["owned"] = [FoundProcess(pid=5001, kind="opencode", cmdline="...")]
+    state["owned"] = [FoundProcess(pid=5001, kind="uvicorn", cmdline="...")]
     state["kills"] = (state["owned"], [])
     runner = CliRunner()
     res = runner.invoke(daemon.stop_cmd, ["--force"])
@@ -276,8 +276,8 @@ def test_stop_with_force_passes_force_to_killer(stop_env):
 
 def test_stop_reports_squatter_but_does_not_signal_it(stop_env):
     home, daemon, state, _, PortSquatter = stop_env  # noqa: N806
-    # No owned processes; just an unrelated listener on 4096.
-    state["squatters"] = [PortSquatter(pid=9000, port=4096, cmdline="nc -l 4096")]
+    # No owned processes; just an unrelated listener on 8000.
+    state["squatters"] = [PortSquatter(pid=9000, port=8000, cmdline="nc -l 8000")]
     runner = CliRunner()
     res = runner.invoke(daemon.stop_cmd)
     # No owned procs found => still says "not running" and never signals.
@@ -304,17 +304,16 @@ def test_stop_uses_configured_port_from_env_file(stop_env):
     d.find_port_squatters = _fps  # noqa: SLF001 — direct attr write for the test
     runner = CliRunner()
     runner.invoke(d.stop_cmd)
-    assert 8765 in captured["ports"]
-    # And the workspace range / opencode singleton are still there.
-    assert 4096 in captured["ports"]
-    assert 4150 in captured["ports"]
+    # The substrate is in-process now (ADR-0047): the only port swept is the
+    # configured app port — no more 4096 singleton / 4100-4199 workspace range.
+    assert captured["ports"] == [8765]
 
 
 def test_stop_errors_when_processes_resist_shutdown(stop_env):
     home, daemon, state, FoundProcess, _ = stop_env  # noqa: N806
-    state["owned"] = [FoundProcess(pid=5010, kind="opencode", cmdline="...")]
+    state["owned"] = [FoundProcess(pid=5010, kind="uvicorn", cmdline="...")]
     state["kills"] = ([], state["owned"])  # nothing killed, all stuck
-    state["bound_ports"] = [4096]
+    state["bound_ports"] = [8000]
     runner = CliRunner()
     res = runner.invoke(daemon.stop_cmd)
     assert res.exit_code == 1
@@ -324,9 +323,9 @@ def test_stop_errors_when_processes_resist_shutdown(stop_env):
 def test_stop_succeeds_when_pids_dead_but_ports_linger(stop_env):
     """Kernel TIME_WAIT after our processes die: warn, don't fail."""
     home, daemon, state, FoundProcess, _ = stop_env  # noqa: N806
-    state["owned"] = [FoundProcess(pid=5020, kind="opencode", cmdline="...")]
+    state["owned"] = [FoundProcess(pid=5020, kind="uvicorn", cmdline="...")]
     state["kills"] = (state["owned"], [])  # all dead
-    state["bound_ports"] = [4096]  # but kernel hasn't released yet
+    state["bound_ports"] = [8000]  # but kernel hasn't released yet
     runner = CliRunner()
     res = runner.invoke(daemon.stop_cmd)
     assert res.exit_code == 0, res.output
@@ -336,10 +335,10 @@ def test_stop_succeeds_when_pids_dead_but_ports_linger(stop_env):
 def test_stop_succeeds_when_remaining_bound_ports_are_squatter_held(stop_env):
     """Ports still bound by squatters must NOT count against stop."""
     home, daemon, state, FoundProcess, PortSquatter = stop_env  # noqa: N806
-    state["owned"] = [FoundProcess(pid=5011, kind="opencode", cmdline="...")]
+    state["owned"] = [FoundProcess(pid=5011, kind="uvicorn", cmdline="...")]
     state["kills"] = (state["owned"], [])
-    state["squatters"] = [PortSquatter(pid=9001, port=4096, cmdline="nc -l 4096")]
-    state["bound_ports"] = [4096]  # only the squatter
+    state["squatters"] = [PortSquatter(pid=9001, port=8000, cmdline="nc -l 8000")]
+    state["bound_ports"] = [8000]  # only the squatter
     runner = CliRunner()
     res = runner.invoke(daemon.stop_cmd)
     assert res.exit_code == 0
@@ -444,7 +443,7 @@ def test_uninstall_aborts_if_processes_still_running_after_stop(stop_env, monkey
     home, daemon, state, FoundProcess, _ = stop_env  # noqa: N806
     daemon.APP_DIR.mkdir(parents=True)
     monkeypatch.setattr(daemon.stop_cmd, "callback", lambda timeout, force: None)
-    state["owned"] = [FoundProcess(pid=7000, kind="opencode", cmdline="...")]
+    state["owned"] = [FoundProcess(pid=7000, kind="uvicorn", cmdline="...")]
 
     runner = CliRunner()
     res = runner.invoke(daemon.uninstall_cmd, ["--yes"])

@@ -10,7 +10,6 @@ from __future__ import annotations
 import signal
 import socket
 from collections import namedtuple
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import psutil
@@ -25,8 +24,7 @@ from cliff_cli.process_sweep import (
     verify_ports_free,
 )
 
-CLIFF_HOME = Path("/home/test/.cliff")
-OPENCODE_BIN = str(CLIFF_HOME / "bin" / "opencode")
+_UVICORN = [".venv/bin/uvicorn", "cliff.main:app", "--port", "8000"]
 
 _LAddr = namedtuple("_LAddr", ["ip", "port"])
 _Conn = namedtuple("_Conn", ["fd", "family", "type", "laddr", "raddr", "status", "pid"])
@@ -87,63 +85,36 @@ def _patch_conns(monkeypatch, conns):
 
 
 # ---------------------------------------------------------------------------
-# find_cliff_processes — ownership rules (the critical safety contract)
+# find_cliff_processes — ownership rule (the critical safety contract)
+#
+# The agent substrate runs in-process now (ADR-0047), so the only Cliff-owned
+# process is the uvicorn parent. There are no child binaries to reap.
 # ---------------------------------------------------------------------------
 
 
 def test_finds_parent_uvicorn(monkeypatch):
-    proc = _make_proc(
-        100,
-        [".venv/bin/uvicorn", "cliff.main:app", "--port", "8000"],
-    )
+    proc = _make_proc(100, _UVICORN)
     _patch_iter(monkeypatch, [proc])
     _patch_conns(
         monkeypatch,
         [_Conn(0, 0, 0, _LAddr("127.0.0.1", 8000), None, psutil.CONN_LISTEN, 100)],
     )
-    found = find_cliff_processes(CLIFF_HOME)
+    found = find_cliff_processes()
     assert len(found) == 1
     assert found[0].pid == 100
     assert found[0].kind == "uvicorn"
     assert 8000 in found[0].ports
 
 
-def test_finds_opencode_when_argv0_is_installed_path(monkeypatch):
-    proc = _make_proc(101, [OPENCODE_BIN, "serve", "--port", "4096"])
-    _patch_iter(monkeypatch, [proc])
-    _patch_conns(monkeypatch, [])
-    found = find_cliff_processes(CLIFF_HOME)
-    assert len(found) == 1
-    assert found[0].kind == "opencode"
-
-
-def test_finds_opencode_via_exe_when_argv0_is_relative(monkeypatch):
-    proc = _make_proc(102, ["opencode", "serve", "--port", "4096"], exe=OPENCODE_BIN)
-    _patch_iter(monkeypatch, [proc])
-    _patch_conns(monkeypatch, [])
-    found = find_cliff_processes(CLIFF_HOME)
-    assert len(found) == 1
-    assert found[0].kind == "opencode"
-
-
-def test_does_not_match_unrelated_opencode_at_different_path(monkeypatch):
-    """A user's separate `opencode` binary at /usr/local/bin must not match."""
-    proc = _make_proc(103, ["/usr/local/bin/opencode", "serve"], exe="/usr/local/bin/opencode")
-    _patch_iter(monkeypatch, [proc])
-    _patch_conns(monkeypatch, [])
-    found = find_cliff_processes(CLIFF_HOME)
-    assert found == []
-
-
 def test_does_not_match_arbitrary_listener_on_known_port(monkeypatch):
-    """Port 4096 alone must not be sufficient — cmdline must prove ownership."""
-    proc = _make_proc(104, ["nc", "-l", "4096"])
+    """The app port alone must not be sufficient — cmdline must prove ownership."""
+    proc = _make_proc(104, ["nc", "-l", "8000"])
     _patch_iter(monkeypatch, [proc])
     _patch_conns(
         monkeypatch,
-        [_Conn(0, 0, 0, _LAddr("127.0.0.1", 4096), None, psutil.CONN_LISTEN, 104)],
+        [_Conn(0, 0, 0, _LAddr("127.0.0.1", 8000), None, psutil.CONN_LISTEN, 104)],
     )
-    found = find_cliff_processes(CLIFF_HOME)
+    found = find_cliff_processes()
     assert found == []
 
 
@@ -151,27 +122,25 @@ def test_does_not_match_uvicorn_for_other_app(monkeypatch):
     proc = _make_proc(105, ["uvicorn", "other_app.main:app"])
     _patch_iter(monkeypatch, [proc])
     _patch_conns(monkeypatch, [])
-    found = find_cliff_processes(CLIFF_HOME)
+    found = find_cliff_processes()
     assert found == []
 
 
 def test_skips_processes_owned_by_other_users(monkeypatch):
-    proc = _make_proc(
-        106, [".venv/bin/uvicorn", "cliff.main:app"], same_user=False
-    )
+    proc = _make_proc(106, _UVICORN, same_user=False)
     _patch_iter(monkeypatch, [proc])
     _patch_conns(monkeypatch, [])
-    found = find_cliff_processes(CLIFF_HOME)
+    found = find_cliff_processes()
     assert found == []
 
 
 def test_swallows_access_denied(monkeypatch):
     """Inaccessible process must not crash the sweep."""
     bad = _make_proc(107, [], raise_on="cmdline")
-    good = _make_proc(108, [OPENCODE_BIN, "serve"])
+    good = _make_proc(108, _UVICORN)
     _patch_iter(monkeypatch, [bad, good])
     _patch_conns(monkeypatch, [])
-    found = find_cliff_processes(CLIFF_HOME)
+    found = find_cliff_processes()
     assert [f.pid for f in found] == [108]
 
 
@@ -180,14 +149,14 @@ def test_skips_self_pid(monkeypatch):
     proc = _make_proc(99999, ["uvicorn", "cliff.main:app"])
     _patch_iter(monkeypatch, [proc])
     _patch_conns(monkeypatch, [])
-    found = find_cliff_processes(CLIFF_HOME)
+    found = find_cliff_processes()
     assert found == []
 
 
 def test_swallows_net_connections_access_denied(monkeypatch):
     """psutil.net_connections raises AccessDenied on macOS w/o root — fallback
     to per-process scan handles it without crashing."""
-    proc = _make_proc(109, [OPENCODE_BIN, "serve"])
+    proc = _make_proc(109, _UVICORN)
     proc.net_connections.return_value = []
 
     def _raise(kind="inet"):
@@ -198,7 +167,7 @@ def test_swallows_net_connections_access_denied(monkeypatch):
         lambda attrs=None: iter([proc]),
     )
     monkeypatch.setattr("cliff_cli.process_sweep.psutil.net_connections", _raise)
-    found = find_cliff_processes(CLIFF_HOME)
+    found = find_cliff_processes()
     assert len(found) == 1
     assert found[0].ports == ()
 
@@ -207,10 +176,10 @@ def test_macos_fallback_finds_owned_process_listening_port(monkeypatch):
     """When system net_connections is denied, per-process net_connections
     must take over so we still get the port -> pid mapping for owned procs.
     Regression test for the bug found during the macOS e2e smoke check."""
-    fake_laddr = _LAddr("127.0.0.1", 4096)
+    fake_laddr = _LAddr("127.0.0.1", 8000)
     listening_conn = _Conn(0, 0, 0, fake_laddr, None, psutil.CONN_LISTEN, None)
 
-    proc = _make_proc(120, [OPENCODE_BIN, "serve", "--port", "4096"])
+    proc = _make_proc(120, _UVICORN)
     proc.net_connections.return_value = [listening_conn]
 
     def _denied(kind="inet"):
@@ -221,18 +190,18 @@ def test_macos_fallback_finds_owned_process_listening_port(monkeypatch):
         lambda attrs=None: iter([proc]),
     )
     monkeypatch.setattr("cliff_cli.process_sweep.psutil.net_connections", _denied)
-    found = find_cliff_processes(CLIFF_HOME)
+    found = find_cliff_processes()
     assert len(found) == 1
     assert found[0].pid == 120
     # Critical: per-process fallback recovered the listening port.
-    assert 4096 in found[0].ports
+    assert 8000 in found[0].ports
 
 
 def test_macos_fallback_reports_squatter(monkeypatch):
     """End-to-end equivalent of the macOS gap caught during e2e verification:
     psutil.net_connections raises AccessDenied; squatter must still be
     reported via the per-process fallback."""
-    fake_laddr = _LAddr("127.0.0.1", 4150)
+    fake_laddr = _LAddr("127.0.0.1", 8000)
     listening_conn = _Conn(0, 0, 0, fake_laddr, None, psutil.CONN_LISTEN, None)
 
     squatter_proc = _make_proc(200, ["python3", "-c", "import socket..."])
@@ -249,10 +218,10 @@ def test_macos_fallback_reports_squatter(monkeypatch):
     monkeypatch.setattr(
         "cliff_cli.process_sweep.psutil.Process", lambda pid: squatter_proc
     )
-    squatters = find_port_squatters([4150], owned_pids=set())
+    squatters = find_port_squatters([8000], owned_pids=set())
     assert len(squatters) == 1
     assert squatters[0].pid == 200
-    assert squatters[0].port == 4150
+    assert squatters[0].port == 8000
 
 
 # ---------------------------------------------------------------------------
@@ -263,37 +232,37 @@ def test_macos_fallback_reports_squatter(monkeypatch):
 def test_squatter_on_known_port_is_reported(monkeypatch):
     _patch_conns(
         monkeypatch,
-        [_Conn(0, 0, 0, _LAddr("127.0.0.1", 4096), None, psutil.CONN_LISTEN, 200)],
+        [_Conn(0, 0, 0, _LAddr("127.0.0.1", 8000), None, psutil.CONN_LISTEN, 200)],
     )
 
     def _proc_factory(pid):
-        return _make_proc(pid, ["nc", "-l", "4096"])
+        return _make_proc(pid, ["nc", "-l", "8000"])
 
     monkeypatch.setattr("cliff_cli.process_sweep.psutil.Process", _proc_factory)
-    squatters = find_port_squatters([4096, 4100], owned_pids=set())
-    assert squatters == [PortSquatter(pid=200, port=4096, cmdline="nc -l 4096")]
+    squatters = find_port_squatters([8000, 8765], owned_pids=set())
+    assert squatters == [PortSquatter(pid=200, port=8000, cmdline="nc -l 8000")]
 
 
 def test_squatter_excludes_owned_pids(monkeypatch):
     _patch_conns(
         monkeypatch,
-        [_Conn(0, 0, 0, _LAddr("127.0.0.1", 4096), None, psutil.CONN_LISTEN, 201)],
+        [_Conn(0, 0, 0, _LAddr("127.0.0.1", 8000), None, psutil.CONN_LISTEN, 201)],
     )
-    squatters = find_port_squatters([4096], owned_pids={201})
+    squatters = find_port_squatters([8000], owned_pids={201})
     assert squatters == []
 
 
 def test_squatter_handles_inaccessible_process(monkeypatch):
     _patch_conns(
         monkeypatch,
-        [_Conn(0, 0, 0, _LAddr("127.0.0.1", 4096), None, psutil.CONN_LISTEN, 202)],
+        [_Conn(0, 0, 0, _LAddr("127.0.0.1", 8000), None, psutil.CONN_LISTEN, 202)],
     )
 
     def _raise(pid):
         raise psutil.NoSuchProcess(pid)
 
     monkeypatch.setattr("cliff_cli.process_sweep.psutil.Process", _raise)
-    squatters = find_port_squatters([4096], owned_pids=set())
+    squatters = find_port_squatters([8000], owned_pids=set())
     assert len(squatters) == 1
     assert squatters[0].cmdline == "<inaccessible>"
 
@@ -304,7 +273,7 @@ def test_squatter_handles_inaccessible_process(monkeypatch):
 
 
 def test_kill_processes_sigterms_and_returns_killed(monkeypatch):
-    procs = [FoundProcess(pid=300, kind="opencode", cmdline="opencode serve")]
+    procs = [FoundProcess(pid=300, kind="uvicorn", cmdline="uvicorn cliff.main:app")]
     sent: list[tuple[int, int]] = []
 
     def _kill(pid, sig):
@@ -327,7 +296,7 @@ def test_kill_processes_sigterms_and_returns_killed(monkeypatch):
 
 
 def test_kill_processes_force_uses_sigkill(monkeypatch):
-    procs = [FoundProcess(pid=301, kind="opencode", cmdline="...")]
+    procs = [FoundProcess(pid=301, kind="uvicorn", cmdline="...")]
     sent: list[tuple[int, int]] = []
     monkeypatch.setattr(
         "cliff_cli.process_sweep.os.kill",
@@ -341,7 +310,7 @@ def test_kill_processes_force_uses_sigkill(monkeypatch):
 
 
 def test_kill_processes_escalates_to_sigkill_on_timeout(monkeypatch):
-    procs = [FoundProcess(pid=302, kind="opencode", cmdline="...")]
+    procs = [FoundProcess(pid=302, kind="uvicorn", cmdline="...")]
     sent: list[tuple[int, int]] = []
     monkeypatch.setattr(
         "cliff_cli.process_sweep.os.kill",
@@ -371,7 +340,7 @@ def test_kill_processes_escalates_to_sigkill_on_timeout(monkeypatch):
 
 
 def test_kill_processes_swallows_process_lookup_error(monkeypatch):
-    procs = [FoundProcess(pid=303, kind="opencode", cmdline="...")]
+    procs = [FoundProcess(pid=303, kind="uvicorn", cmdline="...")]
 
     def _kill(pid, sig):
         raise ProcessLookupError(pid)
@@ -384,7 +353,7 @@ def test_kill_processes_swallows_process_lookup_error(monkeypatch):
 
 
 def test_kill_processes_returns_still_alive_when_kill_fails(monkeypatch):
-    procs = [FoundProcess(pid=304, kind="opencode", cmdline="...")]
+    procs = [FoundProcess(pid=304, kind="uvicorn", cmdline="...")]
     monkeypatch.setattr("cliff_cli.process_sweep.os.kill", lambda *_: None)
     monkeypatch.setattr("cliff_cli.process_sweep.psutil.pid_exists", lambda pid: True)
     monkeypatch.setattr("cliff_cli.process_sweep.time.sleep", lambda *_: None)
