@@ -11,9 +11,6 @@ Be respectful and constructive. We follow the [Contributor Covenant](https://www
 Prerequisites: Python 3.11+ with [`uv`](https://docs.astral.sh/uv/), Node.js 20+, and a clone of this repo.
 
 ```bash
-# Install OpenCode binary (pinned in .opencode-version)
-scripts/install-opencode.sh
-
 # Install dependencies
 cd backend && uv sync
 cd ../frontend && npm install

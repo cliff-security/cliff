@@ -13,10 +13,9 @@ Layout (created by ``scripts/install-local.sh``):
         backend/              # FastAPI app + uv-managed .venv/
         frontend/dist/        # prebuilt SPA
         scripts/
-        .opencode-version
         .scanner-versions
         VERSION
-      bin/                    # opencode, trivy, semgrep
+      bin/                    # trivy, semgrep
       data/                   # cliff.db, workspaces/, logs/
       config/cliff.env      # runtime env vars (KEY=value lines)
       run/cliff.pid         # detached-mode pidfile
@@ -41,8 +40,6 @@ import click
 
 from cliff_cli.output import EXIT_ERROR, EXIT_OK, emit, emit_error
 from cliff_cli.process_sweep import (
-    OPENCODE_SINGLETON_PORT,
-    WORKSPACE_PORT_RANGE,
     find_cliff_processes,
     find_port_squatters,
     kill_processes,
@@ -143,8 +140,9 @@ def _configured_app_port() -> int:
 
 
 def _cliff_ports() -> list[int]:
-    """Every port we care about for the lifecycle: app + opencode singleton + workspace range."""
-    return [_configured_app_port(), OPENCODE_SINGLETON_PORT, *WORKSPACE_PORT_RANGE]
+    """Every port we care about for the lifecycle. The agent substrate runs
+    in-process now (ADR-0047), so the only port Cliff binds is the app port."""
+    return [_configured_app_port()]
 
 
 def _ensure_dirs() -> None:
@@ -288,9 +286,8 @@ def stop_cmd(timeout: float, force: bool) -> None:
     """Stop the running Cliff server and reclaim any leaked child processes.
 
     Matching is owner-safe: a process is signalled only if its cmdline
-    identifies it as ours (uvicorn for ``cliff.main:app`` or our installed
-    ``$CLIFF_HOME/bin/opencode`` binary). Anything else bound to a port we
-    use is reported but never killed.
+    identifies it as ours (uvicorn for ``cliff.main:app``). Anything else
+    bound to a port we use is reported but never killed.
     """
     ports = _cliff_ports()
 
@@ -318,7 +315,7 @@ def stop_cmd(timeout: float, force: bool) -> None:
             parent_killed = pid
 
     # 2. Sweep for Cliff-owned orphans (parent or children still alive).
-    ours = find_cliff_processes(CLIFF_HOME)
+    ours = find_cliff_processes()
     if parent_killed is not None:
         ours = [p for p in ours if p.pid != parent_killed]
 
@@ -488,19 +485,6 @@ def _gather_doctor_checks() -> list[dict[str, Any]]:
     else:
         checks.append(_check("python", False, f"not found at {py_bin}"))
 
-    # opencode binary version match
-    opencode_bin = BIN_DIR / "opencode"
-    expected_opencode = ""
-    opencode_version_file = APP_DIR / ".opencode-version"
-    if opencode_version_file.is_file():
-        expected_opencode = opencode_version_file.read_text().strip()
-    if opencode_bin.is_file():
-        actual = _run_version([str(opencode_bin), "--version"], timeout=10)
-        ok = (not expected_opencode) or expected_opencode in actual
-        checks.append(_check("opencode", ok, actual or "?", expected=expected_opencode))
-    else:
-        checks.append(_check("opencode", False, f"not found at {opencode_bin}"))
-
     # trivy + semgrep against .scanner-versions
     pinned = _read_pinned_versions(APP_DIR / ".scanner-versions")
     for tool in ("trivy", "semgrep"):
@@ -515,7 +499,7 @@ def _gather_doctor_checks() -> list[dict[str, Any]]:
 
     # macOS Gatekeeper quarantine
     if sys.platform == "darwin":
-        for tool in ("opencode", "trivy", "semgrep"):
+        for tool in ("trivy", "semgrep"):
             path = BIN_DIR / tool
             if not path.is_file():
                 continue
@@ -561,12 +545,13 @@ def _gather_doctor_checks() -> list[dict[str, Any]]:
             _check("gh.auth", r.returncode == 0, first or "unknown", warn_only=True)
         )
 
-    # Ports — 8000 hard, the others warn-only
-    for port in (DEFAULT_PORT, 4096, 4100, 4101, 4102):
+    # Port — only the app port matters now (the substrate is in-process).
+    # Probe the *configured* port (CLIFF_APP_PORT), not the hard-coded default,
+    # so a non-default deployment doesn't miss a real port-in-use failure.
+    for port in _cliff_ports():
         free = _port_free(port)
-        warn_only = port != DEFAULT_PORT
         checks.append(
-            _check(f"port.{port}", free, "free" if free else "in use", warn_only=warn_only)
+            _check(f"port.{port}", free, "free" if free else "in use", warn_only=False)
         )
 
     # Data dir writable
@@ -764,7 +749,7 @@ def uninstall_cmd(ctx: click.Context, keep_data: bool, yes: bool) -> None:
 
     # 2. After stop, refuse to remove files if any of our processes are
     #    still alive on our ports. We never rm -rf over a live process.
-    ours = find_cliff_processes(CLIFF_HOME)
+    ours = find_cliff_processes()
     if ours:
         emit_error(
             "Cliff processes are still running after stop — refusing to remove files.",

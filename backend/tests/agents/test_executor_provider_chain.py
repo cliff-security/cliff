@@ -98,7 +98,6 @@ async def test_provider_chain_reaches_agent_with_correct_model(
     )
 
     executor = AgentExecutor(
-        pool=MagicMock(),
         context_builder=MagicMock(),
         ai_env_resolver=AsyncMock(return_value=env),
         ai_model_resolver=AsyncMock(return_value=model_full_id),

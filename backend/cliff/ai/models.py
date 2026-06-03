@@ -55,11 +55,10 @@ class AIStatus(BaseModel):
     """Wire shape for ``GET /api/integrations/ai/status``.
 
     ``model`` is the canonical active model — the one Cliff writes into
-    ``app_setting(key="model")`` and pushes into every workspace spawn.
-    Per ADR-0037 there is one canonical state and one read; the
-    on_key_change hook restarts the singleton OpenCode synchronously on
-    every model/key write, so there is no separate "what's loaded right
-    now" signal worth exposing on the wire (architect health-check, M9).
+    ``app_setting(key="model")`` and the PA model factory reads at each
+    agent run. Per ADR-0037 / ADR-0047 there is one canonical state and
+    one read; with the substrate in-process there is no separate "what's
+    loaded right now" signal worth exposing on the wire.
     """
 
     state: AIState

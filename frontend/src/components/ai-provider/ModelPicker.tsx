@@ -333,8 +333,8 @@ export function ModelPicker({
               lineHeight: 1.45,
             }}
           >
-            Must start with <code>{provider}/</code>. We forward it to
-            OpenCode as-is.
+            Must start with <code>{provider}/</code>. We use it as the
+            canonical model id as-is.
           </p>
         </form>
 

@@ -6,7 +6,6 @@ import asyncio
 import contextlib
 import logging
 from contextlib import asynccontextmanager
-from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -16,7 +15,6 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from cliff.agents.executor import AgentExecutor
-from cliff.agents.template_engine import AgentTemplateEngine
 from cliff.ai import catalog as ai_catalog
 from cliff.api.routes import (
     agent_execution,
@@ -46,10 +44,6 @@ from cliff.api.routes import (
 from cliff.config import settings
 from cliff.db import connection as db_connection
 from cliff.db.connection import close_db, init_db
-from cliff.engine.client import opencode_client
-from cliff.engine.config_manager import config_manager
-from cliff.engine.pool import WorkspaceProcessPool
-from cliff.engine.process import opencode_process
 from cliff.integrations.audit import AuditLogger
 from cliff.integrations.gateway import MCPConfigResolver
 from cliff.integrations.ingest_worker import ingest_worker_loop
@@ -93,7 +87,7 @@ def _init_vault(app: FastAPI, db: object) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Start OpenCode on startup, stop on shutdown."""
+    """Initialize persistence, AI state, and background workers (ADR-0047)."""
     logger.info("Starting Cliff...")
     # Surface any active AI model override at boot so operators see them
     # in stdout/stderr (ADR-0036 — performance may vary if a non-default
@@ -271,11 +265,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             verdict is not None and verdict.error_code != "auth_failed"
         )
 
-    # Warm the cache once at boot so the very first workspace spawn
-    # doesn't pay the DB + decrypt round-trip on the critical path,
-    # AND so the singleton OpenCode (started just below) inherits the
-    # current AI provider key from boot zero rather than waiting for
-    # the first connect / disconnect hook.
+    # Warm the cache once at boot so the very first agent run doesn't pay
+    # the DB + decrypt round-trip on the critical path.
     #
     # Skip the live-probe on the boot path (M5): the upstream HTTPS
     # round-trip would block ``lifespan`` for up to 5s, hanging the
@@ -289,47 +280,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         return dict(app.state.ai_env_cache)
 
     async def _ai_model_resolver() -> str | None:
-        # The OpenCode model id for the active AI provider. The pool writes
-        # it into each workspace's opencode.json at spawn time so OpenCode
-        # routes calls through the same provider whose key was injected.
+        # The canonical ``<provider>/<model>`` id for the active AI
+        # provider. The PA model factory consumes it together with the
+        # resolved env to build a fresh ``Model`` per agent run (ADR-0047).
         return app.state.ai_model_cache
-
-    # Start AI engine (non-fatal if unavailable). Seed the singleton
-    # with the current AI provider env BEFORE start() so the very
-    # first /api/settings/providers/test or /chat call hits a process
-    # that already authenticates against OpenRouter (or whatever
-    # provider is active).
-    opencode_process.set_extra_env(app.state.ai_env_cache)
-    try:
-        await opencode_process.start()
-        # Push the active AI integration's key into OpenCode's auth.json.
-        # OpenCode 1.3.x consults auth.json in preference to env vars on
-        # the outbound request, so users who connected *before* the
-        # auth.json sync was added need this reconcile step at startup.
-        if app.state.vault is not None and db_connection._db is not None:
-            try:
-                from cliff.ai.service import AIIntegrationService
-
-                await AIIntegrationService(
-                    db_connection._db,
-                    app.state.vault,
-                    audit_logger=app.state.audit_logger,
-                ).sync_to_opencode()
-            except Exception:
-                logger.warning(
-                    "Could not sync AI integration to OpenCode auth.json"
-                )
-        # Restore stored API keys and reconcile model config (legacy
-        # paste-flow path — kept for back-compat with the OpenCode
-        # /auth/keys mechanism).
-        try:
-            if db_connection._db is not None:
-                await config_manager.reconcile_model(db_connection._db)
-                await config_manager.restore_keys_to_engine(db_connection._db)
-        except Exception:
-            logger.warning("Could not restore settings to OpenCode engine")
-    except Exception:
-        logger.exception("Failed to start OpenCode — app will run but engine is unavailable")
 
     # MCP config resolver (requires vault)
     mcp_resolver = None
@@ -337,64 +291,33 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         mcp_resolver = MCPConfigResolver(app.state.vault, app.state.audit_logger)
         logger.info("MCP config resolver initialized")
 
-    # Layer 2: Context builder (workspace directory + agent templates + MCP resolver)
+    # Layer 2: Context builder (workspace directory + finding context + integrations)
     workspaces_base = settings.resolve_data_dir() / "workspaces"
     dir_manager = WorkspaceDirManager(base_dir=workspaces_base)
-    template_engine = AgentTemplateEngine()
     context_builder = WorkspaceContextBuilder(
-        dir_manager, template_engine, mcp_resolver=mcp_resolver
+        dir_manager, mcp_resolver=mcp_resolver
     )
     app.state.context_builder = context_builder
 
-    # Layer 3: Per-workspace process pool, reading from the warm cache.
-    pool = WorkspaceProcessPool(
-        env_resolver=_ai_env_resolver,
-        model_resolver=_ai_model_resolver,
-    )
-    app.state.process_pool = pool
-
-    # IMPL-0011 Phase F3: register the singleton-restart hook on app.state
-    # so AIIntegrationService instances built per-request can push the
-    # new env into the singleton OpenCode without coupling to main.
-    async def _ai_on_key_change(env: dict[str, str]) -> None:
+    # Register the AI key-change hook on app.state so AIIntegrationService
+    # instances built per-request refresh the warm env/model cache after a
+    # connect / disconnect / model change (ADR-0047 — no process to restart).
+    async def _ai_on_key_change(env: dict[str, str]) -> None:  # noqa: ARG001
         # ``verify=False`` skips a second upstream auth probe — the
         # caller (BYOK / adopt / set_model route) already validated and
         # we'd just duplicate that call inside the mutation latency.
         await _refresh_ai_env_cache(verify=False)
-        try:
-            opencode_process.set_extra_env(env)
-            if opencode_process.is_running:
-                await opencode_process.restart()
-        except Exception:
-            logger.warning(
-                "Singleton OpenCode restart after AI key change failed",
-                exc_info=True,
-            )
 
     app.state.ai_on_key_change = _ai_on_key_change
 
-    # Agent executor (Layer 5: orchestration). The AI env+model
-    # resolvers are the same callables the pool consumes for OpenCode
-    # env injection; the executor uses them in the Pydantic AI no-tools
-    # path to construct a fresh ``Model`` per agent run (ADR-0047).
+    # Agent executor (Layer 5: orchestration). The AI env+model resolvers
+    # feed the Pydantic AI model factory, which builds a fresh ``Model``
+    # per agent run (ADR-0047).
     app.state.agent_executor = AgentExecutor(
-        pool,
         context_builder,
         ai_env_resolver=_ai_env_resolver,
         ai_model_resolver=_ai_model_resolver,
     )
-
-    # Background idle cleanup task
-    async def _idle_cleanup_loop() -> None:
-        idle_timeout = timedelta(seconds=settings.workspace_idle_timeout_seconds)
-        while True:
-            await asyncio.sleep(60)
-            try:
-                await pool.stop_idle(idle_timeout)
-            except Exception:
-                logger.exception("Error in workspace idle cleanup")
-
-    cleanup_task = asyncio.create_task(_idle_cleanup_loop())
 
     # Background ingest worker (ADR-0023)
     ingest_task: asyncio.Task[None] | None = None
@@ -436,10 +359,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
     logger.info("Shutting down Cliff...")
-    cleanup_task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await cleanup_task
-
     if ingest_task is not None:
         ingest_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -450,14 +369,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         with contextlib.suppress(asyncio.CancelledError):
             await assessment_watchdog_task
 
-    await pool.stop_all()
     gh_orchestrator = getattr(app.state, "github_app_orchestrator", None)
     if gh_orchestrator is not None:
         await gh_orchestrator.stop_all()
     if app.state.audit_logger is not None:
         await app.state.audit_logger.stop()
-    await opencode_client.close()
-    await opencode_process.stop()
     await close_db()
 
 

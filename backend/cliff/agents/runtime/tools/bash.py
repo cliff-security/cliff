@@ -1,7 +1,7 @@
 """``bash`` tool — run a shell command inside the workspace.
 
-Replaces OpenCode's bash tool dispatch for the remediation_executor.
-Classification (auto / ask / deny) happens before execution via
+The remediation_executor's shell tool. Classification (auto / ask / deny)
+happens before execution via
 :func:`cliff.agents.runtime.tools.permissions.gate_tool_call`; output is
 trimmed to the last 200 lines so a noisy build log can't blow the model's
 context window.

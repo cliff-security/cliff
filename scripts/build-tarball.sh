@@ -11,8 +11,7 @@
 #   backend/                pyproject.toml, uv.lock, cliff/
 #   frontend/dist/          prebuilt SPA (vite output)
 #   cli/                    cliff_cli source + pyproject.toml
-#   scripts/                install-opencode.sh, install-scanners.sh
-#   .opencode-version
+#   scripts/                install-scanners.sh
 #   .scanner-versions
 #   VERSION
 #   README-LOCAL-INSTALL.md (short pointer)
@@ -94,17 +93,15 @@ cp -R cli "${STAGE_DIR}/cli"
 rm -rf "${STAGE_DIR}/cli/tests"
 prune_caches "${STAGE_DIR}/cli"
 
-# ---- scripts (just the two install helpers — install-local.sh isn't needed
-# at runtime, it's how the user got here in the first place) -----------------
+# ---- scripts (just the scanner install helper — install-local.sh isn't
+# needed at runtime, it's how the user got here in the first place) ----------
 
 mkdir -p "${STAGE_DIR}/scripts"
-cp scripts/install-opencode.sh "${STAGE_DIR}/scripts/"
 cp scripts/install-scanners.sh "${STAGE_DIR}/scripts/"
 chmod +x "${STAGE_DIR}/scripts/"*.sh
 
 # ---- pinned versions + version metadata -----------------------------------
 
-cp .opencode-version "${STAGE_DIR}/"
 cp .scanner-versions "${STAGE_DIR}/"
 echo "${VERSION}" > "${STAGE_DIR}/VERSION"
 
@@ -116,8 +113,8 @@ If you got here directly, you almost certainly want the installer instead:
     curl -fsSL https://github.com/cliff-security/cliff/releases/latest/download/install-local.sh | sh
 
 The installer downloads this tarball, extracts it under ~/.cliff/app/,
-sets up a uv-managed Python venv, installs the opencode/trivy/semgrep
-binaries via the bundled scripts, and drops `cliffsec` into ~/.local/bin/.
+sets up a uv-managed Python venv, installs the trivy/semgrep binaries via
+the bundled script, and drops `cliffsec` into ~/.local/bin/.
 EOF
 
 # ---- archive ---------------------------------------------------------------

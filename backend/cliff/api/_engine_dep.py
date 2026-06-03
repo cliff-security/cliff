@@ -210,13 +210,10 @@ class _DefaultRepoWorkspaceSpawner:
         data_dir = settings.resolve_data_dir()
         base_dir = data_dir / "workspaces"
         manager = WorkspaceDirManager(base_dir=base_dir)
-        model = settings.opencode_model or None
         workspace_id = manager.create_repo_workspace(
             kind,
             repo_url=repo_url,
             params=params,
-            gh_token=token,
-            model=model,
         )
         workspace_root = base_dir / workspace_id
 

@@ -146,13 +146,11 @@ def status(client: Client) -> None:
         # Re-raise so the wrapper handles it as a structured error.
         raise
 
-    # ADR-0037: report the canonical active model. The prior CLI surfaced
-    # a "drift" signal between canonical state and a live OpenCode probe;
-    # the architect health-check (M9) removed the probe as redundant —
-    # the on_key_change hook restarts the singleton synchronously on
-    # every write, so there is no drift to surface. ``/health.model``
-    # remains the singleton's view of its own config and is used as the
-    # fallback when the AI status endpoint isn't yet available (no vault).
+    # ADR-0037 / ADR-0047: report the canonical active model. With the
+    # substrate in-process there is no engine probe and no drift signal —
+    # ``/api/integrations/ai/status`` is the canonical model (DB-backed),
+    # with ``/health.model`` as the fallback when that endpoint isn't yet
+    # available (no vault).
     canonical_model: str | None = None
     try:
         ai_status = client.get("/api/integrations/ai/status")
@@ -162,14 +160,12 @@ def status(client: Client) -> None:
     model = canonical_model or health.get("model") or ""
 
     blockers: list[str] = []
-    if health.get("opencode") != "ok":
-        blockers.append("opencode_engine_unavailable")
     if not model:
         blockers.append("no_llm_model_configured")
     # A model string alone is not enough — the agent runtime also needs a
-    # provider credential that actually reaches the workspace subprocess.
-    # ``ai_provider_ready`` is False when no credential resolved (e.g. a
-    # connected-but-broken BYOK key), so guard against that false-positive.
+    # provider credential that actually resolves. ``ai_provider_ready`` is
+    # False when no credential resolved (e.g. a connected-but-broken BYOK
+    # key), so guard against that false-positive.
     if not health.get("ai_provider_ready", False):
         blockers.append("no_ai_provider_credential")
 

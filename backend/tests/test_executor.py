@@ -107,7 +107,7 @@ def _make_mock_client(response_text):
 # ---------------------------------------------------------------------------
 
 
-def _executor_with_pa(mock_pool, mock_context_builder, outcome_factory):
+def _executor_with_pa(mock_context_builder, outcome_factory):
     """Build an executor whose ``_run_pa_executor`` returns the given outcome.
 
     ``outcome_factory`` is a zero-arg callable returning a
@@ -116,7 +116,6 @@ def _executor_with_pa(mock_pool, mock_context_builder, outcome_factory):
     from cliff.agents.executor import AgentExecutor
 
     ex = AgentExecutor(
-        mock_pool,
         mock_context_builder,
         ai_env_resolver=AsyncMock(return_value={"OPENAI_API_KEY": "x"}),
         ai_model_resolver=AsyncMock(return_value="openai/gpt-4o-mini"),
@@ -187,7 +186,7 @@ class TestAgentExecutor:
         mock_db, workspace_dir):
         """Full successful execution: PA executor -> finalize -> persist."""
         executor = _executor_with_pa(
-            mock_pool, mock_context_builder, _pa_success_outcome
+            mock_context_builder, _pa_success_outcome
         )
 
         with (
@@ -222,7 +221,7 @@ class TestAgentExecutor:
     )
     @pytest.mark.asyncio
     async def test_execute_publishes_started_and_completed_events(
-        self, mock_pool, mock_context_builder, mock_db, workspace_dir
+        self, mock_context_builder, mock_db, workspace_dir
     ):
         """B36 / IMPL-0020 — every execute() must push an
         ``agent_run_started`` event onto the workspace queue as soon as
@@ -236,7 +235,7 @@ class TestAgentExecutor:
         rather than draining the queue post-hoc.
         """
         executor = _executor_with_pa(
-            mock_pool, mock_context_builder, _pa_success_outcome
+            mock_context_builder, _pa_success_outcome
         )
         captured: list[dict] = []
         original = executor.push_permission_event
@@ -289,7 +288,7 @@ class TestAgentExecutor:
     )
     @pytest.mark.asyncio
     async def test_execute_publishes_completed_with_failed_status_on_parse_failure(
-        self, mock_pool, mock_context_builder, mock_db, workspace_dir
+        self, mock_context_builder, mock_db, workspace_dir
     ):
         """Failure path still publishes ``agent_run_completed`` so the
         side panel can stop spinning. The status field reflects the run
@@ -297,7 +296,7 @@ class TestAgentExecutor:
         response_text = "no JSON here"
         mock_pool.get_or_start.return_value = _make_mock_client(response_text)
 
-        executor = AgentExecutor(mock_pool, mock_context_builder)
+        executor = AgentExecutor(mock_context_builder)
         captured: list[dict] = []
         original = executor.push_permission_event
 
@@ -331,7 +330,7 @@ class TestAgentExecutor:
     )
     @pytest.mark.asyncio
     async def test_execute_preserves_preexisting_permission_queue(
-        self, mock_pool, mock_context_builder, mock_db, workspace_dir
+        self, mock_context_builder, mock_db, workspace_dir
     ):
         """B36 / IMPL-0020 — if the SSE consumer already auto-vivified a
         queue (panel opened BEFORE Start was clicked), ``execute`` must
@@ -342,7 +341,7 @@ class TestAgentExecutor:
         response_text = _make_agent_response()
         mock_pool.get_or_start.return_value = _make_mock_client(response_text)
 
-        executor = AgentExecutor(mock_pool, mock_context_builder)
+        executor = AgentExecutor(mock_context_builder)
         # Simulate the side panel having opened the SSE stream first.
         preexisting = executor.ensure_permission_queue("ws-1")
 
@@ -383,7 +382,7 @@ class TestAgentExecutor:
         response_text = "I analyzed the vulnerability but forgot to return JSON."
         mock_pool.get_or_start.return_value = _make_mock_client(response_text)
 
-        executor = AgentExecutor(mock_pool, mock_context_builder)
+        executor = AgentExecutor(mock_context_builder)
 
         with (
             patch(
@@ -416,7 +415,7 @@ class TestAgentExecutor:
         mock_db, workspace_dir):
         """Another agent running → AgentBusyError."""
         existing_run = _make_mock_agent_run(status="running")
-        executor = AgentExecutor(mock_pool, mock_context_builder)
+        executor = AgentExecutor(mock_context_builder)
 
         with (
             patch(
@@ -439,7 +438,7 @@ class TestAgentExecutor:
         """OpenCode process fails to start → status=failed."""
         mock_pool.get_or_start.side_effect = RuntimeError("No free ports")
 
-        executor = AgentExecutor(mock_pool, mock_context_builder)
+        executor = AgentExecutor(mock_context_builder)
 
         with (
             patch(
@@ -473,7 +472,7 @@ class TestAgentExecutor:
         timeout-label regression that motivates the assertion below
         sits on the PA branch in PR #1.
         """
-        executor = AgentExecutor(mock_pool, mock_context_builder)
+        executor = AgentExecutor(mock_context_builder)
 
         async def _timeout_pa(agent_type, deps, timeout):
             # Stand-in for the PA path's own ``asyncio.wait_for`` →
@@ -511,7 +510,7 @@ class TestAgentExecutor:
 
     @pytest.mark.asyncio
     async def test_timeout_label_reports_effective_timeout_for_tool_agent(
-        self, mock_pool, mock_context_builder, mock_db, workspace_dir,
+        self, mock_context_builder, mock_db, workspace_dir,
     ):
         """For a tool agent (remediation_executor), the wall-clock ceiling
         is bumped from the caller-supplied ``timeout`` to ``max(timeout, 600)``
@@ -535,7 +534,7 @@ class TestAgentExecutor:
             raise AgentTimeoutError("simulated timeout")
 
         executor = _executor_with_pa(
-            mock_pool, mock_context_builder, _raise_timeout
+            mock_context_builder, _raise_timeout
         )
 
         with (
@@ -594,7 +593,7 @@ class TestAgentExecutor:
         client.stream_events = error_stream
         mock_pool.get_or_start.return_value = client
 
-        executor = AgentExecutor(mock_pool, mock_context_builder)
+        executor = AgentExecutor(mock_context_builder)
 
         with (
             patch(
@@ -625,7 +624,7 @@ class TestAgentExecutor:
 
         progress_calls = []
 
-        executor = AgentExecutor(mock_pool, mock_context_builder)
+        executor = AgentExecutor(mock_context_builder)
 
         with (
             patch(
@@ -651,7 +650,7 @@ class TestAgentExecutor:
         """A completed agent run should NOT block new executions."""
         completed_run = _make_mock_agent_run(status="completed")
         executor = _executor_with_pa(
-            mock_pool, mock_context_builder, _pa_success_outcome
+            mock_context_builder, _pa_success_outcome
         )
 
         with (
@@ -679,7 +678,7 @@ class TestAgentExecutor:
         """If context_builder.update_context fails, result persists in DB."""
         mock_context_builder.update_context.side_effect = OSError("Disk full")
         executor = _executor_with_pa(
-            mock_pool, mock_context_builder, _pa_success_outcome
+            mock_context_builder, _pa_success_outcome
         )
 
         with (
@@ -708,7 +707,7 @@ class TestAgentExecutor:
         context advance), not the PA library itself — coverage of the
         PA runtime layer lives in ``tests/agents/test_runtime_*.py``.
         """
-        executor = AgentExecutor(mock_pool, mock_context_builder)
+        executor = AgentExecutor(mock_context_builder)
         fake_output = {
             "recommended_owner": "Platform Team",
             "candidates": [],
@@ -756,12 +755,12 @@ class TestAgentExecutor:
 
     @pytest.mark.asyncio
     async def test_planner_receives_user_note_via_pa_path(
-        self, mock_pool, mock_context_builder, mock_db, workspace_dir,
+        self, mock_context_builder, mock_db, workspace_dir,
     ):
         """PRD-0006 Phase 2 — the planner's PA call DOES receive the user
         refinement note. Pair with ``test_owner_resolver_agent_type``,
         which asserts the gate strips it from every other agent type."""
-        executor = AgentExecutor(mock_pool, mock_context_builder)
+        executor = AgentExecutor(mock_context_builder)
         captured: dict[str, str | None] = {}
 
         async def _fake_pa(agent_type, deps, timeout):
@@ -828,7 +827,7 @@ class TestAgentExecutor:
         client.stream_events = multi_stream
         mock_pool.get_or_start.return_value = client
 
-        executor = AgentExecutor(mock_pool, mock_context_builder)
+        executor = AgentExecutor(mock_context_builder)
 
         with (
             patch(
@@ -866,7 +865,7 @@ class TestAgentExecutor:
         bad_response = "I'll try to read the files instead of returning JSON."
         mock_pool.get_or_start.return_value = _make_mock_client(bad_response)
 
-        executor = AgentExecutor(mock_pool, mock_context_builder)
+        executor = AgentExecutor(mock_context_builder)
 
         with (
             patch(
@@ -902,7 +901,7 @@ class TestPaResolverWiring:
 
     @pytest.mark.asyncio
     async def test_run_pa_no_tools_resolves_env_and_model_per_call(
-        self, mock_pool, mock_context_builder, monkeypatch,
+        self, mock_context_builder, monkeypatch,
     ):
         env_seq = [
             {"OPENAI_API_KEY": "sk-first"},
@@ -929,7 +928,7 @@ class TestPaResolverWiring:
         )
 
         executor = AgentExecutor(
-            mock_pool, mock_context_builder,
+            mock_context_builder,
             ai_env_resolver=env_resolver,
             ai_model_resolver=model_resolver,
         )
@@ -1091,7 +1090,7 @@ class TestPendingPermissionPersistence:
     )
     @pytest.mark.asyncio
     async def test_pending_persists_then_clears_on_approve(
-        self, mock_pool, mock_context_builder, mock_db, workspace_dir
+        self, mock_context_builder, mock_db, workspace_dir
     ):
         from cliff.models import AgentRunUpdate
 
@@ -1113,7 +1112,7 @@ class TestPendingPermissionPersistence:
         client.stream_events = stream_with_ask_bash
         mock_pool.get_or_start.return_value = client
 
-        executor = AgentExecutor(mock_pool, mock_context_builder)
+        executor = AgentExecutor(mock_context_builder)
 
         update_spy = AsyncMock(return_value=None)
 
@@ -1213,7 +1212,7 @@ class TestPendingPermissionPersistence:
         client.stream_events = stream_with_permission
         mock_pool.get_or_start.return_value = client
 
-        executor = AgentExecutor(mock_pool, mock_context_builder)
+        executor = AgentExecutor(mock_context_builder)
 
         with (
             patch(
@@ -1279,7 +1278,7 @@ class TestPendingPermissionPersistence:
         client.stream_events = stream_with_bash_permission
         mock_pool.get_or_start.return_value = client
 
-        executor = AgentExecutor(mock_pool, mock_context_builder)
+        executor = AgentExecutor(mock_context_builder)
 
         # Auto-approve from a background task after the
         # callback fires
@@ -1343,7 +1342,7 @@ class TestRemediationExecutorPRVerification:
 
     @pytest.mark.asyncio
     async def test_valid_pr_url_passes_verification(
-        self, mock_pool, mock_context_builder, mock_db, workspace_dir
+        self, mock_context_builder, mock_db, workspace_dir
     ):
         real_url = "https://github.com/acme/widget/pull/42"
 
@@ -1356,7 +1355,6 @@ class TestRemediationExecutorPRVerification:
             )
 
         executor = _executor_with_pa(
-            mock_pool,
             mock_context_builder,
             lambda: _pa_success_outcome(_pr_created_output(real_url)),
         )
@@ -1397,7 +1395,7 @@ class TestRemediationExecutorPRVerification:
 
     @pytest.mark.asyncio
     async def test_hallucinated_pr_url_fails_run_and_blocks_advance(
-        self, mock_pool, mock_context_builder, mock_db, workspace_dir
+        self, mock_context_builder, mock_db, workspace_dir
     ):
         """B16 regression: verifier says 404 → no sidebar update, no advance, no completion."""
         fake_url = "https://github.com/acme/widget/pull/9999"
@@ -1411,7 +1409,6 @@ class TestRemediationExecutorPRVerification:
             )
 
         executor = _executor_with_pa(
-            mock_pool,
             mock_context_builder,
             lambda: _pa_success_outcome(_pr_created_output(fake_url)),
         )
@@ -1455,13 +1452,12 @@ class TestRemediationExecutorPRVerification:
 
     @pytest.mark.asyncio
     async def test_compare_url_rejected_without_network(
-        self, mock_pool, mock_context_builder, mock_db, workspace_dir
+        self, mock_context_builder, mock_db, workspace_dir
     ):
         """A ``/pull/new/<branch>`` URL is rejected by the URL parser alone."""
         fake_url = "https://github.com/acme/widget/pull/new/cliff-fix"
 
         executor = _executor_with_pa(
-            mock_pool,
             mock_context_builder,
             lambda: _pa_success_outcome(_pr_created_output(fake_url)),
         )

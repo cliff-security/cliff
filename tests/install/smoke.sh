@@ -73,9 +73,7 @@ for required in \
     cli/pyproject.toml \
     cli/cliff_cli/cli.py \
     cli/cliff_cli/daemon.py \
-    scripts/install-opencode.sh \
     scripts/install-scanners.sh \
-    .opencode-version \
     .scanner-versions \
     VERSION ; do
   if ! grep -qE "(^|/)${required}\$" <<<"${tarball_listing}"; then

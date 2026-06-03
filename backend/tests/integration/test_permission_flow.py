@@ -129,7 +129,7 @@ async def test_approve_persists_marker_then_clears_and_resumes_agent(
 
     builder = AsyncMock()
     builder.update_context.return_value = "v1"
-    executor = AgentExecutor(pool, builder)
+    executor = AgentExecutor(builder)
 
     # Snapshot the row while the executor is parked.
     snapshot: dict = {}
@@ -214,7 +214,7 @@ async def test_deny_persists_then_clears_and_denies_to_engine(db) -> None:
 
     builder = AsyncMock()
     builder.update_context.return_value = "v1"
-    executor = AgentExecutor(pool, builder)
+    executor = AgentExecutor(builder)
 
     async def deny_quickly(event_dict: dict) -> None:
         await asyncio.sleep(0.02)

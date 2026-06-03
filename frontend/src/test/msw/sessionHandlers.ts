@@ -256,15 +256,6 @@ export const sessionHandlers = [
     })
   }),
 
-  http.put('/api/settings/api-keys/:provider', async ({ params }) =>
-    HttpResponse.json({
-      provider: String(params.provider),
-      key_masked: '****',
-      has_credentials: true,
-      updated_at: new Date().toISOString(),
-    }),
-  ),
-
   http.put('/api/settings/model', async ({ request }) => {
     const body = (await request.json()) as { model_full_id: string }
     const [provider, ...rest] = body.model_full_id.split('/')

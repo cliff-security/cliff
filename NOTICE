@@ -14,10 +14,6 @@ This product bundles or downloads the following third-party software at
 install time. Their license texts and any NOTICE files are reproduced or
 referenced in THIRD-PARTY-LICENSES.md.
 
-  - OpenCode (anomalyco/opencode)              MIT
-        Downloaded by scripts/install-opencode.sh; baked into the Docker
-        image. Invoked as a subprocess.
-
   - Trivy (aquasecurity/trivy)                 Apache-2.0
         Downloaded by scripts/install-scanners.sh; baked into the Docker
         image. Invoked as a subprocess. LICENSE preserved per Apache §4(c);

@@ -25,25 +25,6 @@ class _StubAudit:
         self.events.append(event)
 
 
-@pytest.fixture(autouse=True)
-def _stub_opencode_auth_sync(monkeypatch):
-    """Don't try to talk to a real OpenCode in route tests.
-
-    ``AIIntegrationService._sync_opencode_auth`` PUTs the key into
-    OpenCode's auth.json on every save; ``_live_probe`` (ADR-0037) GETs
-    ``/config`` on every status read. Both no-op here so pytest-httpx
-    doesn't intercept them as unmatched requests.
-    """
-    from unittest.mock import AsyncMock
-
-    from cliff.engine.client import opencode_client
-
-    monkeypatch.setattr(opencode_client, "set_auth", AsyncMock(return_value=True))
-    monkeypatch.setattr(
-        opencode_client, "get_config", AsyncMock(return_value={})
-    )
-
-
 @pytest.fixture
 async def ai_client(monkeypatch, tmp_path):
     """An HTTP client wired with a real vault + stub audit logger.

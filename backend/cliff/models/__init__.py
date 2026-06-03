@@ -9,6 +9,8 @@ in the codebase (EXEC-0002 contract-freeze step).
 from __future__ import annotations
 
 from datetime import datetime  # noqa: TCH003 — Pydantic needs this at runtime
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from typing import Any, Literal
 
 from pydantic import BaseModel, model_validator
@@ -430,6 +432,34 @@ class HealthStatus(BaseModel):
     ai_provider_ready: bool = False
 
 
+def substrate_version() -> str:
+    """The agent substrate version string reported by ``/health`` + ``/version``.
+
+    The substrate runs in-process via Pydantic AI (ADR-0047), so this is the
+    installed ``pydantic-ai`` version rather than a subprocess version.
+    """
+    try:
+        return f"pydantic-ai {_pkg_version('pydantic-ai')}"
+    except PackageNotFoundError:  # pragma: no cover — always installed
+        return "pydantic-ai"
+
+
+class VersionInfo(BaseModel):
+    """``/version`` handshake for the agent CLI (``cliffsec status``).
+
+    ``min_cli`` is the lowest CLI version this server promises to speak to; a
+    CLI older than this refuses to operate. ``schema_version`` bumps when the
+    CLI/server contract changes incompatibly. ``opencode`` is retained for a
+    backward-compatible wire shape and now carries the in-process substrate
+    version (ADR-0047).
+    """
+
+    cliff: str
+    opencode: str = ""
+    schema_version: str = "1"
+    min_cli: str = "0.1.0"
+
+
 # ---------------------------------------------------------------------------
 # Finding ingest models (ADR-0022 + ADR-0023)
 # ---------------------------------------------------------------------------
@@ -545,6 +575,8 @@ __all__ = [
     "WorkspaceIntegration",
     "HealthStatus",
     "IntegrationHealthStatus",
+    "VersionInfo",
+    "substrate_version",
     # Ingest
     "IngestRequest",
     "IngestJobResponse",

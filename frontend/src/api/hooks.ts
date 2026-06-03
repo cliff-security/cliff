@@ -436,48 +436,6 @@ export function useProviders() {
   })
 }
 
-export function useConfiguredProviders() {
-  return useQuery({
-    queryKey: ['configured-providers'],
-    queryFn: () => api.getConfiguredProviders(),
-  })
-}
-
-// ---------------------------------------------------------------------------
-// Settings — API Keys
-// ---------------------------------------------------------------------------
-
-export function useApiKeys() {
-  return useQuery({
-    queryKey: ['api-keys'],
-    queryFn: () => api.listApiKeys(),
-  })
-}
-
-export function useSetApiKey() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ provider, key }: { provider: string; key: string }) =>
-      api.setApiKey(provider, key),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['api-keys'] })
-      qc.invalidateQueries({ queryKey: ['configured-providers'] })
-      qc.invalidateQueries({ queryKey: ['health'] })
-    },
-  })
-}
-
-export function useDeleteApiKey() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (provider: string) => api.deleteApiKey(provider),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['api-keys'] })
-      qc.invalidateQueries({ queryKey: ['configured-providers'] })
-    },
-  })
-}
-
 // ---------------------------------------------------------------------------
 // Settings — Integrations
 // ---------------------------------------------------------------------------

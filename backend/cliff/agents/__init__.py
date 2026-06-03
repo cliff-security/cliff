@@ -1,9 +1,6 @@
-"""Agent template engine — Layer 1 of the workspace pipeline."""
+"""Agent orchestration package.
 
-from cliff.agents.template_engine import AGENT_NAMES, AgentTemplateEngine, RenderedAgent
-
-__all__ = [
-    "AGENT_NAMES",
-    "AgentTemplateEngine",
-    "RenderedAgent",
-]
+Agents run in-process via Pydantic AI (ADR-0047). See ``cliff.agents.runtime``
+for the per-agent definitions, ``executor`` for orchestration, and
+``pipeline`` for the forward walk.
+"""

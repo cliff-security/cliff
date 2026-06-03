@@ -86,13 +86,11 @@ def test_create_full_structure(manager: WorkspaceDirManager, sample_finding: Fin
     assert ws.exists()
     assert ws.root.is_dir()
     assert ws.context_dir.is_dir()
-    assert ws.agents_dir.is_dir()
     assert ws.history_dir.is_dir()
     assert ws.code_snippets_dir.is_dir()
     assert ws.references_dir.is_dir()
     assert ws.finding_json.is_file()
     assert ws.finding_md.is_file()
-    assert ws.opencode_json.is_file()
     assert ws.context_md.is_file()
     assert ws.agent_runs_log.is_file()
 
@@ -351,16 +349,6 @@ def test_finding_md_minimal(manager: WorkspaceDirManager, minimal_finding: Findi
     assert "None" not in content
 
 
-def test_opencode_json_valid(manager: WorkspaceDirManager, sample_finding: Finding):
-    """opencode.json is valid JSON with $schema and workspace permissions."""
-    ws = manager.create("ws-oc", sample_finding)
-    data = json.loads(ws.opencode_json.read_text())
-    assert "$schema" in data
-    assert data["$schema"] == "https://opencode.ai/config.json"
-    assert data["permission"]["bash"] == "ask"
-    assert data["permission"]["edit"] == "ask"
-
-
 def test_finding_json_roundtrip(
     manager: WorkspaceDirManager, sample_finding: Finding
 ):
@@ -487,17 +475,3 @@ def test_context_document_generate_all_sections():
     assert "All agents have run" in doc
 
 
-# ---------------------------------------------------------------------------
-# opencode.json permissions (T5.6)
-# ---------------------------------------------------------------------------
-
-
-def test_opencode_json_permissions_ask_for_bash_edit(
-    manager: WorkspaceDirManager, sample_finding: Finding
-):
-    """Workspace opencode.json sets bash and edit to 'ask' for permission approval flow."""
-    ws = manager.create("ws-permissions", sample_finding)
-    config = json.loads(ws.opencode_json.read_text())
-    assert config["permission"]["bash"] == "ask"
-    assert config["permission"]["edit"] == "ask"
-    assert config["permission"]["webfetch"] == "allow"

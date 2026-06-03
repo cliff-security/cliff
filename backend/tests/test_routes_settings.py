@@ -6,89 +6,131 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from cliff.main import app
 
-@pytest.mark.asyncio
-async def test_get_model(db_client):
-    """GET /api/settings/model returns current model config."""
-    with patch(
-        "cliff.engine.config_manager.opencode_client"
-    ) as mock_client:
-        mock_client.get_config = AsyncMock(
-            return_value={"model": "openai/gpt-4.1-nano"}
-        )
-        resp = await db_client.get("/api/settings/model")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["model_full_id"] == "openai/gpt-4.1-nano"
-        assert data["provider"] == "openai"
-        assert data["model_id"] == "gpt-4.1-nano"
+# ---------------------------------------------------------------------------
+# Model (ADR-0037 — canonical AI state, no OpenCode)
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_update_model(db_client, tmp_path):
-    """PUT /api/settings/model updates the model."""
-    with (
-        patch(
-            "cliff.engine.config_manager.opencode_client"
-        ) as mock_client,
-        patch(
-            "cliff.engine.config_manager.settings"
-        ) as mock_settings,
-    ):
-        mock_client.update_config = AsyncMock(return_value={})
-        mock_client.get_config = AsyncMock(
-            return_value={"model": "anthropic/claude-sonnet-4-20250514"}
-        )
-        mock_settings.write_opencode_config = lambda m: None
-        mock_settings.opencode_model = "anthropic/claude-sonnet-4-20250514"
-
-        resp = await db_client.put(
-            "/api/settings/model",
-            json={"model_full_id": "anthropic/claude-sonnet-4-20250514"},
-        )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["model_full_id"] == "anthropic/claude-sonnet-4-20250514"
+async def test_get_model_no_provider_returns_empty(db_client):
+    """GET /api/settings/model with no provider connected → empty config."""
+    resp = await db_client.get("/api/settings/model")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["model_full_id"] == ""
+    assert data["provider"] == ""
+    assert data["model_id"] == ""
 
 
 @pytest.mark.asyncio
-async def test_update_model_invalid_format(db_client):
-    """PUT /api/settings/model rejects invalid model format."""
+async def test_get_model_returns_canonical(db_client):
+    """GET /api/settings/model splits the canonical id into parts."""
+    app.state.vault = object()
+    try:
+        with patch(
+            "cliff.ai.service.AIIntegrationService.resolve_model_for_workspace",
+            AsyncMock(return_value="openai/gpt-4.1-nano"),
+        ):
+            resp = await db_client.get("/api/settings/model")
+    finally:
+        app.state.vault = None
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["model_full_id"] == "openai/gpt-4.1-nano"
+    assert data["provider"] == "openai"
+    assert data["model_id"] == "gpt-4.1-nano"
+
+
+@pytest.mark.asyncio
+async def test_update_model_requires_vault(db_client):
+    """PUT /api/settings/model with no credential vault → 503."""
     resp = await db_client.put(
         "/api/settings/model",
-        json={"model_full_id": "no-slash-here"},
+        json={"model_full_id": "anthropic/claude-haiku-4-5"},
     )
-    assert resp.status_code == 400
-    assert "provider/model-id" in resp.json()["detail"]
+    assert resp.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_update_model_sets_canonical(db_client):
+    """PUT /api/settings/model routes through set_model and echoes the id."""
+    app.state.vault = object()
+    try:
+        with patch(
+            "cliff.ai.service.AIIntegrationService.set_model",
+            AsyncMock(return_value="anthropic/claude-haiku-4-5"),
+        ):
+            resp = await db_client.put(
+                "/api/settings/model",
+                json={"model_full_id": "anthropic/claude-haiku-4-5"},
+            )
+    finally:
+        app.state.vault = None
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["model_full_id"] == "anthropic/claude-haiku-4-5"
 
 
 @pytest.mark.asyncio
 async def test_update_model_accepts_provider_and_model_id(db_client):
-    """PUT /api/settings/model accepts the GET-shape ``{provider, model_id}``.
+    """PUT accepts the GET-shape ``{provider, model_id}`` and synthesizes the id.
 
     Round-tripping the GET response is the most natural API gesture; the body
-    validator should synthesize ``model_full_id`` from the parts.
+    validator synthesizes ``model_full_id`` from the parts.
     """
-    with (
-        patch("cliff.engine.config_manager.opencode_client") as mock_client,
-        patch("cliff.engine.config_manager.settings") as mock_settings,
-    ):
-        mock_client.update_config = AsyncMock(return_value={})
-        mock_client.get_config = AsyncMock(
-            return_value={"model": "openai/gpt-5-nano"}
-        )
-        mock_settings.write_opencode_config = lambda m: None
-        mock_settings.opencode_model = "openai/gpt-5-nano"
+    app.state.vault = object()
+    try:
+        with patch(
+            "cliff.ai.service.AIIntegrationService.set_model",
+            AsyncMock(return_value="openai/gpt-5-nano"),
+        ):
+            resp = await db_client.put(
+                "/api/settings/model",
+                json={"provider": "openai", "model_id": "gpt-5-nano"},
+            )
+    finally:
+        app.state.vault = None
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["model_full_id"] == "openai/gpt-5-nano"
+    assert data["provider"] == "openai"
+    assert data["model_id"] == "gpt-5-nano"
 
+
+@pytest.mark.asyncio
+async def test_update_model_invalid_format(db_client):
+    """A model id without a '/' is rejected with 400 (set_model's prefix check)."""
+    app.state.vault = object()
+    try:
         resp = await db_client.put(
             "/api/settings/model",
-            json={"provider": "openai", "model_id": "gpt-5-nano"},
+            json={"model_full_id": "no-slash-here"},
         )
-        assert resp.status_code == 200, resp.text
-        data = resp.json()
-        assert data["model_full_id"] == "openai/gpt-5-nano"
-        assert data["provider"] == "openai"
-        assert data["model_id"] == "gpt-5-nano"
+    finally:
+        app.state.vault = None
+    assert resp.status_code == 400
+    assert "provider/model" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_update_model_no_active_provider(db_client):
+    """set_model raising NoActiveProviderError → 400."""
+    from cliff.ai.service import NoActiveProviderError
+
+    app.state.vault = object()
+    try:
+        with patch(
+            "cliff.ai.service.AIIntegrationService.set_model",
+            AsyncMock(side_effect=NoActiveProviderError("no active provider")),
+        ):
+            resp = await db_client.put(
+                "/api/settings/model",
+                json={"model_full_id": "anthropic/claude-haiku-4-5"},
+            )
+    finally:
+        app.state.vault = None
+    assert resp.status_code == 400
 
 
 @pytest.mark.asyncio
@@ -98,147 +140,32 @@ async def test_update_model_rejects_empty_body(db_client):
     assert resp.status_code == 422
 
 
+# ---------------------------------------------------------------------------
+# Providers (catalog-derived, no OpenCode)
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.asyncio
 async def test_list_providers(db_client):
-    """GET /api/settings/providers returns provider list."""
-    with patch(
-        "cliff.engine.config_manager.opencode_client"
-    ) as mock_client:
-        mock_client.list_providers = AsyncMock(
-            return_value={
-                "all": [
-                    {"id": "openai", "name": "OpenAI", "env": ["OPENAI_API_KEY"], "models": {}},
-                ]
-            }
-        )
-        resp = await db_client.get("/api/settings/providers")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert len(data) == 1
-        assert data[0]["id"] == "openai"
+    """GET /api/settings/providers returns the static catalog as ``ProviderInfo``."""
+    resp = await db_client.get("/api/settings/providers")
+    assert resp.status_code == 200
+    data = resp.json()
+    ids = {p["id"] for p in data}
+    assert {"openrouter", "anthropic", "openai", "google", "ollama", "custom"} <= ids
 
+    openai = next(p for p in data if p["id"] == "openai")
+    assert openai["name"] == "OpenAI"
+    assert openai["env"] == ["OPENAI_API_KEY"]
+    # Models are keyed by the bare id so ``f"{provider}/{model_id}"`` round-trips
+    # back to the full picker id the UI and CLI rebuild.
+    assert "gpt-5" in openai["models"]
+    assert openai["models"]["gpt-5"]["id"] == "gpt-5"
+    assert openai["models"]["gpt-5"]["name"]
 
-@pytest.mark.asyncio
-async def test_set_api_key(db_client):
-    """PUT /api/settings/api-keys/{provider} stores a masked key."""
-    with patch(
-        "cliff.engine.config_manager.opencode_client"
-    ) as mock_client:
-        mock_client.set_auth = AsyncMock(return_value=True)
-
-        resp = await db_client.put(
-            "/api/settings/api-keys/openai",
-            json={"provider": "openai", "key": "sk-test1234567890ab"},
-        )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["provider"] == "openai"
-        assert data["key_masked"] == "sk-...90ab"
-        assert data["has_credentials"] is True
-        # Full key must NOT be in response
-        assert "sk-test1234567890ab" not in str(data)
-
-
-@pytest.mark.asyncio
-async def test_list_api_keys_masked(db_client):
-    """GET /api/settings/api-keys returns DB-stored keys masked, tagged source=db."""
-    with patch(
-        "cliff.engine.config_manager.opencode_client"
-    ) as mock_client:
-        mock_client.set_auth = AsyncMock(return_value=True)
-        mock_client.get_provider_auth = AsyncMock(return_value={})
-
-        # Store a key first
-        await db_client.put(
-            "/api/settings/api-keys/openai",
-            json={"provider": "openai", "key": "sk-secret-key-here1"},
-        )
-
-        resp = await db_client.get("/api/settings/api-keys")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert len(data) == 1
-        assert data[0]["key_masked"] == "sk-...ere1"
-        assert data[0]["source"] == "db"
-        # Full key must NOT be in response
-        assert "sk-secret-key-here1" not in str(data)
-
-
-@pytest.mark.asyncio
-async def test_list_api_keys_includes_env_sourced(db_client):
-    """An env-sourced provider (OPENAI_API_KEY in the daemon env) must surface
-    via /api-keys with source=env so users can tell the system already has a key.
-    """
-    with patch(
-        "cliff.engine.config_manager.opencode_client"
-    ) as mock_client:
-        # No DB-stored keys; OpenCode reports openai is auth'd from env.
-        mock_client.get_provider_auth = AsyncMock(
-            return_value={"openai": [{"type": "api"}]}
-        )
-
-        resp = await db_client.get("/api/settings/api-keys")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert len(data) == 1
-        assert data[0]["provider"] == "openai"
-        assert data[0]["source"] == "env"
-        assert data[0]["key_masked"] is None
-        assert data[0]["has_credentials"] is True
-
-
-@pytest.mark.asyncio
-async def test_list_api_keys_db_overrides_env(db_client):
-    """If both DB and env have a key for the same provider, DB wins (the user
-    explicitly stored it, so it takes precedence)."""
-    with patch(
-        "cliff.engine.config_manager.opencode_client"
-    ) as mock_client:
-        mock_client.set_auth = AsyncMock(return_value=True)
-        mock_client.get_provider_auth = AsyncMock(
-            return_value={"openai": [{"type": "api"}]}
-        )
-
-        await db_client.put(
-            "/api/settings/api-keys/openai",
-            json={"provider": "openai", "key": "sk-stored-by-user-x1"},
-        )
-
-        resp = await db_client.get("/api/settings/api-keys")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert len(data) == 1
-        assert data[0]["source"] == "db"
-        assert data[0]["key_masked"] == "sk-...r-x1"
-
-
-@pytest.mark.asyncio
-async def test_delete_api_key(db_client):
-    """DELETE /api/settings/api-keys/{provider} removes the key."""
-    with patch(
-        "cliff.engine.config_manager.opencode_client"
-    ) as mock_client:
-        mock_client.set_auth = AsyncMock(return_value=True)
-        mock_client.get_provider_auth = AsyncMock(return_value={})
-
-        # Store then delete
-        await db_client.put(
-            "/api/settings/api-keys/openai",
-            json={"provider": "openai", "key": "sk-to-delete-12345"},
-        )
-        resp = await db_client.delete("/api/settings/api-keys/openai")
-        assert resp.status_code == 204
-
-        # Verify it's gone
-        resp = await db_client.get("/api/settings/api-keys")
-        assert resp.json() == []
-
-
-@pytest.mark.asyncio
-async def test_delete_api_key_not_found(db_client):
-    """DELETE /api/settings/api-keys/{provider} returns 404 for missing key."""
-    resp = await db_client.delete("/api/settings/api-keys/nonexistent")
-    assert resp.status_code == 404
+    # Keyless provider (Ollama) → empty env list.
+    ollama = next(p for p in data if p["id"] == "ollama")
+    assert ollama["env"] == []
 
 
 # --- Integrations ---
@@ -282,35 +209,33 @@ async def test_integrations_crud(db_client):
 
 
 # ---------------------------------------------------------------------------
-# Provider probe (PRD-0004 Story 4 / ADR-0031)
+# Provider probe (PRD-0004 Story 4 / ADR-0031) — now a Pydantic AI round-trip
 # ---------------------------------------------------------------------------
 
 
-class _FakeSession:
-    id = "probe-session-1"
+def _raising_model(exc: BaseException):
+    """A ``FunctionModel`` whose generation step raises *exc*."""
+    from pydantic_ai.models.function import FunctionModel
 
+    def _fn(messages, info):
+        raise exc
 
-def _fake_client_success(response_text: str = "OK") -> object:
-    mock = AsyncMock()
-    mock.create_session = AsyncMock(return_value=_FakeSession())
-    mock.send_and_get_response = AsyncMock(return_value=response_text)
-    return mock
-
-
-def _fake_client_raising(exc: BaseException) -> object:
-    mock = AsyncMock()
-    mock.create_session = AsyncMock(return_value=_FakeSession())
-    mock.send_and_get_response = AsyncMock(side_effect=exc)
-    return mock
+    return FunctionModel(_fn)
 
 
 @pytest.mark.asyncio
 async def test_provider_test_endpoint_success(db_client):
-    with patch(
-        "cliff.api.routes.settings.opencode_client",
-        _fake_client_success("OK"),
-    ):
-        resp = await db_client.post("/api/settings/providers/test", json={})
+    from pydantic_ai.models.test import TestModel
+
+    app.state.vault = object()
+    try:
+        with patch(
+            "cliff.agents.runtime.provider.build_model",
+            return_value=TestModel(),
+        ):
+            resp = await db_client.post("/api/settings/providers/test", json={})
+    finally:
+        app.state.vault = None
     assert resp.status_code == 200
     data = resp.json()
     assert data["ok"] is True
@@ -320,53 +245,48 @@ async def test_provider_test_endpoint_success(db_client):
 
 
 @pytest.mark.asyncio
-async def test_provider_test_endpoint_empty_response_is_timeout(db_client):
-    with patch(
-        "cliff.api.routes.settings.opencode_client",
-        _fake_client_success(""),
-    ):
-        resp = await db_client.post("/api/settings/providers/test", json={})
+async def test_provider_test_endpoint_no_vault_is_other(db_client):
+    """No credential vault → graceful ``other`` result, not a crash."""
+    resp = await db_client.post("/api/settings/providers/test", json={})
+    assert resp.status_code == 200
     data = resp.json()
     assert data["ok"] is False
-    assert data["error_code"] == "timeout"
+    assert data["error_code"] == "other"
 
 
 @pytest.mark.asyncio
 async def test_provider_test_endpoint_auth_failed(db_client):
-    import httpx
+    from pydantic_ai.exceptions import ModelHTTPError
 
-    response = httpx.Response(
-        status_code=401,
-        text="invalid api key",
-        request=httpx.Request("POST", "http://test/session/x/message"),
-    )
-    exc = httpx.HTTPStatusError("401", request=response.request, response=response)
-    with patch(
-        "cliff.api.routes.settings.opencode_client",
-        _fake_client_raising(exc),
-    ):
-        resp = await db_client.post("/api/settings/providers/test", json={})
+    exc = ModelHTTPError(status_code=401, model_name="x", body="invalid api key")
+    app.state.vault = object()
+    try:
+        with patch(
+            "cliff.agents.runtime.provider.build_model",
+            return_value=_raising_model(exc),
+        ):
+            resp = await db_client.post("/api/settings/providers/test", json={})
+    finally:
+        app.state.vault = None
     data = resp.json()
     assert data["ok"] is False
     assert data["error_code"] == "auth_failed"
-    assert "api key" in data["error_message"].lower()
 
 
 @pytest.mark.asyncio
 async def test_provider_test_endpoint_model_not_found(db_client):
-    import httpx
+    from pydantic_ai.exceptions import ModelHTTPError
 
-    response = httpx.Response(
-        status_code=404,
-        text="model 'gpt-4-turboo' not found",
-        request=httpx.Request("POST", "http://test/session/x/message"),
-    )
-    exc = httpx.HTTPStatusError("404", request=response.request, response=response)
-    with patch(
-        "cliff.api.routes.settings.opencode_client",
-        _fake_client_raising(exc),
-    ):
-        resp = await db_client.post("/api/settings/providers/test", json={})
+    exc = ModelHTTPError(status_code=404, model_name="x", body="model not found")
+    app.state.vault = object()
+    try:
+        with patch(
+            "cliff.agents.runtime.provider.build_model",
+            return_value=_raising_model(exc),
+        ):
+            resp = await db_client.post("/api/settings/providers/test", json={})
+    finally:
+        app.state.vault = None
     data = resp.json()
     assert data["ok"] is False
     assert data["error_code"] == "model_not_found"
@@ -374,19 +294,18 @@ async def test_provider_test_endpoint_model_not_found(db_client):
 
 @pytest.mark.asyncio
 async def test_provider_test_endpoint_rate_limited(db_client):
-    import httpx
+    from pydantic_ai.exceptions import ModelHTTPError
 
-    response = httpx.Response(
-        status_code=429,
-        text="rate limit exceeded, retry after 60s",
-        request=httpx.Request("POST", "http://test/session/x/message"),
-    )
-    exc = httpx.HTTPStatusError("429", request=response.request, response=response)
-    with patch(
-        "cliff.api.routes.settings.opencode_client",
-        _fake_client_raising(exc),
-    ):
-        resp = await db_client.post("/api/settings/providers/test", json={})
+    exc = ModelHTTPError(status_code=429, model_name="x", body="rate limit exceeded")
+    app.state.vault = object()
+    try:
+        with patch(
+            "cliff.agents.runtime.provider.build_model",
+            return_value=_raising_model(exc),
+        ):
+            resp = await db_client.post("/api/settings/providers/test", json={})
+    finally:
+        app.state.vault = None
     data = resp.json()
     assert data["ok"] is False
     assert data["error_code"] == "rate_limited"
@@ -394,24 +313,35 @@ async def test_provider_test_endpoint_rate_limited(db_client):
 
 @pytest.mark.asyncio
 async def test_provider_test_endpoint_timeout(db_client):
-    with patch(
-        "cliff.api.routes.settings.opencode_client",
-        _fake_client_raising(TimeoutError()),
-    ):
-        resp = await db_client.post("/api/settings/providers/test", json={})
+    app.state.vault = object()
+    try:
+        with patch(
+            "cliff.agents.runtime.provider.build_model",
+            return_value=_raising_model(TimeoutError()),
+        ):
+            resp = await db_client.post("/api/settings/providers/test", json={})
+    finally:
+        app.state.vault = None
     data = resp.json()
     assert data["ok"] is False
     assert data["error_code"] == "timeout"
 
 
 @pytest.mark.asyncio
-async def test_provider_test_endpoint_other_error(db_client):
-    with patch(
-        "cliff.api.routes.settings.opencode_client",
-        _fake_client_raising(RuntimeError("catastrophic lightning strike")),
-    ):
-        resp = await db_client.post("/api/settings/providers/test", json={})
+async def test_provider_test_endpoint_provider_misconfigured_is_other(db_client):
+    """A ``ProviderConfigurationError`` from build_model → graceful ``other``."""
+    from cliff.agents.runtime.provider import ProviderConfigurationError
+
+    app.state.vault = object()
+    try:
+        with patch(
+            "cliff.agents.runtime.provider.build_model",
+            side_effect=ProviderConfigurationError("no api key configured"),
+        ):
+            resp = await db_client.post("/api/settings/providers/test", json={})
+    finally:
+        app.state.vault = None
     data = resp.json()
     assert data["ok"] is False
     assert data["error_code"] == "other"
-    assert "catastrophic lightning strike" in data["error_message"]
+    assert "api key" in data["error_message"].lower()

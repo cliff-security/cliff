@@ -225,7 +225,7 @@ frontend/storybook-static/
 .eslintcache
 *.tsbuildinfo
 
-# Go / OpenCode
+# Scanner binaries (trivy, semgrep)
 bin/
 
 # SQLite data

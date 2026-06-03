@@ -57,7 +57,7 @@ Wait for an explicit "yes" / "go" / "do it". Only after approval, execute the pi
 - Downloads the **`v0.2.0`** release tarball (pinned via `CLIFF_VERSION` above; the installer respects this env var).
 - Creates `~/.cliff/` (config, data, run, logs, cli-venv, bin).
 - Installs the `cliffsec` console-script into `~/.cliff/cli-venv/bin/` and symlinks it to `~/.local/bin/cliffsec`.
-- Installs `opencode` and the scanner binaries (semgrep, trivy) under `~/.cliff/bin/`.
+- Installs the scanner binaries (semgrep, trivy) under `~/.cliff/bin/`.
 - Generates an encryption key (`CLIFF_CREDENTIAL_KEY`) and persists it in `~/.cliff/config/cliff.env`.
 
 If the installer exits non-zero, **stop**. Surface the last 20 lines of its output to the user and route them to `troubleshooting.md` — don't keep retrying.

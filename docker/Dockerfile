@@ -1,7 +1,7 @@
 # =============================================================================
 # Cliff — Multi-stage Docker build
 # Stage 1: Build frontend (Node)
-# Stage 2: Production runtime (Python + OpenCode Go binary)
+# Stage 2: Production runtime (Python)
 # =============================================================================
 
 # Build-time args propagated through both stages so the resulting image
@@ -50,7 +50,7 @@ LABEL org.opencontainers.image.title="Cliff" \
       org.opencontainers.image.revision="${CLIFF_REVISION}" \
       org.opencontainers.image.created="${CLIFF_CREATED}"
 
-# System dependencies: supervisor, curl, git for health checks, cloning, and OpenCode download
+# System dependencies: supervisor, curl, git for health checks and cloning
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         supervisor \
@@ -83,9 +83,8 @@ RUN groupadd --system --gid 10001 cliff \
 
 WORKDIR /app
 
-# Copy version file first (read at runtime; also referenced by install script)
+# Copy version file first (read at runtime).
 COPY VERSION /app/VERSION
-COPY .opencode-version ./
 
 # Ship the AGPL-3.0 LICENSE plus the NOTICE and third-party license
 # inventory inside the image so that distribution carries the required
@@ -94,14 +93,11 @@ COPY LICENSE /app/LICENSE
 COPY NOTICE /app/NOTICE
 COPY THIRD-PARTY-LICENSES.md /app/THIRD-PARTY-LICENSES.md
 
-# Copy and run OpenCode install script (non-fatal if download fails)
-COPY scripts/install-opencode.sh ./scripts/
 ENV CLIFF_BIN_DIR=/app/bin
-RUN bash scripts/install-opencode.sh || echo "WARNING: OpenCode download failed — engine will be unavailable"
 
 # PRD-0003 v0.2 — Trivy + Semgrep binaries for the assessment engine
-# (ADR-0028 subprocess-only execution). Both land in /app/bin alongside
-# OpenCode; CLIFF_SCANNER_BIN_DIR points the runner at this directory.
+# (ADR-0028 subprocess-only execution). Both land in /app/bin;
+# CLIFF_SCANNER_BIN_DIR points the runner at this directory.
 ARG TRIVY_VERSION=0.70.0
 RUN ARCH="$(dpkg --print-architecture)" \
     && case "$ARCH" in \
@@ -147,10 +143,6 @@ COPY backend/ ./backend/
 # Copy built frontend from stage 1
 COPY --from=frontend-builder /build/frontend/dist ./frontend/dist
 
-# Copy OpenCode project config and agent definitions
-COPY opencode.json ./
-COPY .opencode/ ./.opencode/
-
 # Copy supervisor and entrypoint configs
 COPY docker/supervisord.conf /etc/supervisor/conf.d/cliff.conf
 COPY docker/entrypoint.sh /app/entrypoint.sh
@@ -165,9 +157,6 @@ RUN chown -R cliff:cliff /app
 # ---------------------------------------------------------------------------
 ENV CLIFF_APP_HOST=0.0.0.0 \
     CLIFF_APP_PORT=8000 \
-    CLIFF_OPENCODE_HOST=127.0.0.1 \
-    CLIFF_OPENCODE_PORT=4096 \
-    CLIFF_OPENCODE_BIN=/app/bin/opencode \
     CLIFF_SCANNER_BIN_DIR=/app/bin \
     CLIFF_DATA_DIR=/data \
     CLIFF_OAUTH_CALLBACK_HOST=0.0.0.0 \

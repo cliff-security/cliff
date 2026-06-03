@@ -118,7 +118,6 @@ def _build_executor(store: _FakeRunStore) -> AgentExecutor:
     builder.update_context.return_value = 1
     builder._mcp_resolver = None  # no MCP toolsets in the test
     ex = AgentExecutor(
-        AsyncMock(),
         builder,
         ai_env_resolver=AsyncMock(return_value={"OPENAI_API_KEY": "x"}),
         ai_model_resolver=AsyncMock(return_value="openai/gpt-4o-mini"),
