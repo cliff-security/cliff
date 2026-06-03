@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Start Cliff development servers.
-# FastAPI (port 8000) manages the OpenCode subprocess internally.
+# FastAPI (port 8000) runs the agents in-process via Pydantic AI.
 # Vite (port 5173) proxies API calls to FastAPI.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,7 +16,7 @@ if [[ ! -d "$REPO_ROOT/frontend/node_modules" ]]; then
   (cd "$REPO_ROOT/frontend" && npm install)
 fi
 
-# Start backend (FastAPI + OpenCode)
+# Start backend (FastAPI)
 #
 # ``--reload-dir cliff`` + ``--reload-exclude data/*`` keeps the
 # auto-reloader from waking up on every assessment. The engine

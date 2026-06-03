@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -260,44 +259,3 @@ def sample_finding() -> Finding:
     )
 
 
-def test_workspace_opencode_json_includes_mcp(tmp_path, sample_finding: Finding):
-    from cliff.workspace import WorkspaceDirManager
-
-    mgr = WorkspaceDirManager(base_dir=tmp_path)
-    mcp_servers = {
-        "github": {
-            "command": "npx",
-            "args": ["-y", "@modelcontextprotocol/server-github"],
-            "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_test"},
-        }
-    }
-    ws = mgr.create("ws-mcp-test", sample_finding, mcp_servers=mcp_servers)
-    config = json.loads(ws.opencode_json.read_text())
-
-    assert "mcp" in config
-    assert "github" in config["mcp"]
-    assert config["mcp"]["github"]["env"]["GITHUB_PERSONAL_ACCESS_TOKEN"] == "ghp_test"
-    # Permissions still present.
-    assert config["permission"]["bash"] == "ask"
-
-
-def test_workspace_opencode_json_no_mcp_without_servers(tmp_path, sample_finding: Finding):
-    from cliff.workspace import WorkspaceDirManager
-
-    mgr = WorkspaceDirManager(base_dir=tmp_path)
-    ws = mgr.create("ws-no-mcp", sample_finding)
-    config = json.loads(ws.opencode_json.read_text())
-
-    assert "mcp" not in config
-    assert config["permission"]["bash"] == "ask"
-
-
-def test_workspace_opencode_json_empty_mcp_dict(tmp_path, sample_finding: Finding):
-    from cliff.workspace import WorkspaceDirManager
-
-    mgr = WorkspaceDirManager(base_dir=tmp_path)
-    ws = mgr.create("ws-empty-mcp", sample_finding, mcp_servers={})
-    config = json.loads(ws.opencode_json.read_text())
-
-    # Empty dict should not produce mcp key.
-    assert "mcp" not in config

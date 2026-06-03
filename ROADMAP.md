@@ -7,7 +7,7 @@
 Lock the MVP boundaries before writing code.
 
 - [x] Define MVP scope (vulnerability remediation copilot, single-user, self-hosted)
-- [x] Lock technical decisions (FastAPI, React+Vite, SQLite, OpenCode, Docker)
+- [x] Lock technical decisions (FastAPI, React+Vite, SQLite, Pydantic AI, Docker)
 - [x] Create repository structure
 - [x] Write Architecture Decision Records (ADRs)
 - [x] Document domain model, adapter interfaces, and agent pipeline

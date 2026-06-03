@@ -10,7 +10,7 @@ grouped by the surface where the dependency reaches Cliff.
 
 The inventory below is current as of release-tagging time. For the live
 state, see `backend/uv.lock`, `frontend/package.json` /
-`frontend/node_modules/`, `.opencode-version`, and `.scanner-versions`.
+`frontend/node_modules/`, and `.scanner-versions`.
 
 ---
 
@@ -19,15 +19,6 @@ state, see `backend/uv.lock`, `frontend/package.json` /
 These programs are downloaded by Cliff's installer scripts and baked into
 the Docker image. Cliff invokes each one as a subprocess; nothing here is
 linked into the Python application process.
-
-### OpenCode
-
-- **Project:** [anomalyco/opencode](https://github.com/anomalyco/opencode)
-- **Version pinned:** see [`.opencode-version`](.opencode-version) (currently `1.3.2`)
-- **License:** `MIT`
-- **Installed by:** [`scripts/install-opencode.sh`](scripts/install-opencode.sh)
-- **Bundle mechanism:** GitHub release archive extracted into `BIN_DIR`; the upstream `LICENSE` is preserved alongside the binary as `opencode.LICENSE`.
-- **Cliff's obligation:** Reproduce the MIT copyright notice and license text alongside redistribution. Upstream text: <https://github.com/anomalyco/opencode/blob/dev/LICENSE>.
 
 ### Trivy
 

@@ -75,9 +75,9 @@ def _get_service(request: Request, db: aiosqlite.Connection) -> AIIntegrationSer
             status_code=503,
             detail="Credential vault not initialized.",
         )
-    # IMPL-0011 Phase F3: singleton OpenCode restart hook. Wired on
-    # app.state in main.py lifespan so every per-request service shares
-    # the same engine handle.
+    # AI key-change hook — wired on app.state in main.py lifespan so every
+    # per-request service refreshes the warm env + model cache after a
+    # connect / disconnect / model change (ADR-0047).
     on_key_change = getattr(request.app.state, "ai_on_key_change", None)
     return AIIntegrationService(
         db, vault, audit_logger=audit, on_key_change=on_key_change

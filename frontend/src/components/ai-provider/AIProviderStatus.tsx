@@ -169,11 +169,11 @@ function ConnectedCard({
   const modelName = formatModel(status.model)
   const source = sourceCopy(status)
 
-  // M9 (architect health-check): the drift banner + live-probe were
-  // removed. The on_key_change hook restarts the singleton OpenCode
-  // synchronously on every canonical-state write, so there is no drift
-  // signal worth showing — and rendering one made the read look like
-  // there were two sources of truth when ADR-0037 specifies one.
+  // The drift banner + live-probe were removed. With the substrate
+  // in-process (ADR-0047) there's no separate engine config to drift
+  // from, so there is no drift signal worth showing — and rendering one
+  // made the read look like there were two sources of truth when ADR-0037
+  // specifies one.
 
   // Mono detail line — source · connected timestamp. The model now has
   // its own row so it gets the breathing room it needs for the picker
@@ -587,7 +587,7 @@ function sourceCopy(s: AIStatusResponse): string {
 }
 
 /**
- * Compact model display. OpenCode model ids are <provider>/<model> or
+ * Compact model display. Model ids are <provider>/<model> or
  * <provider>/<route-provider>/<model>; the leading provider prefix is
  * already visible via the heading, so we strip it.
  */

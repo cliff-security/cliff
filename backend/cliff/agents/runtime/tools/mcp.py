@@ -1,19 +1,13 @@
 """Adapt Cliff's resolved MCP configs to Pydantic AI toolsets.
 
-Cliff stores MCP server configs in OpenCode's format (the shape that
-lands in a workspace's ``opencode.json``): ``{type, command, environment}``
-for a local stdio server, ``{type, url, headers}`` for a remote one. The
-integration gateway (:class:`cliff.integrations.gateway.MCPConfigResolver`)
-resolves credential placeholders and hands the executor a
-``dict[str, dict]`` keyed by integration id.
+The integration gateway (:class:`cliff.integrations.gateway.MCPConfigResolver`)
+resolves credential placeholders and produces a ``dict[str, dict]`` keyed
+by integration id, where each entry is ``{type, command, environment}`` for
+a local stdio server or ``{type, url, headers}`` for a remote one.
 
 Pydantic AI is itself an MCP client: ``MCPServerStdio`` / ``MCPServerStreamableHTTP``
 are toolsets you pass to ``Agent(..., toolsets=[...])``. This module is the
-one-way adapter between the two — ADR-0015's MCP servers are unchanged;
-only the client moves from OpenCode to PA.
-
-PR #3 finalizes the ``opencode.json`` → Cliff-native config rename; until
-then this reads the existing OpenCode-shaped dict.
+one-way adapter between the two — ADR-0015's MCP servers are unchanged.
 
 On ``MCPServerStdio`` / ``MCPServerStreamableHTTP``: Pydantic AI 1.98
 marks these deprecated in favour of ``MCPToolset``, but ``MCPToolset``'s

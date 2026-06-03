@@ -1,9 +1,9 @@
 """AgentExecutor — runs a single sub-agent end-to-end.
 
 The executor is the bridge between "user wants to run an agent" and
-"agent results are persisted everywhere." It sends a prompt to the
-workspace's OpenCode process, collects the response, parses it, and
-persists results to context files, sidebar state, and the DB.
+"agent results are persisted everywhere." It runs the agent in-process
+via Pydantic AI (ADR-0047), then persists the structured output to
+context files, sidebar state, and the DB.
 """
 
 from __future__ import annotations
@@ -75,7 +75,6 @@ if TYPE_CHECKING:
     import aiosqlite
     from pydantic_ai.models import Model
 
-    from cliff.engine.pool import WorkspaceProcessPool
     from cliff.workspace.context_builder import WorkspaceContextBuilder
 
 logger = logging.getLogger(__name__)
@@ -98,12 +97,11 @@ PERMISSION_WAIT_BUFFER: float = 600.0
 # Provider rate-limit backoff (EF-B17)
 # ---------------------------------------------------------------------------
 # Upstream LLM providers (Anthropic, OpenRouter, OpenAI) start returning 429
-# when the workspace pool runs more than one concurrent agent. OpenCode wraps
-# the upstream 429 into a ``session.error`` SSE event that surfaces to the
-# executor as an ``AgentRateLimitError``. Under pool>=2 (the Wave-2 cap)
-# this used to fail the run on the first throttle; we now retry with
-# exponential backoff + jitter up to ``RATE_LIMIT_MAX_ATTEMPTS`` before
-# terminating the run with status ``rate_limited``.
+# under concurrent agent runs. Pydantic AI raises the upstream 429 as a
+# ``ModelHTTPError``, which the executor classifies as an
+# ``AgentRateLimitError``. Rather than fail the run on the first throttle we
+# retry with exponential backoff + jitter up to ``RATE_LIMIT_MAX_ATTEMPTS``
+# before terminating the run with status ``rate_limited``.
 #
 # Tests monkey-patch these to 0.0 to avoid sleeping in unit suites.
 RATE_LIMIT_MAX_ATTEMPTS: int = 3
@@ -124,8 +122,8 @@ def _rate_limit_backoff_delay(attempt: int) -> float:
 
 # ---------------------------------------------------------------------------
 # Permission tier classification for tool-use approval.
-# Keys are the "permission" field from OpenCode's permission.asked events.
-# "auto" = grant immediately, "user" = surface to user for approval.
+# Keys are the tool name the runtime tool functions raise on; the value is
+# the tier: "auto" = grant immediately, "user" = surface to user for approval.
 # Unknown tools default to "user" (safe default).
 # ---------------------------------------------------------------------------
 
@@ -138,107 +136,11 @@ TOOL_TIERS: dict[str, str] = {
 }
 
 # Agents that need tool access to do their job (e.g. git, gh CLI).
-# Their bash/edit requests are classified per-command (see
-# ``_classify_tool_request``) rather than blanket-approved.
+# Their bash/edit requests are classified per-command at the tool boundary
+# by ``cliff.agents.runtime.tools.permissions.classify_tool_request``
+# (the single source of truth for the deny/ask/auto safety policy) rather
+# than blanket-approved.
 _TOOL_AGENT_TYPES: set[str] = {"remediation_executor"}
-
-# Tool-request classification for the remediation_executor. Three tiers:
-#   "auto"  — grant immediately (routine git/gh/build commands)
-#   "ask"   — escalate to the user for approval (destructive-but-conceivable,
-#             or reaching outside the workspace)
-#   "deny"  — reject immediately without asking (never legitimate for a
-#             remediation agent; denying gives the agent fast feedback
-#             instead of stalling on an approval that will never come)
-#
-# This is a denylist — defense-in-depth against a *confused* agent, layered
-# on top of GIT_CEILING_DIRECTORIES and the hardened agent prompt. It is NOT
-# a security boundary against a malicious agent; that needs process
-# sandboxing (separate ADR). The remediation_executor's normal workflow
-# (git clone/checkout/add/commit/push, gh pr create, build/test runners)
-# matches none of these patterns and stays on the "auto" path.
-
-# Never legitimate — hard-deny, don't even ask.
-_CATASTROPHIC_BASH: tuple[str, ...] = (
-    ":(){",          # fork bomb
-    "mkfs",
-    " dd ",
-    "sudo ",
-    "> /etc",
-    ">/etc",
-    "> /usr",
-    ">/usr",
-    "> /bin",
-    ">/bin",
-    "/etc/shadow",
-    "/etc/passwd",
-)
-
-# Destructive or workspace-escaping, but conceivably part of a real fix —
-# escalate to the user rather than hard-deny. (Per CEO: "removing a file
-# requires asking for permission.")
-_GATED_BASH: tuple[str, ...] = (
-    "rm -",          # rm -rf, rm -f, …
-    "rmdir",
-    "git reset --hard",
-    "git clean",
-    "git push --force",
-    "git push -f",
-    "chmod ",
-    "chown ",
-    "cd /",
-    "cd ~",
-    "$home",
-    "~/.ssh",
-    "~/.aws",
-    "~/.config",
-)
-
-
-def _is_pipe_to_shell(cmd: str) -> bool:
-    """``curl …`` / ``wget …`` are fine on their own; piped into a shell
-    they're remote code execution. Only the piped shape is dangerous."""
-    fetches = ("curl ", "wget ")
-    shells = ("| sh", "|sh", "| bash", "|bash", "|sh ", "| sh ")
-    return any(f in cmd for f in fetches) and any(s in cmd for s in shells)
-
-
-def _classify_tool_request(tool: str, patterns: list[str]) -> str:
-    """Return ``"auto"``, ``"ask"``, or ``"deny"`` for an executor tool call.
-
-    - ``bash`` — ``deny`` for catastrophic commands, ``ask`` for
-      destructive-but-conceivable ones (rm, git reset --hard, …),
-      ``auto`` for everything else.
-    - ``edit`` — ``ask`` if the target path is absolute or climbs out of
-      the workspace via ``..``; otherwise ``auto``.
-    - ``external_directory`` — ``ask``. OpenCode raises this permission
-      precisely when a tool reaches *outside* the workspace cwd, so it is
-      the literal "the agent tried to leave the directory" signal.
-    - anything else / unparseable — ``ask`` (safe default).
-    """
-    if tool == "external_directory":
-        return "ask"
-
-    if tool == "bash":
-        cmd = " ".join(patterns).lower() if patterns else ""
-        if not cmd:
-            return "ask"  # can't inspect it → don't blanket-approve
-        if _is_pipe_to_shell(cmd):
-            return "deny"
-        if any(bad in cmd for bad in _CATASTROPHIC_BASH):
-            return "deny"
-        if any(bad in cmd for bad in _GATED_BASH):
-            return "ask"
-        return "auto"
-
-    if tool == "edit":
-        for path in patterns:
-            p = path.strip()
-            if p.startswith("/") or p.startswith("~") or "../" in p:
-                return "ask"
-        return "auto"
-
-    # mcp, unknown tools
-    return "ask"
 
 
 # Per-agent guidance appended to the prompt. Currently only the enricher,
@@ -401,9 +303,9 @@ def _humanize_process_error(raw: str) -> str:
     """Map opaque ``AgentProcessError`` strings to actionable user-facing text.
 
     Most agent failures actually originate at the AI provider (OpenRouter,
-    Anthropic, OpenAI) and reach us through OpenCode as opaque "OpenCode
-    error: …" wrappers. We unwrap the common ones — insufficient credits,
-    rate limits, unauthorized — into short markdown the sidebar can render
+    Anthropic, OpenAI) and reach us as opaque Pydantic AI ``ModelHTTPError``
+    wrappers. We unwrap the common ones — insufficient credits, rate limits,
+    unauthorized — into short markdown the sidebar can render
     verbatim, with a remediation link where one exists. Falling back on the
     raw string is fine for unknown cases since it still surfaces in
     ``evidence_json`` for debugging.
@@ -535,15 +437,14 @@ class AgentExecutor:
     Lifecycle:
         1. Check no other agent is running (→ AgentBusyError)
         2. Create AgentRun DB row (status=running)
-        3. Get/start workspace OpenCode process
-        4. Create fresh session, send prompt, collect response
-        5. Parse response, persist to context + sidebar + DB
-        6. Return AgentExecutionResult
+        3. Build a Pydantic AI ``Model`` from canonical AI state and run the
+           agent in-process (ADR-0047)
+        4. Validate the structured output, persist to context + sidebar + DB
+        5. Return AgentExecutionResult
     """
 
     def __init__(
         self,
-        pool: WorkspaceProcessPool,
         context_builder: WorkspaceContextBuilder,
         *,
         ai_env_resolver: Callable[[], Awaitable[dict[str, str]]] | None = None,
@@ -551,14 +452,11 @@ class AgentExecutor:
     ) -> None:
         """Construct the executor.
 
-        ``ai_env_resolver`` / ``ai_model_resolver`` (ADR-0047 / IMPL-0022
-        PR #1) — the canonical AI-state callables. The same pair the
-        process pool consumes for OpenCode env injection; the no-tools
-        Pydantic AI path consumes them to build a fresh ``Model`` per
-        agent run. Optional so unit tests that do not exercise the PA
-        path can leave them unset.
+        ``ai_env_resolver`` / ``ai_model_resolver`` (ADR-0047 / IMPL-0022)
+        — the canonical AI-state callables the Pydantic AI path consumes
+        to build a fresh ``Model`` per agent run. Optional so unit tests
+        that do not exercise the PA path can leave them unset.
         """
-        self._pool = pool
         self._context_builder = context_builder
         self._ai_env_resolver = ai_env_resolver
         self._ai_model_resolver = ai_model_resolver
@@ -648,9 +546,9 @@ class AgentExecutor:
 
         try:
             # 3. Load workspace data — finding row + prior agent context.
-            # The PA no-tools path needs nothing more; the OpenCode tool-
-            # agent path additionally spins up a workspace OpenCode
-            # process below.
+            # Both the no-tools and tool-agent paths run in-process via
+            # Pydantic AI; the only difference is whether tools + permission
+            # gating are wired in.
             finding_data, prior_ctx = _load_workspace_data(
                 workspace_dir, agent_type
             )
@@ -663,9 +561,7 @@ class AgentExecutor:
                 # tool raises ApprovalRequired and the run returns a
                 # DeferredToolRequests output — we park the marker + message
                 # history on the agent_run row and stop; the user resumes it
-                # via POST .../permission. (The old OpenCode subprocess path
-                # is deleted in PR2.E; its now-orphaned plumbing —
-                # _send_and_collect, the permission queue — goes with it.)
+                # via POST .../permission.
                 outcome = await self._run_pa_executor(
                     WorkspaceDeps(
                         workspace_id=workspace_id,
@@ -1096,19 +992,17 @@ class AgentExecutor:
     ) -> ParseResult:
         """Run one of the six no-tools agents through Pydantic AI.
 
-        Returns a :class:`ParseResult` shaped exactly like the OpenCode
-        path so the downstream verifier + persistence blocks stay one
-        diff away from their pre-migration behaviour. Translates the PA
+        Returns a :class:`ParseResult` so the downstream verifier +
+        persistence blocks are substrate-agnostic. Translates the PA
         exception taxonomy into Cliff's existing
         ``AgentRateLimitError`` / ``AgentTimeoutError`` /
-        ``AgentProcessError`` so the existing ``except`` handlers in
-        ``execute()`` cover both substrates uniformly.
+        ``AgentProcessError`` so the ``except`` handlers in ``execute()``
+        cover it uniformly.
 
-        The provider-rate-limit retry budget mirrors the OpenCode loop
-        (``RATE_LIMIT_MAX_ATTEMPTS`` exponential-backoff retries). PA
-        validation-failure retries are handled internally by Pydantic
-        AI via ``output_type`` — we do not also wrap with the
-        ``_RETRY_PROMPT`` loop.
+        Provider 429s get a ``RATE_LIMIT_MAX_ATTEMPTS`` exponential-backoff
+        retry budget here. Validation-failure retries are handled internally
+        by Pydantic AI via ``output_type`` — we do not add a corrective-retry
+        loop on top.
         """
         if agent_type not in NO_TOOLS_AGENT_TYPES:
             # Defense-in-depth: caller (``execute``) already gates on
@@ -1192,14 +1086,13 @@ class AgentExecutor:
         # Parse-retry budget for UnexpectedModelBehavior (weak/old models
         # sometimes emit prose-only with no JSON shape; PA's own
         # output_type retry only fires on schema-shaped-but-invalid
-        # responses, not on prose-only ones). One re-roll mirrors the
-        # OpenCode-era ``_RETRY_PROMPT`` corrective-retry.
+        # responses, not on prose-only ones). One re-roll covers the
+        # prose-only case.
         parse_retries_used = 0
         for attempt in range(1, RATE_LIMIT_MAX_ATTEMPTS + 1):
             try:
                 # ``timeout`` is per-attempt: rate-limit backoff sleeps +
-                # retries mean total wall-clock can exceed it. Mirrors the
-                # OpenCode-era loop semantics.
+                # retries mean total wall-clock can exceed it.
                 return await asyncio.wait_for(coro_factory(), timeout=timeout)
             except TimeoutError as exc:
                 raise AgentTimeoutError(
@@ -1413,10 +1306,6 @@ class AgentExecutor:
                 "No pending permission request for this agent run."
             )
         history_json = await get_pa_message_history(db, run_id)
-        if not history_json:
-            raise AgentProcessError(
-                "Paused run has no stored message history; cannot resume."
-            )
 
         start_time = time.monotonic()
         # Clear the marker up front so a duplicate POST can't double-resume
@@ -1432,6 +1321,17 @@ class AgentExecutor:
         )
 
         try:
+            if not history_json:
+                # Symmetric with the corrupt/truncated-history case the
+                # except-blocks below handle: a paused run with no stored
+                # history can't be resumed. Raise *inside* the try (marker
+                # already cleared) so the AgentProcessError handler marks the
+                # run failed — never let it escape to the background task and
+                # wedge the run at running/permission_pending (workspace busy
+                # forever).
+                raise AgentProcessError(
+                    "Paused run has no stored message history; cannot resume."
+                )
             finding_data, prior_ctx = _load_workspace_data(
                 workspace_dir, agent_run.agent_type
             )

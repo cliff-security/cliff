@@ -4,8 +4,7 @@ ADR-0047 amends ADR-0037: the dual-path (env-vars + auth.json) collapses
 to a single in-process provider instantiation. This module is the one
 seam between Cliff's canonical state and Pydantic AI's model surface.
 
-Inputs (both already exposed via the app-level resolvers used by the
-OpenCode pool):
+Inputs (both come from the app-level AI-state resolvers):
 
 * ``env`` — the dict ``AIIntegrationService.resolve_env_for_workspace``
   produces. Contains the API-key env var for the active provider and,
@@ -114,9 +113,15 @@ def build_model(env: dict[str, str], model_full_id: str | None) -> Model:
         base_url = env.get("OLLAMA_BASE_URL", OLLAMA_DEFAULT_BASE_URL).rstrip(
             "/"
         )
+        # Ollama's OpenAI-compatible surface lives under ``/v1``; we append
+        # it below. Operators commonly set OLLAMA_BASE_URL with the ``/v1``
+        # already on it (it *is* an OpenAI-compatible endpoint), so strip a
+        # trailing ``/v1`` first to avoid a doubled ``/v1/v1`` → 404.
+        if base_url.endswith("/v1"):
+            base_url = base_url[:-3].rstrip("/")
         # Ollama doesn't authenticate; the OpenAI client refuses an
         # empty api_key string, so use the conventional ``"ollama"``
-        # placeholder both Ollama and OpenCode used.
+        # placeholder.
         return OpenAIChatModel(
             model_id,
             provider=OpenAIProvider(

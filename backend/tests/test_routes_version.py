@@ -22,9 +22,8 @@ def test_version_cliff_matches_version_file(client):
     assert resp.json()["cliff"] == settings.cliff_version
 
 
-def test_version_opencode_matches_pinned_engine(client):
-    """The opencode field should reflect .opencode-version."""
-    from cliff.config import settings
-
+def test_version_opencode_reports_substrate(client):
+    """The compat ``opencode`` field carries the in-process substrate version
+    (ADR-0047) — "pydantic-ai <ver>", not an OpenCode subprocess version."""
     resp = client.get("/api/version")
-    assert resp.json()["opencode"] == settings.opencode_version
+    assert resp.json()["opencode"].startswith("pydantic-ai")

@@ -2,12 +2,9 @@
 
 The gateway resolves which integrations are enabled, decrypts their credentials
 from the vault, substitutes ``${credential:key_name}`` placeholders in MCP
-config templates, and returns the resolved configs for inclusion in each
-workspace's ``opencode.json``.
-
-OpenCode manages MCP child processes directly — it reads the ``mcp`` section
-from ``opencode.json`` and spawns/kills servers automatically. The gateway's
-job is purely **config generation**.
+config templates, and returns the resolved configs. Pydantic AI consumes them
+as MCP toolsets via the adapter in ``cliff.agents.runtime.tools.mcp``; the
+gateway's job is purely **config generation**.
 """
 
 from __future__ import annotations
@@ -64,7 +61,7 @@ class ConfigFreshnessResult:
 
 
 class MCPConfigResolver:
-    """Resolves MCP server configurations for workspace opencode.json generation."""
+    """Resolves MCP server configurations for the workspace's PA MCP toolsets."""
 
     def __init__(
         self,
@@ -91,8 +88,8 @@ class MCPConfigResolver:
         """Resolve MCP configs and integration metadata for a workspace.
 
         Returns :class:`WorkspaceMCPResult` with both the MCP config dict
-        (for ``opencode.json``) and integration metadata list (for the
-        ``workspace-integrations.json`` manifest).
+        (for the PA MCP toolset adapter) and integration metadata list (for
+        the ``workspace-integrations.json`` manifest).
 
         Only includes integrations that have:
         1. An entry in ``integration_config`` with ``enabled=True``
@@ -263,8 +260,16 @@ class MCPConfigResolver:
         original template is never mutated.
         """
         resolved = copy.deepcopy(mcp_config)
-        # Support both "environment" (OpenCode format) and "env" (legacy).
-        env = resolved.get("environment") or resolved.get("env")
+        # Support both "environment" (stdio MCP format) and "env" (legacy).
+        # Explicit-key precedence: an explicit (even empty) "environment" wins
+        # over the legacy "env", so an empty ``environment: {}`` isn't silently
+        # treated as missing and a config carrying both can't substitute into
+        # the wrong field.
+        env = (
+            resolved["environment"]
+            if "environment" in resolved
+            else resolved.get("env")
+        )
         if not isinstance(env, dict):
             return resolved
 
@@ -291,7 +296,7 @@ def _apply_toolset_scoping(
     - If *action_tier* > 0, remove ``--read-only`` from ``command`` (user
       opted into writes).
 
-    Works with both legacy format (separate ``args`` key) and the OpenCode
+    Works with both legacy format (separate ``args`` key) and the stdio MCP
     format (``command`` is the full argument array).
     """
     # Support both formats: "command" (array) or legacy "args" (array).
@@ -322,7 +327,8 @@ def _apply_toolset_scoping(
 
 def _find_unresolved_placeholders(config: dict[str, Any]) -> list[str]:
     """Return any ``${credential:...}`` placeholders still present in env values."""
-    env = config.get("environment") or config.get("env")
+    # Same explicit-key precedence as ``_resolve_credentials`` above.
+    env = config["environment"] if "environment" in config else config.get("env")
     if not isinstance(env, dict):
         return []
     unresolved = []

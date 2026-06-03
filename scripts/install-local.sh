@@ -54,9 +54,8 @@ fail() { printf '%sFAIL%s %s\n' "${RED}" "${RESET}" "$1" >&2; exit 1; }
 
 # ---- platform detection ----------------------------------------------------
 #
-# Per-binary arch detection lives in install-opencode.sh and
-# install-scanners.sh; here we only sort by OS family and reject the
-# environments we know don't work.
+# Per-binary arch detection lives in install-scanners.sh; here we only
+# sort by OS family and reject the environments we know don't work.
 
 case "$(uname -s)" in
   Darwin) OS="darwin" ;;
@@ -200,21 +199,15 @@ uv sync --frozen --no-dev --quiet \
   || fail "uv sync failed — see ${BACKEND_DIR}/uv.lock and try again."
 ok "backend venv at ${BACKEND_DIR}/.venv"
 
-# ---- opencode binary -------------------------------------------------------
+# ---- scanners (trivy, semgrep) ---------------------------------------------
 #
-# Invoke the helper scripts directly so their `#!/usr/bin/env bash` shebang
+# Invoke the helper script directly so its `#!/usr/bin/env bash` shebang
 # takes effect. Calling `sh script.sh` would force the system /bin/sh which
-# is dash on Debian/Ubuntu — and the helpers use bashisms (`set -o pipefail`,
+# is dash on Debian/Ubuntu — and the helper uses bashisms (`set -o pipefail`,
 # `[[ ... ]]`, arrays).
 
-say "Installing OpenCode binary"
-chmod +x "${APP_DIR}/scripts/install-opencode.sh" "${APP_DIR}/scripts/install-scanners.sh"
-CLIFF_BIN_DIR="${BIN_DIR}" "${APP_DIR}/scripts/install-opencode.sh" \
-  || fail "install-opencode.sh failed."
-
-# ---- scanners (trivy, semgrep) ---------------------------------------------
-
 say "Installing scanners (trivy, semgrep)"
+chmod +x "${APP_DIR}/scripts/install-scanners.sh"
 # CLIFF_SCANNER_VERIFY=warn until .scanner-versions ships real SHAs.
 # Keeps the strict-mode contract for the future without blocking installs today.
 CLIFF_BIN_DIR="${BIN_DIR}" \

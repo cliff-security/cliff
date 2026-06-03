@@ -13,7 +13,7 @@ Each fixture record declares:
   - ``sentence_count_range``: [min, max] sentences allowed
 
 Budget: ~10 LLM calls, roughly $0.02. Skipped automatically when no API
-key or OpenCode binary is present (see ``conftest.py``).
+key is present (see ``conftest.py``).
 """
 
 from __future__ import annotations
@@ -25,6 +25,11 @@ from pathlib import Path
 import pytest
 
 from cliff.integrations.normalizer import normalize_findings
+
+# Real-LLM provider state + model selection, shared with the normalizer agent
+# tests (see eval_utils). Skip-gated on an API key being present (conftest).
+from tests.agents.eval_utils import LLM_ENV as _LLM_ENV
+from tests.agents.eval_utils import LLM_MODEL as _LLM_MODEL
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "plain_description_evals.json"
 
@@ -48,7 +53,7 @@ def _count_sentences(text: str) -> int:
 async def test_plain_description_shape(record: dict) -> None:
     """Each fixture produces a plain_description that passes shape checks."""
     findings, errors = await normalize_findings(
-        record["source"], [record["raw_finding"]]
+        record["source"], [record["raw_finding"]], env=_LLM_ENV, model=_LLM_MODEL
     )
     assert not errors, f"Normalizer errors for {record['id']}: {errors}"
     assert len(findings) == 1, f"Expected 1 finding, got {len(findings)}"

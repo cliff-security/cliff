@@ -123,29 +123,36 @@ def test_status_blocked_when_ai_provider_not_ready(cli, httpx_mock):
     assert "no_llm_model_configured" not in payload["blockers"]
 
 
-def test_status_blockers_when_engine_down(cli, httpx_mock):
+def test_status_blockers_when_unconfigured(cli, httpx_mock):
+    """No model + no provider credential → both blockers, not ready (ADR-0047:
+    there is no engine to be 'down', so readiness rests on AI config)."""
     httpx_mock.add_response(
         url="http://test-server/health",
-        json={"cliff": "ok", "opencode": "unavailable", "opencode_version": "1.3.2", "model": ""},
+        json={
+            "cliff": "ok",
+            "opencode": "ok",
+            "opencode_version": "pydantic-ai 1.98.0",
+            "model": "",
+        },
     )
     httpx_mock.add_response(
         url="http://test-server/api/version",
         json={
             "cliff": "0.1.1-alpha",
-            "opencode": "1.3.2",
+            "opencode": "pydantic-ai 1.98.0",
             "schema_version": "1",
             "min_cli": "0.1.0",
         },
     )
-    # Engine is down → AI integration also has nothing to report. model=None
-    # keeps the ``no_llm_model_configured`` blocker the test asserts.
     _stub_ai_integration_status(httpx_mock, model=None)
     res = cli.invoke(main, ["status"])
     assert res.exit_code == 0
     payload = _last_json(res.stdout)
     assert payload["ready"] is False
-    assert "opencode_engine_unavailable" in payload["blockers"]
     assert "no_llm_model_configured" in payload["blockers"]
+    assert "no_ai_provider_credential" in payload["blockers"]
+    # No engine concept anymore.
+    assert "opencode_engine_unavailable" not in payload["blockers"]
 
 
 def test_status_prefers_canonical_model_and_omits_drift_fields(
@@ -416,11 +423,6 @@ def test_fix_creates_workspace_and_pauses_at_plan(cli, httpx_mock):
         },
     )
     httpx_mock.add_response(
-        url="http://test-server/api/workspaces/ws-1/sessions",
-        method="POST",
-        json={"session_id": "sess-1"},
-    )
-    httpx_mock.add_response(
         url="http://test-server/api/workspaces/ws-1/pipeline/run-all",
         method="POST",
         status_code=202,
@@ -485,11 +487,6 @@ def test_fix_tolerates_initial_404(cli, httpx_mock):
         },
     )
     httpx_mock.add_response(
-        url="http://test-server/api/workspaces/ws-1/sessions",
-        method="POST",
-        json={"session_id": "sess-1"},
-    )
-    httpx_mock.add_response(
         url="http://test-server/api/workspaces/ws-1/pipeline/run-all",
         method="POST",
         status_code=202,
@@ -533,11 +530,6 @@ def test_fix_timeout_emits_json_error(cli, httpx_mock):
             "updated_at": "2026-01-01T00:00:00Z",
             "derived": {"workspace_id": "ws-1"},
         },
-    )
-    httpx_mock.add_response(
-        url="http://test-server/api/workspaces/ws-1/sessions",
-        method="POST",
-        json={"session_id": "sess-1"},
     )
     httpx_mock.add_response(
         url="http://test-server/api/workspaces/ws-1/pipeline/run-all",

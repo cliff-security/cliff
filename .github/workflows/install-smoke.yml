@@ -5,26 +5,22 @@ on:
     branches: [main]
     paths:
       - 'scripts/install-local.sh'
-      - 'scripts/install-opencode.sh'
       - 'scripts/install-scanners.sh'
       - 'scripts/build-tarball.sh'
       - 'cli/cliff_cli/daemon.py'
       - 'cli/cliff_cli/cli.py'
       - 'tests/install/smoke.sh'
-      - '.opencode-version'
       - '.scanner-versions'
       - '.github/workflows/install-smoke.yml'
   pull_request:
     branches: [main]
     paths:
       - 'scripts/install-local.sh'
-      - 'scripts/install-opencode.sh'
       - 'scripts/install-scanners.sh'
       - 'scripts/build-tarball.sh'
       - 'cli/cliff_cli/daemon.py'
       - 'cli/cliff_cli/cli.py'
       - 'tests/install/smoke.sh'
-      - '.opencode-version'
       - '.scanner-versions'
       - '.github/workflows/install-smoke.yml'
   workflow_dispatch:

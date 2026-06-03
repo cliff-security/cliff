@@ -79,9 +79,12 @@ class TestClassifyToolRequest:
         assert classify_tool_request("bash", []) == "ask"
 
 
-def _ctx(*, approved: bool = False) -> SimpleNamespace:
-    """Minimal RunContext stand-in — gate only reads tool_call_approved."""
-    return SimpleNamespace(tool_call_approved=approved, deps=None)
+def _ctx(*, approved: bool = False, auto_approve: bool = False) -> SimpleNamespace:
+    """Minimal RunContext stand-in — gate reads tool_call_approved + deps."""
+    return SimpleNamespace(
+        tool_call_approved=approved,
+        deps=SimpleNamespace(auto_approve=auto_approve),
+    )
 
 
 class TestGateToolCall:
@@ -117,3 +120,51 @@ class TestGateToolCall:
                 metadata={"tool": "bash", "command": "rm -rf x"},
             )
         assert exc_info.value.metadata["command"] == "rm -rf x"
+
+    def test_auto_approve_proceeds_on_ask_tier(self):
+        """Repo-action runs (auto_approve) skip the approval prompt on the
+        ask tier — there's no HITL surface for a one-shot background run."""
+        assert (
+            gate_tool_call(
+                _ctx(auto_approve=True), tool="bash", patterns=["rm -rf build/"]
+            )
+            == "ask"
+        )
+
+    def test_auto_approve_still_denies_catastrophic(self):
+        """auto_approve never lifts the deny tier — catastrophic commands
+        stay blocked even for a pre-approved repo-action run."""
+        with pytest.raises(ModelRetry, match="Cliff safety policy"):
+            gate_tool_call(
+                _ctx(auto_approve=True), tool="bash", patterns=["sudo rm -rf /"]
+            )
+
+    # auto_approve pre-approves ONLY the gated-bash ask bucket (rm, git reset,
+    # …). It must NOT swallow the classifier's *safe-default* ask buckets — an
+    # external-directory escape, an edit that climbs out of the workspace, an
+    # mcp / unknown tool, or empty/unparseable bash. Those stay approval-gated
+    # so a confused repo-action run fails closed instead of silently executing
+    # something the policy routed to human review.
+    def test_auto_approve_does_not_swallow_external_directory(self):
+        with pytest.raises(ApprovalRequired):
+            gate_tool_call(
+                _ctx(auto_approve=True), tool="external_directory", patterns=["/etc"]
+            )
+
+    def test_auto_approve_does_not_swallow_edit_escape(self):
+        with pytest.raises(ApprovalRequired):
+            gate_tool_call(
+                _ctx(auto_approve=True), tool="edit", patterns=["/etc/hosts"]
+            )
+
+    def test_auto_approve_does_not_swallow_mcp(self):
+        with pytest.raises(ApprovalRequired):
+            gate_tool_call(
+                _ctx(auto_approve=True), tool="mcp", patterns=["some.tool"]
+            )
+
+    def test_auto_approve_does_not_swallow_empty_bash(self):
+        """Unparseable bash (no command to inspect) stays gated even for a
+        pre-approved run — we can't confirm it's a benign gated-bash op."""
+        with pytest.raises(ApprovalRequired):
+            gate_tool_call(_ctx(auto_approve=True), tool="bash", patterns=[])

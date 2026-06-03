@@ -23,11 +23,11 @@ logger = logging.getLogger(__name__)
 class ProviderInfo:
     """Static facts about one provider.
 
-    ``env_var_name`` is the API-key env var OpenCode reads for the provider.
-    For ``ollama`` (no API key) it's ``None``. ``base_url_env_var`` and
-    ``default_base_url`` cover providers OpenCode dispatches by base URL
-    instead of by hard-coded host (today: ``ollama`` always, ``custom``
-    when the user supplies a URL).
+    ``env_var_name`` is the API-key env var the model factory reads for the
+    provider. For ``ollama`` (no API key) it's ``None``. ``base_url_env_var``
+    and ``default_base_url`` cover providers dispatched by base URL instead
+    of by hard-coded host (today: ``ollama`` always, ``custom`` when the
+    user supplies a URL).
     """
 
     env_var_name: str | None
@@ -39,11 +39,12 @@ class ProviderInfo:
     default_base_url: str | None = None
 
 
-# Model IDs use OpenCode's ``<provider>/<model-id>`` namespace. For
-# OpenRouter that means an extra ``openrouter/`` prefix in front of
-# OpenRouter's own ``<route-provider>/<model>`` identifier — without it
-# OpenCode would dispatch the call through its own ``anthropic`` provider
-# config (and expect ``ANTHROPIC_API_KEY``).
+# Model ids use Cliff's ``<provider>/<model-id>`` namespace (the model
+# factory in ``runtime/provider.py`` partitions on the first ``/`` to pick
+# the provider branch). For OpenRouter that means an extra ``openrouter/``
+# prefix in front of OpenRouter's own ``<route-provider>/<model>``
+# identifier — without it the factory would take the ``anthropic`` branch
+# and expect ``ANTHROPIC_API_KEY``.
 _CATALOG: dict[AIProvider, ProviderInfo] = {
     "openrouter": ProviderInfo(
         env_var_name="OPENROUTER_API_KEY",
@@ -87,11 +88,11 @@ _CATALOG: dict[AIProvider, ProviderInfo] = {
         docs_label="Google AI Studio",
     ),
     "ollama": ProviderInfo(
-        # Ollama needs no API key — OpenCode talks to it over
-        # OpenAI-compatible /v1 on a local port. Leaving env_var_name
-        # None makes resolve_env_for_workspace skip the key-injection
-        # branch; we still emit OLLAMA_BASE_URL so OpenCode points at
-        # the right host.
+        # Ollama needs no API key — Cliff talks to it over the
+        # OpenAI-compatible /v1 endpoint on a local port. Leaving
+        # env_var_name None makes resolve_env_for_workspace skip the
+        # key-injection branch; we still emit OLLAMA_BASE_URL so the model
+        # factory points at the right host.
         env_var_name=None,
         # No default model — Ollama's available models depend on what
         # the user has pulled locally. The picker queries /api/tags and
@@ -120,7 +121,7 @@ def get(provider: AIProvider) -> ProviderInfo:
 
 
 def env_var_name(provider: AIProvider) -> str | None:
-    """The env var name OpenCode reads to pick up the key for this provider.
+    """The API-key env var the model factory reads for this provider.
 
     Returns ``None`` for providers that use no API key (``ollama``).
     """
@@ -128,7 +129,7 @@ def env_var_name(provider: AIProvider) -> str | None:
 
 
 def base_url_env_var(provider: AIProvider) -> str | None:
-    """The env var name OpenCode reads for the base URL, if applicable."""
+    """The base-URL env var the model factory reads, if applicable."""
     return _CATALOG[provider].base_url_env_var
 
 
@@ -140,30 +141,6 @@ def default_base_url(provider: AIProvider) -> str | None:
 def all_providers() -> list[AIProvider]:
     """Stable order of supported providers (used by tests and admin views)."""
     return list(_CATALOG.keys())
-
-
-def provider_env_var_names() -> frozenset[str]:
-    """Every host env var name Cliff controls for AI providers.
-
-    For each catalogued provider this is its ``*_API_KEY`` plus the
-    matching ``*_BASE_URL`` (either the implicit ``_API_KEY → _BASE_URL``
-    pair OR an explicit ``base_url_env_var`` entry — Ollama uses a name
-    not derivable from any key var). Callers spawning OpenCode subprocesses
-    scrub these from the inherited host environment before layering
-    Cliff's own resolved values on top — otherwise a polluted host leaks
-    in. Motivating case (QA Q01 B07): Claude Desktop exports
-    ``ANTHROPIC_BASE_URL=https://api.anthropic.com`` (note: no ``/v1``),
-    which makes OpenCode hit ``…/messages`` and get a 404, plus an empty
-    ``ANTHROPIC_API_KEY`` that would otherwise shadow the real one.
-    """
-    names: set[str] = set()
-    for info in _CATALOG.values():
-        if info.env_var_name:
-            names.add(info.env_var_name)
-            names.add(info.env_var_name.replace("_API_KEY", "_BASE_URL"))
-        if info.base_url_env_var:
-            names.add(info.base_url_env_var)
-    return frozenset(names)
 
 
 def _override_env_var(provider: AIProvider) -> str:

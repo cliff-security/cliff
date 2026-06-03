@@ -12,7 +12,7 @@ class AgentTimeoutError(AgentExecutionError):
 
 
 class AgentProcessError(AgentExecutionError):
-    """The workspace's OpenCode process is unavailable or crashed."""
+    """The agent run failed — the model call errored or returned no usable result."""
 
 
 class AgentRateLimitError(AgentProcessError):

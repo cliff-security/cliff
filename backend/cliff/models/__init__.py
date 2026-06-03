@@ -9,6 +9,8 @@ in the codebase (EXEC-0002 contract-freeze step).
 from __future__ import annotations
 
 from datetime import datetime  # noqa: TCH003 — Pydantic needs this at runtime
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from typing import Any, Literal
 
 from pydantic import BaseModel, model_validator
@@ -345,8 +347,11 @@ class ApiKeyResponse(BaseModel):
 class ProviderInfo(BaseModel):
     id: str
     name: str
-    env: list[str] = []
-    models: dict[str, Any] = {}
+    # Required, not defaulted: ``GET /api/settings/providers`` always emits
+    # both, and the Settings UI / CLI consume them — so generated clients
+    # must treat them as present, not optional.
+    env: list[str]
+    models: dict[str, Any]
 
 
 class ModelConfig(BaseModel):
@@ -404,6 +409,58 @@ class IntegrationHealthStatus(BaseModel):
     connection_status: str = "unchecked"  # "ok", "error", "unchecked", "timeout"
     last_checked: str | None = None
     error_message: str | None = None
+
+
+class HealthStatus(BaseModel):
+    """``/health`` response.
+
+    Field shape is preserved across the OpenCode → Pydantic AI substrate
+    migration (ADR-0047) so the frontend health card and ``cliffsec status``
+    don't churn. The agent substrate now runs **in-process**, so ``opencode``
+    is always ``"ok"`` and ``opencode_version`` carries the Pydantic AI
+    version string (e.g. ``"pydantic-ai 1.98.x"``) rather than a subprocess
+    version.
+    """
+
+    cliff: str = "ok"
+    # Substrate health. In-process (Pydantic AI) — always "ok" when the app
+    # is up; kept for backward-compatible response shape.
+    opencode: str = "ok"
+    # Carries the substrate version string ("pydantic-ai <ver>").
+    opencode_version: str = ""
+    model: str = ""
+    # True only when an AI provider credential is present *and* reachable.
+    # A configured model string alone is not enough. ``cliffsec status``
+    # turns a False here into a ``no_ai_provider_credential`` blocker.
+    ai_provider_ready: bool = False
+
+
+def substrate_version() -> str:
+    """The agent substrate version string reported by ``/health`` + ``/version``.
+
+    The substrate runs in-process via Pydantic AI (ADR-0047), so this is the
+    installed ``pydantic-ai`` version rather than a subprocess version.
+    """
+    try:
+        return f"pydantic-ai {_pkg_version('pydantic-ai')}"
+    except PackageNotFoundError:  # pragma: no cover — always installed
+        return "pydantic-ai"
+
+
+class VersionInfo(BaseModel):
+    """``/version`` handshake for the agent CLI (``cliffsec status``).
+
+    ``min_cli`` is the lowest CLI version this server promises to speak to; a
+    CLI older than this refuses to operate. ``schema_version`` bumps when the
+    CLI/server contract changes incompatibly. ``opencode`` is retained for a
+    backward-compatible wire shape and now carries the in-process substrate
+    version (ADR-0047).
+    """
+
+    cliff: str
+    opencode: str = ""
+    schema_version: str = "1"
+    min_cli: str = "0.1.0"
 
 
 # ---------------------------------------------------------------------------
@@ -519,7 +576,10 @@ __all__ = [
     "CredentialInfo",
     "TestConnectionResult",
     "WorkspaceIntegration",
+    "HealthStatus",
     "IntegrationHealthStatus",
+    "VersionInfo",
+    "substrate_version",
     # Ingest
     "IngestRequest",
     "IngestJobResponse",

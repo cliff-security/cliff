@@ -11,7 +11,6 @@ import tarfile
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
-from cliff.agents.template_engine import AgentTemplateEngine, get_default_engine
 from cliff.workspace.context_document import ContextDocument
 from cliff.workspace.workspace_dir import CONTEXT_SECTIONS, WorkspaceDir
 
@@ -97,20 +96,12 @@ class WorkspaceDirManager:
         self,
         workspace_id: str,
         finding: Finding,
-        *,
-        mcp_servers: dict[str, dict] | None = None,
-        model: str | None = None,
     ) -> WorkspaceDir:
         """Create the full directory structure and initial files for a workspace.
 
         Args:
             workspace_id: Unique workspace identifier.
             finding: The finding this workspace remediates.
-            mcp_servers: Optional MCP server configs (from MCPConfigResolver)
-                to include in the workspace's opencode.json.
-            model: Optional OpenCode model id to set in opencode.json
-                (IMPL-0011). When ``None`` the workspace inherits the
-                singleton's model from its DB-backed config.
 
         Raises:
             FileExistsError: If the workspace directory already exists.
@@ -130,7 +121,6 @@ class WorkspaceDirManager:
         (workspace_root / "context").mkdir()
         (workspace_root / "context" / "code-snippets").mkdir()
         (workspace_root / "context" / "references").mkdir()
-        (workspace_root / ".opencode" / "agents").mkdir(parents=True)
         (workspace_root / "history").mkdir()
 
         ws = WorkspaceDir(root=workspace_root)
@@ -139,11 +129,6 @@ class WorkspaceDirManager:
         finding_data = finding.model_dump(mode="json")
         ws.finding_json.write_text(json.dumps(finding_data, indent=2) + "\n")
         ws.finding_md.write_text(_render_finding_md(finding))
-
-        ws.opencode_json.write_text(
-            json.dumps(_build_opencode_config(mcp_servers, model=model), indent=2)
-            + "\n"
-        )
 
         # Create empty agent-runs log
         ws.agent_runs_log.touch()
@@ -279,50 +264,26 @@ class WorkspaceDirManager:
         kind: WorkspaceKind,
         repo_url: str,
         params: dict[str, Any] | None = None,
-        *,
-        gh_token: str | None = None,
-        template_engine: AgentTemplateEngine | None = None,
-        model: str | None = None,
     ) -> str:
         """Create an ephemeral repo-scoped workspace for a generator agent.
 
         Unlike ``create()``, this does **not** produce finding-scoped files
         (no ``finding.json``, no ``finding.md``, no ``CONTEXT.md``). The
-        directory carries just enough scaffolding for an OpenCode process:
+        directory is the clone/edit working tree the Pydantic AI
+        repo-action agent (ADR-0024 / ADR-0047) runs in:
 
-        - ``.opencode/agents/<template_stem>.md`` — the rendered single-shot
-          agent prompt for the selected kind.
-        - ``opencode.json`` — ADR-0024 permission model (``"ask"`` for bash
-          and edit, ``"allow"`` for webfetch).
         - ``REPO_ACTION.md`` — human-readable summary of the action.
         - ``history/`` — for agent-run logs written later.
 
-        ``gh_token`` is intentionally kept out of ``params`` so it is never
-        serialised into ``REPO_ACTION.md``.
+        The agent's system prompt + permission policy live in
+        ``cliff.agents.runtime.repo_actions``; nothing is rendered to disk.
 
         Returns:
             The generated workspace_id (a safe single-path-component string).
         """
-        engine = template_engine or get_default_engine()
-        rendered = engine.render_repo_action(
-            kind, repo_url=repo_url, params=params or {}, gh_token=gh_token
-        )
-
         self._base_dir.mkdir(parents=True, exist_ok=True)
         workspace_id, workspace_root = self._allocate_workspace_dir(kind)
-        (workspace_root / ".opencode" / "agents").mkdir(parents=True)
         (workspace_root / "history").mkdir()
-
-        (workspace_root / "opencode.json").write_text(
-            json.dumps(
-                _build_opencode_config(for_repo_action=True, model=model),
-                indent=2,
-            )
-            + "\n"
-        )
-
-        agent_path = workspace_root / ".opencode" / "agents" / rendered.filename
-        agent_path.write_text(rendered.content)
 
         # Empty agent-runs log mirrors finding workspaces so downstream tooling
         # (tail readers, log rotation) can treat all workspaces uniformly.
@@ -331,7 +292,7 @@ class WorkspaceDirManager:
         summary_lines = [
             "# Repo action workspace",
             "",
-            f"- **Action:** `{rendered.name}` ({kind.value})",
+            f"- **Action:** `{kind.value}`",
             f"- **Repo:** {_scrub_repo_url(repo_url)}",
         ]
         if params:
@@ -364,56 +325,6 @@ class WorkspaceDirManager:
         raise RuntimeError(
             f"Failed to allocate a unique workspace directory after {attempts} attempts"
         )
-
-
-def _build_opencode_config(
-    mcp_servers: dict[str, dict] | None = None,
-    *,
-    for_repo_action: bool = False,
-    model: str | None = None,
-) -> dict:
-    """ADR-0024 permission model — ``ask`` for bash/edit, ``allow`` for webfetch.
-
-    ``for_repo_action=True`` relaxes bash/edit to ``allow`` for the single-shot
-    posture-fix workspaces. Rationale: the user has already authorised the
-    specific action by clicking "Let Cliff open a PR", the agent is scoped
-    to clone → branch → write → push → draft-PR on an isolated branch, and
-    there is no interactive approval path in a posture-fix run (no DB agent
-    run row, no SSE queue, no UI listener). With ``ask`` the agent stalls on
-    the first ``git clone`` waiting for an approval that never arrives.
-
-    ``model`` — the OpenCode model id (e.g. ``openai/gpt-4.1``). Without it
-    the workspace process starts without a default model and rejects every
-    message with "The requested model is not supported." Required for
-    repo-action workspaces because nothing else wires a model in (finding
-    workspaces inherit via a DB-backed upsert path).
-    """
-    if for_repo_action:
-        # ``external_directory: "allow"`` is load-bearing: the agent clones
-        # into ``repo/`` under the workspace root, then the LLM reaches for
-        # the ``read``/``edit`` tools with paths the model thinks of as
-        # ``/repo/SECURITY.md``. OpenCode resolves those outside the
-        # workspace CWD and routes them through the ``external_directory``
-        # permission check. With the default "ask" rule the tool call
-        # blocks forever because the posture runner has no approval path
-        # and the agent never reaches the write step.
-        permission = {
-            "bash": "allow",
-            "edit": "allow",
-            "webfetch": "allow",
-            "external_directory": "allow",
-        }
-    else:
-        permission = {"bash": "ask", "edit": "ask", "webfetch": "allow"}
-    config: dict = {
-        "$schema": "https://opencode.ai/config.json",
-        "permission": permission,
-    }
-    if model:
-        config["model"] = model
-    if mcp_servers:
-        config["mcp"] = mcp_servers
-    return config
 
 
 _CREDENTIALED_URL = re.compile(r"^(https?://)[^/@\s]+@", re.IGNORECASE)

@@ -44,7 +44,7 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM", "TCH"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 markers = [
-    "e2e: end-to-end tests requiring OpenCode binary and LLM API key",
+    "e2e: end-to-end tests requiring an LLM API key",
     "agent: agent integration tests requiring real LLM calls (slow, costs money)",
     "docker: install smoke tests that boot the published Docker image (require docker daemon)",
     "integration: cross-cutting integration tests against an in-memory DB (no external deps, run by default)",

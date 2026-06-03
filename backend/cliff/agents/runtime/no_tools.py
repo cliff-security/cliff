@@ -9,10 +9,8 @@ unchanged.
 
 The post-parse safeguards (``reference_verifier`` for the enricher,
 ``evidence_guard`` for the evidence collector) are NOT called here —
-they live in ``executor.py`` so they can mutate the ``ParseResult`` the
-same way they do today. Keeping them at the executor layer means the
-exact set of mutations + their log lines stays one diff away from the
-OpenCode-era behaviour during the beta friction window.
+they live in ``executor.py`` so they can mutate the ``ParseResult``
+uniformly for every agent.
 """
 
 from __future__ import annotations
@@ -47,8 +45,9 @@ SummarizerFn = Callable[[dict[str, Any]], "str | None"]
 
 
 # Six no-tools agent types and the runtime builder that owns each. The
-# remediation_executor stays on the OpenCode tool-use path through
-# PR #1 — PR #2 migrates it.
+# remediation_executor is the tool-using agent — it lives in
+# ``remediation_executor.py`` and runs through the executor's tool path,
+# not this registry.
 _RUNTIME_BUILDERS: dict[str, BuilderFn] = {
     "finding_enricher": _build_finding_enricher,
     "owner_resolver": _build_owner_resolver,

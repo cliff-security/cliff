@@ -3,9 +3,8 @@
 `cliffsec update` checks GitHub Releases for a newer version, downloads the
 tarball, snapshots the current ``app/`` and ``bin/`` (rename, not copy — fast,
 atomic on the same filesystem), extracts the new version, re-runs the
-bundled ``install-opencode.sh`` / ``install-scanners.sh`` to rehydrate
-``bin/``, runs the doctor checks, and either restarts the daemon or rolls
-back on failure.
+bundled ``install-scanners.sh`` to rehydrate ``bin/``, runs the doctor
+checks, and either restarts the daemon or rolls back on failure.
 
 Data and config are never touched. ``data/``, ``config/``, and ``cli-venv/``
 stay where they are.
@@ -181,7 +180,6 @@ def fetch_expected_sha256(client: httpx.Client, release: Release) -> str | None:
 
 REQUIRED_TARBALL_MEMBERS = (
     "VERSION",
-    "scripts/install-opencode.sh",
     "scripts/install-scanners.sh",
 )
 MIN_FREE_BYTES = 500 * 1024 * 1024  # 500 MB pre-flight floor
@@ -524,7 +522,7 @@ def _do_update(
             d.APP_DIR.mkdir(parents=True, exist_ok=True)
             safe_extract(tar_path, d.APP_DIR)
 
-            click.echo("[8/9] re-running bundled installers (opencode + scanners)")
+            click.echo("[8/9] re-running bundled installers (scanners)")
             d.BIN_DIR.mkdir(parents=True, exist_ok=True)
             _run_bundled_installers(d)
 
@@ -562,16 +560,16 @@ def _do_update(
 
 
 def _run_bundled_installers(d) -> None:
-    """Run install-opencode.sh and install-scanners.sh shipped inside the new tarball.
+    """Run install-scanners.sh shipped inside the new tarball.
 
-    These scripts download the pinned binaries from GitHub Releases and drop
-    them into ``$CLIFF_HOME/bin/``. They tolerate being re-run.
+    This script downloads the pinned scanner binaries from GitHub Releases and
+    drops them into ``$CLIFF_HOME/bin/``. It tolerates being re-run.
     """
     scripts_dir = d.APP_DIR / "scripts"
     env = os.environ.copy()
     env["CLIFF_HOME"] = str(d.CLIFF_HOME)
     env["BIN_DIR"] = str(d.BIN_DIR)
-    for script_name in ("install-opencode.sh", "install-scanners.sh"):
+    for script_name in ("install-scanners.sh",):
         script = scripts_dir / script_name
         if not script.is_file():
             raise RuntimeError(f"bundled installer missing: {script}")

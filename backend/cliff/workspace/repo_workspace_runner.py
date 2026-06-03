@@ -1,29 +1,27 @@
 """RepoAgentRunner — execute a single-shot generator agent in a repo workspace.
 
 Closes bug B6 from the dogfooding report. `WorkspaceDirManager.create_repo_workspace`
-scaffolds a directory and a rendered prompt but historically stopped there — the
-posture-fix route returned a ``workspace_id`` pointing at an inert folder and no
-PR was ever opened.
+scaffolds a clone directory but stops there — the posture-fix route returned a
+``workspace_id`` pointing at an inert folder and no PR was ever opened.
 
 This runner:
 
-1. Starts an OpenCode process in the workspace via the shared
-   ``WorkspaceProcessPool`` with ``GH_TOKEN``/``CLIFF_REPO_URL`` injected.
-2. Creates a fresh session, sends the rendered agent prompt, collects the
-   streamed response.
-3. Parses the JSON contract the template requires and extracts ``pr_url``.
-4. Persists the outcome to ``history/status.json`` inside the workspace so the
+1. Builds a Pydantic AI ``Model`` from canonical AI state and a repo-action
+   agent (bash/edit/read/gh tools), with ``GH_TOKEN``/``CLIFF_REPO_URL`` in
+   the deps env.
+2. Runs the agent in-process (``agent.run``) with ``auto_approve=True`` — the
+   ``output_type`` (``RepoActionOutput``) carries ``pr_url`` directly, so
+   there is no JSON contract to parse.
+3. Persists the outcome to ``history/status.json`` inside the workspace so the
    posture route can report status back to the UI without a new DB table.
-5. Stops the workspace process — repo-action workspaces are ephemeral.
 
-The permission model for repo workspaces is ``"allow"`` for bash/edit/webfetch
-(set up in the spawner via ``_build_repo_action_opencode_config``) because the
-user already authorised the single action by clicking "Let Cliff open a PR".
-No SSE permission queue is needed here.
+Repo-action runs auto-approve every gated tool (clone/edit/push/PR): the user
+already authorised the single action by clicking "Let Cliff open a PR", and
+there is no interactive approval path in a background posture-fix run.
 
-Contract: the runner never raises. All outcomes — success, bad LLM output,
-OpenCode process failure, timeout — collapse into a ``RepoAgentStatus`` row
-persisted to disk. Callers poll the status file.
+Contract: the runner never raises. All outcomes — success, bad model output,
+model error, timeout — collapse into a ``RepoAgentStatus`` row persisted to
+disk. Callers poll the status file.
 """
 
 from __future__ import annotations
@@ -35,18 +33,31 @@ import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
-import httpx
 from pydantic import BaseModel
+from pydantic_ai.exceptions import (
+    ModelHTTPError,
+    UnexpectedModelBehavior,
+    UsageLimitExceeded,
+    UserError,
+)
 
-from cliff.agents.output_parser import parse_agent_response
-from cliff.agents.template_engine import AgentTemplateEngine
+from cliff.agents.runtime.deps import WorkspaceDeps
+from cliff.agents.runtime.provider import ProviderConfigurationError, build_model
+from cliff.agents.runtime.repo_actions import (
+    RepoActionOutput,
+    build_repo_action_agent,
+    build_repo_action_prompt,
+)
 from cliff.services.pr_verifier import verify_pr_url
-from cliff.workspace.workspace_dir_manager import WorkspaceKind
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
     from pathlib import Path
 
-    from cliff.engine.pool import WorkspaceProcessPool
+    from cliff.workspace.workspace_dir_manager import WorkspaceKind
+
+    EnvResolver = Callable[[], Awaitable[dict[str, str]]]
+    ModelResolver = Callable[[], Awaitable[str | None]]
 
 logger = logging.getLogger(__name__)
 
@@ -55,14 +66,12 @@ logger = logging.getLogger(__name__)
 # create is measured in tens of seconds on GitHub; the rest is LLM latency.
 DEFAULT_TIMEOUT_SECONDS = 600.0
 
-# Stall detection is intentionally absent: OpenCode's SSE stream for tool
-# agents can go silent for long stretches while the model thinks between
-# tool invocations (especially after file reads during a multi-step
-# clone→detect→write→commit→push→PR flow). Premature stall cancels the
-# run after the agent has already produced side effects (cloned repo,
-# checked out a branch) but before it emits the final JSON contract, which
-# surfaces as confusing "No JSON block found" failures. We rely on the
-# overall ``DEFAULT_TIMEOUT_SECONDS`` (10 min) to bound the run instead.
+# Stall detection is intentionally absent: a tool-using agent can go quiet
+# for long stretches while the model thinks between tool invocations
+# (especially during a multi-step clone→detect→write→commit→push→PR flow).
+# A premature stall cancel would kill the run after it had already produced
+# side effects (cloned repo, checked out a branch). We rely on the overall
+# ``DEFAULT_TIMEOUT_SECONDS`` (10 min) to bound the run instead.
 
 RepoAgentPhase = Literal["queued", "running", "pr_created", "already_present", "failed"]
 
@@ -162,8 +171,17 @@ class RepoAgentRunner:
     run and discard themselves when it's done.
     """
 
-    def __init__(self, pool: WorkspaceProcessPool) -> None:
-        self._pool = pool
+    def __init__(
+        self,
+        *,
+        env_resolver: EnvResolver,
+        model_resolver: ModelResolver,
+    ) -> None:
+        # Resolve the app-level AI provider env + active model at run time
+        # (ADR-0047 / IMPL-0022 PR #3c) — the generator is now an in-process
+        # Pydantic AI agent, not an OpenCode subprocess.
+        self._env_resolver = env_resolver
+        self._model_resolver = model_resolver
 
     async def run(
         self,
@@ -191,42 +209,64 @@ class RepoAgentRunner:
         _write_status(workspace_root, running)
         await _sync_workspace_state(workspace_id, "running")
 
+        # Build the model from the canonical AI state.
         try:
-            prompt = _render_prompt(
-                kind, repo_url=repo_url, gh_token=gh_token, params=params or {}
-            )
-        except Exception as exc:  # noqa: BLE001 — never leak to caller
+            ai_env = await self._env_resolver()
+            model_id = await self._model_resolver()
+            model = build_model(ai_env, model_id)
+        except ProviderConfigurationError as exc:
             return await self._finalize(
                 workspace_root,
                 running,
                 status="failed",
-                error=f"Failed to render agent prompt: {exc}",
+                error=f"AI provider not configured: {exc}",
             )
 
+        # Tool subprocess env: the GitHub token + repo URL. ``bash`` merges
+        # this over ``os.environ`` so git/gh keep PATH etc.
         env_vars: dict[str, str] = {"CLIFF_REPO_URL": repo_url}
         if gh_token:
             env_vars["GH_TOKEN"] = gh_token
-            # Some gh commands prefer GITHUB_TOKEN; export both.
             env_vars["GITHUB_TOKEN"] = gh_token
 
-        client = None
+        deps = WorkspaceDeps(
+            workspace_id=workspace_id,
+            workspace_dir=str(workspace_root),
+            finding={},
+            env_vars=env_vars,
+            auto_approve=True,  # one-shot, pre-approved — no HITL surface
+        )
+        agent = build_repo_action_agent(model, kind)
+        user_prompt = build_repo_action_prompt(
+            kind, repo_url=repo_url, params=params or {}
+        )
+
         try:
-            client = await self._pool.get_or_start(
-                workspace_id, workspace_root, env_vars=env_vars
+            result = await asyncio.wait_for(
+                agent.run(user_prompt, deps=deps), timeout=timeout
             )
-            session = await client.create_session()
-            response_text = await _send_and_collect(
-                client, session.id, prompt, timeout=timeout
-            )
-        except (RuntimeError, TimeoutError, httpx.HTTPError) as exc:
-            logger.exception("repo agent process failed for %s", workspace_id)
+        except TimeoutError:
+            logger.warning("repo agent %s timed out after %ss", workspace_id, timeout)
             return await self._finalize(
                 workspace_root,
                 running,
                 status="failed",
-                error=f"OpenCode process failure: {exc}",
+                error=f"Agent timed out after {timeout:.0f}s",
             )
-        except Exception as exc:  # noqa: BLE001
+        except (
+            ModelHTTPError,
+            UnexpectedModelBehavior,
+            UsageLimitExceeded,
+            UserError,
+        ) as exc:
+            logger.warning("repo agent %s run failed: %s", workspace_id, exc)
+            return await self._finalize(
+                workspace_root,
+                running,
+                status="failed",
+                error=f"Agent run failed: {type(exc).__name__}: {exc}",
+            )
+        except Exception as exc:  # noqa: BLE001 — never leak to caller
             logger.exception(
                 "unexpected error in repo agent runner for %s", workspace_id
             )
@@ -236,92 +276,55 @@ class RepoAgentRunner:
                 status="failed",
                 error=f"Unexpected error: {exc}",
             )
-        finally:
-            # Repo workspaces are one-shot: release the process + port so we
-            # don't leak a subprocess per "Generate and open PR" click.
-            with contextlib.suppress(Exception):
-                await self._pool.stop(workspace_id)
 
-        # Persist raw text so operators can see exactly what the agent said
-        # when something goes wrong — especially helpful for "No JSON block
-        # found" because the UI otherwise can't show the reasoning that
-        # happened before the stall.
+        output: RepoActionOutput = result.output
+        structured = output.model_dump()
+
+        # Persist the full message transcript for operator diagnostics —
+        # the analogue of the old SSE-text dump.
         with contextlib.suppress(Exception):
-            (workspace_root / "history" / "agent-response.txt").write_text(
-                response_text
+            (workspace_root / "history" / "agent-response.txt").write_bytes(
+                result.all_messages_json()
             )
+        log_tail = _tail(output.result_card_markdown or output.summary or "")
 
-        log_tail = _tail(response_text)
-
-        if not response_text.strip():
-            return await self._finalize(
-                workspace_root,
-                running,
-                status="failed",
-                error="Agent returned an empty response",
-                agent_log_tail=log_tail,
-            )
-
-        parsed = parse_agent_response(response_text, agent_type=_agent_type_for(kind))
-        structured = parsed.structured_output or {}
-
-        if not parsed.success:
-            return await self._finalize(
-                workspace_root,
-                running,
-                status="failed",
-                error=parsed.error or "Agent output did not match contract",
-                structured_output=structured or None,
-                agent_log_tail=log_tail,
-            )
-
-        agent_status = (structured.get("status") or "").lower()
-        pr_url = structured.get("pr_url")
-        branch_name = structured.get("branch_name")
-
-        if agent_status == "pr_created":
+        if output.status == "pr_created":
             # B16: the agent cannot be trusted to emit a real PR URL. Hit
-            # GitHub's API before we tell the user "PR opened" — a mismatch
-            # is the symptom we're fixing.
-            verification = await verify_pr_url(pr_url, token=gh_token)
+            # GitHub's API before we tell the user "PR opened".
+            verification = await verify_pr_url(output.pr_url, token=gh_token)
             if verification.ok:
                 return await self._finalize(
                     workspace_root,
                     running,
                     status="pr_created",
-                    pr_url=verification.html_url or pr_url,
-                    branch_name=branch_name,
+                    pr_url=verification.html_url or output.pr_url,
+                    branch_name=output.branch_name,
                     structured_output=structured,
                 )
-            # Verification failed — no fallback. Surface the real reason +
-            # a tail of the agent's response so the user can tell whether
-            # a branch was actually pushed or the model invented the URL.
             return await self._finalize(
                 workspace_root,
                 running,
                 status="failed",
                 error=(
-                    "PR verification failed: "
-                    f"{verification.reason}. Agent claimed pr_url="
-                    f"{pr_url!r}."
+                    f"PR verification failed: {verification.reason}. "
+                    f"Agent claimed pr_url={output.pr_url!r}."
                 ),
                 structured_output=structured,
                 agent_log_tail=log_tail,
             )
-        if agent_status == "already_present":
+        if output.status == "already_present":
             return await self._finalize(
                 workspace_root,
                 running,
                 status="already_present",
                 structured_output=structured,
             )
-        # Fall through: the agent claimed success but didn't give us a PR.
+        # status == "failed" (or anything else): surface the agent's reason.
         return await self._finalize(
             workspace_root,
             running,
             status="failed",
-            error=structured.get("error_details")
-            or "Agent finished without opening a PR",
+            error=output.error_details or "Agent finished without opening a PR",
             structured_output=structured,
             agent_log_tail=log_tail,
         )
@@ -385,102 +388,3 @@ def _tail(text: str) -> str | None:
     if len(text) <= _LOG_TAIL_CHARS:
         return text
     return "…(truncated)…\n" + text[-_LOG_TAIL_CHARS:]
-
-
-def _render_prompt(
-    kind: WorkspaceKind,
-    *,
-    repo_url: str,
-    gh_token: str | None,
-    params: dict[str, Any],
-) -> str:
-    """Re-render the generator prompt (idempotent with WorkspaceDirManager)."""
-    engine = AgentTemplateEngine()
-    rendered = engine.render_repo_action(
-        kind, repo_url=repo_url, params=params, gh_token=gh_token
-    )
-    return rendered.content
-
-
-def _agent_type_for(kind: WorkspaceKind) -> str:
-    """Map workspace kind to the agent_type string the parser expects.
-
-    The output parser uses agent_type only for ``validate_structured_output``
-    schema lookup; posture generator schemas are registered under these names
-    in ``cliff.agents.schemas``. Unknown agent_type is allowed — the parser
-    skips per-agent validation and still extracts ``structured_output``.
-    """
-    return {
-        WorkspaceKind.repo_action_security_md: "security_md_generator",
-        WorkspaceKind.repo_action_dependabot: "dependabot_config_generator",
-    }.get(kind, kind.value)
-
-
-async def _send_and_collect(
-    client: Any,
-    session_id: str,
-    prompt: str,
-    *,
-    timeout: float,
-) -> str:
-    """Send the prompt, accumulate text events until done/stall/timeout.
-
-    Simpler than ``AgentExecutor._send_and_collect`` because repo workspaces
-    pre-approve bash/edit/webfetch — we never see ``permission_request``
-    events and therefore don't need an approval queue.
-    """
-
-    async def _send() -> None:
-        # Small delay matches the executor's pattern: give the SSE stream
-        # time to connect before the message lands.
-        await asyncio.sleep(0.5)
-        with contextlib.suppress(httpx.ReadTimeout):
-            await client.send_message(session_id, prompt)
-
-    send_task = asyncio.create_task(_send())
-    try:
-        return await _collect_response(client, session_id, timeout=timeout)
-    finally:
-        if not send_task.done():
-            send_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await send_task
-
-
-async def _collect_response(
-    client: Any,
-    session_id: str,
-    *,
-    timeout: float,
-) -> str:
-    """Consume the SSE event stream until ``done`` or the overall timeout.
-
-    Text events from OpenCode carry the cumulative response so far — each
-    successive event replaces the prior content, and the last event before
-    ``done`` has the full text. We keep the latest and return it either
-    when we see ``done`` or when the outer timeout wins.
-    """
-    collected = ""
-
-    async def _stream() -> str:
-        nonlocal collected
-        async for event in client.stream_events(session_id):
-            etype = event.get("type")
-            if etype == "text":
-                collected = event.get("content", "") or collected
-            elif etype == "done":
-                return collected
-            elif etype == "error":
-                raise RuntimeError(
-                    f"OpenCode error event: {event.get('message', 'unknown')}"
-                )
-        return collected
-
-    try:
-        return await asyncio.wait_for(_stream(), timeout=timeout)
-    except TimeoutError:
-        # Outer timeout — surface whatever we collected so the caller still
-        # gets diagnostic text in ``history/agent-response.txt`` instead of
-        # a blanket "Unexpected error".
-        logger.warning("repo agent response stream timed out after %ss", timeout)
-        return collected

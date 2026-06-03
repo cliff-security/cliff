@@ -1,7 +1,15 @@
-"""LLM-powered finding normalizer using the singleton OpenCode process.
+"""LLM-powered finding normalizer (Pydantic AI, app-level).
 
 Accepts raw scanner data from any vendor and normalizes it into FindingCreate
-records via a dedicated extraction prompt. See ADR-0022 for design rationale.
+records via a dedicated extraction prompt. See ADR-0022 for design rationale
+and ADR-0047 / IMPL-0022 PR #3b for the OpenCode → Pydantic AI migration.
+
+This is an *app-level* agent (no workspace), so its provider key + model are
+passed in by the caller (``env`` + ``model``) rather than resolved from a
+workspace. Pydantic AI's structured ``output_type`` + internal retry loop
+replace the hand-rolled JSON extraction and retry machinery the OpenCode-era
+normalizer carried; the per-item ``FindingCreate`` validation below is
+unchanged and still drives the partial-success ``(valid, errors)`` contract.
 
 Token-cost note (IMPL-0002 C1, 2026-04-16): the prompt grew by roughly
 ~625 input tokens when ``plain_description`` rules + examples were added.
@@ -14,21 +22,23 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from typing import Any
 
 from pydantic import ValidationError
+from pydantic_ai.exceptions import (
+    ModelHTTPError,
+    UnexpectedModelBehavior,
+    UsageLimitExceeded,
+    UserError,
+)
 
-from cliff.engine.client import opencode_client
+from cliff.agents.runtime.normalizer_agent import build_normalizer_agent
+from cliff.agents.runtime.provider import ProviderConfigurationError, build_model
 from cliff.models import FindingCreate
 
 logger = logging.getLogger(__name__)
 
 MAX_BATCH_SIZE = 50
-_MAX_RETRIES = 2  # Total attempts: 1 original + 2 retries = 3
-
-_RE_FENCED = re.compile(r"```(?:json)?\s*\n?(.*?)```", re.DOTALL)
-_RE_TRAILING_COMMA = re.compile(r",\s*([}\]])")
 
 # ---------------------------------------------------------------------------
 # Normalizer prompt — tight extraction, few-shot, no chain-of-thought
@@ -228,45 +238,17 @@ IMPORTANT: Respond with ONLY the JSON array. No other text.
 """
 
 
-def _build_prompt(source: str, raw_json: str) -> str:
+def _build_user_message(source: str, raw_json: str) -> str:
+    """The per-call user message — just the scanner source + raw data.
+
+    The schema, rules, and few-shot examples live in ``NORMALIZER_PROMPT``,
+    which is the agent's *system* prompt; this is only the variable payload.
+    """
     return (
-        f"{NORMALIZER_PROMPT}\n"
         f"Source: {source}\n"
         f"Raw data:\n```json\n{raw_json}\n```\n\n"
-        "JSON array output:"
+        "Normalize these findings."
     )
-
-
-# ---------------------------------------------------------------------------
-# JSON array extractor — handles fenced blocks and bare arrays
-# ---------------------------------------------------------------------------
-
-
-def _extract_json_array(text: str) -> list[dict[str, Any]] | None:
-    """Extract a JSON array from LLM response text.
-
-    Handles: bare JSON arrays, ```json fenced blocks, trailing commas.
-    Returns None if no valid array is found.
-    """
-    fenced = _RE_FENCED.search(text)
-    candidate = fenced.group(1).strip() if fenced else text.strip()
-
-    start = candidate.find("[")
-    if start == -1:
-        return None
-
-    # Fix trailing commas before attempting parse (common LLM quirk)
-    cleaned = _RE_TRAILING_COMMA.sub(r"\1", candidate[start:])
-
-    # Use raw_decode to correctly handle brackets inside JSON strings
-    try:
-        parsed, _ = json.JSONDecoder().raw_decode(cleaned)
-    except json.JSONDecodeError:
-        return None
-
-    if not isinstance(parsed, list):
-        return None
-    return parsed
 
 
 # ---------------------------------------------------------------------------
@@ -275,18 +257,26 @@ def _extract_json_array(text: str) -> list[dict[str, Any]] | None:
 
 
 async def normalize_findings(
-    source: str, raw_data: list[dict[str, Any]], *, model: str | None = None
+    source: str,
+    raw_data: list[dict[str, Any]],
+    *,
+    env: dict[str, str],
+    model: str | None = None,
 ) -> tuple[list[FindingCreate], list[str]]:
-    """Normalize raw scanner findings via LLM extraction.
+    """Normalize raw scanner findings via a Pydantic AI extraction call.
 
-    Returns (valid_findings, errors) where errors contains human-readable
-    strings for items that failed validation.
+    Returns (valid_findings, errors) where errors holds human-readable
+    strings for items that failed validation. Partial success is normal —
+    one malformed item lands in ``errors`` while the rest succeed.
 
     Args:
         source: Scanner name (e.g. 'snyk', 'wiz').
         raw_data: List of raw finding dicts from the scanner.
-        model: Optional model override (e.g. 'openai/gpt-4.1-mini').
-               If provided, temporarily sets the OpenCode model config.
+        env: Provider credentials (e.g. ``{"OPENAI_API_KEY": ...}``) used to
+            build the model — the app-level analogue of the per-workspace
+            env the pipeline agents receive.
+        model: Full model id (``'<provider>/<model>'``) to run with. Required
+            in practice; ``build_model`` rejects a missing/blank value.
     """
     if not raw_data:
         return [], []
@@ -297,106 +287,64 @@ async def normalize_findings(
             "Use the async ingest endpoint for larger batches."
         ]
 
-    # Build prompt — compact JSON to minimize token cost
-    raw_json = json.dumps(raw_data, separators=(",", ":"))
-    prompt = _build_prompt(source, raw_json)
+    try:
+        pa_model = build_model(env, model)
+    except ProviderConfigurationError as exc:
+        return [], [f"Normalizer model not configured: {exc}"]
 
-    # Temporarily override model if requested
-    original_model: str | None = None
-    if model:
-        try:
-            config = await opencode_client.get_config()
-            original_model = config.get("model", None)
-            await opencode_client.update_config({"model": model})
-            logger.info("Normalizer using model override: %s", model)
-        except Exception as exc:
-            logger.warning("Failed to set model override %s: %s", model, exc)
+    agent = build_normalizer_agent(pa_model, system_prompt=NORMALIZER_PROMPT)
+    raw_json = json.dumps(raw_data, separators=(",", ":"))
 
     try:
-        items = await _call_llm_with_retry(prompt)
-    finally:
-        # Restore original model if we changed it
-        if original_model is not None:
-            try:
-                await opencode_client.update_config({"model": original_model})
-            except Exception:
-                logger.warning("Failed to restore original model %s", original_model)
+        result = await agent.run(_build_user_message(source, raw_json))
+    except (
+        ModelHTTPError,
+        UnexpectedModelBehavior,
+        UsageLimitExceeded,
+        UserError,
+    ) as exc:
+        logger.warning("Normalizer LLM call failed: %s", exc)
+        return [], [f"Normalizer LLM call failed: {type(exc).__name__}: {exc}"]
 
-    if items is None:
-        return [], ["Failed to parse JSON array from LLM response after 3 attempts"]
-
-    # Validate each item against FindingCreate schema
+    # Pydantic AI handed back validated (lenient) NormalizedFinding objects;
+    # the strict FindingCreate contract — and the per-item partial-success
+    # accounting — is enforced here, exactly as on the OpenCode-era path.
     findings: list[FindingCreate] = []
     errors: list[str] = []
 
-    for i, item in enumerate(items):
-        if not isinstance(item, dict):
-            errors.append(f"Finding {i + 1}: expected object, got {type(item).__name__}")
-            continue
-        if "source_type" not in item:
+    # Normalization is 1:1 — one NormalizedFinding per raw item. The input
+    # is capped (MAX_BATCH_SIZE) but the model's output array is not, so a
+    # confused model that echoes the few-shot examples or hallucinates extra
+    # rows could inject more findings than were submitted. Cap at the input
+    # count and record the overflow rather than persisting fabricated rows.
+    outputs = list(result.output)
+    if len(outputs) > len(raw_data):
+        errors.append(
+            f"Model returned {len(outputs)} findings for {len(raw_data)} "
+            f"input item(s); keeping the first {len(raw_data)}."
+        )
+        outputs = outputs[: len(raw_data)]
+
+    for i, nf in enumerate(outputs):
+        item = nf.model_dump()
+        # The model_dump always carries every key; fill the load-bearing
+        # defaults the LLM may have left null.
+        if item.get("source_type") is None:
             item["source_type"] = source
-        # Coerce raw_payload: LLM sometimes wraps the original object in a list
+        # Normalized findings are always brand-new — force the status rather
+        # than trusting the model's value, so a stray string (e.g. "open")
+        # doesn't drop an otherwise-valid finding into ``errors``.
+        item["status"] = "new"
+        # Coerce raw_payload: the model sometimes wraps the original object
+        # in a single-element list.
         rp = item.get("raw_payload")
         if isinstance(rp, list):
-            item["raw_payload"] = rp[0] if len(rp) == 1 and isinstance(rp[0], dict) else None
+            item["raw_payload"] = (
+                rp[0] if len(rp) == 1 and isinstance(rp[0], dict) else None
+            )
         try:
             findings.append(FindingCreate.model_validate(item))
         except ValidationError as exc:
             errors.append(f"Finding {i + 1}: {exc}")
 
     return findings, errors
-
-
-async def _call_llm_with_retry(prompt: str) -> list[dict[str, Any]] | None:
-    """Send prompt to LLM and extract JSON array, with up to 3 attempts.
-
-    Creates a fresh session for each retry to avoid stuck generation patterns.
-    Returns the parsed JSON array or None if all attempts fail.
-    """
-    last_response: str | None = None
-
-    for attempt in range(_MAX_RETRIES + 1):
-        session = await opencode_client.create_session()
-        try:
-            full_text = await opencode_client.send_and_get_response(
-                session.id, prompt
-            )
-        except Exception as exc:
-            logger.warning(
-                "Normalizer attempt %d/%d: LLM error: %s",
-                attempt + 1, _MAX_RETRIES + 1, exc,
-            )
-            last_response = f"[exception] {exc}"
-            continue
-
-        if not full_text:
-            logger.warning(
-                "Normalizer attempt %d/%d: LLM returned empty response",
-                attempt + 1, _MAX_RETRIES + 1,
-            )
-            last_response = "[empty response]"
-            continue
-
-        last_response = full_text
-        items = _extract_json_array(full_text)
-        if items is not None:
-            if attempt > 0:
-                logger.info("Normalizer succeeded on attempt %d", attempt + 1)
-            return items
-
-        # Log what the LLM actually said for debugging
-        snippet = full_text[:500].replace("\n", "\\n")
-        logger.warning(
-            "Normalizer attempt %d/%d: Failed to parse JSON from response: %s",
-            attempt + 1, _MAX_RETRIES + 1, snippet,
-        )
-
-    # All attempts failed — include a snippet in the error for the user
-    if last_response and not last_response.startswith("["):
-        snippet = last_response[:200].replace("\n", " ").strip()
-        logger.error(
-            "Normalizer gave up after %d attempts. Last response: %s",
-            _MAX_RETRIES + 1, snippet,
-        )
-
-    return None

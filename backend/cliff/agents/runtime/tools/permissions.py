@@ -1,13 +1,10 @@
 """Permission tiering for the remediation_executor's tool calls.
 
 The classifier (``classify_tool_request`` + the two denylists +
-``_is_pipe_to_shell``) is ported **verbatim** from the OpenCode-era
-``cliff.agents.executor`` module — same patterns, same tier outputs — so
-the migration changes the *substrate*, not the safety policy. The
-OpenCode copy in ``executor.py`` is deleted in PR2.E once nothing reads
-it; until then the two are identical and both are covered by tests.
+``_is_pipe_to_shell``) is the single source of truth for the bash safety
+policy: the same patterns and tier outputs Cliff has always enforced.
 
-``gate_tool_call`` is the new thin layer that translates a tier into
+``gate_tool_call`` is the thin layer that translates a tier into
 Pydantic AI's human-in-the-loop vocabulary:
 
 * ``deny`` → raise :class:`pydantic_ai.exceptions.ModelRetry`. The model
@@ -175,11 +172,39 @@ def gate_tool_call(
         # caller somehow flags it approved. ModelRetry (not a raw
         # exception) so the model sees the denial and pivots.
         raise ModelRetry(_deny_message(tool, patterns))
-    if tier == "ask" and not ctx.tool_call_approved:
+    if (
+        tier == "ask"
+        and not ctx.tool_call_approved
+        and not _auto_approved(ctx, tool=tool, patterns=patterns)
+    ):
         raise ApprovalRequired(
             metadata=metadata or {"tool": tool, "patterns": list(patterns)}
         )
     return tier
+
+
+def _auto_approved(
+    ctx: RunContext[WorkspaceDeps], *, tool: str, patterns: Sequence[str]
+) -> bool:
+    """Repo-action runs pre-approve only the *gated-bash* ``ask`` tier.
+
+    A repo-action's non-interactive workflow legitimately needs the
+    destructive-but-conceivable bash ops (``rm``, ``git reset --hard``, …)
+    to run without a human click. It must NOT silently swallow the
+    classifier's *safe-default* ``ask`` buckets — an ``external_directory``
+    escape, an ``edit`` that climbs out of the workspace, an ``mcp`` /
+    unknown tool, or empty/unparseable bash. Those stay approval-gated, so
+    a confused repo-action run fails closed (the deferred request goes
+    unanswered) instead of executing something the policy routed to review.
+
+    ``deny`` is checked before this and still hard-denies regardless.
+    """
+    if not getattr(ctx.deps, "auto_approve", False):
+        return False
+    if tool != "bash":
+        return False
+    cmd = " ".join(patterns).lower() if patterns else ""
+    return bool(cmd) and any(bad in cmd for bad in _GATED_BASH)
 
 
 __all__ = [

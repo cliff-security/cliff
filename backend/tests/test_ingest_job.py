@@ -201,7 +201,7 @@ async def test_process_job_success():
     # Mock normalize_findings to return valid FindingCreate objects
     from cliff.models import FindingCreate
 
-    async def _mock_normalize(source, data, *, model=None):
+    async def _mock_normalize(source, data, *, env=None, model=None):
         return [
             FindingCreate(source_type="wiz", source_id=f"wiz-{i}", title=f"Finding {i}")
             for i in range(len(data))
@@ -219,7 +219,12 @@ async def test_process_job_success():
     ):
         from cliff.integrations.ingest_worker import _process_job
 
-        await _process_job(db, job.job_id)
+        await _process_job(
+            db,
+            job.job_id,
+            env_resolver=AsyncMock(return_value={"OPENAI_API_KEY": "k"}),
+            model_resolver=AsyncMock(return_value="openai/gpt-4o-mini"),
+        )
 
     progress = await get_ingest_job(db, job.job_id)
     assert progress.status == "completed"
@@ -243,7 +248,7 @@ async def test_process_job_partial_failure():
 
     call_count = 0
 
-    async def _mock_normalize(source, data, *, model=None):
+    async def _mock_normalize(source, data, *, env=None, model=None):
         nonlocal call_count
         call_count += 1
         if call_count == 1:
@@ -267,13 +272,47 @@ async def test_process_job_partial_failure():
     ):
         from cliff.integrations.ingest_worker import _process_job
 
-        await _process_job(db, job.job_id)
+        await _process_job(
+            db,
+            job.job_id,
+            env_resolver=AsyncMock(return_value={"OPENAI_API_KEY": "k"}),
+            model_resolver=AsyncMock(return_value="openai/gpt-4o-mini"),
+        )
 
     progress = await get_ingest_job(db, job.job_id)
     assert progress.status == "completed"
     assert progress.completed_chunks == 1
     assert progress.failed_chunks == 1
     assert len(progress.errors) >= 1
+    await close_db()
+
+
+@pytest.mark.asyncio
+async def test_process_job_no_provider_marks_failed_not_retry():
+    """No resolved AI provider → terminal ``failed`` (not a fail→pending→retry
+    loop). The normalizer is a PA agent now and can't run without a provider."""
+    from cliff.db.connection import close_db, init_db
+    from cliff.db.repo_ingest_job import create_ingest_job, get_ingest_job
+
+    await init_db(":memory:")
+    from cliff.db.connection import _db as db
+
+    job = await create_ingest_job(
+        db, source="wiz", raw_data=[{"id": "1"}], chunk_size=1
+    )
+    from cliff.integrations.ingest_worker import _process_job
+
+    await _process_job(
+        db,
+        job.job_id,
+        env_resolver=AsyncMock(return_value={}),  # no provider env
+        model_resolver=AsyncMock(return_value=None),  # no canonical model
+    )
+
+    progress = await get_ingest_job(db, job.job_id)
+    assert progress.status == "failed"
+    assert progress.completed_chunks == 0
+    assert any("provider" in e.lower() for e in (progress.errors or []))
     await close_db()
 
 
@@ -295,7 +334,7 @@ async def test_process_job_cancellation():
 
     chunk_calls = 0
 
-    async def _mock_normalize(source, data, *, model=None):
+    async def _mock_normalize(source, data, *, env=None, model=None):
         nonlocal chunk_calls
         chunk_calls += 1
         # Cancel after first chunk
@@ -318,7 +357,12 @@ async def test_process_job_cancellation():
     ):
         from cliff.integrations.ingest_worker import _process_job
 
-        await _process_job(db, job.job_id)
+        await _process_job(
+            db,
+            job.job_id,
+            env_resolver=AsyncMock(return_value={"OPENAI_API_KEY": "k"}),
+            model_resolver=AsyncMock(return_value="openai/gpt-4o-mini"),
+        )
 
     progress = await get_ingest_job(db, job.job_id)
     assert progress.status == "cancelled"

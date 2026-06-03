@@ -2,7 +2,7 @@
   "components": {
     "schemas": {
       "AIStatus": {
-        "description": "Wire shape for ``GET /api/integrations/ai/status``.\n\n``model`` is the canonical active model \u2014 the one Cliff writes into\n``app_setting(key=\"model\")`` and pushes into every workspace spawn.\nPer ADR-0037 there is one canonical state and one read; the\non_key_change hook restarts the singleton OpenCode synchronously on\nevery model/key write, so there is no separate \"what's loaded right\nnow\" signal worth exposing on the wire (architect health-check, M9).",
+        "description": "Wire shape for ``GET /api/integrations/ai/status``.\n\n``model`` is the canonical active model \u2014 the one Cliff writes into\n``app_setting(key=\"model\")`` and the PA model factory reads at each\nagent run. Per ADR-0037 / ADR-0047 there is one canonical state and\none read; with the substrate in-process there is no separate \"what's\nloaded right now\" signal worth exposing on the wire.",
         "properties": {
           "connected_at": {
             "anyOf": [
@@ -431,24 +431,6 @@
           }
         },
         "title": "AgentRunUpdate",
-        "type": "object"
-      },
-      "ApiKeyCreate": {
-        "properties": {
-          "key": {
-            "title": "Key",
-            "type": "string"
-          },
-          "provider": {
-            "title": "Provider",
-            "type": "string"
-          }
-        },
-        "required": [
-          "provider",
-          "key"
-        ],
-        "title": "ApiKeyCreate",
         "type": "object"
       },
       "Assessment": {
@@ -1217,29 +1199,6 @@
           "total"
         ],
         "title": "CategoryProgress",
-        "type": "object"
-      },
-      "ChatPermissionDecision": {
-        "properties": {
-          "approved": {
-            "title": "Approved",
-            "type": "boolean"
-          },
-          "permission_id": {
-            "title": "Permission Id",
-            "type": "string"
-          },
-          "session_id": {
-            "title": "Session Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "permission_id",
-          "session_id",
-          "approved"
-        ],
-        "title": "ChatPermissionDecision",
         "type": "object"
       },
       "Completion": {
@@ -2658,6 +2617,7 @@
         "type": "object"
       },
       "HealthStatus": {
+        "description": "``/health`` response.\n\nField shape is preserved across the OpenCode \u2192 Pydantic AI substrate\nmigration (ADR-0047) so the frontend health card and ``cliffsec status``\ndon't churn. The agent substrate now runs **in-process**, so ``opencode``\nis always ``\"ok\"`` and ``opencode_version`` carries the Pydantic AI\nversion string (e.g. ``\"pydantic-ai 1.98.x\"``) rather than a subprocess\nversion.",
         "properties": {
           "ai_provider_ready": {
             "default": false,
@@ -2675,7 +2635,7 @@
             "type": "string"
           },
           "opencode": {
-            "default": "unknown",
+            "default": "ok",
             "title": "Opencode",
             "type": "string"
           },
@@ -4025,6 +3985,38 @@
         "title": "PreviousAssessmentInfo",
         "type": "object"
       },
+      "ProviderInfo": {
+        "properties": {
+          "env": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Env",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "models": {
+            "additionalProperties": true,
+            "title": "Models",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "env",
+          "models"
+        ],
+        "title": "ProviderInfo",
+        "type": "object"
+      },
       "ProviderModelOption": {
         "description": "One entry in the per-provider model picker dropdown.",
         "properties": {
@@ -4107,7 +4099,7 @@
         "type": "object"
       },
       "ProviderTestRequest": {
-        "description": "Optional staged config. Alpha passes nothing and probes the currently\nconfigured provider/model/key; a future UI can preview unsaved staged\nconfig by populating these fields. Ignored today \u2014 probe uses whatever\nOpenCode has configured \u2014 but kept so the wire shape is stable.",
+        "description": "Optional staged config. Alpha passes nothing and probes the currently\nconfigured provider/model/key; a future UI can preview unsaved staged\nconfig by populating these fields. Ignored today \u2014 probe uses whatever\nthe canonical AI state has configured \u2014 but kept so the wire shape is\nstable.",
         "properties": {
           "api_key": {
             "anyOf": [
@@ -4993,7 +4985,7 @@
         "type": "object"
       },
       "VersionInfo": {
-        "description": "Version handshake for the agent CLI (`cliffsec status`).\n\n`min_cli` is the lowest CLI version this server promises to speak to.\nA CLI older than this should refuse to operate and tell the user to upgrade.\n`schema_version` bumps when the CLI/server contract changes incompatibly.",
+        "description": "``/version`` handshake for the agent CLI (``cliffsec status``).\n\n``min_cli`` is the lowest CLI version this server promises to speak to; a\nCLI older than this refuses to operate. ``schema_version`` bumps when the\nCLI/server contract changes incompatibly. ``opencode`` is retained for a\nbackward-compatible wire shape and now carries the in-process substrate\nversion (ADR-0047).",
         "properties": {
           "cliff": {
             "title": "Cliff",
@@ -5005,6 +4997,7 @@
             "type": "string"
           },
           "opencode": {
+            "default": "",
             "title": "Opencode",
             "type": "string"
           },
@@ -5015,8 +5008,7 @@
           }
         },
         "required": [
-          "cliff",
-          "opencode"
+          "cliff"
         ],
         "title": "VersionInfo",
         "type": "object"
@@ -5193,24 +5185,6 @@
           "updated_at"
         ],
         "title": "Workspace",
-        "type": "object"
-      },
-      "WorkspaceChatRequest": {
-        "properties": {
-          "content": {
-            "title": "Content",
-            "type": "string"
-          },
-          "session_id": {
-            "title": "Session Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "session_id",
-          "content"
-        ],
-        "title": "WorkspaceChatRequest",
         "type": "object"
       },
       "WorkspaceCreate": {
@@ -7079,108 +7053,6 @@
         ]
       }
     },
-    "/api/settings/api-keys": {
-      "get": {
-        "operationId": "list_api_keys_api_settings_api_keys_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "List Api Keys",
-        "tags": [
-          "settings"
-        ]
-      }
-    },
-    "/api/settings/api-keys/{provider}": {
-      "delete": {
-        "operationId": "delete_api_key_api_settings_api_keys__provider__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "provider",
-            "required": true,
-            "schema": {
-              "title": "Provider",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Delete Api Key",
-        "tags": [
-          "settings"
-        ]
-      },
-      "put": {
-        "operationId": "set_api_key_api_settings_api_keys__provider__put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "provider",
-            "required": true,
-            "schema": {
-              "title": "Provider",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ApiKeyCreate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Set Api Key",
-        "tags": [
-          "settings"
-        ]
-      }
-    },
     "/api/settings/integrations": {
       "get": {
         "operationId": "list_integrations_endpoint_api_settings_integrations_get",
@@ -7656,7 +7528,7 @@
     },
     "/api/settings/model": {
       "get": {
-        "description": "Return the canonical active model (ADR-0037).\n\nThin shim over :class:`AIIntegrationService` so the CLI (``cliffsec\nmodel get``) and the new Settings UI agree byte-for-byte. Falls\nback to the old ``opencode.json``-derived value when no AI\nprovider is connected so legacy users without an ``ai_integration``\nrow still get something meaningful.",
+        "description": "Return the canonical active model (ADR-0037).\n\nThin shim over :class:`AIIntegrationService` so the CLI (``cliffsec\nmodel get``) and the Settings UI agree byte-for-byte. Returns an\nempty :class:`ModelConfig` when no AI provider is connected yet\n(fresh install) \u2014 the UI treats a blank ``model_full_id`` as \"no\nmodel set\" and the agent-launch gate keeps things safe.",
         "operationId": "get_model_api_settings_model_get",
         "responses": {
           "200": {
@@ -7676,7 +7548,7 @@
         ]
       },
       "put": {
-        "description": "Persist a model change (ADR-0037).\n\nRoutes through :class:`AIIntegrationService.set_model` when a\nprovider is connected. On a fresh install with no provider yet,\nfalls through to the legacy ``config_manager.update_model`` so\n``cliffsec model set`` during install still works before BYOK.",
+        "description": "Persist a model change (ADR-0037).\n\nRoutes through :class:`AIIntegrationService.set_model`, which writes\nthe canonical ``app_setting(model)``. Requires a connected provider \u2014\na model can't be chosen before picking who serves it.",
         "operationId": "update_model_api_settings_model_put",
         "requestBody": {
           "content": {
@@ -7718,12 +7590,19 @@
     },
     "/api/settings/providers": {
       "get": {
+        "description": "Return the supported-provider catalog (ADR-0037).\n\nBuilt from the static :mod:`cliff.ai.catalog` \u2014 one entry per\nprovider with its key env var and the curated model picker rows. The\nwire shape (``{id, name, env, models}`` with ``models`` keyed by the\nbare model id) is what the Settings model picker and ``cliffsec model\nlist`` consume.",
         "operationId": "list_providers_api_settings_providers_get",
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProviderInfo"
+                  },
+                  "title": "Response List Providers Api Settings Providers Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -7735,28 +7614,9 @@
         ]
       }
     },
-    "/api/settings/providers/configured": {
-      "get": {
-        "operationId": "get_configured_providers_api_settings_providers_configured_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Get Configured Providers",
-        "tags": [
-          "settings"
-        ]
-      }
-    },
     "/api/settings/providers/test": {
       "post": {
-        "description": "End-to-end probe of the configured provider+model (ADR-0031).\n\nSends a bounded ``\"Say OK\"`` chat call through OpenCode with a 30s\ntimeout and classifies the outcome into\n``{ok, latency_ms, error_code, error_message}``. Always returns HTTP\n200; ``ok`` reflects the probe result.",
+        "description": "End-to-end probe of the configured provider+model (ADR-0031).\n\nSends a bounded ``\"Say OK\"`` call through Pydantic AI with a 30s\ntimeout and classifies the outcome into\n``{ok, latency_ms, error_code, error_message}``. Always returns HTTP\n200; ``ok`` reflects the probe result.",
         "operationId": "test_provider_api_settings_providers_test_post",
         "requestBody": {
           "content": {
@@ -7952,7 +7812,7 @@
     },
     "/api/workspaces/{workspace_id}": {
       "delete": {
-        "description": "Delete workspace: stop process, remove directory, delete DB row.",
+        "description": "Delete workspace: remove directory + DB row.",
         "operationId": "delete_workspace_endpoint_api_workspaces__workspace_id__delete",
         "parameters": [
           {
@@ -8481,158 +8341,6 @@
         ]
       }
     },
-    "/api/workspaces/{workspace_id}/chat/permission": {
-      "post": {
-        "description": "Approve or deny a permission request from the chat path.\n\nUnlike the agent-execution permission endpoint, this calls\nOpenCode's permission API directly (no executor involved).",
-        "operationId": "respond_to_chat_permission_api_workspaces__workspace_id__chat_permission_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ChatPermissionDecision"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Respond To Chat Permission",
-        "tags": [
-          "workspaces"
-        ]
-      }
-    },
-    "/api/workspaces/{workspace_id}/chat/send": {
-      "post": {
-        "description": "Send a message to this workspace's OpenCode process.",
-        "operationId": "workspace_send_message_api_workspaces__workspace_id__chat_send_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/WorkspaceChatRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Workspace Send Message",
-        "tags": [
-          "workspaces"
-        ]
-      }
-    },
-    "/api/workspaces/{workspace_id}/chat/stream": {
-      "get": {
-        "description": "Stream SSE events from this workspace's OpenCode process.",
-        "operationId": "workspace_stream_events_api_workspaces__workspace_id__chat_stream_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "session_id",
-            "required": true,
-            "schema": {
-              "title": "Session Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Workspace Stream Events",
-        "tags": [
-          "workspaces"
-        ]
-      }
-    },
     "/api/workspaces/{workspace_id}/context": {
       "get": {
         "description": "Return the full context snapshot for the sidebar.",
@@ -9050,88 +8758,6 @@
         "summary": "Approve Plan",
         "tags": [
           "agent-execution"
-        ]
-      }
-    },
-    "/api/workspaces/{workspace_id}/pool-status": {
-      "get": {
-        "description": "Debug endpoint: show process pool status for this workspace.",
-        "operationId": "workspace_pool_status_api_workspaces__workspace_id__pool_status_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Workspace Pool Status",
-        "tags": [
-          "workspaces"
-        ]
-      }
-    },
-    "/api/workspaces/{workspace_id}/sessions": {
-      "post": {
-        "description": "Create an OpenCode session on this workspace's isolated process.",
-        "operationId": "create_workspace_session_api_workspaces__workspace_id__sessions_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Create Workspace Session",
-        "tags": [
-          "workspaces"
         ]
       }
     },

@@ -1,7 +1,7 @@
 """``bash`` tool — run a shell command inside the workspace.
 
-Replaces OpenCode's bash tool dispatch for the remediation_executor.
-Classification (auto / ask / deny) happens before execution via
+The remediation_executor's shell tool. Classification (auto / ask / deny)
+happens before execution via
 :func:`cliff.agents.runtime.tools.permissions.gate_tool_call`; output is
 trimmed to the last 200 lines so a noisy build log can't blow the model's
 context window.
@@ -10,6 +10,7 @@ context window.
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
 
 # Imported at runtime (not under TYPE_CHECKING): Pydantic AI introspects a
@@ -45,10 +46,12 @@ def _trim_output(text: str) -> str:
 async def bash(ctx: RunContext[WorkspaceDeps], command: str) -> str:
     """Run *command* in the workspace and return its combined output.
 
-    The command is classified first: catastrophic patterns (sudo, mkfs,
-    curl|sh, …) raise ``ValueError``; destructive-but-conceivable ones
-    (rm, git reset --hard, …) raise ``ApprovalRequired`` until the user
-    approves; everything else runs immediately.
+    The command is classified first (see
+    :func:`~cliff.agents.runtime.tools.permissions.gate_tool_call`):
+    catastrophic patterns (sudo, mkfs, curl|sh, …) raise ``ModelRetry`` so
+    the model gets a deterministic denial and pivots; destructive-but-
+    conceivable ones (rm, git reset --hard, …) raise ``ApprovalRequired``
+    until the user approves; everything else runs immediately.
     """
     gate_tool_call(
         ctx,
@@ -58,6 +61,13 @@ async def bash(ctx: RunContext[WorkspaceDeps], command: str) -> str:
         # ``command`` is the human-readable form for richer display.
         metadata={"tool": "bash", "patterns": [command], "command": command},
     )
+
+    # Merge the workspace env *over* the process environment — never replace
+    # it. ``ctx.deps.env_vars`` carries only a few keys (GH_TOKEN,
+    # CLIFF_REPO_URL); passing it as the whole environment would strip PATH,
+    # HOME, etc. and break ``git`` / ``gh`` (the commands the remediation +
+    # repo-action agents exist to run).
+    run_env = {**os.environ, **(ctx.deps.env_vars or {})}
 
     def _run() -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -69,7 +79,7 @@ async def bash(ctx: RunContext[WorkspaceDeps], command: str) -> str:
             capture_output=True,
             text=True,
             timeout=_BASH_TIMEOUT_SECONDS,
-            env=ctx.deps.env_vars or None,
+            env=run_env,
         )
 
     try:

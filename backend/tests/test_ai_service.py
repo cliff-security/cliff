@@ -25,32 +25,6 @@ def _reset_catalog_state():
     catalog._reset_for_tests()
 
 
-@pytest.fixture(autouse=True)
-def _isolate_opencode_client(monkeypatch):
-    """Stub ``opencode_client.set_auth`` / ``get_config`` so tests can't
-    reach a running OpenCode singleton on the dev host.
-
-    Without this, ``service.save_byok`` calls ``_sync_opencode_auth`` →
-    ``opencode_client.set_auth("openrouter", {"key": "sk-or-key"})``,
-    which on a dev box with a real ``:8001`` daemon up CLOBBERS the
-    user's OAuth-issued key in OpenCode's ``auth.json``. Re-tested by
-    running ``pytest tests/test_ai_service.py`` against a live daemon
-    and seeing the test placeholders show up in ``~/.local/share/
-    opencode/auth.json``.
-
-    Individual tests that need to assert on ``set_auth`` call shape can
-    override with their own ``monkeypatch.setattr``.
-    """
-    from unittest.mock import AsyncMock
-
-    from cliff.engine.client import opencode_client
-
-    monkeypatch.setattr(opencode_client, "set_auth", AsyncMock(return_value=True))
-    monkeypatch.setattr(
-        opencode_client, "get_config", AsyncMock(return_value={})
-    )
-
-
 @pytest.fixture
 async def db():
     conn = await init_db(":memory:")
@@ -431,79 +405,6 @@ async def test_disconnect_emits_audit_event(
 
 
 # ---------------------------------------------------------------------------
-# OpenCode auth.json sync
-# ---------------------------------------------------------------------------
-
-
-async def test_save_byok_pushes_key_to_opencode_auth(
-    service: AIIntegrationService, monkeypatch
-) -> None:
-    """OpenCode 1.3.x reads auth.json over env vars — verify we push."""
-    from unittest.mock import AsyncMock
-
-    from cliff.engine.client import opencode_client
-
-    push = AsyncMock(return_value=True)
-    monkeypatch.setattr(opencode_client, "set_auth", push)
-
-    await service.save_byok("anthropic", "sk-ant-push-target")
-
-    push.assert_awaited_once_with(
-        "anthropic", {"type": "api", "key": "sk-ant-push-target"}
-    )
-
-
-async def test_save_byok_does_not_push_for_custom_provider(
-    service: AIIntegrationService, monkeypatch
-) -> None:
-    from unittest.mock import AsyncMock
-
-    from cliff.engine.client import opencode_client
-
-    push = AsyncMock(return_value=True)
-    monkeypatch.setattr(opencode_client, "set_auth", push)
-
-    await service.save_byok("custom", "sk-x", base_url="https://x.example/v1")
-
-    push.assert_not_awaited()
-
-
-async def test_disconnect_clears_opencode_auth(
-    service: AIIntegrationService, monkeypatch
-) -> None:
-    from unittest.mock import AsyncMock
-
-    from cliff.engine.client import opencode_client
-
-    push = AsyncMock(return_value=True)
-    monkeypatch.setattr(opencode_client, "set_auth", push)
-
-    await service.save_byok("openrouter", "sk-or-disc")
-    push.reset_mock()
-    await service.disconnect()
-
-    # Called once with empty key after disconnect.
-    push.assert_awaited_once_with(
-        "openrouter", {"type": "api", "key": ""}
-    )
-
-
-async def test_save_byok_survives_opencode_unavailable(
-    service: AIIntegrationService, monkeypatch
-) -> None:
-    """The new flow must still persist if OpenCode is unreachable."""
-    from unittest.mock import AsyncMock
-
-    from cliff.engine.client import opencode_client
-
-    push = AsyncMock(side_effect=RuntimeError("opencode down"))
-    monkeypatch.setattr(opencode_client, "set_auth", push)
-
-    record = await service.save_byok("anthropic", "sk-ant-key")
-    assert record.provider == "anthropic"
-
-
-# ---------------------------------------------------------------------------
 # ADR-0037 — canonical state, set_model, drift, Ollama, Google
 # ---------------------------------------------------------------------------
 
@@ -644,8 +545,8 @@ async def test_set_model_updates_canonical(
 async def test_set_model_fires_on_key_change(
     db: aiosqlite.Connection, vault: CredentialVault
 ) -> None:
-    """``set_model`` triggers the singleton-restart hook so OpenCode picks
-    up the new opencode.json model without waiting for the next save."""
+    """``set_model`` triggers the key-change hook so callers can refresh
+    any cached env snapshot without waiting for the next save."""
     seen: list[dict[str, str]] = []
 
     async def hook(env: dict[str, str]) -> None:
@@ -692,32 +593,12 @@ async def test_resolve_env_for_google_uses_gemini_env_var(
     assert env == {"GEMINI_API_KEY": "AIzaSyTESTKEY"}
 
 
-async def test_save_byok_for_ollama_skips_opencode_auth_push(
-    service: AIIntegrationService, monkeypatch
-) -> None:
-    """Ollama doesn't authenticate — the auth.json push is a no-op."""
-    seen: list[tuple[str, dict]] = []
-
-    class _StubClient:
-        async def set_auth(self, opencode_id: str, payload: dict) -> None:
-            seen.append((opencode_id, payload))
-
-    monkeypatch.setattr(
-        "cliff.engine.client.opencode_client", _StubClient()
-    )
-    await service.save_byok("ollama", "local", base_url="http://localhost:11434")
-    # No push for ollama.
-    assert seen == []
-
-
 async def test_get_status_returns_canonical_model_post_save(
     service: AIIntegrationService,
 ) -> None:
-    """Post-M9: ``get_status`` is the single read. It returns the
-    canonical model from ``app_setting(model)`` (resolved via
-    ``_resolve_canonical_model``) — no separate live probe of OpenCode,
-    no drift signal. ``on_key_change`` guarantees the singleton's
-    loaded model matches the canonical write before the next request.
+    """``get_status`` is the single read. It returns the canonical model
+    from ``app_setting(model)`` (resolved via ``_resolve_canonical_model``)
+    — no separate live probe, no drift signal (ADR-0047).
     """
     await service.save_byok("anthropic", "sk-ant-key")
     status = await service.get_status()

@@ -2,24 +2,17 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
 
-
-def test_health_opencode_up(client):
+def test_health_reports_in_process_substrate(client):
+    """The substrate runs in-process via Pydantic AI — ``opencode`` is the
+    kept-for-compat field name and is always "ok"; ``opencode_version``
+    carries the PA version string."""
     resp = client.get("/health")
     assert resp.status_code == 200
     data = resp.json()
     assert data["cliff"] == "ok"
     assert data["opencode"] == "ok"
-
-
-def test_health_opencode_down(client, mock_opencode_process):
-    mock_opencode_process.health_check = AsyncMock(return_value=False)
-    resp = client.get("/health")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["cliff"] == "ok"
-    assert data["opencode"] == "unavailable"
+    assert data["opencode_version"].startswith("pydantic-ai")
 
 
 def test_health_ai_provider_not_ready_when_env_cache_empty(client):

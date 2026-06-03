@@ -1,7 +1,8 @@
 """Agent integration tests for the finding normalizer.
 
-These tests call the real LLM via OpenCode to verify that `normalize_findings()`
-correctly extracts and validates findings from various scanner formats.
+These tests call the real LLM (the in-process Pydantic AI normalizer agent —
+ADR-0047) to verify that `normalize_findings()` correctly extracts and
+validates findings from various scanner formats.
 
 Budget: ~$0.002 total (well under the $1 limit).
 Run with: uv run pytest tests/agents/ -v
@@ -16,6 +17,11 @@ import pytest
 
 from cliff.integrations.normalizer import normalize_findings
 from cliff.models import FindingCreate  # noqa: TCH001 — used in type assertions
+
+# Real-LLM provider state + model selection, shared with the plain-description
+# eval (see eval_utils). Skip-gated on an API key being present (conftest).
+from tests.agents.eval_utils import LLM_ENV as _LLM_ENV
+from tests.agents.eval_utils import LLM_MODEL as _LLM_MODEL
 
 VALID_PRIORITIES = {"critical", "high", "medium", "low", "info"}
 FIXTURES_DIR = Path(__file__).resolve().parents[3] / "fixtures"
@@ -59,7 +65,7 @@ async def test_single_snyk_finding():
         }
     ]
 
-    findings, errors = await normalize_findings("snyk", raw)
+    findings, errors = await normalize_findings("snyk", raw, env=_LLM_ENV, model=_LLM_MODEL)
 
     assert len(findings) == 1, f"Expected 1 finding, got {len(findings)}. Errors: {errors}"
     f = findings[0]
@@ -89,7 +95,7 @@ async def test_single_wiz_finding():
         }
     ]
 
-    findings, errors = await normalize_findings("wiz", raw)
+    findings, errors = await normalize_findings("wiz", raw, env=_LLM_ENV, model=_LLM_MODEL)
 
     assert len(findings) == 1, f"Expected 1 finding, got {len(findings)}. Errors: {errors}"
     f = findings[0]
@@ -109,7 +115,7 @@ async def test_batch_snyk_5_findings():
     raw = _load_fixture("sample-snyk-export.json")
     assert len(raw) == 5
 
-    findings, errors = await normalize_findings("snyk", raw)
+    findings, errors = await normalize_findings("snyk", raw, env=_LLM_ENV, model=_LLM_MODEL)
 
     assert len(findings) >= 4, (
         f"Expected at least 4/5 findings, got {len(findings)}. Errors: {errors}"
@@ -128,7 +134,7 @@ async def test_batch_wiz_3_findings():
     raw = _load_fixture("sample-wiz-export.json")
     assert len(raw) == 3
 
-    findings, errors = await normalize_findings("wiz", raw)
+    findings, errors = await normalize_findings("wiz", raw, env=_LLM_ENV, model=_LLM_MODEL)
 
     assert len(findings) >= 2, (
         f"Expected at least 2/3 findings, got {len(findings)}. Errors: {errors}"
@@ -176,7 +182,7 @@ async def test_severity_mapping():
         },
     ]
 
-    findings, errors = await normalize_findings("snyk", raw)
+    findings, errors = await normalize_findings("snyk", raw, env=_LLM_ENV, model=_LLM_MODEL)
 
     assert len(findings) >= 3, f"Expected at least 3/4, got {len(findings)}. Errors: {errors}"
 
@@ -203,7 +209,7 @@ async def test_minimal_input_fields():
         }
     ]
 
-    findings, errors = await normalize_findings("snyk", raw)
+    findings, errors = await normalize_findings("snyk", raw, env=_LLM_ENV, model=_LLM_MODEL)
 
     assert len(findings) == 1, f"Expected 1 finding. Errors: {errors}"
     f = findings[0]
@@ -227,7 +233,7 @@ async def test_unknown_scanner_format():
         }
     ]
 
-    findings, errors = await normalize_findings("trivy", raw)
+    findings, errors = await normalize_findings("trivy", raw, env=_LLM_ENV, model=_LLM_MODEL)
 
     assert len(findings) == 1, f"Expected 1 finding. Errors: {errors}"
     f = findings[0]
@@ -248,7 +254,7 @@ async def test_large_batch_20_findings():
 
     assert len(raw) == 20
 
-    findings, errors = await normalize_findings("snyk", raw)
+    findings, errors = await normalize_findings("snyk", raw, env=_LLM_ENV, model=_LLM_MODEL)
 
     # gpt-4.1-nano truncates output for large batches — this is a known limitation.
     # The chunk fallback in ingest_worker handles this in production by retrying

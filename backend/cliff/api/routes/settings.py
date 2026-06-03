@@ -7,10 +7,10 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from cliff.ai import catalog
 from cliff.config import settings as app_settings
 from cliff.db.connection import get_db
 from cliff.db.repo_integration import (
@@ -20,8 +20,6 @@ from cliff.db.repo_integration import (
     list_integrations,
     update_integration,
 )
-from cliff.engine.client import opencode_client
-from cliff.engine.config_manager import config_manager
 from cliff.integrations.audit import AuditEvent
 from cliff.integrations.connection_tester import run_connection_test
 from cliff.integrations.github_app.client import build_install_url
@@ -33,7 +31,6 @@ from cliff.integrations.registry import (
 )
 from cliff.integrations.vault import CredentialKeyError
 from cliff.models import (
-    ApiKeyCreate,
     CredentialCreate,
     CredentialInfo,
     IntegrationConfig,
@@ -42,6 +39,7 @@ from cliff.models import (
     IntegrationHealthStatus,
     ModelConfig,
     ModelUpdateRequest,
+    ProviderInfo,
     TestConnectionResult,
 )
 
@@ -70,15 +68,25 @@ async def _emit_audit(request: Request, **kwargs) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _model_config(full_id: str) -> ModelConfig:
+    """Split a canonical ``<provider>/<model>`` id into a ``ModelConfig``."""
+    parts = full_id.split("/", 1)
+    return ModelConfig(
+        model_full_id=full_id,
+        provider=parts[0] if len(parts) == 2 else "",
+        model_id=parts[1] if len(parts) == 2 else full_id,
+    )
+
+
 @router.get("/settings/model", response_model=ModelConfig)
 async def get_model(request: Request, db=Depends(get_db)):
     """Return the canonical active model (ADR-0037).
 
     Thin shim over :class:`AIIntegrationService` so the CLI (``cliffsec
-    model get``) and the new Settings UI agree byte-for-byte. Falls
-    back to the old ``opencode.json``-derived value when no AI
-    provider is connected so legacy users without an ``ai_integration``
-    row still get something meaningful.
+    model get``) and the Settings UI agree byte-for-byte. Returns an
+    empty :class:`ModelConfig` when no AI provider is connected yet
+    (fresh install) — the UI treats a blank ``model_full_id`` as "no
+    model set" and the agent-launch gate keeps things safe.
     """
     vault = getattr(request.app.state, "vault", None)
     if vault is not None:
@@ -87,58 +95,38 @@ async def get_model(request: Request, db=Depends(get_db)):
         service = AIIntegrationService(db, vault)
         full_id = await service.resolve_model_for_workspace()
         if full_id:
-            parts = full_id.split("/", 1)
-            return ModelConfig(
-                model_full_id=full_id,
-                provider=parts[0] if len(parts) == 2 else "",
-                model_id=parts[1] if len(parts) == 2 else full_id,
-            )
-    try:
-        return await config_manager.get_model()
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"OpenCode unavailable: {exc}") from exc
+            return _model_config(full_id)
+    return ModelConfig(model_full_id="", provider="", model_id="")
 
 
 @router.put("/settings/model", response_model=ModelConfig)
 async def update_model(body: ModelUpdateRequest, request: Request, db=Depends(get_db)):
     """Persist a model change (ADR-0037).
 
-    Routes through :class:`AIIntegrationService.set_model` when a
-    provider is connected. On a fresh install with no provider yet,
-    falls through to the legacy ``config_manager.update_model`` so
-    ``cliffsec model set`` during install still works before BYOK.
+    Routes through :class:`AIIntegrationService.set_model`, which writes
+    the canonical ``app_setting(model)``. Requires a connected provider —
+    a model can't be chosen before picking who serves it.
     """
     vault = getattr(request.app.state, "vault", None)
-    if vault is not None:
-        from cliff.ai import repo as ai_repo
-        from cliff.ai.service import (
-            AIIntegrationService,
-            ModelPrefixMismatchError,
+    if vault is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Credential vault not initialized. Set CLIFF_CREDENTIAL_KEY.",
         )
 
-        active = await ai_repo.get_active(db)
-        if active is not None:
-            on_key_change = getattr(request.app.state, "ai_on_key_change", None)
-            service = AIIntegrationService(
-                db, vault, on_key_change=on_key_change
-            )
-            try:
-                await service.set_model(body.model_full_id)
-            except ModelPrefixMismatchError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-            parts = body.model_full_id.split("/", 1)
-            return ModelConfig(
-                model_full_id=body.model_full_id,
-                provider=parts[0] if len(parts) == 2 else "",
-                model_id=parts[1] if len(parts) == 2 else body.model_full_id,
-            )
+    from cliff.ai.service import (
+        AIIntegrationService,
+        ModelPrefixMismatchError,
+        NoActiveProviderError,
+    )
 
+    on_key_change = getattr(request.app.state, "ai_on_key_change", None)
+    service = AIIntegrationService(db, vault, on_key_change=on_key_change)
     try:
-        return await config_manager.update_model(db, body.model_full_id)
-    except ValueError as exc:
+        await service.set_model(body.model_full_id)
+    except (ModelPrefixMismatchError, NoActiveProviderError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"OpenCode unavailable: {exc}") from exc
+    return _model_config(body.model_full_id)
 
 
 # ---------------------------------------------------------------------------
@@ -146,22 +134,35 @@ async def update_model(body: ModelUpdateRequest, request: Request, db=Depends(ge
 # ---------------------------------------------------------------------------
 
 
-@router.get("/settings/providers")
-async def list_providers():
-    try:
-        return await config_manager.list_available_providers()
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"OpenCode unavailable: {exc}") from exc
+@router.get("/settings/providers", response_model=list[ProviderInfo])
+async def list_providers() -> list[ProviderInfo]:
+    """Return the supported-provider catalog (ADR-0037).
 
-
-@router.get("/settings/providers/configured")
-async def get_configured_providers():
-    try:
-        providers = await config_manager.get_configured_providers()
-        auth = await config_manager.get_auth_status()
-        return {"providers": providers, "auth": auth}
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"OpenCode unavailable: {exc}") from exc
+    Built from the static :mod:`cliff.ai.catalog` — one entry per
+    provider with its key env var and the curated model picker rows. The
+    wire shape (``{id, name, env, models}`` with ``models`` keyed by the
+    bare model id) is what the Settings model picker and ``cliffsec model
+    list`` consume.
+    """
+    payload: list[ProviderInfo] = []
+    for provider in catalog.all_providers():
+        info = catalog.get(provider)
+        models: dict[str, dict] = {}
+        for opt in catalog.picker_options(provider):
+            # The picker id is the full ``<provider>/<model>`` id; key by
+            # the bare model id so ``f"{provider}/{model_id}"`` round-trips
+            # (the UI and CLI both rebuild the full id that way).
+            bare = opt.id.split("/", 1)[1] if "/" in opt.id else opt.id
+            models[bare] = {"id": bare, "name": opt.label}
+        payload.append(
+            ProviderInfo(
+                id=provider,
+                name=info.docs_label,
+                env=[info.env_var_name] if info.env_var_name else [],
+                models=models,
+            )
+        )
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +174,8 @@ class ProviderTestRequest(BaseModel):
     """Optional staged config. Alpha passes nothing and probes the currently
     configured provider/model/key; a future UI can preview unsaved staged
     config by populating these fields. Ignored today — probe uses whatever
-    OpenCode has configured — but kept so the wire shape is stable.
+    the canonical AI state has configured — but kept so the wire shape is
+    stable.
     """
 
     provider: str | None = None
@@ -188,12 +190,11 @@ class ProviderTestResult(BaseModel):
     error_message: str | None = None
 
 
-# The probe sends a real "Say OK" through OpenCode and waits for the full
-# assistant reply. The slowest realistic path is OpenRouter → small model
-# (Haiku, Hy3) where queue + cold-start + inference + token streaming
-# routinely lands at 10-20s on the first call. 30s gives the worst-case
-# real run room to complete; the UI shows a "Testing…" spinner the whole
-# time so the wait is visible.
+# The probe sends a real "Say OK" through the configured provider and waits
+# for the assistant reply. The slowest realistic path is OpenRouter → small
+# model where queue + cold-start + inference routinely lands at 10-20s on the
+# first call. 30s gives the worst-case real run room to complete; the UI
+# shows a "Testing…" spinner the whole time so the wait is visible.
 _PROBE_TIMEOUT_SECONDS = 30.0
 _PROBE_PROMPT = "Say OK"
 
@@ -231,33 +232,64 @@ def _error_message_for(code: str, body: str) -> str:
     response_model=ProviderTestResult,
 )
 async def test_provider(
+    request: Request,
+    db=Depends(get_db),
     body: ProviderTestRequest | None = None,  # noqa: ARG001 — shape-stable
 ) -> ProviderTestResult:
     """End-to-end probe of the configured provider+model (ADR-0031).
 
-    Sends a bounded ``"Say OK"`` chat call through OpenCode with a 30s
+    Sends a bounded ``"Say OK"`` call through Pydantic AI with a 30s
     timeout and classifies the outcome into
     ``{ok, latency_ms, error_code, error_message}``. Always returns HTTP
     200; ``ok`` reflects the probe result.
     """
-    return await _probe_opencode(opencode_client)
+    vault = getattr(request.app.state, "vault", None)
+    if vault is None:
+        return ProviderTestResult(
+            ok=False,
+            latency_ms=0,
+            error_code="other",
+            error_message="Credential vault not initialized.",
+        )
+    from cliff.ai.service import AIIntegrationService
+
+    service = AIIntegrationService(db, vault)
+    env = await service.resolve_env_for_workspace()
+    model = await service.resolve_model_for_workspace()
+    return await _probe_pa(env, model)
 
 
-async def _probe_opencode(client) -> ProviderTestResult:
+async def _probe_pa(env: dict[str, str], model: str | None) -> ProviderTestResult:
+    """Build the canonical PA model and run one bounded ``"Say OK"`` turn."""
+    from pydantic_ai import Agent
+    from pydantic_ai.exceptions import (
+        ModelHTTPError,
+        UnexpectedModelBehavior,
+        UsageLimitExceeded,
+        UserError,
+    )
+
+    from cliff.agents.runtime.provider import ProviderConfigurationError, build_model
+
     start = time.monotonic()
 
     def _elapsed_ms() -> int:
         return int((time.monotonic() - start) * 1000)
 
     try:
-        session = await client.create_session()
-        response = await asyncio.wait_for(
-            client.send_and_get_response(
-                session.id,
-                _PROBE_PROMPT,
-                timeout=_PROBE_TIMEOUT_SECONDS,
-            ),
-            timeout=_PROBE_TIMEOUT_SECONDS + 1.0,
+        pa_model = build_model(env, model)
+    except ProviderConfigurationError as exc:
+        return ProviderTestResult(
+            ok=False,
+            latency_ms=0,
+            error_code="other",
+            error_message=str(exc)[:200] or "No AI provider configured.",
+        )
+
+    agent = Agent(pa_model, output_type=str)
+    try:
+        await asyncio.wait_for(
+            agent.run(_PROBE_PROMPT), timeout=_PROBE_TIMEOUT_SECONDS
         )
     except TimeoutError:
         return ProviderTestResult(
@@ -266,22 +298,21 @@ async def _probe_opencode(client) -> ProviderTestResult:
             error_code="timeout",
             error_message=_ERROR_COPY["timeout"],
         )
-    except httpx.HTTPStatusError as exc:
-        body = exc.response.text if exc.response is not None else ""
-        status = exc.response.status_code if exc.response is not None else 0
-        code = _classify_http_error(status, body)
+    except ModelHTTPError as exc:
+        body = str(getattr(exc, "body", "") or "")
+        code = _classify_http_error(exc.status_code, body)
         return ProviderTestResult(
             ok=False,
             latency_ms=_elapsed_ms(),
             error_code=code,
             error_message=_error_message_for(code, body),
         )
-    except (httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout) as exc:
+    except (UsageLimitExceeded, UnexpectedModelBehavior, UserError) as exc:
         return ProviderTestResult(
             ok=False,
             latency_ms=_elapsed_ms(),
-            error_code="timeout",
-            error_message=_error_message_for("timeout", str(exc)),
+            error_code="other",
+            error_message=str(exc)[:200] or "Probe failed",
         )
     except Exception as exc:  # noqa: BLE001 — classify, don't leak
         return ProviderTestResult(
@@ -291,36 +322,7 @@ async def _probe_opencode(client) -> ProviderTestResult:
             error_message=str(exc)[:200] or "Probe failed",
         )
 
-    if not response:
-        return ProviderTestResult(
-            ok=False,
-            latency_ms=_elapsed_ms(),
-            error_code="timeout",
-            error_message=_ERROR_COPY["timeout"],
-        )
     return ProviderTestResult(ok=True, latency_ms=_elapsed_ms())
-
-
-# ---------------------------------------------------------------------------
-# API Keys
-# ---------------------------------------------------------------------------
-
-
-@router.get("/settings/api-keys")
-async def list_api_keys(db=Depends(get_db)):
-    return await config_manager.get_api_keys(db)
-
-
-@router.put("/settings/api-keys/{provider}")
-async def set_api_key(provider: str, body: ApiKeyCreate, db=Depends(get_db)):
-    return await config_manager.set_api_key(db, provider, body.key)
-
-
-@router.delete("/settings/api-keys/{provider}", status_code=204)
-async def delete_api_key(provider: str, db=Depends(get_db)):
-    deleted = await config_manager.delete_api_key(db, provider)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="API key not found")
 
 
 # ---------------------------------------------------------------------------
