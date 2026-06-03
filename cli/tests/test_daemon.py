@@ -488,3 +488,6 @@ def test_doctor_json_envelope_on_empty_home(fake_home):
     names = {c["name"] for c in payload["checks"]}
     expected = {"uv", "venv", "python", "trivy", "semgrep", "credential_key"}
     assert expected.issubset(names)
+    # The OpenCode binary check is gone (ADR-0047) — lock the migration.
+    assert "opencode" not in names
+    assert "opencode" not in payload["failing"]
