@@ -18,7 +18,7 @@ Cliff requires **two** credentials to drive the full remediation loop. Either al
 
 | Credential | Why | Storage |
 |---|---|---|
-| **AI provider key** (OpenAI / Anthropic / OpenRouter / Google / Ollama / custom) | The agent pipeline (enricher, planner, validator) is LLM-backed. Without a key, every workspace stalls at the first agent run. | Either env var at daemon boot, or encrypted vault via `PUT /api/settings/api-keys/{provider}`. The active model is set via `cliffsec model set <provider>/<id>`. |
+| **AI provider key** (OpenAI / Anthropic / OpenRouter / Google / Ollama / custom) | The agent pipeline (enricher, planner, validator) is LLM-backed. Without a key, every workspace stalls at the first agent run. | Either env var at daemon boot, or encrypted vault via `POST /api/integrations/ai/byok`. The active model is set via `cliffsec model set <provider>/<id>`. |
 | **GitHub Integration** (a PAT stored as an Integration row) | Posture probes (`branch_protection_enabled`, `secret_scanning_enabled`, `no_stale_collaborators`, `actions_pinned_to_sha`, …) hit the GitHub API. Remediation PRs also need write access. Without it, every posture check returns `unknown` and the grade caps at C. | Encrypted vault row, created via `POST /api/settings/integrations` (adapter_type=`github`) + `POST /api/settings/integrations/{id}/credentials`. **The daemon does NOT read `GITHUB_TOKEN` from the env.** |
 
 ## Hard rules recap (from SKILL.md)
@@ -33,8 +33,9 @@ Cliff requires **two** credentials to drive the full remediation loop. Either al
 These are read-only — fine to run unprompted:
 
 ```bash
-# AI provider — env-sourced or db-sourced are both fine
-curl -s http://localhost:8000/api/settings/api-keys
+# AI provider — env-sourced or vault-sourced are both fine. ``state`` is
+# ``connected`` once a key is in place, ``unconfigured`` otherwise.
+curl -s http://localhost:8000/api/integrations/ai/status
 
 # Active model (defaults to openai/gpt-5-nano if unset)
 cliffsec model get
@@ -45,7 +46,7 @@ curl -s http://localhost:8000/api/settings/integrations | jq '.[] | select(.adap
 
 Decide what's missing:
 
-- No api-key row AND no relevant env var → AI provider missing.
+- `state: unconfigured` AND no relevant env var → AI provider missing.
 - No github Integration row → GitHub missing.
 - Both present → re-run `cliffsec status`. If it's still `ready: false`, route to `troubleshooting.md` — onboarding isn't the blocker.
 
@@ -58,12 +59,12 @@ Ask the user which provider they want to use. The three onboarding tiers (per AD
 - **Tier 3 — Direct BYOK.** User supplies a key. Confirm "may I store this in Cliff's encrypted vault?" then:
 
 ```bash
-curl -X PUT http://localhost:8000/api/settings/api-keys/<provider> \
+curl -X POST http://localhost:8000/api/integrations/ai/byok \
   -H "Content-Type: application/json" \
-  -d '{"provider":"<provider>","key":"<paste>"}'
+  -d '{"provider":"<provider>","api_key":"<paste>"}'
 ```
 
-`<provider>` is one of: `openai`, `anthropic`, `openrouter`, `google`, `ollama`, `custom`.
+`<provider>` is one of: `openai`, `anthropic`, `openrouter`, `google`, `ollama`, `custom`. The backend validates the key against the provider before persisting; a bad key returns `400` with an `auth_failed` detail.
 
 After storing the key, set the active model:
 
@@ -124,7 +125,7 @@ cliffsec status
 
 Expect exit 0 + `ready: true`. If still `ready: false`, read the `blockers` field:
 
-- `no_llm_model_configured` → step 2 didn't take. Check `cliffsec model get`, check `curl /api/settings/api-keys`.
+- `no_llm_model_configured` → step 2 didn't take. Check `cliffsec model get`, check `curl /api/integrations/ai/status`.
 - `no_github_integration` → step 3 didn't take. Check `curl /api/settings/integrations | jq '.[] | select(.adapter_type=="github")'`.
 - Anything else → `troubleshooting.md`.
 
@@ -136,7 +137,7 @@ After `ready: true`, tell the user "onboarding done — Cliff is ready to scan" 
 
 - Don't onboard a provider key the user hasn't explicitly named. If they say "set me up", ask which provider — don't default to `openai` silently.
 - Don't auto-create the GitHub Integration with `gh auth token` without surfacing what scopes that token has. The user's `gh` token may be over- or under-scoped for Cliff's needs.
-- Don't echo the stored key back to confirm. Trust the API's response code; re-fetch via `GET /api/settings/api-keys` if you really need to verify.
+- Don't echo the stored key back to confirm. Trust the API's response code; re-fetch via `GET /api/integrations/ai/status` if you really need to verify.
 - Don't store the PAT as an env var (`GITHUB_TOKEN`). The daemon ignores it — it only resolves the token from the encrypted vault via the Integration row.
 
 ## Token discipline

@@ -49,7 +49,7 @@ def test_every_provider_has_entry() -> None:
             assert info.default_model
 
 
-def test_env_var_names_match_opencode_expectations() -> None:
+def test_env_var_names_match_provider_factory_expectations() -> None:
     assert catalog.env_var_name("openrouter") == "OPENROUTER_API_KEY"
     assert catalog.env_var_name("anthropic") == "ANTHROPIC_API_KEY"
     assert catalog.env_var_name("openai") == "OPENAI_API_KEY"
@@ -57,28 +57,11 @@ def test_env_var_names_match_opencode_expectations() -> None:
     assert catalog.env_var_name("ollama") is None
 
 
-def test_provider_env_var_names_covers_keys_and_base_urls() -> None:
-    """Both the ``*_API_KEY`` and ``*_BASE_URL`` of every provider are
-    listed — the canonical set of host env vars Cliff controls, e.g. for
-    scrubbing a polluted host (Claude Desktop's ANTHROPIC_BASE_URL) before
-    layering Cliff's own resolved values on top. (QA Q01 B07.)"""
-    names = catalog.provider_env_var_names()
-    assert "ANTHROPIC_API_KEY" in names
-    assert "ANTHROPIC_BASE_URL" in names
-    assert "OPENAI_API_KEY" in names
-    assert "OPENAI_BASE_URL" in names
-    assert "OPENROUTER_API_KEY" in names
-    assert "OPENROUTER_BASE_URL" in names
-    # Google + Ollama additions (ADR-0037).
-    assert "GEMINI_API_KEY" in names
-    assert "GEMINI_BASE_URL" in names
-    assert "OLLAMA_BASE_URL" in names
-
-
 def test_ollama_carries_default_base_url() -> None:
     """Ollama's ``base_url_env_var`` + ``default_base_url`` is the only place
-    an Ollama config exists by default — the env injector relies on this
-    to point OpenCode at localhost without a user config touch."""
+    an Ollama config exists by default — the provider factory
+    (``runtime/provider.py``) relies on this to reach localhost without a
+    user config touch."""
     assert catalog.base_url_env_var("ollama") == "OLLAMA_BASE_URL"
     assert catalog.default_base_url("ollama") == "http://localhost:11434"
 

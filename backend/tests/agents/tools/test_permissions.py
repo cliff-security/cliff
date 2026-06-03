@@ -138,3 +138,33 @@ class TestGateToolCall:
             gate_tool_call(
                 _ctx(auto_approve=True), tool="bash", patterns=["sudo rm -rf /"]
             )
+
+    # auto_approve pre-approves ONLY the gated-bash ask bucket (rm, git reset,
+    # …). It must NOT swallow the classifier's *safe-default* ask buckets — an
+    # external-directory escape, an edit that climbs out of the workspace, an
+    # mcp / unknown tool, or empty/unparseable bash. Those stay approval-gated
+    # so a confused repo-action run fails closed instead of silently executing
+    # something the policy routed to human review.
+    def test_auto_approve_does_not_swallow_external_directory(self):
+        with pytest.raises(ApprovalRequired):
+            gate_tool_call(
+                _ctx(auto_approve=True), tool="external_directory", patterns=["/etc"]
+            )
+
+    def test_auto_approve_does_not_swallow_edit_escape(self):
+        with pytest.raises(ApprovalRequired):
+            gate_tool_call(
+                _ctx(auto_approve=True), tool="edit", patterns=["/etc/hosts"]
+            )
+
+    def test_auto_approve_does_not_swallow_mcp(self):
+        with pytest.raises(ApprovalRequired):
+            gate_tool_call(
+                _ctx(auto_approve=True), tool="mcp", patterns=["some.tool"]
+            )
+
+    def test_auto_approve_does_not_swallow_empty_bash(self):
+        """Unparseable bash (no command to inspect) stays gated even for a
+        pre-approved run — we can't confirm it's a benign gated-bash op."""
+        with pytest.raises(ApprovalRequired):
+            gate_tool_call(_ctx(auto_approve=True), tool="bash", patterns=[])

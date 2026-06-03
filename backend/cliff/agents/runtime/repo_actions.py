@@ -79,6 +79,33 @@ workspace token).
 - Do not write to paths outside the workspace.
 """
 
+
+# The token-aware shallow-clone + branch snippet is identical across both
+# repo-action prompts save for the branch name. Keeping it in one place means
+# a change to the clone/auth logic (e.g. the unauthenticated-fallback) can't
+# silently drift between the SECURITY.md and Dependabot workflows.
+_CLONE_BLOCK_TEMPLATE = """```bash
+REPO_URL="<the repository URL from the task>"
+# Use a token-embedded URL only when $GH_TOKEN is set; otherwise clone the
+# URL directly (a private repo then fails at clone — return status=failed
+# with that error rather than retrying with an empty token).
+if [ -n "${GH_TOKEN:-}" ]; then
+  CLONE_URL="https://x-access-token:${GH_TOKEN}@${REPO_URL#https://}"
+else
+  CLONE_URL="$REPO_URL"
+fi
+git clone --depth 50 "$CLONE_URL" repo/ \\
+  && git -C repo config --local user.email "cliff-bot@users.noreply.github.com" \\
+  && git -C repo config --local user.name "Cliff Posture Bot" \\
+  && git -C repo checkout -b __BRANCH__
+```"""
+
+
+def _clone_block(branch: str) -> str:
+    """The shared clone snippet, targeting *branch*."""
+    return _CLONE_BLOCK_TEMPLATE.replace("__BRANCH__", branch)
+
+
 SECURITY_MD_SYSTEM_PROMPT = (
     """\
 You are a security-posture automation agent. Your single job is to add a
@@ -100,21 +127,9 @@ clone shallowly, set a repo-local commit identity, and create the branch — all
 without writing global/system git config. Because the working directory does
 not persist, run the post-clone steps with `git -C repo` (or chain with `&&`):
 
-```bash
-REPO_URL="<the repository URL from the task>"
-# Use a token-embedded URL only when $GH_TOKEN is set; otherwise clone the
-# URL directly (a private repo then fails at clone — return status=failed
-# with that error rather than retrying with an empty token).
-if [ -n "${GH_TOKEN:-}" ]; then
-  CLONE_URL="https://x-access-token:${GH_TOKEN}@${REPO_URL#https://}"
-else
-  CLONE_URL="$REPO_URL"
-fi
-git clone --depth 50 "$CLONE_URL" repo/ \\
-  && git -C repo config --local user.email "cliff-bot@users.noreply.github.com" \\
-  && git -C repo config --local user.name "Cliff Posture Bot" \\
-  && git -C repo checkout -b cliff/posture/security-md
-```
+"""
+    + _clone_block("cliff/posture/security-md")
+    + """
 
 ### 2. Detect whether `SECURITY.md` already exists
 
@@ -276,19 +291,9 @@ Prioritise finishing the full workflow over polish.**
 
 ### 1. Clone and branch
 
-```bash
-REPO_URL="<the repository URL from the task>"
-# Token-embedded URL only when $GH_TOKEN is set; otherwise clone directly.
-if [ -n "${GH_TOKEN:-}" ]; then
-  CLONE_URL="https://x-access-token:${GH_TOKEN}@${REPO_URL#https://}"
-else
-  CLONE_URL="$REPO_URL"
-fi
-git clone --depth 50 "$CLONE_URL" repo/ \\
-  && git -C repo config --local user.email "cliff-bot@users.noreply.github.com" \\
-  && git -C repo config --local user.name "Cliff Posture Bot" \\
-  && git -C repo checkout -b cliff/posture/dependabot
-```
+"""
+    + _clone_block("cliff/posture/dependabot")
+    + """
 
 ### 2. Detect ecosystems
 

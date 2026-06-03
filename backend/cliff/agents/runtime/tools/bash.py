@@ -46,10 +46,12 @@ def _trim_output(text: str) -> str:
 async def bash(ctx: RunContext[WorkspaceDeps], command: str) -> str:
     """Run *command* in the workspace and return its combined output.
 
-    The command is classified first: catastrophic patterns (sudo, mkfs,
-    curl|sh, …) raise ``ValueError``; destructive-but-conceivable ones
-    (rm, git reset --hard, …) raise ``ApprovalRequired`` until the user
-    approves; everything else runs immediately.
+    The command is classified first (see
+    :func:`~cliff.agents.runtime.tools.permissions.gate_tool_call`):
+    catastrophic patterns (sudo, mkfs, curl|sh, …) raise ``ModelRetry`` so
+    the model gets a deterministic denial and pivots; destructive-but-
+    conceivable ones (rm, git reset --hard, …) raise ``ApprovalRequired``
+    until the user approves; everything else runs immediately.
     """
     gate_tool_call(
         ctx,

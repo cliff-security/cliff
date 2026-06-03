@@ -1,7 +1,8 @@
 """Agent integration tests for the finding normalizer.
 
-These tests call the real LLM via OpenCode to verify that `normalize_findings()`
-correctly extracts and validates findings from various scanner formats.
+These tests call the real LLM (the in-process Pydantic AI normalizer agent —
+ADR-0047) to verify that `normalize_findings()` correctly extracts and
+validates findings from various scanner formats.
 
 Budget: ~$0.002 total (well under the $1 limit).
 Run with: uv run pytest tests/agents/ -v
@@ -10,7 +11,6 @@ Run with: uv run pytest tests/agents/ -v
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import pytest
@@ -18,29 +18,13 @@ import pytest
 from cliff.integrations.normalizer import normalize_findings
 from cliff.models import FindingCreate  # noqa: TCH001 — used in type assertions
 
+# Real-LLM provider state + model selection, shared with the plain-description
+# eval (see eval_utils). Skip-gated on an API key being present (conftest).
+from tests.agents.eval_utils import LLM_ENV as _LLM_ENV
+from tests.agents.eval_utils import LLM_MODEL as _LLM_MODEL
+
 VALID_PRIORITIES = {"critical", "high", "medium", "low", "info"}
 FIXTURES_DIR = Path(__file__).resolve().parents[3] / "fixtures"
-
-# Real-LLM provider state for the normalizer (now an app-level PA agent —
-# ADR-0047 / IMPL-0022 PR #3b). These tests are skip-gated on an API key
-# being present (see conftest), so the env carries a usable provider key.
-_LLM_ENV = {
-    k: v for k, v in os.environ.items() if k.endswith(("_API_KEY", "_BASE_URL"))
-}
-
-
-def _eval_model() -> str:
-    """Pick a capable, cheap model for the real-LLM eval (override with
-    ``CLIFF_EVAL_MODEL``). Multi-item batch extraction needs a real model —
-    a nano-tier model under-extracts and fails the batch assertions."""
-    if override := os.environ.get("CLIFF_EVAL_MODEL"):
-        return override
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return "anthropic/claude-haiku-4-5"
-    return "openai/gpt-4o-mini"
-
-
-_LLM_MODEL = _eval_model()
 
 
 def _load_fixture(name: str) -> list[dict]:

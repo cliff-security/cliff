@@ -136,107 +136,11 @@ TOOL_TIERS: dict[str, str] = {
 }
 
 # Agents that need tool access to do their job (e.g. git, gh CLI).
-# Their bash/edit requests are classified per-command (see
-# ``_classify_tool_request``) rather than blanket-approved.
+# Their bash/edit requests are classified per-command at the tool boundary
+# by ``cliff.agents.runtime.tools.permissions.classify_tool_request``
+# (the single source of truth for the deny/ask/auto safety policy) rather
+# than blanket-approved.
 _TOOL_AGENT_TYPES: set[str] = {"remediation_executor"}
-
-# Tool-request classification for the remediation_executor. Three tiers:
-#   "auto"  — grant immediately (routine git/gh/build commands)
-#   "ask"   — escalate to the user for approval (destructive-but-conceivable,
-#             or reaching outside the workspace)
-#   "deny"  — reject immediately without asking (never legitimate for a
-#             remediation agent; denying gives the agent fast feedback
-#             instead of stalling on an approval that will never come)
-#
-# This is a denylist — defense-in-depth against a *confused* agent, layered
-# on top of GIT_CEILING_DIRECTORIES and the hardened agent prompt. It is NOT
-# a security boundary against a malicious agent; that needs process
-# sandboxing (separate ADR). The remediation_executor's normal workflow
-# (git clone/checkout/add/commit/push, gh pr create, build/test runners)
-# matches none of these patterns and stays on the "auto" path.
-
-# Never legitimate — hard-deny, don't even ask.
-_CATASTROPHIC_BASH: tuple[str, ...] = (
-    ":(){",          # fork bomb
-    "mkfs",
-    " dd ",
-    "sudo ",
-    "> /etc",
-    ">/etc",
-    "> /usr",
-    ">/usr",
-    "> /bin",
-    ">/bin",
-    "/etc/shadow",
-    "/etc/passwd",
-)
-
-# Destructive or workspace-escaping, but conceivably part of a real fix —
-# escalate to the user rather than hard-deny. (Per CEO: "removing a file
-# requires asking for permission.")
-_GATED_BASH: tuple[str, ...] = (
-    "rm -",          # rm -rf, rm -f, …
-    "rmdir",
-    "git reset --hard",
-    "git clean",
-    "git push --force",
-    "git push -f",
-    "chmod ",
-    "chown ",
-    "cd /",
-    "cd ~",
-    "$home",
-    "~/.ssh",
-    "~/.aws",
-    "~/.config",
-)
-
-
-def _is_pipe_to_shell(cmd: str) -> bool:
-    """``curl …`` / ``wget …`` are fine on their own; piped into a shell
-    they're remote code execution. Only the piped shape is dangerous."""
-    fetches = ("curl ", "wget ")
-    shells = ("| sh", "|sh", "| bash", "|bash", "|sh ", "| sh ")
-    return any(f in cmd for f in fetches) and any(s in cmd for s in shells)
-
-
-def _classify_tool_request(tool: str, patterns: list[str]) -> str:
-    """Return ``"auto"``, ``"ask"``, or ``"deny"`` for an executor tool call.
-
-    - ``bash`` — ``deny`` for catastrophic commands, ``ask`` for
-      destructive-but-conceivable ones (rm, git reset --hard, …),
-      ``auto`` for everything else.
-    - ``edit`` — ``ask`` if the target path is absolute or climbs out of
-      the workspace via ``..``; otherwise ``auto``.
-    - ``external_directory`` — ``ask``. The edit/read tools raise this
-      precisely when a tool reaches *outside* the workspace cwd, so it is
-      the literal "the agent tried to leave the directory" signal.
-    - anything else / unparseable — ``ask`` (safe default).
-    """
-    if tool == "external_directory":
-        return "ask"
-
-    if tool == "bash":
-        cmd = " ".join(patterns).lower() if patterns else ""
-        if not cmd:
-            return "ask"  # can't inspect it → don't blanket-approve
-        if _is_pipe_to_shell(cmd):
-            return "deny"
-        if any(bad in cmd for bad in _CATASTROPHIC_BASH):
-            return "deny"
-        if any(bad in cmd for bad in _GATED_BASH):
-            return "ask"
-        return "auto"
-
-    if tool == "edit":
-        for path in patterns:
-            p = path.strip()
-            if p.startswith("/") or p.startswith("~") or "../" in p:
-                return "ask"
-        return "auto"
-
-    # mcp, unknown tools
-    return "ask"
 
 
 # Per-agent guidance appended to the prompt. Currently only the enricher,
@@ -1402,10 +1306,6 @@ class AgentExecutor:
                 "No pending permission request for this agent run."
             )
         history_json = await get_pa_message_history(db, run_id)
-        if not history_json:
-            raise AgentProcessError(
-                "Paused run has no stored message history; cannot resume."
-            )
 
         start_time = time.monotonic()
         # Clear the marker up front so a duplicate POST can't double-resume
@@ -1421,6 +1321,17 @@ class AgentExecutor:
         )
 
         try:
+            if not history_json:
+                # Symmetric with the corrupt/truncated-history case the
+                # except-blocks below handle: a paused run with no stored
+                # history can't be resumed. Raise *inside* the try (marker
+                # already cleared) so the AgentProcessError handler marks the
+                # run failed — never let it escape to the background task and
+                # wedge the run at running/permission_pending (workspace busy
+                # forever).
+                raise AgentProcessError(
+                    "Paused run has no stored message history; cannot resume."
+                )
             finding_data, prior_ctx = _load_workspace_data(
                 workspace_dir, agent_run.agent_type
             )

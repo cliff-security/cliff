@@ -13,13 +13,12 @@ Each fixture record declares:
   - ``sentence_count_range``: [min, max] sentences allowed
 
 Budget: ~10 LLM calls, roughly $0.02. Skipped automatically when no API
-key or OpenCode binary is present (see ``conftest.py``).
+key is present (see ``conftest.py``).
 """
 
 from __future__ import annotations
 
 import json
-import os
 import re
 from pathlib import Path
 
@@ -27,23 +26,10 @@ import pytest
 
 from cliff.integrations.normalizer import normalize_findings
 
-# Real-LLM provider state for the app-level normalizer (IMPL-0022 PR #3b);
-# skip-gated on an API key being present (see conftest).
-_LLM_ENV = {
-    k: v for k, v in os.environ.items() if k.endswith(("_API_KEY", "_BASE_URL"))
-}
-
-
-def _eval_model() -> str:
-    """Capable, cheap model for the real-LLM eval (override: ``CLIFF_EVAL_MODEL``)."""
-    if override := os.environ.get("CLIFF_EVAL_MODEL"):
-        return override
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return "anthropic/claude-haiku-4-5"
-    return "openai/gpt-4o-mini"
-
-
-_LLM_MODEL = _eval_model()
+# Real-LLM provider state + model selection, shared with the normalizer agent
+# tests (see eval_utils). Skip-gated on an API key being present (conftest).
+from tests.agents.eval_utils import LLM_ENV as _LLM_ENV
+from tests.agents.eval_utils import LLM_MODEL as _LLM_MODEL
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "plain_description_evals.json"
 

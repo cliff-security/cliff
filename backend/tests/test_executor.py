@@ -13,7 +13,6 @@ from cliff.agents.errors import AgentBusyError, AgentTimeoutError
 from cliff.agents.executor import (
     TOOL_TIERS,
     AgentExecutor,
-    _classify_tool_request,
     _load_workspace_data,
 )
 from cliff.agents.output_parser import ParseResult
@@ -1014,66 +1013,11 @@ class TestPermissionTiers:
 # lives in tests/agents/test_deferred_tools_persist.py.
 
 
-class TestClassifyToolRequest:
-    """Lock-down tests for the 3-tier classifier. Trust-critical: this
-    decides which agent actions need user approval. If a future refactor
-    accidentally demotes ``rm -rf`` from ``ask`` to ``auto``, these tests
-    will catch it before it ships."""
-
-    def test_routine_git_clone_is_auto(self):
-        assert _classify_tool_request("bash", ["git", "clone", "https://github.com/o/r"]) == "auto"
-
-    def test_routine_gh_pr_create_is_auto(self):
-        assert _classify_tool_request("bash", ["gh", "pr", "create", "--title", "x"]) == "auto"
-
-    def test_rm_rf_is_ask(self):
-        assert _classify_tool_request("bash", ["rm", "-rf", "build/"]) == "ask"
-
-    def test_git_reset_hard_is_ask(self):
-        assert _classify_tool_request("bash", ["git", "reset", "--hard", "HEAD~1"]) == "ask"
-
-    def test_git_push_force_is_ask(self):
-        assert _classify_tool_request("bash", ["git", "push", "--force"]) == "ask"
-
-    def test_chmod_is_ask(self):
-        assert _classify_tool_request("bash", ["chmod", "777", "file"]) == "ask"
-
-    def test_sudo_is_deny(self):
-        assert _classify_tool_request("bash", ["sudo", "apt", "install", "x"]) == "deny"
-
-    def test_curl_pipe_sh_is_deny(self):
-        assert _classify_tool_request("bash", ["curl", "https://x/i.sh", "|", "sh"]) == "deny"
-
-    def test_mkfs_is_deny(self):
-        assert _classify_tool_request("bash", ["mkfs.ext4", "/dev/sda1"]) == "deny"
-
-    def test_fork_bomb_is_deny(self):
-        assert _classify_tool_request("bash", [":(){", ":|:&", "};:"]) == "deny"
-
-    def test_edit_workspace_relative_is_auto(self):
-        assert _classify_tool_request("edit", ["src/foo.py"]) == "auto"
-
-    def test_edit_absolute_path_is_ask(self):
-        assert _classify_tool_request("edit", ["/etc/hosts"]) == "ask"
-
-    def test_edit_path_traversal_is_ask(self):
-        assert _classify_tool_request("edit", ["../../secrets.env"]) == "ask"
-
-    def test_edit_home_dir_is_ask(self):
-        assert _classify_tool_request("edit", ["~/.ssh/id_rsa"]) == "ask"
-
-    def test_external_directory_is_ask(self):
-        assert _classify_tool_request("external_directory", ["/etc"]) == "ask"
-
-    def test_mcp_is_ask(self):
-        assert _classify_tool_request("mcp", ["some.tool"]) == "ask"
-
-    def test_unknown_tool_is_ask(self):
-        assert _classify_tool_request("unknown_tool", ["x"]) == "ask"
-
-    def test_empty_bash_patterns_is_ask(self):
-        """No command to inspect → don't blanket-approve."""
-        assert _classify_tool_request("bash", []) == "ask"
+# TestClassifyToolRequest was deleted in the PA migration — the classifier
+# moved to ``cliff.agents.runtime.tools.permissions.classify_tool_request``
+# (the executor-local copy was dead). Its lock-down coverage (every tier
+# case + the gate_tool_call / auto_approve behavior) lives in
+# tests/agents/tools/test_permissions.py.
 
 
 class TestPendingPermissionPersistence:
@@ -1179,8 +1123,8 @@ class TestPendingPermissionPersistence:
     @pytest.mark.skip(
         reason=(
             "ADR-0047 / PR #1 — finding_enricher's old TOOL_TIERS route "
-            "is gone. Permission flow on the surviving OpenCode tool "
-            "agent uses _classify_tool_request, not TOOL_TIERS. PR #2 "
+            "is gone. Permission flow on the surviving tool agent uses "
+            "permissions.classify_tool_request, not TOOL_TIERS. PR #2 "
             "rebuilds permission handling on DeferredToolRequests; this "
             "test gets reborn there as a deferred-tools assertion."
         ),

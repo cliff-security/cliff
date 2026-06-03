@@ -312,7 +312,20 @@ async def normalize_findings(
     findings: list[FindingCreate] = []
     errors: list[str] = []
 
-    for i, nf in enumerate(result.output):
+    # Normalization is 1:1 — one NormalizedFinding per raw item. The input
+    # is capped (MAX_BATCH_SIZE) but the model's output array is not, so a
+    # confused model that echoes the few-shot examples or hallucinates extra
+    # rows could inject more findings than were submitted. Cap at the input
+    # count and record the overflow rather than persisting fabricated rows.
+    outputs = list(result.output)
+    if len(outputs) > len(raw_data):
+        errors.append(
+            f"Model returned {len(outputs)} findings for {len(raw_data)} "
+            f"input item(s); keeping the first {len(raw_data)}."
+        )
+        outputs = outputs[: len(raw_data)]
+
+    for i, nf in enumerate(outputs):
         item = nf.model_dump()
         # The model_dump always carries every key; fill the load-bearing
         # defaults the LLM may have left null.

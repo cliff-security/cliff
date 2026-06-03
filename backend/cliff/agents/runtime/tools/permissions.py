@@ -172,21 +172,39 @@ def gate_tool_call(
         # caller somehow flags it approved. ModelRetry (not a raw
         # exception) so the model sees the denial and pivots.
         raise ModelRetry(_deny_message(tool, patterns))
-    if tier == "ask" and not ctx.tool_call_approved and not _auto_approved(ctx):
+    if (
+        tier == "ask"
+        and not ctx.tool_call_approved
+        and not _auto_approved(ctx, tool=tool, patterns=patterns)
+    ):
         raise ApprovalRequired(
             metadata=metadata or {"tool": tool, "patterns": list(patterns)}
         )
     return tier
 
 
-def _auto_approved(ctx: RunContext[WorkspaceDeps]) -> bool:
-    """Repo-action runs pre-approve the ``ask`` tier (see WorkspaceDeps).
+def _auto_approved(
+    ctx: RunContext[WorkspaceDeps], *, tool: str, patterns: Sequence[str]
+) -> bool:
+    """Repo-action runs pre-approve only the *gated-bash* ``ask`` tier.
 
-    ``deny`` is checked before this and still hard-denies, so a pre-approved
-    run can do destructive-but-conceivable things (rm, git reset) but never
-    catastrophic ones (sudo, mkfs, curl|sh).
+    A repo-action's non-interactive workflow legitimately needs the
+    destructive-but-conceivable bash ops (``rm``, ``git reset --hard``, …)
+    to run without a human click. It must NOT silently swallow the
+    classifier's *safe-default* ``ask`` buckets — an ``external_directory``
+    escape, an ``edit`` that climbs out of the workspace, an ``mcp`` /
+    unknown tool, or empty/unparseable bash. Those stay approval-gated, so
+    a confused repo-action run fails closed (the deferred request goes
+    unanswered) instead of executing something the policy routed to review.
+
+    ``deny`` is checked before this and still hard-denies regardless.
     """
-    return bool(getattr(ctx.deps, "auto_approve", False))
+    if not getattr(ctx.deps, "auto_approve", False):
+        return False
+    if tool != "bash":
+        return False
+    cmd = " ".join(patterns).lower() if patterns else ""
+    return bool(cmd) and any(bad in cmd for bad in _GATED_BASH)
 
 
 __all__ = [

@@ -41,6 +41,17 @@ _POLL_INTERVAL = 1
 _SMALL_IMPORT_THRESHOLD = 5
 
 
+def _provider_prefix(model: str | None) -> str | None:
+    """The ``<provider>`` part of a canonical ``<provider>/<model>`` id.
+
+    Returns ``None`` for a missing or malformed id (no ``/``) — the signal
+    that ``build_model`` would reject it.
+    """
+    if not model or "/" not in model:
+        return None
+    return model.split("/", 1)[0]
+
+
 def estimate_tokens(raw_data: list[dict[str, Any]], chunk_size: int) -> int:
     """Rough token estimate for an ingest job.
 
@@ -68,20 +79,36 @@ async def _process_job(
         await set_job_status(db, job_id, "failed")
         return
 
-    source, raw_data, chunk_size, model = data
-    # App-level AI state: resolve the provider env once per job; fall back to
-    # the canonical active model when the job didn't pin one at enqueue time.
+    source, raw_data, chunk_size, pinned_model = data
+    # App-level AI state. ``env`` carries the *active* provider's credentials,
+    # so the model we run must belong to that same provider. A job that pinned
+    # a model under a since-replaced provider (cross-provider pin) would fail
+    # auth in build_model on every chunk — reconcile to the active model so the
+    # job runs with consistent creds rather than looping fail → pending.
     env = await env_resolver()
-    if not model:
-        model = await model_resolver()
+    active_model = await model_resolver()
+    model = pinned_model or active_model
+    if (
+        pinned_model
+        and active_model
+        and _provider_prefix(pinned_model) != _provider_prefix(active_model)
+    ):
+        logger.info(
+            "Job %s: pinned model %s is from a different provider than the "
+            "active model %s — using the active model",
+            job_id,
+            pinned_model,
+            active_model,
+        )
+        model = active_model
 
-    # No AI provider configured → every chunk would fail in build_model.
-    # Short-circuit to a terminal ``failed`` instead of looping
-    # fail → pending → re-poll until a provider appears (the normalizer is a
-    # PA agent now, so it can't run without a resolved provider + model).
-    if not env or not model:
+    # Fail terminally (not fail → pending → re-poll) when there's no usable
+    # provider/model: missing env, missing model, or a malformed id like a bare
+    # ``claude-opus-4-1`` (no ``<provider>/`` prefix) that build_model would
+    # reject on every chunk.
+    if not env or not model or _provider_prefix(model) is None:
         logger.warning(
-            "Job %s: no AI provider configured (env=%s, model=%s) — marking failed",
+            "Job %s: no usable AI provider/model (env=%s, model=%s) — marking failed",
             job_id,
             bool(env),
             model,
@@ -89,7 +116,8 @@ async def _process_job(
         await increment_failed_chunk(
             db,
             job_id,
-            "No AI provider configured — connect one in Settings, then retry.",
+            "No usable AI provider/model configured — connect a provider and "
+            "pick a model in Settings, then retry.",
         )
         await set_job_status(db, job_id, "failed")
         return
@@ -166,7 +194,15 @@ async def _process_job(
                 logger.warning("Failed to persist finding in chunk %d: %s", chunk_idx + 1, exc)
                 errors.append(f"DB error: {exc}")
 
-        await increment_completed_chunk(db, job_id, findings_count)
+        # A chunk counts as *completed* only when it produced at least one
+        # finding, or was genuinely empty (no findings, no errors). A chunk
+        # that yielded only errors (model returned nothing valid, or every
+        # create failed) is a failed chunk — recorded below — and must NOT
+        # bump completed_chunks, or a job of all-bad-data would finish
+        # "completed" with nothing created (the final status check keys off
+        # completed_chunks == 0).
+        if findings_count > 0 or not errors:
+            await increment_completed_chunk(db, job_id, findings_count)
 
         if errors:
             for err in errors:

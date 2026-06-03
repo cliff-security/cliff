@@ -143,29 +143,6 @@ def all_providers() -> list[AIProvider]:
     return list(_CATALOG.keys())
 
 
-def provider_env_var_names() -> frozenset[str]:
-    """Every host env var name Cliff controls for AI providers.
-
-    For each catalogued provider this is its ``*_API_KEY`` plus the
-    matching ``*_BASE_URL`` (either the implicit ``_API_KEY → _BASE_URL``
-    pair OR an explicit ``base_url_env_var`` entry — Ollama uses a name
-    not derivable from any key var). This is the canonical set of host env
-    vars Cliff controls for AI providers — e.g. for scrubbing a polluted
-    host environment before layering Cliff's own resolved values on top.
-    Motivating case (QA Q01 B07): Claude Desktop exports
-    ``ANTHROPIC_BASE_URL=https://api.anthropic.com`` (note: no ``/v1``) plus
-    an empty ``ANTHROPIC_API_KEY`` that would otherwise shadow the real one.
-    """
-    names: set[str] = set()
-    for info in _CATALOG.values():
-        if info.env_var_name:
-            names.add(info.env_var_name)
-            names.add(info.env_var_name.replace("_API_KEY", "_BASE_URL"))
-        if info.base_url_env_var:
-            names.add(info.base_url_env_var)
-    return frozenset(names)
-
-
 def _override_env_var(provider: AIProvider) -> str:
     return f"CLIFF_AI_MODEL_OVERRIDE_{provider.upper()}"
 

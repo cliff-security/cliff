@@ -113,6 +113,12 @@ def build_model(env: dict[str, str], model_full_id: str | None) -> Model:
         base_url = env.get("OLLAMA_BASE_URL", OLLAMA_DEFAULT_BASE_URL).rstrip(
             "/"
         )
+        # Ollama's OpenAI-compatible surface lives under ``/v1``; we append
+        # it below. Operators commonly set OLLAMA_BASE_URL with the ``/v1``
+        # already on it (it *is* an OpenAI-compatible endpoint), so strip a
+        # trailing ``/v1`` first to avoid a doubled ``/v1/v1`` → 404.
+        if base_url.endswith("/v1"):
+            base_url = base_url[:-3].rstrip("/")
         # Ollama doesn't authenticate; the OpenAI client refuses an
         # empty api_key string, so use the conventional ``"ollama"``
         # placeholder.
