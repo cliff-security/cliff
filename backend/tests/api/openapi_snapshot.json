@@ -2,7 +2,7 @@
   "components": {
     "schemas": {
       "AIStatus": {
-        "description": "Wire shape for ``GET /api/integrations/ai/status``.\n\n``model`` is the canonical active model \u2014 the one Cliff writes into\n``app_setting(key=\"model\")`` and pushes into every workspace spawn.\nPer ADR-0037 there is one canonical state and one read; the\non_key_change hook restarts the singleton OpenCode synchronously on\nevery model/key write, so there is no separate \"what's loaded right\nnow\" signal worth exposing on the wire (architect health-check, M9).",
+        "description": "Wire shape for ``GET /api/integrations/ai/status``.\n\n``model`` is the canonical active model \u2014 the one Cliff writes into\n``app_setting(key=\"model\")`` and the PA model factory reads at each\nagent run. Per ADR-0037 / ADR-0047 there is one canonical state and\none read; with the substrate in-process there is no separate \"what's\nloaded right now\" signal worth exposing on the wire.",
         "properties": {
           "connected_at": {
             "anyOf": [
@@ -3985,6 +3985,38 @@
         "title": "PreviousAssessmentInfo",
         "type": "object"
       },
+      "ProviderInfo": {
+        "properties": {
+          "env": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Env",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "models": {
+            "additionalProperties": true,
+            "default": {},
+            "title": "Models",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ProviderInfo",
+        "type": "object"
+      },
       "ProviderModelOption": {
         "description": "One entry in the per-provider model picker dropdown.",
         "properties": {
@@ -7564,7 +7596,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProviderInfo"
+                  },
+                  "title": "Response List Providers Api Settings Providers Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
