@@ -3988,7 +3988,6 @@
       "ProviderInfo": {
         "properties": {
           "env": {
-            "default": [],
             "items": {
               "type": "string"
             },
@@ -4001,7 +4000,6 @@
           },
           "models": {
             "additionalProperties": true,
-            "default": {},
             "title": "Models",
             "type": "object"
           },
@@ -4012,7 +4010,9 @@
         },
         "required": [
           "id",
-          "name"
+          "name",
+          "env",
+          "models"
         ],
         "title": "ProviderInfo",
         "type": "object"

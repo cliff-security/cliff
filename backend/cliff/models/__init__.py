@@ -347,8 +347,11 @@ class ApiKeyResponse(BaseModel):
 class ProviderInfo(BaseModel):
     id: str
     name: str
-    env: list[str] = []
-    models: dict[str, Any] = {}
+    # Required, not defaulted: ``GET /api/settings/providers`` always emits
+    # both, and the Settings UI / CLI consume them — so generated clients
+    # must treat them as present, not optional.
+    env: list[str]
+    models: dict[str, Any]
 
 
 class ModelConfig(BaseModel):

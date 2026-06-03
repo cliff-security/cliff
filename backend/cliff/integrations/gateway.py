@@ -261,7 +261,15 @@ class MCPConfigResolver:
         """
         resolved = copy.deepcopy(mcp_config)
         # Support both "environment" (stdio MCP format) and "env" (legacy).
-        env = resolved.get("environment") or resolved.get("env")
+        # Explicit-key precedence: an explicit (even empty) "environment" wins
+        # over the legacy "env", so an empty ``environment: {}`` isn't silently
+        # treated as missing and a config carrying both can't substitute into
+        # the wrong field.
+        env = (
+            resolved["environment"]
+            if "environment" in resolved
+            else resolved.get("env")
+        )
         if not isinstance(env, dict):
             return resolved
 
@@ -319,7 +327,8 @@ def _apply_toolset_scoping(
 
 def _find_unresolved_placeholders(config: dict[str, Any]) -> list[str]:
     """Return any ``${credential:...}`` placeholders still present in env values."""
-    env = config.get("environment") or config.get("env")
+    # Same explicit-key precedence as ``_resolve_credentials`` above.
+    env = config["environment"] if "environment" in config else config.get("env")
     if not isinstance(env, dict):
         return []
     unresolved = []

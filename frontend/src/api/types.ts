@@ -2892,17 +2892,11 @@ export interface components {
         };
         /** ProviderInfo */
         ProviderInfo: {
-            /**
-             * Env
-             * @default []
-             */
+            /** Env */
             env: string[];
             /** Id */
             id: string;
-            /**
-             * Models
-             * @default {}
-             */
+            /** Models */
             models: {
                 [key: string]: unknown;
             };
