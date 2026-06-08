@@ -22,7 +22,11 @@ _skip_no_key = pytest.mark.skipif(
 
 # Files whose every test hits a real LLM (the live evals). Everything else
 # under tests/agents/ runs against FunctionModel/TestModel and stays in CI.
-_LIVE_LLM_FILES = ("test_normalizer_agent", "test_plain_description_eval")
+_LIVE_LLM_FILES = (
+    "test_normalizer_agent",
+    "test_plain_description_eval",
+    "test_evals_finding_enricher",
+)
 
 
 def pytest_collection_modifyitems(items):
