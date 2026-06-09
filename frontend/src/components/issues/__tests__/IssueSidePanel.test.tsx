@@ -1046,6 +1046,11 @@ describe('IssueSidePanel — triage verdict', () => {
     expect(await screen.findByTestId('triage-claim-compare')).toHaveTextContent(
       /ast\.literal_eval/,
     )
+    // AI-slop signals + PoC flag render (UX-0008 Story 5).
+    const signals = screen.getByTestId('triage-report-signals')
+    expect(signals).toHaveTextContent(/AI-slop signals/i)
+    expect(signals).toHaveTextContent(/no concrete PoC/i)
+    expect(signals).toHaveTextContent(/Proof of concept:\s*not provided/i)
     const reply = screen.getByTestId('triage-drafted-reply') as HTMLTextAreaElement
     expect(reply.value).toMatch(/Thanks for the report/)
     // Editable by the maintainer — and there is no "send" affordance: Cliff

@@ -940,6 +940,64 @@ function ClaimCompare({ triage }: { triage: TriageOutput }) {
   )
 }
 
+function ReportSignals({ triage }: { triage: TriageOutput }) {
+  const report = triage.report
+  if (!report) return null
+  const signals = report.ai_slop_signals ?? []
+  // Surface the report-shaped evidence (UX-0008 Story 5): AI-slop signals
+  // plus the duplicate / proof-of-concept checks. Render nothing if there's
+  // no report-evidence to show.
+  if (signals.length === 0 && report.duplicate == null && report.poc_present == null) {
+    return null
+  }
+  return (
+    <div className="mt-4" data-testid="triage-report-signals">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-2">
+        {report.poc_present != null && (
+          <span className="text-[11.5px]" style={{ color: 'var(--cd-fg-3)' }}>
+            Proof of concept:{' '}
+            <span style={{ color: report.poc_present ? 'var(--cd-fg-2)' : 'var(--cd-amber)' }}>
+              {report.poc_present ? 'included' : 'not provided'}
+            </span>
+          </span>
+        )}
+        {report.duplicate != null && (
+          <span className="text-[11.5px]" style={{ color: 'var(--cd-fg-3)' }}>
+            Duplicate:{' '}
+            <span style={{ color: 'var(--cd-fg-2)' }}>
+              {report.duplicate ? 'yes' : 'no'}
+            </span>
+          </span>
+        )}
+      </div>
+      {signals.length > 0 && (
+        <>
+          <span className="cd-section-label cd-section-label--quiet">AI-slop signals</span>
+          <ul
+            className="flex flex-col gap-1.5 mt-2"
+            style={{ listStyle: 'none', margin: 0, padding: 0 }}
+          >
+            {signals.map((s, i) => (
+              <li key={`${i}-${s}`} className="flex items-start gap-2">
+                <span
+                  className="material-symbols-outlined"
+                  style={{ fontSize: 15, color: 'var(--cd-amber)' }}
+                  aria-hidden
+                >
+                  flag
+                </span>
+                <span className="text-[12px]" style={{ color: 'var(--cd-fg-3)' }}>
+                  {s}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  )
+}
+
 function DraftedReply({ triage }: { triage: TriageOutput }) {
   const draft = triage.report?.drafted_reply
   const [text, setText] = useState(draft ?? '')
@@ -988,6 +1046,7 @@ function SPTriage({
           <ProofChecks checks={triage.checks ?? []} />
           <ReachabilityGraph triage={triage} />
           <ClaimCompare triage={triage} />
+          <ReportSignals triage={triage} />
           <DraftedReply triage={triage} />
         </>
       ) : stage === 'triaging' ? (
