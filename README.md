@@ -16,11 +16,13 @@
 
 ---
 
-# Earn the trust
+# Triage every alert. Cliff proves which run.
 
-Modern software is assembled more than it's written. Your repo pulls in hundreds of open-source packages, and each of those pulls in more. When one ships a vulnerable or malicious release, every project downstream inherits it. That's a supply chain attack, and it's why security stopped being only a security team's job.
+Your scanners flag every CVE in every dependency, and most of them sit in code you never call. The pile trains you to ignore the channel, until a real one slips through. Cliff reads every finding, checks whether the vulnerable code actually runs in your repo, and tells you which ones are real. Then it drafts the fix, and you approve every step. You don't need to know what a CVE is, which findings actually matter, or how to remediate them. That's Cliff's job.
 
-Cliff hands that job to everyone else. Point it at your repo and it scans, explains every finding in plain English, and prepares the fix — you approve each step. You don't need to know what a CVE is, which findings actually matter, or how to remediate them. That's Cliff's job.
+It's everyone's job now because modern software is assembled more than written: your repo pulls in hundreds of packages, each pulling in more, and when one ships a vulnerable release every project downstream inherits it. Cliff hands that job to the people who didn't sign up to be the security team.
+
+Today Cliff triages the findings your scanners produce. Triaging the inbound vulnerability reports that flood maintainers' inboxes (the AI-slop problem) is on the [roadmap](ROADMAP.md).
 
 [cliffsecurity.ai](https://cliffsecurity.ai) · self-hosted · runs natively on macOS and Linux, or in a single Docker container.
 
@@ -39,7 +41,7 @@ Three steps, from install to a fix you can merge.
 
 **1 · Point Cliff at your repo.** One command. Cliff runs entirely on your machine. Your code never leaves it.
 
-**2 · Cliff scans and explains.** It runs Trivy, Semgrep, and a set of posture checks, then turns every result into a finding written in plain English. You get a grade, A through F, and the short list of what stands between your repo and an A.
+**2 · Cliff scans, explains, and prioritizes.** It runs Trivy, Semgrep, and a set of posture checks, turns every result into a finding written in plain English, and reasons about whether your code actually reaches the vulnerable path, so the findings that matter rise above the ones that don't. You get a grade, A through F, and the short list of what stands between your repo and an A.
 
 **3 · Cliff remediates, with your approval.** For each finding, a pipeline of focused agents works it through: what the vulnerability is, whether your code actually reaches it, and a fix plan with a clear definition of done. Then Cliff stops. Nothing touches your code until you approve the plan. Once you do, Cliff opens a draft pull request — you review it like any other contribution. Nothing auto-merges.
 
@@ -93,13 +95,9 @@ Cliff scans the codebase, opens a workspace per finding, and walks you from plan
 
 Cliff grades your repo, A through F. An A is the highest standard Cliff measures: nothing critical outstanding, no secrets committed, and the posture basics in place. It's not a participation mark. It has to be earned.
 
-When you reach it, Cliff gives you a summary card for your README — proof of the work, in a form anyone can verify. The public Cliff badge comes next. The point was never the badge itself. It's a standard of trust for open source: earned by doing the work, never bought.
+When the rubric clears, Cliff writes a completion summary card you can paste in your README, proof of the work in a form anyone can verify. The badge at the top of this README is the one Cliff issued for itself.
 
-The badge at the top of this README is the one Cliff issues for itself.
-
-When the rubric clears, Cliff writes a completion summary you can paste in your README and share. The grade in the hero is the one Cliff issued for itself.
-
-The live, continuously-scored Cliff badge — the kind that lives next to your build badge and updates on every commit — ships in v1.2, once enough maintainers have earned one that it actually means something. The point of a security badge is that it's credible, not that it exists.
+The point was never the badge itself. It's a standard of trust for open source, earned by doing the work and never bought. The live, continuously-scored badge that lives next to your build badge and updates on every commit ships in v1.2, once enough maintainers have earned one that it actually means something.
 
 ## Who built this
 
