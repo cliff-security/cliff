@@ -349,9 +349,17 @@ function IssuesPageContent() {
         void triageFinding(finding)
         return
       }
+      // A produced verdict awaiting confirmation must NOT auto-remediate —
+      // open the panel so the user reviews + confirms the verdict (the gate).
+      // The row's Review-verdict button already routes here via onInspect;
+      // this guards any other caller too (defense in depth).
+      if (stage === 'triage_verdict') {
+        openPanel(finding.id)
+        return
+      }
       remediateFinding(finding)
     },
-    [triageFinding, remediateFinding],
+    [triageFinding, remediateFinding, openPanel],
   )
 
   /** Read-only inspection — opens the side panel for any finding without

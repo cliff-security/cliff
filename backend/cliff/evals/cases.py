@@ -17,6 +17,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+# Pydantic resolves ``Expected.verdict``'s annotation at model-build time, so
+# this is a genuine runtime import (not type-only) despite ``from __future__
+# import annotations`` — same convention as ``finding.py``'s datetime import.
+from cliff.agents.schemas import TriageVerdict  # noqa: TC001
+
 Tier = Literal["ci", "live"]
 
 # Public synthetic sample lives in-repo; backend/ root is parents[2].
@@ -48,7 +53,9 @@ class Expected(BaseModel):
     cvss_min: float | None = None
     cvss_max: float | None = None
     # ADR-0051 — triage golden verdict (triage_synthesizer / report_triager).
-    verdict: str | None = None
+    # Constrained to the verdict literal so a malformed JSONL row fails in
+    # load_cases instead of silently weakening the hard-gate semantics.
+    verdict: TriageVerdict | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """The declared-only mapping the deterministic evaluators consume."""

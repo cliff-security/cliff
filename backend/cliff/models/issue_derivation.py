@@ -226,14 +226,16 @@ def derive(
     # an untriaged finding routes here, never into the remediation flow above:
     # Plan is unreachable without a recorded ``real`` verdict (PRD-0008 Story 4).
     if finding.status == "new":
+        # Triage reasoning in flight wins over everything else — a re-triage
+        # after an earlier failure (one type's latest run failed while another
+        # is now running) must show `triaging`, not the stale failure. Mirrors
+        # the running-planner-beats-existing-plan rule above.
+        if _triage_running(latest_runs_by_type):
+            return out("in_progress", "triaging")
         # A failed triage run with no verdict yet → Retry affordance in Review
         # (never a silent stick in Todo).
         if _triage_failed(latest_runs_by_type) and not _has_triage_verdict(sidebar):
             return out("review", "failed")
-        # Triage reasoning in flight (a re-triage beats an existing verdict,
-        # mirroring the running-planner-beats-existing-plan rule above).
-        if _triage_running(latest_runs_by_type):
-            return out("in_progress", "triaging")
         # Verdict produced, awaiting the human gate (real → accept,
         # needs_review → decide, unexploitable/false_positive → confirm close).
         # Lands in the existing "Needs you" section.

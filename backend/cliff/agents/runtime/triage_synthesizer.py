@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from cliff.agents.schemas import TriageOutput
+from cliff.agents.schemas import TriageOutput, TriageVerdict
 
 #: Below this confidence (or when exploitability is unknown) the synthesizer
 #: routes to ``needs_review`` rather than a terminal verdict (ADR-0051 §9).
@@ -131,7 +131,7 @@ def synthesize_triage(
     internet_facing = exposure.get("internet_facing")
     evidence = exposure.get("reachability_evidence")
 
-    verdict: str
+    verdict: TriageVerdict
     confidence: float
     exploitability: dict[str, Any]
 
@@ -192,7 +192,7 @@ def synthesize_triage(
     checks = _build_checks(reached, internet_facing, known_exploits, enrichment, evidence)
 
     return TriageOutput(
-        verdict=verdict,  # type: ignore[arg-type]
+        verdict=verdict,
         confidence=confidence,
         reachability=reachability,
         exploitability=exploitability,

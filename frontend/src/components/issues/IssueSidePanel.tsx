@@ -1987,6 +1987,18 @@ function DefaultFooter({
   )
 }
 
+/** Shared reject-with-reason mutation for the close footers (RejectFooter +
+ *  TriageClosePicker). Only the UI differs — the chip list vs the two-way
+ *  radiogroup — so the mutation + close-on-success is factored out here. */
+function useRejectWithReason(findingId: string, onDone: () => void) {
+  const reject = useRejectFinding()
+  const submit = (reason: ExceptionReason | null) => {
+    if (!reason) return
+    reject.mutate({ id: findingId, payload: { reason } }, { onSuccess: onDone })
+  }
+  return { reject, submit }
+}
+
 function RejectFooter({
   finding,
   onCancel,
@@ -1997,15 +2009,7 @@ function RejectFooter({
   onRejected: () => void
 }) {
   const [reason, setReason] = useState<ExceptionReason | null>(null)
-  const reject = useRejectFinding()
-
-  const submit = () => {
-    if (!reason) return
-    reject.mutate(
-      { id: finding.id, payload: { reason } },
-      { onSuccess: () => onRejected() },
-    )
-  }
+  const { reject, submit } = useRejectWithReason(finding.id, onRejected)
 
   return (
     <div className="flex items-center gap-2 w-full overflow-x-auto">
@@ -2023,7 +2027,11 @@ function RejectFooter({
       ))}
       <span className="ml-auto" />
       <TextButton onClick={onCancel}>Cancel</TextButton>
-      <ErrorButton icon="block" onClick={submit} disabled={!reason || reject.isPending}>
+      <ErrorButton
+        icon="block"
+        onClick={() => submit(reason)}
+        disabled={!reason || reject.isPending}
+      >
         Reject
       </ErrorButton>
     </div>
@@ -2056,15 +2064,13 @@ function TriageClosePicker({
   // query resolves — derivation handles that without a cascading render).
   const [picked, setPicked] = useState<ExceptionReason | null>(null)
   const reason = picked ?? recommended
-  const reject = useRejectFinding()
+  const { reject, submit } = useRejectWithReason(finding.id, onRejected)
 
-  const submit = () => {
-    if (!reason) return
-    reject.mutate(
-      { id: finding.id, payload: { reason } },
-      { onSuccess: () => onRejected() },
-    )
-  }
+  // Roving tabindex + arrow-key navigation for the radiogroup (WAI-ARIA radio
+  // pattern): one tab stop, arrows move + select, focus follows.
+  const radioRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const selectedIdx = TRIAGE_CLOSE_OPTIONS.findIndex((o) => o.value === reason)
+  const focusableIdx = selectedIdx >= 0 ? selectedIdx : 0
 
   return (
     <div
@@ -2078,23 +2084,45 @@ function TriageClosePicker({
       >
         Close as
       </span>
-      {TRIAGE_CLOSE_OPTIONS.map((opt) => (
+      {TRIAGE_CLOSE_OPTIONS.map((opt, i) => (
         <button
           key={opt.value}
+          ref={(el) => {
+            radioRefs.current[i] = el
+          }}
           type="button"
           role="radio"
           aria-checked={reason === opt.value}
+          tabIndex={i === focusableIdx ? 0 : -1}
           className={`cd-chip ${reason === opt.value ? 'cd-chip--green' : 'cd-chip--ink'}`}
           style={{ cursor: 'pointer' }}
           onClick={() => setPicked(opt.value)}
+          onKeyDown={(e) => {
+            const delta =
+              e.key === 'ArrowRight' || e.key === 'ArrowDown'
+                ? 1
+                : e.key === 'ArrowLeft' || e.key === 'ArrowUp'
+                  ? -1
+                  : 0
+            if (delta === 0) return
+            e.preventDefault()
+            const next =
+              (i + delta + TRIAGE_CLOSE_OPTIONS.length) % TRIAGE_CLOSE_OPTIONS.length
+            setPicked(TRIAGE_CLOSE_OPTIONS[next].value)
+            radioRefs.current[next]?.focus()
+          }}
         >
           {opt.label}
         </button>
       ))}
       <span className="ml-auto" />
       <TextButton onClick={onCancel}>Cancel</TextButton>
-      <PrimaryButton icon="check" onClick={submit} disabled={!reason || reject.isPending}>
-        {reject.isPending ? 'Closing…' : 'Confirm & move to Done'}
+      <PrimaryButton
+        icon="check"
+        onClick={() => submit(reason)}
+        disabled={!reason || reject.isPending}
+      >
+        {reject.isPending ? 'Closing…' : 'Confirm & close'}
       </PrimaryButton>
     </div>
   )

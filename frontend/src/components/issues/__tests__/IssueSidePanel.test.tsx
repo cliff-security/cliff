@@ -1013,7 +1013,7 @@ describe('IssueSidePanel — triage verdict', () => {
     renderPanel(findingForStage('triage_verdict'), { onClose })
     fireEvent.click(await screen.findByRole('button', { name: /Accept & close/i }))
     fireEvent.click(
-      await screen.findByRole('button', { name: /Confirm & move to Done/i }),
+      await screen.findByRole('button', { name: /Confirm & close/i }),
     )
     await waitFor(() => expect(body).not.toBeNull())
     expect(body!.reason).toBe('unexploitable')

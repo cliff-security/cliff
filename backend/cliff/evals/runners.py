@@ -314,8 +314,13 @@ async def run_report_triager_eval(
 
     for case in cases:
         with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
             for rel, text in (case.files or {}).items():
-                target = Path(tmp) / rel
+                # Confine staged files to the temp workspace — a dataset row
+                # with an absolute path or ``..`` segment must not escape it.
+                target = (root / rel).resolve()
+                if not target.is_relative_to(root):
+                    raise ValueError(f"case file path escapes the workspace: {rel!r}")
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(text)
             deps = WorkspaceDeps(

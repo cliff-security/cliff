@@ -899,7 +899,12 @@ class TestTriageEndpoint:
                 ]
                 is False
             )
-            await asyncio.sleep(0.05)
+            # Poll for the scheduled background run rather than a fixed sleep
+            # (deterministic — won't flake on a slow CI runner).
+            for _ in range(200):
+                if mock_run.await_count:
+                    break
+                await asyncio.sleep(0.001)
             mock_run.assert_awaited_once()
 
     @pytest.mark.asyncio

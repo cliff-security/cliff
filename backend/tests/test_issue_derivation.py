@@ -784,6 +784,21 @@ def test_failed_triage_agent_on_new_surfaces_retry() -> None:
     assert (result.section, result.stage) == ("review", "failed")
 
 
+def test_inflight_retriage_beats_a_stale_failure() -> None:
+    """A re-triage in flight (one type's latest run failed earlier, another is
+    now running) shows `triaging`, not the stale `failed` — running wins."""
+    result = derive(
+        make_finding(status="new"),
+        workspace=make_workspace(),
+        sidebar=make_sidebar(),
+        latest_runs_by_type={
+            "exposure_analyzer": make_run("exposure_analyzer", "failed"),
+            "finding_enricher": make_run("finding_enricher", "running"),
+        },
+    )
+    assert (result.section, result.stage) == ("in_progress", "triaging")
+
+
 def test_untriaged_idle_new_finding_is_todo() -> None:
     result = derive(
         make_finding(status="new"),

@@ -477,6 +477,12 @@ async def run_triage_endpoint(
     existing = await list_workspaces(db, finding_id=finding_id, limit=1)
     if existing:
         workspace = existing[0]
+        if not workspace.workspace_dir:
+            # A stale/partial workspace row (no directory) would otherwise
+            # return 202 and fail only in the background. Surface it now.
+            raise HTTPException(
+                status_code=400, detail="Workspace has no directory"
+            )
     else:
         repo_url = await _resolve_github_repo_url(db)
         workspace = await context_builder.create_workspace(
