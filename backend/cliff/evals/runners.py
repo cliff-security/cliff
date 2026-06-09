@@ -112,6 +112,10 @@ async def run_enricher_eval(
         "no_jargon_title": [],
         "reference_liveness": [],
     }
+    # Price against the model the adapter actually runs (it falls back to
+    # spec.default_model when model_id is None), so a None id can't silently
+    # skip the USD caps.
+    pricing_model_id = model_id or spec.default_model
     run_cost = 0.0
     run_cost_known = True
 
@@ -129,7 +133,9 @@ async def run_enricher_eval(
             result.budget_failures.append(
                 f"{case.id}: {run.duration_s:.0f}s > {budget.max_duration_s:.0f}s cap"
             )
-        case_cost = estimate_cost_usd(model_id, run.input_tokens, run.output_tokens)
+        case_cost = estimate_cost_usd(
+            pricing_model_id, run.input_tokens, run.output_tokens
+        )
         if case_cost is None:
             run_cost_known = False
         else:

@@ -77,6 +77,9 @@ _REGISTRY: dict[str, AgentEvalSpec] = {
             max_run_usd=0.50,
             max_run_tokens=120_000,
         ),
+        # Match the production default so the eval predicts customer experience;
+        # used by the adapter (and USD pricing) when a caller omits model_id.
+        default_model="anthropic/claude-haiku-4-5",
     ),
 }
 
