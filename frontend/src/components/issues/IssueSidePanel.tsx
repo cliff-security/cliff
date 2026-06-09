@@ -19,7 +19,15 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { parseApiError } from '../../api/client'
-import type { AgentRun, ExceptionReason, Finding, IssueStage } from '../../api/client'
+import type {
+  AgentRun,
+  ExceptionReason,
+  Finding,
+  IssueStage,
+  TriageCheck,
+  TriageOutput,
+  TriageVerdict,
+} from '../../api/client'
 import {
   useAgentRuns,
   useApprovePlan,
@@ -49,13 +57,31 @@ interface IssueSidePanelProps {
   starting?: boolean
 }
 
-type SectionKey = 'plan' | 'plan_drafting' | 'pr' | 'validation' | 'finding' | 'activity'
+type SectionKey =
+  | 'plan'
+  | 'plan_drafting'
+  | 'pr'
+  | 'validation'
+  | 'finding'
+  | 'activity'
+  // ADR-0051 / PRD-0008 — the triage verdict + proof.
+  | 'triage'
 
 const REASON_OPTIONS: { value: ExceptionReason; label: string }[] = [
   { value: 'false_positive', label: 'False positive' },
+  // ADR-0051 §7 — a real advisory that isn't reachable/exploitable here.
+  { value: 'unexploitable', label: 'Unexploitable' },
   { value: 'wont_fix', label: "Won't fix" },
   { value: 'accepted_risk', label: 'Accept risk' },
   { value: 'deferred', label: 'Defer' },
+]
+
+// ADR-0051 §7 — the two-way triage close: a real advisory that can't reach the
+// user (unexploitable, recommended for the dependency flood) vs not a real
+// issue (false_positive). Ordered with unexploitable first per UX-0008.
+const TRIAGE_CLOSE_OPTIONS: { value: ExceptionReason; label: string }[] = [
+  { value: 'unexploitable', label: 'Unexploitable' },
+  { value: 'false_positive', label: 'False positive' },
 ]
 
 function severityKind(raw: string | null): IssueSeverityKind {
@@ -86,14 +112,26 @@ function sectionsForStage(stage: IssueStage): SectionKey[] {
   if (stage === 'pr_ready' || stage === 'pr_awaiting_val') {
     return ['pr', 'plan', 'activity', 'finding']
   }
+  // ADR-0051 / PRD-0008 — triage closes (false_positive / unexploitable) were
+  // resolved at the triage gate, before any remediation: surface the triage
+  // evidence that closed them (auditable + reopenable, Story 6), not an
+  // empty plan/PR/validation block.
+  if (stage === 'false_positive' || stage === 'unexploitable') {
+    return ['triage', 'activity', 'finding']
+  }
   if (
     stage === 'fixed' ||
-    stage === 'false_positive' ||
     stage === 'wont_fix' ||
     stage === 'accepted' ||
     stage === 'deferred'
   ) {
     return ['validation', 'pr', 'plan', 'activity', 'finding']
+  }
+  // ADR-0051 — triage in flight or a verdict awaiting confirmation: the
+  // verdict + progressive-disclosure proof lead; the live agent history and
+  // finding metadata support it.
+  if (stage === 'triaging' || stage === 'triage_verdict') {
+    return ['triage', 'activity', 'finding']
   }
   if (
     stage === 'planning' ||
@@ -211,6 +249,8 @@ export function IssueSidePanel({
             )
           if (key === 'plan_drafting')
             return <SPPlanDrafting key={key} stage={stage} />
+          if (key === 'triage')
+            return <SPTriage key={key} workspaceId={workspaceId} stage={stage} />
           if (key === 'pr')
             return <SPPullRequest key={key} prUrl={finding.derived?.pr_url ?? null} />
           if (key === 'validation') return <SPValidation key={key} stage={stage} />
@@ -578,6 +618,377 @@ function SPPullRequest({ prUrl }: { prUrl: string | null }) {
         </a>
       ) : (
         <p className="text-[12.5px] text-on-surface-variant">No pull request yet.</p>
+      )}
+    </section>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Triage section (ADR-0051 / PRD-0008 / UX-0008)
+// ---------------------------------------------------------------------------
+
+/** Render confidence as a word + % ("High · 92%") — never a bare number,
+ *  never stars (UX-0008 §States). */
+function confidenceText(confidence: number): string {
+  const pct = Math.round(confidence * 100)
+  const word = confidence >= 0.85 ? 'High' : confidence >= 0.7 ? 'Medium' : 'Low'
+  return `${word} · ${pct}%`
+}
+
+interface VerdictVisual {
+  label: string
+  icon: string
+  color: string
+  /** Background tint token for the banner. */
+  tint: string
+}
+
+// Verdict = colour + icon + label, never colour alone (UX-0008 §States,
+// DESIGN.md severity rule). unexploitable/false_positive carry DISTINCT icons.
+const VERDICT_VISUAL: Record<TriageVerdict, VerdictVisual> = {
+  real: {
+    label: 'Real risk',
+    icon: 'warning',
+    color: 'var(--cd-red, #ef6464)',
+    tint: 'var(--cd-red-dim, rgba(239,100,100,0.12))',
+  },
+  unexploitable: {
+    label: 'Not exploitable',
+    icon: 'shield',
+    color: 'var(--cd-green)',
+    tint: 'var(--cd-green-dim, rgba(122,200,160,0.12))',
+  },
+  false_positive: {
+    label: 'False positive',
+    icon: 'report',
+    color: 'var(--cd-green)',
+    tint: 'var(--cd-green-dim, rgba(122,200,160,0.12))',
+  },
+  needs_review: {
+    label: 'Needs your review',
+    icon: 'help',
+    color: 'var(--cd-amber, #f5b54a)',
+    tint: 'var(--cd-amber-dim, rgba(245,181,74,0.12))',
+  },
+}
+
+const CHECK_ICON: Record<string, string> = {
+  pass: 'check_circle',
+  fail: 'cancel',
+  warn: 'help',
+  info: 'info',
+}
+
+const CHECK_COLOR: Record<string, string> = {
+  pass: 'var(--cd-green)',
+  fail: 'var(--cd-red, #ef6464)',
+  warn: 'var(--cd-amber, #f5b54a)',
+  info: 'var(--cd-fg-3)',
+}
+
+// The live step list shown while scanner triage reasons (UX-0008 Story 1).
+const TRIAGE_STEPS = [
+  'Reading the advisory',
+  'Mapping your call graph',
+  'Checking reachability',
+  'Tracing untrusted input',
+  'Weighing the verdict',
+]
+
+function TriageProgress() {
+  return (
+    <div className="flex items-start gap-3">
+      <CliffSpinner size={14} label="Cliff is reasoning over the finding" />
+      <ul className="flex flex-col gap-1" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+        {TRIAGE_STEPS.map((s) => (
+          <li key={s} className="text-[12px]" style={{ color: 'var(--cd-fg-3)' }}>
+            {s}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function VerdictBanner({ triage }: { triage: TriageOutput }) {
+  const v = VERDICT_VISUAL[triage.verdict] ?? VERDICT_VISUAL.needs_review
+  const rationale =
+    triage.exploitability?.reason ?? triage.reachability?.summary ?? null
+  return (
+    <div
+      data-testid="triage-verdict-banner"
+      className="cd-frame"
+      style={{ background: v.tint, padding: '14px 16px' }}
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className="material-symbols-outlined"
+          style={{ fontSize: 20, color: v.color, fontVariationSettings: "'FILL' 1" }}
+          aria-hidden
+        >
+          {v.icon}
+        </span>
+        <span className="text-[14px] font-semibold" style={{ color: 'var(--cd-fg-2)' }}>
+          {v.label}
+        </span>
+        <span
+          className="font-mono ml-auto"
+          data-testid="triage-confidence"
+          style={{ fontSize: 11, color: v.color, letterSpacing: '0.04em' }}
+        >
+          {confidenceText(triage.confidence)}
+        </span>
+      </div>
+      {rationale && (
+        <p className="text-[12.5px] mt-2" style={{ color: 'var(--cd-fg-3)' }}>
+          {rationale}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function ProofChecks({ checks }: { checks: TriageCheck[] }) {
+  if (checks.length === 0) return null
+  return (
+    <details className="mt-4">
+      <summary
+        className="cursor-pointer text-[12.5px] font-semibold select-none"
+        style={{ color: 'var(--cd-fg-2)' }}
+      >
+        Cliff checked {checks.length} thing{checks.length === 1 ? '' : 's'}
+      </summary>
+      <ul className="flex flex-col gap-2 mt-3" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+        {checks.map((c, i) => (
+          <li key={`${c.eyebrow}-${i}`} className="flex items-start gap-2">
+            <span
+              className="material-symbols-outlined"
+              style={{
+                fontSize: 16,
+                color: CHECK_COLOR[c.kind] ?? CHECK_COLOR.info,
+                fontVariationSettings: "'FILL' 1",
+              }}
+              aria-hidden
+            >
+              {CHECK_ICON[c.kind] ?? 'info'}
+            </span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-baseline gap-2">
+                <span
+                  className="font-mono"
+                  style={{
+                    fontSize: 9.5,
+                    letterSpacing: '0.14em',
+                    textTransform: 'uppercase',
+                    color: 'var(--cd-fg-4)',
+                  }}
+                >
+                  {c.eyebrow}
+                </span>
+                <span className="text-[12px] font-semibold" style={{ color: 'var(--cd-fg-2)' }}>
+                  {c.result}
+                </span>
+              </div>
+              {c.detail && (
+                <p className="text-[11.5px] mt-0.5" style={{ color: 'var(--cd-fg-3)' }}>
+                  {c.detail}
+                </p>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </details>
+  )
+}
+
+function ReachabilityGraph({ triage }: { triage: TriageOutput }) {
+  const r = triage.reachability
+  if (!r) return null
+  // The calm "No path found" state — the most reassuring picture on the
+  // screen (PRD-0008 Story 2). No alarmist styling.
+  if (!r.reached) {
+    return (
+      <details className="mt-3">
+        <summary
+          className="cursor-pointer text-[12.5px] font-semibold select-none"
+          style={{ color: 'var(--cd-fg-2)' }}
+        >
+          Reachability
+        </summary>
+        <div
+          data-testid="reachability-no-path"
+          className="cd-frame mt-3 flex items-center gap-2"
+          style={{ padding: '12px 14px' }}
+        >
+          <span
+            className="material-symbols-outlined"
+            style={{ fontSize: 18, color: 'var(--cd-green)', fontVariationSettings: "'FILL' 1" }}
+            aria-hidden
+          >
+            do_not_disturb_on
+          </span>
+          <span className="text-[12.5px]" style={{ color: 'var(--cd-fg-2)' }}>
+            No path found
+          </span>
+          {r.summary && (
+            <span className="text-[11.5px] ml-1" style={{ color: 'var(--cd-fg-3)' }}>
+              — {r.summary}
+            </span>
+          )}
+        </div>
+      </details>
+    )
+  }
+  return (
+    <details className="mt-3" open>
+      <summary
+        className="cursor-pointer text-[12.5px] font-semibold select-none"
+        style={{ color: 'var(--cd-fg-2)' }}
+      >
+        Reachability
+      </summary>
+      <div data-testid="reachability-path" className="mt-3 flex flex-col gap-0">
+        {(r.path.length > 0
+          ? r.path
+          : [{ label: r.summary ?? 'Reachable', detail: null, kind: null }]
+        ).map((node, i, arr) => (
+          <div key={`${node.label}-${i}`} className="flex items-stretch gap-3">
+            <div className="flex flex-col items-center" style={{ width: 12 }}>
+              <span
+                aria-hidden
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 2,
+                  background: 'var(--cd-fg-3)',
+                  marginTop: 4,
+                }}
+              />
+              {i < arr.length - 1 && (
+                <span
+                  aria-hidden
+                  style={{ flex: 1, width: 1, background: 'var(--cd-rule)', marginTop: 2 }}
+                />
+              )}
+            </div>
+            <div className="pb-3">
+              <div className="text-[12.5px]" style={{ color: 'var(--cd-fg-2)' }}>
+                {node.label}
+              </div>
+              {node.detail && (
+                <div className="font-mono text-[11px]" style={{ color: 'var(--cd-fg-4)' }}>
+                  {node.detail}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </details>
+  )
+}
+
+function ClaimCompare({ triage }: { triage: TriageOutput }) {
+  const cmp = triage.report?.claim_vs_code
+  if (!cmp) return null
+  return (
+    <details className="mt-3" open>
+      <summary
+        className="cursor-pointer text-[12.5px] font-semibold select-none"
+        style={{ color: 'var(--cd-fg-2)' }}
+      >
+        Claim vs your code{cmp.file ? ` — ${cmp.file}` : ''}
+      </summary>
+      <div data-testid="triage-claim-compare" className="grid grid-cols-2 gap-2 mt-3">
+        <div>
+          <div className="mb-1" style={{ fontSize: 11, color: 'var(--cd-fg-4)' }}>
+            Reporter&rsquo;s claim
+          </div>
+          <pre
+            className="font-mono text-[11px] cd-frame whitespace-pre-wrap break-words"
+            style={{ padding: 10, color: 'var(--cd-fg-3)', background: 'var(--cd-bg)' }}
+          >
+            {cmp.claimed ?? '—'}
+          </pre>
+        </div>
+        <div>
+          <div className="mb-1" style={{ fontSize: 11, color: 'var(--cd-fg-4)' }}>
+            Your code
+          </div>
+          <pre
+            className="font-mono text-[11px] cd-frame whitespace-pre-wrap break-words"
+            style={{ padding: 10, color: 'var(--cd-fg-2)', background: 'var(--cd-bg)' }}
+          >
+            {cmp.actual ?? '—'}
+          </pre>
+        </div>
+      </div>
+      {cmp.assessment && (
+        <p className="text-[12px] mt-2" style={{ color: 'var(--cd-fg-3)' }}>
+          {cmp.assessment}
+        </p>
+      )}
+    </details>
+  )
+}
+
+function DraftedReply({ triage }: { triage: TriageOutput }) {
+  const draft = triage.report?.drafted_reply
+  const [text, setText] = useState(draft ?? '')
+  if (!draft) return null
+  return (
+    <div className="mt-4">
+      <div className="flex items-baseline gap-2 mb-2">
+        <span className="cd-section-label cd-section-label--quiet">Drafted reply</span>
+        <span className="text-[11px]" style={{ color: 'var(--cd-fg-4)' }}>
+          you edit and send this — Cliff never sends it for you
+        </span>
+      </div>
+      <textarea
+        data-testid="triage-drafted-reply"
+        aria-label="Drafted reply (you send this)"
+        className="w-full font-sans text-[12.5px] cd-frame"
+        rows={5}
+        style={{ padding: 10, background: 'var(--cd-bg)', color: 'var(--cd-fg-2)', resize: 'vertical' }}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+    </div>
+  )
+}
+
+function SPTriage({
+  workspaceId,
+  stage,
+}: {
+  workspaceId: string | null
+  stage: IssueStage
+}) {
+  const { data: sidebar } = useSidebar(workspaceId ?? undefined)
+  const triage = (sidebar?.triage as TriageOutput | null | undefined) ?? null
+
+  return (
+    <section
+      data-testid="sp-triage"
+      className="px-5 py-5"
+      style={{ borderBottom: '1px solid var(--cd-rule)' }}
+    >
+      <SectionTitle title="Triage" />
+      {triage ? (
+        <>
+          <VerdictBanner triage={triage} />
+          <ProofChecks checks={triage.checks ?? []} />
+          <ReachabilityGraph triage={triage} />
+          <ClaimCompare triage={triage} />
+          <DraftedReply triage={triage} />
+        </>
+      ) : stage === 'triaging' ? (
+        <TriageProgress />
+      ) : (
+        <p className="text-[12.5px]" style={{ color: 'var(--cd-fg-3)' }}>
+          No triage verdict yet.
+        </p>
       )}
     </section>
   )
@@ -1036,11 +1447,19 @@ function SidePanelFooter({
       }}
     >
       {rejecting ? (
-        <RejectFooter
-          finding={finding}
-          onCancel={onRejectCancel}
-          onRejected={onRejected}
-        />
+        stage === 'triage_verdict' ? (
+          <TriageClosePicker
+            finding={finding}
+            onCancel={onRejectCancel}
+            onRejected={onRejected}
+          />
+        ) : (
+          <RejectFooter
+            finding={finding}
+            onCancel={onRejectCancel}
+            onRejected={onRejected}
+          />
+        )
       ) : (
         <DefaultFooter
           finding={finding}
@@ -1161,6 +1580,8 @@ function DefaultFooter({
   const { data: agentRuns } = useAgentRuns(workspaceId ?? undefined)
   const runningRun =
     agentRuns?.find((r) => r.status === 'running') ?? null
+  // ADR-0051 — the triage verdict drives the verdict-awaiting footer actions.
+  const { data: footerSidebar } = useSidebar(workspaceId ?? undefined)
 
   if (stage === 'awaiting_permission') {
     const req = runningRun?.permission_request ?? null
@@ -1218,7 +1639,73 @@ function DefaultFooter({
     )
   }
 
+  // ADR-0051 / PRD-0008 — a triage verdict awaiting the human gate. The
+  // action depends on the verdict (Story 4/5): a `real` verdict hands off to
+  // remediation (confirm → status `triaged` → open workspace); a close verdict
+  // opens the two-way close picker; needs_review offers both.
+  if (stage === 'triage_verdict') {
+    const verdict =
+      (footerSidebar?.triage as TriageOutput | null | undefined)?.verdict ??
+      'needs_review'
+    const confirmRealAndRemediate = () =>
+      updateFinding.mutate(
+        { id: finding.id, data: { status: 'triaged' } },
+        { onSuccess: () => onStart?.() },
+      )
+    if (verdict === 'real') {
+      return (
+        <div className="flex items-center gap-2 w-full">
+          <PrimaryButton
+            icon="rocket_launch"
+            onClick={confirmRealAndRemediate}
+            disabled={updateFinding.isPending}
+          >
+            {updateFinding.isPending ? 'Opening…' : 'Open workspace to remediate'}
+          </PrimaryButton>
+          <span className="ml-auto" />
+          <TextButton icon="close" onClick={onRejectStart}>
+            Close instead
+          </TextButton>
+        </div>
+      )
+    }
+    if (verdict === 'needs_review') {
+      return (
+        <div className="flex items-center gap-2 w-full">
+          <PrimaryButton
+            icon="rocket_launch"
+            onClick={confirmRealAndRemediate}
+            disabled={updateFinding.isPending}
+          >
+            Looks real — remediate
+          </PrimaryButton>
+          <span className="ml-auto" />
+          <TextButton icon="block" onClick={onRejectStart}>
+            Close…
+          </TextButton>
+        </div>
+      )
+    }
+    // unexploitable / false_positive — a recommended close.
+    return (
+      <div className="flex items-center gap-2 w-full">
+        <PrimaryButton icon="check" onClick={onRejectStart}>
+          Accept &amp; close
+        </PrimaryButton>
+        <span className="ml-auto" />
+        <TextButton
+          icon="rocket_launch"
+          onClick={confirmRealAndRemediate}
+          disabled={updateFinding.isPending}
+        >
+          Looks real instead
+        </TextButton>
+      </div>
+    )
+  }
+
   if (
+    stage === 'triaging' ||
     stage === 'planning' ||
     stage === 'generating' ||
     stage === 'pushing' ||
@@ -1230,7 +1717,11 @@ function DefaultFooter({
         <CliffSpinner size={14} label="Cliff is thinking" />
         <div className="flex-1 min-w-0">
           <div className="text-[12.5px] font-semibold text-on-surface">
-            {stage === 'validating' ? 'Validating fix' : 'Thinking'}
+            {stage === 'validating'
+              ? 'Validating fix'
+              : stage === 'triaging'
+                ? 'Triaging'
+                : 'Thinking'}
           </div>
           <div className="text-[11px] text-on-surface-variant">
             We&rsquo;ll notify you when the next step is ready.
@@ -1438,10 +1929,17 @@ function DefaultFooter({
           icon="undo"
           className="ml-auto"
           onClick={() => {
+            // ADR-0051 Story 6 — a triage close (false_positive/unexploitable)
+            // reopens to `new` (untriaged Todo, ready to re-triage); other
+            // closes reopen into the remediation flow as before.
+            const reopenStatus =
+              stage === 'false_positive' || stage === 'unexploitable'
+                ? 'new'
+                : 'in_progress'
             updateFinding.mutate({
               id: finding.id,
               data: {
-                status: 'in_progress',
+                status: reopenStatus,
                 exception_reason: null,
                 exception_note: null,
               },
@@ -1501,6 +1999,76 @@ function RejectFooter({
       <ErrorButton icon="block" onClick={submit} disabled={!reason || reject.isPending}>
         Reject
       </ErrorButton>
+    </div>
+  )
+}
+
+/**
+ * The two-way triage close picker (ADR-0051 §7 / UX-0008 Story 3) — the
+ * inline-footer substate for accepting a non-real verdict. Unexploitable
+ * ("real advisory, not reachable here") vs false positive ("not a real
+ * issue") are kept distinct; the verdict's ``recommended_close`` pre-selects
+ * the likely choice. Radio semantics for keyboard/AT users.
+ */
+function TriageClosePicker({
+  finding,
+  onCancel,
+  onRejected,
+}: {
+  finding: Finding
+  onCancel: () => void
+  onRejected: () => void
+}) {
+  const workspaceId = finding.derived?.workspace_id ?? null
+  const { data: sidebar } = useSidebar(workspaceId ?? undefined)
+  const recommended =
+    (sidebar?.triage as TriageOutput | null | undefined)?.recommended_close ?? null
+  // Derive the effective selection rather than syncing recommended → state in
+  // an effect: the user's explicit pick wins, otherwise the verdict's
+  // recommendation is the default (it may arrive after mount as the sidebar
+  // query resolves — derivation handles that without a cascading render).
+  const [picked, setPicked] = useState<ExceptionReason | null>(null)
+  const reason = picked ?? recommended
+  const reject = useRejectFinding()
+
+  const submit = () => {
+    if (!reason) return
+    reject.mutate(
+      { id: finding.id, payload: { reason } },
+      { onSuccess: () => onRejected() },
+    )
+  }
+
+  return (
+    <div
+      className="flex items-center gap-2 w-full overflow-x-auto"
+      role="radiogroup"
+      aria-label="Close reason"
+    >
+      <span
+        className="text-[11.5px] uppercase tracking-wider font-bold whitespace-nowrap mr-1"
+        style={{ color: 'var(--cd-fg-4)' }}
+      >
+        Close as
+      </span>
+      {TRIAGE_CLOSE_OPTIONS.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          role="radio"
+          aria-checked={reason === opt.value}
+          className={`cd-chip ${reason === opt.value ? 'cd-chip--green' : 'cd-chip--ink'}`}
+          style={{ cursor: 'pointer' }}
+          onClick={() => setPicked(opt.value)}
+        >
+          {opt.label}
+        </button>
+      ))}
+      <span className="ml-auto" />
+      <TextButton onClick={onCancel}>Cancel</TextButton>
+      <PrimaryButton icon="check" onClick={submit} disabled={!reason || reject.isPending}>
+        {reject.isPending ? 'Closing…' : 'Confirm & move to Done'}
+      </PrimaryButton>
     </div>
   )
 }

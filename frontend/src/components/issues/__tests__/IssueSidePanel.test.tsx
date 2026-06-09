@@ -868,3 +868,198 @@ describe('IssueSidePanel — Retry for generic failed stage (pre-plan)', () => {
     expect(calls).toEqual(['run-all'])
   })
 })
+
+// ---------------------------------------------------------------------------
+// Triage verdict + proof (ADR-0051 / PRD-0008 / UX-0008)
+// ---------------------------------------------------------------------------
+
+describe('IssueSidePanel — triage verdict', () => {
+  function withTriage(triage: unknown, wsId = 'ws-1') {
+    server.use(
+      http.get(`/api/workspaces/${wsId}/sidebar`, () =>
+        HttpResponse.json({
+          workspace_id: wsId,
+          summary: null,
+          evidence: null,
+          owner: null,
+          plan: null,
+          definition_of_done: null,
+          linked_ticket: null,
+          validation: null,
+          similar_cases: null,
+          pull_request: null,
+          triage,
+          updated_at: '2026-06-09T00:00:00Z',
+        }),
+      ),
+      http.get(`/api/workspaces/${wsId}/agent-runs`, () => HttpResponse.json([])),
+    )
+  }
+
+  const verdictCases: [string, string | null, string][] = [
+    ['real', null, 'Real risk'],
+    ['unexploitable', 'unexploitable', 'Not exploitable'],
+    ['false_positive', 'false_positive', 'False positive'],
+    ['needs_review', null, 'Needs your review'],
+  ]
+
+  it.each(verdictCases)(
+    'renders the %s verdict banner with confidence as word + %%',
+    async (verdict, close, label) => {
+      withTriage({
+        verdict,
+        confidence: 0.88,
+        recommended_close: close,
+        reachability: null,
+        exploitability: { exploitable: 'unknown', reason: 'depends on deployment' },
+        report: null,
+        checks: [],
+      })
+      renderPanel(findingForStage('triage_verdict'))
+      const banner = await screen.findByTestId('triage-verdict-banner')
+      expect(banner).toHaveTextContent(label)
+      expect(screen.getByTestId('triage-confidence').textContent).toMatch(/High · 88%/)
+    },
+  )
+
+  it('renders the calm "No path found" reachability state', async () => {
+    withTriage({
+      verdict: 'unexploitable',
+      confidence: 0.9,
+      recommended_close: 'unexploitable',
+      reachability: { reached: false, path: [], summary: 'never called' },
+      exploitability: { exploitable: 'no', reason: 'unreachable' },
+      report: null,
+      checks: [],
+    })
+    renderPanel(findingForStage('triage_verdict'))
+    expect(await screen.findByTestId('reachability-no-path')).toHaveTextContent(
+      /No path found/i,
+    )
+  })
+
+  it('real verdict footer offers "Open workspace to remediate"', async () => {
+    withTriage({
+      verdict: 'real',
+      confidence: 0.92,
+      recommended_close: null,
+      reachability: { reached: true, path: [{ label: 'upload handler' }], summary: 's' },
+      exploitability: { exploitable: 'yes', reason: 'untrusted input' },
+      report: null,
+      checks: [{ eyebrow: 'REACHABILITY', result: 'Reachable', kind: 'fail', detail: 'd' }],
+    })
+    renderPanel(findingForStage('triage_verdict'))
+    expect(
+      await screen.findByRole('button', { name: /Open workspace to remediate/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('a close verdict opens the two-way close picker with radio semantics, pre-selecting the recommendation', async () => {
+    withTriage({
+      verdict: 'unexploitable',
+      confidence: 0.86,
+      recommended_close: 'unexploitable',
+      reachability: { reached: false, path: [], summary: 'np' },
+      exploitability: { exploitable: 'no', reason: 'unreachable' },
+      report: null,
+      checks: [],
+    })
+    renderPanel(findingForStage('triage_verdict'))
+    fireEvent.click(await screen.findByRole('button', { name: /Accept & close/i }))
+    expect(
+      await screen.findByRole('radiogroup', { name: /Close reason/i }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /Unexploitable/i })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+    expect(screen.getByRole('radio', { name: /False positive/i })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    )
+  })
+
+  it('confirming an unexploitable close fires reject with the unexploitable reason', async () => {
+    let body: { reason?: string } | null = null
+    withTriage({
+      verdict: 'unexploitable',
+      confidence: 0.86,
+      recommended_close: 'unexploitable',
+      reachability: { reached: false, path: [], summary: 'np' },
+      exploitability: { exploitable: 'no', reason: 'unreachable' },
+      report: null,
+      checks: [],
+    })
+    server.use(
+      http.post('/api/findings/:id/reject', async ({ request }) => {
+        body = (await request.json()) as { reason?: string }
+        return HttpResponse.json({
+          ...makeFinding({ id: 'i-triage_verdict', stage: 'unexploitable' }),
+          status: 'exception',
+          exception_reason: 'unexploitable',
+          exception_note: null,
+        })
+      }),
+    )
+    const onClose = vi.fn()
+    renderPanel(findingForStage('triage_verdict'), { onClose })
+    fireEvent.click(await screen.findByRole('button', { name: /Accept & close/i }))
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Confirm & move to Done/i }),
+    )
+    await waitFor(() => expect(body).not.toBeNull())
+    expect(body!.reason).toBe('unexploitable')
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+  })
+
+  it('report triage renders claim-vs-code + an editable drafted reply (never auto-sent)', async () => {
+    withTriage({
+      verdict: 'false_positive',
+      confidence: 0.8,
+      recommended_close: 'false_positive',
+      reachability: null,
+      exploitability: null,
+      report: {
+        claim: 'RCE via eval',
+        claim_vs_code: {
+          file: 'utils.py',
+          claimed: 'eval(user)',
+          actual: 'ast.literal_eval(user)',
+          assessment: 'Cited line uses a safe parser.',
+        },
+        duplicate: false,
+        poc_present: false,
+        ai_slop_signals: ['no concrete PoC'],
+        drafted_reply: 'Thanks for the report — the cited line uses ast.literal_eval.',
+      },
+      checks: [],
+    })
+    renderPanel(findingForStage('triage_verdict'))
+    expect(await screen.findByTestId('triage-claim-compare')).toHaveTextContent(
+      /ast\.literal_eval/,
+    )
+    const reply = screen.getByTestId('triage-drafted-reply') as HTMLTextAreaElement
+    expect(reply.value).toMatch(/Thanks for the report/)
+    // Editable by the maintainer — and there is no "send" affordance: Cliff
+    // never auto-sends (PRD-0008 Story 5).
+    fireEvent.change(reply, { target: { value: 'My edited reply' } })
+    expect(reply.value).toBe('My edited reply')
+    expect(screen.queryByRole('button', { name: /^Send/i })).toBeNull()
+  })
+
+  it('a triage close (unexploitable) shows Reopen in Done', async () => {
+    withTriage({
+      verdict: 'unexploitable',
+      confidence: 0.9,
+      recommended_close: 'unexploitable',
+      reachability: { reached: false, path: [], summary: 'np' },
+      exploitability: { exploitable: 'no', reason: 'x' },
+      report: null,
+      checks: [],
+    })
+    renderPanel(findingForStage('unexploitable'))
+    expect(
+      await screen.findByRole('button', { name: /Reopen/i }),
+    ).toBeInTheDocument()
+  })
+})
