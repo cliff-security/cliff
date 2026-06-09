@@ -58,11 +58,13 @@ def make_sidebar(
     workspace_id: str = "w-1",
     plan: dict | None = None,
     pull_request: dict | None = None,
+    triage: dict | None = None,
 ) -> SidebarState:
     return SidebarState(
         workspace_id=workspace_id,
         plan=plan,
         pull_request=pull_request,
+        triage=triage,
         updated_at=NOW,
     )
 
@@ -719,3 +721,111 @@ def test_no_executor_run_existing_branches_unchanged_regression() -> None:
 
     assert result.section == "review"
     assert result.stage == "plan_ready"
+
+
+# ----------------------------------------------------------------------------
+# Triage stages (ADR-0051 / PRD-0008)
+# ----------------------------------------------------------------------------
+
+
+def test_triage_running_on_new_finding_is_triaging() -> None:
+    """A triage producer running on an untriaged finding → In progress /
+    triaging. Triage keeps the finding `new` (it never advances status), so
+    the run is unambiguously triage, not remediation prep."""
+    for agent in ("finding_enricher", "exposure_analyzer", "report_triager"):
+        result = derive(
+            make_finding(status="new"),
+            workspace=make_workspace(),
+            sidebar=make_sidebar(),
+            latest_runs_by_type={agent: make_run(agent, "running")},
+        )
+        assert (result.section, result.stage) == ("in_progress", "triaging"), agent
+
+
+def test_triage_verdict_awaiting_confirm_lands_in_needs_you() -> None:
+    """Any produced verdict awaiting the human gate → Review (Needs you) /
+    triage_verdict. The verdict value drives the chip copy in the UI, but all
+    four route to the same section/stage."""
+    for verdict in ("real", "needs_review", "unexploitable", "false_positive"):
+        result = derive(
+            make_finding(status="new"),
+            workspace=make_workspace(),
+            sidebar=make_sidebar(triage={"verdict": verdict, "confidence": 0.9}),
+            latest_runs_by_type={},
+        )
+        assert (result.section, result.stage) == ("review", "triage_verdict"), verdict
+
+
+def test_triage_rerun_in_flight_beats_existing_verdict() -> None:
+    """A re-triage in flight shows `triaging` even though a prior verdict
+    exists (mirrors the running-planner-beats-existing-plan rule)."""
+    result = derive(
+        make_finding(status="new"),
+        workspace=make_workspace(),
+        sidebar=make_sidebar(triage={"verdict": "needs_review", "confidence": 0.4}),
+        latest_runs_by_type={
+            "exposure_analyzer": make_run("exposure_analyzer", "running")
+        },
+    )
+    assert (result.section, result.stage) == ("in_progress", "triaging")
+
+
+def test_failed_triage_agent_on_new_surfaces_retry() -> None:
+    """A failed triage run with no verdict yet surfaces a Retry affordance in
+    Review (never a silent stick in Todo)."""
+    result = derive(
+        make_finding(status="new"),
+        workspace=make_workspace(),
+        sidebar=make_sidebar(),
+        latest_runs_by_type={
+            "exposure_analyzer": make_run("exposure_analyzer", "failed")
+        },
+    )
+    assert (result.section, result.stage) == ("review", "failed")
+
+
+def test_untriaged_idle_new_finding_is_todo() -> None:
+    result = derive(
+        make_finding(status="new"),
+        workspace=None,
+        sidebar=None,
+        latest_runs_by_type={},
+    )
+    assert (result.section, result.stage) == ("todo", "todo")
+
+
+def test_unexploitable_close_is_distinct_done_stage() -> None:
+    """ADR-0051 §7 — unexploitable closes render a Done chip distinct from
+    false_positive."""
+    result = derive(
+        make_finding(status="exception", exception_reason="unexploitable"),
+        workspace=make_workspace(),
+        sidebar=make_sidebar(),
+        latest_runs_by_type={},
+    )
+    assert (result.section, result.stage) == ("done", "unexploitable")
+
+
+def test_plan_unreachable_without_real_verdict() -> None:
+    """PRD-0008 Story 4 / gate — an untriaged (`new`) finding never derives to
+    a remediation/plan stage, even if a plan-shaped sidebar and a completed
+    planner run are (defensively) present. The verdict awaiting confirmation
+    keeps it in triage; only confirming `real` (→ status `triaged`) opens the
+    remediation flow."""
+    remediation_stages = {
+        "planning", "generating", "pushing", "opening_pr", "validating",
+        "plan_ready", "pr_ready", "pr_awaiting_val", "awaiting_permission", "fixed",
+    }
+    result = derive(
+        make_finding(status="new"),
+        workspace=make_workspace(),
+        sidebar=make_sidebar(
+            plan={"plan_steps": ["x"]},
+            triage={"verdict": "real", "confidence": 0.95},
+        ),
+        latest_runs_by_type={
+            "remediation_planner": make_run("remediation_planner", "completed"),
+        },
+    )
+    assert result.stage not in remediation_stages
+    assert (result.section, result.stage) == ("review", "triage_verdict")

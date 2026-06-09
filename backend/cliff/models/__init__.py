@@ -219,6 +219,9 @@ class SidebarStateUpdate(BaseModel):
     validation: dict[str, Any] | None = None
     similar_cases: dict[str, Any] | None = None
     pull_request: dict[str, Any] | None = None
+    # ADR-0051 §5 — the triage verdict (TriageOutput). Disjoint from
+    # ``evidence``; persisted to its own sidebar_state column (migration 024).
+    triage: dict[str, Any] | None = None
 
 
 class SidebarState(BaseModel):
@@ -232,6 +235,7 @@ class SidebarState(BaseModel):
     validation: dict[str, Any] | None = None
     similar_cases: dict[str, Any] | None = None
     pull_request: dict[str, Any] | None = None
+    triage: dict[str, Any] | None = None
     updated_at: datetime
 
 

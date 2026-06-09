@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # ---------------------------------------------------------------------------
 # Common output wrapper (matches ADR-0008 output contract)
@@ -129,6 +129,129 @@ class RemediationExecutorOutput(BaseModel):
     model_config = {"extra": "allow"}
 
 
+# ---------------------------------------------------------------------------
+# Triage (ADR-0051 / PRD-0008) — one schema for both producers
+# ---------------------------------------------------------------------------
+
+#: The four triage verdicts. ``needs_review`` is the non-terminal low-signal
+#: gate (no terminal recommendation); the other three are confirmable.
+TriageVerdict = Literal["real", "unexploitable", "false_positive", "needs_review"]
+
+#: The two distinct closes a non-real verdict can recommend.
+TriageClose = Literal["false_positive", "unexploitable"]
+
+#: verdict → the only coherent recommended_close (ADR-0051 §2 pairing table).
+_VERDICT_TO_CLOSE: dict[str, str | None] = {
+    "real": None,
+    "needs_review": None,
+    "false_positive": "false_positive",
+    "unexploitable": "unexploitable",
+}
+
+
+class TriageReachabilityNode(BaseModel):
+    """One node in the reachability call-path the panel renders as a chain."""
+
+    label: str
+    detail: str | None = None
+    kind: str | None = None  # e.g. "entrypoint" | "step" | "sink"
+
+    model_config = {"extra": "allow"}
+
+
+class TriageReachability(BaseModel):
+    """Projected from the exposure analyzer's ``reachable`` /
+    ``reachability_evidence`` (ADR-0042). ``reached=False`` with an empty
+    ``path`` is the calm "No path found" state (PRD-0008 Story 2)."""
+
+    reached: bool
+    path: list[TriageReachabilityNode] = Field(default_factory=list)
+    summary: str | None = None
+
+    model_config = {"extra": "allow"}
+
+
+class TriageExploitability(BaseModel):
+    """Whether untrusted input can reach the sink. ``unknown`` routes the
+    verdict to ``needs_review`` (ADR-0051 §9)."""
+
+    exploitable: Literal["yes", "no", "unknown"]
+    reason: str | None = None
+
+    model_config = {"extra": "allow"}
+
+
+class TriageClaimVsCode(BaseModel):
+    """The report side-by-side: the reporter's cited snippet vs the actual
+    repo code (PRD-0008 Story 5)."""
+
+    file: str | None = None
+    claimed: str | None = None  # the reporter's snippet / claim
+    actual: str | None = None  # the real code at the cited location
+    assessment: str | None = None  # one-line judgment
+
+    model_config = {"extra": "allow"}
+
+
+class TriageReport(BaseModel):
+    """Report-only evidence block; ``None`` for scanner findings."""
+
+    claim: str | None = None
+    claim_vs_code: TriageClaimVsCode | None = None
+    duplicate: bool | None = None
+    poc_present: bool | None = None
+    ai_slop_signals: list[str] = Field(default_factory=list)
+    drafted_reply: str | None = None
+
+    model_config = {"extra": "allow"}
+
+
+class TriageCheck(BaseModel):
+    """A proof row the panel renders. ``kind`` drives the icon/tone
+    (pass / warn / fail / info)."""
+
+    eyebrow: str
+    result: str
+    kind: str
+    detail: str | None = None
+
+    model_config = {"extra": "allow"}
+
+
+class TriageOutput(BaseModel):
+    """The triage verdict (ADR-0051 §2). Emitted by both the deterministic
+    scanner ``triage_synthesizer`` and the LLM ``report_triager``; the
+    ``report`` block is populated only for reports.
+
+    ``recommended_close`` is a coherent projection of ``verdict``: it is
+    filled from the verdict when omitted and rejected when it contradicts the
+    verdict, so the pairing is a HARD invariant (ADR-0051 §2 / eval
+    ``pairing_coherent``)."""
+
+    verdict: TriageVerdict
+    confidence: float = Field(ge=0.0, le=1.0)
+    recommended_close: TriageClose | None = None
+    reachability: TriageReachability | None = None
+    exploitability: TriageExploitability | None = None
+    report: TriageReport | None = None
+    checks: list[TriageCheck] = Field(default_factory=list)
+
+    model_config = {"extra": "allow"}
+
+    @model_validator(mode="after")
+    def _coherent_recommended_close(self) -> TriageOutput:
+        canonical = _VERDICT_TO_CLOSE[self.verdict]
+        if self.recommended_close is None:
+            # Fill the canonical projection so V2 never has to re-derive it.
+            self.recommended_close = canonical  # type: ignore[assignment]
+        elif self.recommended_close != canonical:
+            raise ValueError(
+                f"recommended_close={self.recommended_close!r} is incoherent with "
+                f"verdict={self.verdict!r} (expected {canonical!r})"
+            )
+        return self
+
+
 # Maps agent_type -> the Pydantic model for its structured_output.
 AGENT_OUTPUT_SCHEMAS: dict[str, type[BaseModel]] = {
     "finding_enricher": EnrichmentOutput,
@@ -138,4 +261,8 @@ AGENT_OUTPUT_SCHEMAS: dict[str, type[BaseModel]] = {
     "remediation_planner": PlanOutput,
     "remediation_executor": RemediationExecutorOutput,
     "validation_checker": ValidationOutput,
+    # ADR-0051 — the report triager emits a TriageOutput. The scanner
+    # synthesizer is a pure function (no agent run), so it is not registered
+    # here; it constructs + validates TriageOutput directly.
+    "report_triager": TriageOutput,
 }

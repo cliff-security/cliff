@@ -53,12 +53,17 @@ FindingGradeImpact = Literal["counts", "advisory"]
 
 
 #: PRD-0006 Phase 2 — reason values accepted by ``POST /findings/{id}/reject``.
-#: Mirrors the CHECK constraint in migration 012_phase2_columns.sql.
+#: Mirrors the CHECK constraint in migration 012_phase2_columns.sql, extended
+#: by 024_triage_contract.sql with ``unexploitable`` (ADR-0051 §7 / PRD-0008):
+#: a *real* advisory that isn't reachable/exploitable here — kept distinct from
+#: ``false_positive`` ("not a real issue"), because they are different truths
+#: with different evidence and the dependency flood is almost always the former.
 ExceptionReason = Literal[
     "false_positive",
     "accepted_risk",
     "wont_fix",
     "deferred",
+    "unexploitable",
 ]
 
 
@@ -73,12 +78,21 @@ IssueStage = Literal[
     # Todo
     "todo",
     # In progress (agents working, no human gate)
+    # ADR-0051 / PRD-0008 — triage reasoning is running on an untriaged
+    # finding (enricher → exposure → synthesis, or report_triager). Same
+    # in-flight treatment as ``planning`` (cyan pulse).
+    "triaging",
     "planning",
     "generating",
     "pushing",
     "opening_pr",
     "validating",
     # Review (human gate)
+    # ADR-0051 / PRD-0008 — triage produced a verdict awaiting the user's
+    # confirmation (real → accept, needs_review → decide, unexploitable/
+    # false_positive → confirm close). Lands in the existing "Needs you"
+    # section; the verdict value in ``sidebar.triage`` drives the chip copy.
+    "triage_verdict",
     "plan_ready",
     "pr_ready",
     "pr_awaiting_val",
@@ -94,6 +108,9 @@ IssueStage = Literal[
     # Done
     "fixed",
     "false_positive",
+    # ADR-0051 / PRD-0008 — closed as a real advisory that isn't reachable/
+    # exploitable here. Distinct Done chip + icon from ``false_positive``.
+    "unexploitable",
     "wont_fix",
     "accepted",
     "deferred",

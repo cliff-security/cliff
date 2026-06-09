@@ -172,6 +172,17 @@ def _map_evidence_collector(out: dict[str, Any]) -> SidebarStateUpdate:
     )
 
 
+def _map_triage(out: dict[str, Any]) -> SidebarStateUpdate:
+    """Persist the full TriageOutput into the disjoint ``triage`` section
+    (ADR-0051 §5). A re-run overwrites it (idempotent re-triage).
+
+    Both producers route here: the LLM ``report_triager`` (a registered agent
+    run, mapped automatically by the executor) and the scanner
+    ``triage_synthesizer`` (a pure function whose output the triage run path
+    persists under this key — it is not itself an agent run)."""
+    return SidebarStateUpdate(triage=out)
+
+
 _AGENT_SIDEBAR_MAP: dict[str, Any] = {
     "finding_enricher": _map_enricher,
     "owner_resolver": _map_owner,
@@ -180,4 +191,6 @@ _AGENT_SIDEBAR_MAP: dict[str, Any] = {
     "remediation_planner": _map_planner,
     "remediation_executor": _map_executor,
     "validation_checker": _map_validation,
+    "report_triager": _map_triage,
+    "triage_synthesizer": _map_triage,
 }

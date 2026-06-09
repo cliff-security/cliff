@@ -1966,7 +1966,8 @@
                   "false_positive",
                   "accepted_risk",
                   "wont_fix",
-                  "deferred"
+                  "deferred",
+                  "unexploitable"
                 ],
                 "type": "string"
               },
@@ -2197,7 +2198,8 @@
                   "false_positive",
                   "accepted_risk",
                   "wont_fix",
-                  "deferred"
+                  "deferred",
+                  "unexploitable"
                 ],
                 "type": "string"
               },
@@ -2416,7 +2418,8 @@
                   "false_positive",
                   "accepted_risk",
                   "wont_fix",
-                  "deferred"
+                  "deferred",
+                  "unexploitable"
                 ],
                 "type": "string"
               },
@@ -3051,11 +3054,13 @@
           "stage": {
             "enum": [
               "todo",
+              "triaging",
               "planning",
               "generating",
               "pushing",
               "opening_pr",
               "validating",
+              "triage_verdict",
               "plan_ready",
               "pr_ready",
               "pr_awaiting_val",
@@ -3063,6 +3068,7 @@
               "failed",
               "fixed",
               "false_positive",
+              "unexploitable",
               "wont_fix",
               "accepted",
               "deferred"
@@ -4356,7 +4362,8 @@
               "false_positive",
               "accepted_risk",
               "wont_fix",
-              "deferred"
+              "deferred",
+              "unexploitable"
             ],
             "title": "Reason",
             "type": "string"
@@ -4680,6 +4687,18 @@
             ],
             "title": "Summary"
           },
+          "triage": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Triage"
+          },
           "updated_at": {
             "format": "date-time",
             "title": "Updated At",
@@ -4806,6 +4825,18 @@
               }
             ],
             "title": "Summary"
+          },
+          "triage": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Triage"
           },
           "validation": {
             "anyOf": [

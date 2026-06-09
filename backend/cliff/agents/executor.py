@@ -236,8 +236,13 @@ _STATUS_ORDINAL: dict[str, int] = {
 }
 
 # Agents that unconditionally advance status (forward-only check still applies).
+#
+# ADR-0051 §6 amends ADR-0040 §9 / BACKLOG WP6: the finding enricher NO LONGER
+# auto-advances ``new → triaged``. ``triaged`` now means "triage confirmed the
+# finding is real," set only on human confirmation of a `real` verdict —
+# enrichment is an input to triage, not a triage verdict. Triage is a gate, so
+# an issue cannot enter the remediation (Plan) flow without that confirmation.
 _AGENT_STATUS_ADVANCE: dict[str, str] = {
-    "finding_enricher": "triaged",
     "remediation_planner": "in_progress",
 }
 
