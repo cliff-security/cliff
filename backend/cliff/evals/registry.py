@@ -26,11 +26,17 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class BudgetSpec:
-    """Per-case ceilings, enforced by the runner (ADR-0050 §4)."""
+    """Budget ceilings, enforced by the runner (ADR-0050 §4). The token + time
+    caps are reliable hard limits; ``*_usd`` is best-effort (skipped when the
+    model isn't in the pricing table). A breach fails the eval run."""
 
+    # Per case.
     max_usd: float | None = None
     max_tokens: int | None = None
     max_duration_s: float | None = None
+    # Per run (whole dataset) — the runaway-bill stop.
+    max_run_usd: float | None = None
+    max_run_tokens: int | None = None
 
 
 @dataclass(frozen=True)
@@ -61,7 +67,13 @@ _REGISTRY: dict[str, AgentEvalSpec] = {
                 "abstention",
             }
         ),
-        budget=BudgetSpec(max_usd=0.03, max_tokens=8000, max_duration_s=60.0),
+        budget=BudgetSpec(
+            max_usd=0.03,
+            max_tokens=8000,
+            max_duration_s=60.0,
+            max_run_usd=0.50,
+            max_run_tokens=120_000,
+        ),
     ),
 }
 
