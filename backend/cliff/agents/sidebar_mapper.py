@@ -15,6 +15,11 @@ from cliff.models import SidebarStateUpdate
 if TYPE_CHECKING:
     import aiosqlite
 
+#: Sidebar sections owned by exactly one producer — replaced wholesale on each
+#: write rather than deep-merged. ``triage`` (ADR-0051) is the only triage
+#: producer's section, so a re-triage must fully replace the prior verdict.
+_REPLACE_SECTIONS = {"triage"}
+
 
 def map_to_sidebar_update(
     agent_type: str,
@@ -56,9 +61,17 @@ async def map_and_upsert(
     for field_name in SidebarStateUpdate.model_fields:
         new_val = getattr(partial, field_name)
         if new_val is not None:
-            # For dict fields, deep-merge existing and new
             existing_val = getattr(existing, field_name, None) if existing else None
-            if isinstance(existing_val, dict) and isinstance(new_val, dict):
+            if field_name in _REPLACE_SECTIONS:
+                # Single-producer sections are REPLACED wholesale, not merged:
+                # a re-run's value is a fresh atomic result, so a stale key
+                # from a prior run (e.g. a `report` block from an earlier
+                # report triage that a later scanner re-triage doesn't set)
+                # must not survive (ADR-0051 §5 — triage overwrites on re-run).
+                merged_data[field_name] = new_val
+            elif isinstance(existing_val, dict) and isinstance(new_val, dict):
+                # Multi-producer dict sections (e.g. ``evidence``, written by
+                # enricher + exposure) deep-merge so neither clobbers the other.
                 merged = {**existing_val, **new_val}
                 merged_data[field_name] = merged
             else:

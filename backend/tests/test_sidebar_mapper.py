@@ -234,6 +234,38 @@ class TestMapAndUpsert:
             assert update.summary == {"title": "CVE-2026-1234"}
 
     @pytest.mark.asyncio
+    async def test_triage_replaces_wholesale_on_rerun(self):
+        """A re-triage replaces sidebar.triage wholesale (single-producer
+        section) — a stale key from a prior run (e.g. a `report` block from an
+        earlier report triage) must not survive a later scanner re-triage.
+        Sibling multi-producer sections (evidence) are untouched."""
+        existing = SidebarState(
+            workspace_id="ws-1",
+            evidence={"reachable": "likely"},
+            triage={
+                "verdict": "false_positive",
+                "report": {"claim": "old report"},
+                "stale_extra": 1,
+            },
+            updated_at=datetime.now(UTC),
+        )
+        mock_db = AsyncMock()
+        new_triage = {"verdict": "real", "confidence": 0.9, "recommended_close": None}
+
+        with (
+            patch("cliff.db.repo_sidebar.get_sidebar", return_value=existing),
+            patch("cliff.db.repo_sidebar.upsert_sidebar") as mock_upsert,
+        ):
+            await map_and_upsert(mock_db, "ws-1", "triage_synthesizer", new_triage)
+            update: SidebarStateUpdate = mock_upsert.call_args[0][2]
+            # Fully replaced — no stale `report`/`stale_extra` from the prior run.
+            assert update.triage == new_triage
+            assert "report" not in update.triage
+            assert "stale_extra" not in update.triage
+            # Sibling section preserved.
+            assert update.evidence == {"reachable": "likely"}
+
+    @pytest.mark.asyncio
     async def test_first_agent_creates_sidebar(self):
         """When no sidebar exists yet, create from scratch."""
         mock_db = AsyncMock()
