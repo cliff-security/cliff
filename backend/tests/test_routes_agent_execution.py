@@ -20,7 +20,7 @@ from cliff.agents.output_parser import ParseResult
 from cliff.api.routes.agent_execution import router
 from cliff.db.connection import get_db
 from cliff.integrations.github_app.client import RepoPushAccess
-from cliff.models import AgentRun, Workspace
+from cliff.models import AgentRun, Finding, Workspace
 
 # ---------------------------------------------------------------------------
 # App fixture with mock DB dependency
@@ -846,3 +846,85 @@ class TestPermissionEndpoint:
         finally:
             for p in ps:
                 p.stop()
+
+
+# ---------------------------------------------------------------------------
+# Run-triage endpoint (ADR-0051 / PRD-0008)
+# ---------------------------------------------------------------------------
+
+
+def _make_finding(finding_id="f-1", status="new", source_type="trivy"):
+    return Finding(
+        id=finding_id,
+        source_type=source_type,
+        source_id="vuln-001",
+        title="CVE-2026-0001 in libfoo",
+        status=status,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+
+
+class TestTriageEndpoint:
+    @pytest.mark.asyncio
+    async def test_triage_creates_non_advancing_workspace_and_runs(self, app, client):
+        """The triage run path creates a workspace WITHOUT advancing the
+        finding's status (the Plan gate) and schedules run_triage."""
+        finding = _make_finding(status="new")
+        ws = _make_workspace()
+        app.state.context_builder.create_workspace = AsyncMock(return_value=ws)
+        app.state.agent_executor.check_not_busy = AsyncMock()
+
+        with (
+            patch("cliff.api.routes.agent_execution.get_finding",
+                  AsyncMock(return_value=finding)),
+            patch("cliff.api.routes.agent_execution.list_workspaces",
+                  AsyncMock(return_value=[])),
+            patch("cliff.api.routes.agent_execution._resolve_github_repo_url",
+                  AsyncMock(return_value=None)),
+            patch("cliff.api.routes.agent_execution._resolve_repo_env_vars",
+                  AsyncMock(return_value={})),
+            patch("cliff.api.routes.agent_execution.run_triage",
+                  AsyncMock()) as mock_run,
+        ):
+            resp = await client.post(f"/api/findings/{finding.id}/triage")
+            assert resp.status_code == 202
+            assert resp.json()["workspace_id"] == ws.id
+            assert resp.json()["status"] == "running"
+            # The Plan gate: the triage workspace must NOT advance the status.
+            app.state.context_builder.create_workspace.assert_awaited_once()
+            assert (
+                app.state.context_builder.create_workspace.await_args.kwargs[
+                    "advance_status"
+                ]
+                is False
+            )
+            await asyncio.sleep(0.05)
+            mock_run.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_triage_reuses_existing_workspace(self, app, client):
+        finding = _make_finding(status="new")
+        ws = _make_workspace()
+        with (
+            patch("cliff.api.routes.agent_execution.get_finding",
+                  AsyncMock(return_value=finding)),
+            patch("cliff.api.routes.agent_execution.list_workspaces",
+                  AsyncMock(return_value=[ws])),
+            patch("cliff.api.routes.agent_execution._resolve_repo_env_vars",
+                  AsyncMock(return_value={})),
+            patch("cliff.api.routes.agent_execution.run_triage", AsyncMock()),
+        ):
+            app.state.agent_executor.check_not_busy = AsyncMock()
+            resp = await client.post(f"/api/findings/{finding.id}/triage")
+            assert resp.status_code == 202
+            assert resp.json()["workspace_id"] == ws.id
+            # Did not create a second workspace.
+            app.state.context_builder.create_workspace.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_triage_unknown_finding_returns_404(self, app, client):
+        with patch("cliff.api.routes.agent_execution.get_finding",
+                   AsyncMock(return_value=None)):
+            resp = await client.post("/api/findings/does-not-exist/triage")
+            assert resp.status_code == 404

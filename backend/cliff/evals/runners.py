@@ -180,4 +180,77 @@ async def run_enricher_eval(
     return result
 
 
-__all__ = ["EvalRunResult", "run_enricher_eval"]
+_TRIAGE_VOCAB = {"real", "unexploitable", "false_positive", "needs_review"}
+_CLEARING_VERDICTS = {"unexploitable", "false_positive"}
+_VERDICT_TO_CLOSE = {
+    "real": None,
+    "needs_review": None,
+    "false_positive": "false_positive",
+    "unexploitable": "unexploitable",
+}
+
+
+def run_triage_synthesis_eval(
+    cases: list[EvalCase],
+    *,
+    graded_floor: float = 0.9,
+) -> EvalRunResult:
+    """Score the deterministic scanner ``triage_synthesizer`` over *cases*
+    (ADR-0051 §Evaluation, ADR-0050 Lane 1 — $0, keyless, every CI push).
+
+    Each case's ``finding`` carries ``{enrichment, exposure}``; the function is
+    pure, so this needs no model/env.
+
+    Hard gates (zero tolerance):
+      - verdict in vocabulary,
+      - verdict↔recommended_close pairing coherent,
+      - **false-clear**: a ``real`` golden verdict closed as
+        unexploitable/false_positive (the asymmetric, load-bearing failure),
+      - abstention: ``abstain`` cases must resolve to ``needs_review``.
+    Graded: exact verdict match against the golden label.
+    """
+    if not cases:
+        raise ValueError(
+            "run_triage_synthesis_eval got 0 cases — an empty dataset must fail, "
+            "not silently report PASS. Check the dataset path / tier filter."
+        )
+
+    from cliff.agents.runtime.triage_synthesizer import synthesize_triage
+
+    result = EvalRunResult(
+        agent="triage_synthesizer", n_cases=len(cases), graded_floor=graded_floor
+    )
+    matches: list[bool] = []
+
+    for case in cases:
+        finding = case.finding or {}
+        out = synthesize_triage(finding.get("enrichment"), finding.get("exposure"))
+
+        if out.verdict not in _TRIAGE_VOCAB:
+            result.hard_failures.append(f"{case.id}: out-of-vocab verdict {out.verdict!r}")
+        if out.recommended_close != _VERDICT_TO_CLOSE.get(out.verdict):
+            result.hard_failures.append(
+                f"{case.id}: incoherent pairing verdict={out.verdict!r} "
+                f"close={out.recommended_close!r}"
+            )
+
+        golden = case.expected.verdict
+        if golden == "real" and out.verdict in _CLEARING_VERDICTS:
+            result.hard_failures.append(
+                f"{case.id}: FALSE-CLEAR — a real finding was closed as "
+                f"{out.verdict!r} (asymmetric zero-tolerance gate)"
+            )
+        if case.abstain and out.verdict != "needs_review":
+            result.hard_failures.append(
+                f"{case.id}: abstention — expected needs_review, got {out.verdict!r}"
+            )
+
+        if golden is not None:
+            matches.append(out.verdict == golden)
+
+    result.graded_rates = {"verdict_match": sum(matches) / len(matches) if matches else 1.0}
+    result.est_cost_usd = 0.0
+    return result
+
+
+__all__ = ["EvalRunResult", "run_enricher_eval", "run_triage_synthesis_eval"]

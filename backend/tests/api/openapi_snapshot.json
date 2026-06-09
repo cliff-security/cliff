@@ -4975,6 +4975,24 @@
         "title": "TimeToCloseSeries",
         "type": "object"
       },
+      "TriageRunResponse": {
+        "properties": {
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "status"
+        ],
+        "title": "TriageRunResponse",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -6267,6 +6285,49 @@
         "summary": "Reject Finding Endpoint",
         "tags": [
           "findings"
+        ]
+      }
+    },
+    "/api/findings/{finding_id}/triage": {
+      "post": {
+        "description": "Run triage on a finding as a background task (ADR-0051 / PRD-0008).\n\nEnsures a workspace for the finding WITHOUT advancing its status (triage\nkeeps the finding ``new`` until a `real` verdict is confirmed \u2014 the Plan\ngate, ADR-0051 \u00a76), then runs ``enricher \u2192 exposure \u2192 synthesis`` for a\nscanner finding or ``report_triager`` for a report. Poll\n``GET /workspaces/{workspace_id}/sidebar`` for the verdict.\n\nNote (deviation from IMPL-0024 \u00a73.2's ``POST /workspaces/{id}/triage``):\ntriage is finding-scoped because it must create a *non-status-advancing*\nworkspace \u2014 a workspace-scoped path would require the workspace to already\nexist, and creating it via the standard remediation path flips the finding\nto ``in_progress``, defeating the gate.",
+        "operationId": "run_triage_endpoint_api_findings__finding_id__triage_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "finding_id",
+            "required": true,
+            "schema": {
+              "title": "Finding Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriageRunResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Triage Endpoint",
+        "tags": [
+          "agent-execution"
         ]
       }
     },

@@ -65,6 +65,7 @@ class WorkspaceContextBuilder:
         *,
         initial_focus: str | None = None,
         repo_url: str | None = None,
+        advance_status: bool = True,
     ) -> Workspace:
         """Create a complete workspace: DB row + directory + finding context.
 
@@ -78,6 +79,12 @@ class WorkspaceContextBuilder:
         moment the workspace was opened (migration 013). Agents prefer this
         over the live integration value so editing the integration mid-flight
         doesn't silently rebind the workspace to a different repo.
+
+        ``advance_status`` flips ``Finding.status`` new/triaged → in_progress
+        (the remediation "Start" semantics). Triage passes ``False``: a triage
+        run needs the workspace directory + finding context, but must NOT
+        advance the finding — it stays ``new`` until a `real` verdict is
+        confirmed (ADR-0051 §6, the Plan gate).
 
         Returns the fully populated Workspace model.
         """
@@ -93,8 +100,10 @@ class WorkspaceContextBuilder:
         # 1b. Flip Finding.status new/triaged → in_progress so the Issues
         # page (PRD-0006) moves the row out of Todo on the user's click,
         # rather than waiting for the first agent run to update it.
-        # Idempotent — other statuses are left alone.
-        await mark_started_on_workspace_create(db, finding.id)
+        # Idempotent — other statuses are left alone. Skipped for triage runs
+        # (advance_status=False) so the finding stays untriaged until confirmed.
+        if advance_status:
+            await mark_started_on_workspace_create(db, finding.id)
 
         # 2. Resolve workspace integrations (if vault is configured) for the
         # manifest agents read for available-tooling context.

@@ -24,3 +24,11 @@ The harness reads its dataset directory from `CLIFF_EVAL_DATASET_DIR`:
 
 So the *scoring logic* is open and the *data* stays private. To add a public
 sample case, append a line here; real/sensitive cases go in `cliff-os/eval`.
+
+## Datasets here
+
+| File | Agent | Lane | Notes |
+|------|-------|------|-------|
+| `finding_enricher.jsonl` | finding_enricher | live (key-gated) | reference impl (ADR-0050 §7) |
+| `triage_synthesizer.jsonl` | scanner triage synthesis | **CI (deterministic, $0)** | pure-function mapping (ADR-0051 §3); asymmetric false-clear gate |
+| `report_triager.jsonl` | report triager | live (key-gated) | claim-vs-code + `tool_trace` no-auto-reject (ADR-0051 §4) |

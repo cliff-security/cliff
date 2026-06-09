@@ -11,11 +11,13 @@ from pydantic import BaseModel, Field
 
 from cliff.agents.errors import AgentBusyError, AgentProcessError
 from cliff.agents.pipeline import VALID_AGENT_TYPES, suggest_next
-from cliff.api.routes.workspaces import _resolve_repo_env_vars
+from cliff.agents.triage_runner import run_triage
+from cliff.api.routes.workspaces import _resolve_github_repo_url, _resolve_repo_env_vars
 from cliff.db.connection import get_db
 from cliff.db.repo_agent_run import get_agent_run, update_agent_run
+from cliff.db.repo_finding import get_finding
 from cliff.db.repo_sidebar import get_sidebar
-from cliff.db.repo_workspace import get_workspace
+from cliff.db.repo_workspace import get_workspace, list_workspaces
 from cliff.integrations.github_app.client import check_repo_push_access
 from cliff.models import AgentRunUpdate, SidebarState
 
@@ -427,6 +429,80 @@ async def run_all_pipeline(
         status="running",
         message="Pipeline started — agents will run sequentially",
     )
+
+
+# ---------------------------------------------------------------------------
+# Run triage (ADR-0051 / PRD-0008)
+# ---------------------------------------------------------------------------
+
+
+class TriageRunResponse(BaseModel):
+    workspace_id: str
+    status: str
+
+
+@router.post(
+    "/findings/{finding_id}/triage",
+    response_model=TriageRunResponse,
+    status_code=202,
+)
+async def run_triage_endpoint(
+    finding_id: str,
+    request: Request,
+    db=Depends(get_db),
+):
+    """Run triage on a finding as a background task (ADR-0051 / PRD-0008).
+
+    Ensures a workspace for the finding WITHOUT advancing its status (triage
+    keeps the finding ``new`` until a `real` verdict is confirmed — the Plan
+    gate, ADR-0051 §6), then runs ``enricher → exposure → synthesis`` for a
+    scanner finding or ``report_triager`` for a report. Poll
+    ``GET /workspaces/{workspace_id}/sidebar`` for the verdict.
+
+    Note (deviation from IMPL-0024 §3.2's ``POST /workspaces/{id}/triage``):
+    triage is finding-scoped because it must create a *non-status-advancing*
+    workspace — a workspace-scoped path would require the workspace to already
+    exist, and creating it via the standard remediation path flips the finding
+    to ``in_progress``, defeating the gate.
+    """
+    finding = await get_finding(db, finding_id)
+    if finding is None:
+        raise HTTPException(status_code=404, detail="Finding not found")
+
+    executor = request.app.state.agent_executor
+    context_builder = request.app.state.context_builder
+
+    # Ensure a workspace — reuse the one-per-finding workspace if present, else
+    # create one without advancing the finding's status.
+    existing = await list_workspaces(db, finding_id=finding_id, limit=1)
+    if existing:
+        workspace = existing[0]
+    else:
+        repo_url = await _resolve_github_repo_url(db)
+        workspace = await context_builder.create_workspace(
+            db, finding, repo_url=repo_url, advance_status=False
+        )
+
+    try:
+        await executor.check_not_busy(db, workspace.id)
+    except AgentBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    env_vars = await _resolve_repo_env_vars(request, db, workspace=workspace)
+
+    async def _run_in_background() -> None:
+        try:
+            await run_triage(executor, db, workspace, env_vars=env_vars)
+        except (AgentBusyError, AgentProcessError):
+            logger.exception("Triage failed for workspace %s", workspace.id)
+        except Exception:
+            logger.exception(
+                "Unexpected error in background triage for workspace %s", workspace.id
+            )
+
+    asyncio.create_task(_run_in_background())
+
+    return TriageRunResponse(workspace_id=workspace.id, status="running")
 
 
 # ---------------------------------------------------------------------------
