@@ -52,6 +52,7 @@ from cliff.agents.runtime.provider import (
 from cliff.agents.runtime.remediation_executor import (
     build_agent as build_executor_agent,
 )
+from cliff.agents.runtime.report_triager import run_report_triager
 from cliff.agents.runtime.tools.mcp import build_mcp_toolsets
 from cliff.agents.sidebar_mapper import map_and_upsert
 from cliff.db.repo_agent_run import (
@@ -593,6 +594,24 @@ class AgentExecutor:
                         "permission request"
                     )
                 parse_result = outcome.parse_result
+            elif agent_type == "report_triager":
+                # ===== Pydantic AI read-only-tools path (ADR-0051 §8) =====
+                # The report triager is the one triage producer with tool
+                # access — but READ-ONLY (the `read` tool, nothing that can
+                # mutate the repo / close / reply). No permission gating is
+                # needed because reads are auto-tier. Persistence is identical
+                # to the no-tools path (map_and_upsert → _map_triage).
+                parse_result = await self._run_pa_report_triager(
+                    WorkspaceDeps(
+                        workspace_id=workspace_id,
+                        workspace_dir=workspace_dir,
+                        finding=finding_data,
+                        prior_context=prior_ctx,
+                        env_vars=env_vars or {},
+                        user_note=None,
+                    ),
+                    effective_timeout,
+                )
             else:
                 # ============ Pydantic AI no-tools path ================
                 # ADR-0047 / IMPL-0022 PR #1 — six no-tools agents run
@@ -1032,6 +1051,36 @@ class AgentExecutor:
             structured_output=structured_output,
             summary=summary,
             confidence=None,
+            suggested_next_action=None,
+            error=None,
+        )
+
+    async def _run_pa_report_triager(
+        self,
+        deps: WorkspaceDeps,
+        timeout: float,
+    ) -> ParseResult:
+        """Run the read-only report triager (ADR-0051 §4) through Pydantic AI.
+
+        Same shape as the no-tools path — a ParseResult carrying the validated
+        ``TriageOutput`` — so ``_finalize_run`` persists it identically
+        (``map_and_upsert`` routes ``report_triager`` to ``_map_triage`` →
+        ``sidebar.triage``). The only difference is the agent has the ``read``
+        tool. Provider 429s reuse the same backoff budget via ``_run_pa_call``.
+        """
+        model = await self._resolve_active_model()
+        structured_output = await self._run_pa_call(
+            lambda: run_report_triager(deps, model),
+            agent_type="report_triager",
+            timeout=timeout,
+        )
+        verdict = structured_output.get("verdict", "needs_review")
+        return ParseResult(
+            success=True,
+            raw_text="",
+            structured_output=structured_output,
+            summary=f"Report triage verdict: {verdict}.",
+            confidence=structured_output.get("confidence"),
             suggested_next_action=None,
             error=None,
         )

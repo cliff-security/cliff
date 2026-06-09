@@ -27,6 +27,7 @@ _LIVE_LLM_FILES = (
     "test_normalizer_agent",
     "test_plain_description_eval",
     "test_evals_finding_enricher",
+    "test_evals_report_triager",
 )
 
 

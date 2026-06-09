@@ -253,4 +253,118 @@ def run_triage_synthesis_eval(
     return result
 
 
-__all__ = ["EvalRunResult", "run_enricher_eval", "run_triage_synthesis_eval"]
+async def run_report_triager_eval(
+    cases: list[EvalCase],
+    *,
+    env: dict[str, str],
+    model_id: str | None,
+    graded_floor: float = 0.6,
+) -> EvalRunResult:
+    """Run the REAL report triager over *cases* and score it (ADR-0051 §4 /
+    ADR-0050 Lane 2 — live, key-gated).
+
+    Each case stages its cited files (``case.files``) into a temp workspace so
+    the read-only agent can do the claim-vs-code check.
+
+    Hard gates (zero tolerance):
+      - ``tool_trace``: the report triager exposes NO mutating/side-effecting
+        tool (it can never auto-close or auto-reply) — ADR-0051 §8,
+      - **false-clear**: a ``real`` report dismissed as
+        unexploitable/false_positive (the asymmetric, load-bearing failure),
+      - abstention: ``abstain`` cases (e.g. a report citing nonexistent code)
+        must resolve to ``needs_review``, never a confident dismissal.
+    Graded: exact verdict match against the golden label.
+    """
+    if not cases:
+        raise ValueError(
+            "run_report_triager_eval got 0 cases — an empty dataset must fail, "
+            "not silently report PASS. Check the dataset path / tier filter."
+        )
+
+    import tempfile
+    from pathlib import Path
+
+    from pydantic_ai.exceptions import UsageLimitExceeded
+    from pydantic_ai.usage import UsageLimits
+
+    from cliff.agents.runtime._prompts import build_user_prompt
+    from cliff.agents.runtime.deps import WorkspaceDeps
+    from cliff.agents.runtime.provider import build_model
+    from cliff.agents.runtime.report_triager import (
+        REPORT_TRIAGER_REQUEST_LIMIT,
+        REPORT_TRIAGER_TOOLS,
+        build_agent,
+    )
+    from cliff.agents.runtime.tools import bash, edit, gh, webfetch
+    from cliff.agents.schemas import TriageOutput
+
+    result = EvalRunResult(
+        agent="report_triager", n_cases=len(cases), graded_floor=graded_floor
+    )
+
+    # tool_trace HARD gate (static, but the whole safety story): the report
+    # triager must carry no tool that can mutate the repo, push, or reply.
+    mutating = [t for t in (bash, edit, gh, webfetch) if t in REPORT_TRIAGER_TOOLS]
+    if mutating:
+        names = ", ".join(t.__name__ for t in mutating)
+        result.hard_failures.append(f"tool_trace: report_triager exposes {names}")
+
+    model = build_model(env, model_id)
+    matches: list[bool] = []
+
+    for case in cases:
+        with tempfile.TemporaryDirectory() as tmp:
+            for rel, text in (case.files or {}).items():
+                target = Path(tmp) / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(text)
+            deps = WorkspaceDeps(
+                workspace_id=case.id,
+                workspace_dir=tmp,
+                finding=case.finding,
+                prior_context={},
+                env_vars=env,
+                user_note=None,
+            )
+            try:
+                run = await build_agent(model).run(
+                    build_user_prompt(deps),
+                    deps=deps,
+                    usage_limits=UsageLimits(
+                        request_limit=REPORT_TRIAGER_REQUEST_LIMIT
+                    ),
+                )
+                out = run.output
+                usage = run.usage
+                result.total_tokens += getattr(usage, "total_tokens", 0) or 0
+            except UsageLimitExceeded:
+                # Ran out of read budget without a conclusion. Production
+                # surfaces this as a failed run (a Retry), never a clear; the
+                # eval scores it as the safe abstention so a loopy model can't
+                # false-clear — but it still counts against verdict_match for
+                # any non-abstain case.
+                out = TriageOutput(verdict="needs_review", confidence=0.0)
+
+        golden = case.expected.verdict
+        if golden == "real" and out.verdict in _CLEARING_VERDICTS:
+            result.hard_failures.append(
+                f"{case.id}: FALSE-CLEAR — a real report was dismissed as "
+                f"{out.verdict!r} (asymmetric zero-tolerance gate)"
+            )
+        if case.abstain and out.verdict != "needs_review":
+            result.hard_failures.append(
+                f"{case.id}: abstention — expected needs_review, got {out.verdict!r}"
+            )
+        if golden is not None:
+            matches.append(out.verdict == golden)
+
+    result.graded_rates = {"verdict_match": sum(matches) / len(matches) if matches else 1.0}
+    return result
+
+
+__all__ = [
+    "EvalRunResult",
+    "run_enricher_eval",
+    "run_report_triager_eval",
+    "run_triage_synthesis_eval",
+]

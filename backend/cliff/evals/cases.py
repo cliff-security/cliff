@@ -66,6 +66,10 @@ class EvalCase(BaseModel):
     abstain: bool = False
     finding: dict[str, Any]
     expected: Expected = Field(default_factory=Expected)
+    # ADR-0051 — report-triager cases stage cited repo files (relpath → text)
+    # into a temp workspace so the read-only agent can do the claim-vs-code
+    # check. Omitted (None) for every other agent.
+    files: dict[str, str] | None = None
 
 
 def load_cases(agent: str, *, tier: Tier | None = None) -> list[EvalCase]:

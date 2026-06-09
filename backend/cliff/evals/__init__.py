@@ -21,6 +21,7 @@ from cliff.evals.registry import AgentEvalSpec, get_spec
 from cliff.evals.runners import (
     EvalRunResult,
     run_enricher_eval,
+    run_report_triager_eval,
     run_triage_synthesis_eval,
 )
 
@@ -35,6 +36,7 @@ __all__ = [
     "load_cases",
     "run_agent",
     "run_enricher_eval",
+    "run_report_triager_eval",
     "run_triage_synthesis_eval",
     "select_eval_model",
 ]

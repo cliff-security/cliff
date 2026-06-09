@@ -238,6 +238,25 @@ IMPORTANT: Respond with ONLY the JSON array. No other text.
 """
 
 
+#: ADR-0051 / PRD-0008 — an inbound vulnerability report imports under this
+#: source. The triage dispatch routes ``source_type == REPORT_SOURCE_TYPE`` to
+#: the report_triager (read-only repo) instead of the scanner synthesizer.
+REPORT_SOURCE_TYPE = "report"
+
+
+def _resolve_source_type(source: str, item_source_type: str | None) -> str:
+    """The ``source_type`` a normalized item gets.
+
+    A report import is ALWAYS tagged ``report`` (regardless of what the model
+    guessed for an unstructured prose item) so triage routes it to the report
+    triager. Scanner items keep their own ``source_type``, defaulting to the
+    scanner name when the model left it null.
+    """
+    if source == REPORT_SOURCE_TYPE:
+        return REPORT_SOURCE_TYPE
+    return item_source_type or source
+
+
 def _build_user_message(source: str, raw_json: str) -> str:
     """The per-call user message — just the scanner source + raw data.
 
@@ -328,9 +347,9 @@ async def normalize_findings(
     for i, nf in enumerate(outputs):
         item = nf.model_dump()
         # The model_dump always carries every key; fill the load-bearing
-        # defaults the LLM may have left null.
-        if item.get("source_type") is None:
-            item["source_type"] = source
+        # defaults the LLM may have left null. A report import is force-tagged
+        # ``source_type='report'`` so triage routes it correctly (ADR-0051).
+        item["source_type"] = _resolve_source_type(source, item.get("source_type"))
         # Normalized findings are always brand-new — force the status rather
         # than trusting the model's value, so a stray string (e.g. "open")
         # doesn't drop an otherwise-valid finding into ``errors``.
