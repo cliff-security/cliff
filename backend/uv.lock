@@ -503,7 +503,7 @@ wheels = [
 [[package]]
 name = "cliff"
 version = "0.2.1"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
     { name = "cryptography" },

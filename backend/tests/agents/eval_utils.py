@@ -1,30 +1,16 @@
-"""Shared setup for the real-LLM agent evals (IMPL-0022 PR #3b).
+"""Shared setup for the real-LLM agent evals.
 
-The two live-LLM test modules — ``test_normalizer_agent`` and
-``test_plain_description_eval`` — both need the same provider env + a
-capable-but-cheap model id. Keeping that selection policy here means it
-can't drift between the two files. Both modules are skip-gated on an API
-key being present (see ``conftest.py``).
+Thin re-export of the canonical selection policy in ``cliff.evals.models`` —
+which lives in the public package (not ``tests/``) so the in-repo live tests AND
+the private ``cliff-os/eval`` runner share ONE policy and can't drift. Live test
+modules are skip-gated on a runnable model being available (see ``conftest.py``).
 """
 
 from __future__ import annotations
 
-import os
+from cliff.evals.models import harvest_env, select_eval_model
 
-# Provider credentials for the app-level normalizer, harvested from the host
-# env (the same shape the running daemon resolves into a workspace).
-LLM_ENV = {
-    k: v for k, v in os.environ.items() if k.endswith(("_API_KEY", "_BASE_URL"))
-}
-
-
-def eval_model() -> str:
-    """Capable, cheap model for the real-LLM eval (override: ``CLIFF_EVAL_MODEL``)."""
-    if override := os.environ.get("CLIFF_EVAL_MODEL"):
-        return override
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return "anthropic/claude-haiku-4-5"
-    return "openai/gpt-4o-mini"
-
-
-LLM_MODEL = eval_model()
+LLM_ENV = harvest_env()
+# Resolved at import; only *used* by tests that are skip-gated on a runnable
+# model, so the last-resort fallback is just to keep this non-None at import.
+LLM_MODEL = select_eval_model() or "openai/gpt-4o-mini"

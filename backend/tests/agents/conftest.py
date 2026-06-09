@@ -8,21 +8,26 @@ when no API key is set.
 
 from __future__ import annotations
 
-import os
-
 import pytest
 
-_api_key_set = bool(
-    os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
-)
+from cliff.evals.models import eval_runnable
 
+# Gate live-LLM tests on whether a model actually resolves (CLIFF_EVAL_MODEL
+# override or a configured provider) — derived from the SAME policy the runner
+# uses, so the gate can't say "runnable" while eval_model picks a model with no
+# key (e.g. an Ollama-only host that would otherwise hard-error, not skip).
 _skip_no_key = pytest.mark.skipif(
-    not _api_key_set, reason="No LLM API key set (OPENAI_API_KEY or ANTHROPIC_API_KEY)"
+    not eval_runnable(),
+    reason="No runnable eval model (set a provider key or CLIFF_EVAL_MODEL)",
 )
 
 # Files whose every test hits a real LLM (the live evals). Everything else
 # under tests/agents/ runs against FunctionModel/TestModel and stays in CI.
-_LIVE_LLM_FILES = ("test_normalizer_agent", "test_plain_description_eval")
+_LIVE_LLM_FILES = (
+    "test_normalizer_agent",
+    "test_plain_description_eval",
+    "test_evals_finding_enricher",
+)
 
 
 def pytest_collection_modifyitems(items):
