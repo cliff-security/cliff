@@ -8,24 +8,17 @@ when no API key is set.
 
 from __future__ import annotations
 
-import os
-
 import pytest
 
-# Any provider build_model() can use — so a runnable non-OpenAI/Anthropic setup
-# (e.g. OPENROUTER_API_KEY + CLIFF_EVAL_MODEL=openrouter/...) doesn't get skipped.
-_PROVIDER_ENV_VARS = (
-    "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY",
-    "OPENROUTER_API_KEY",
-    "GEMINI_API_KEY",
-    "OLLAMA_BASE_URL",  # Ollama authenticates with no key
-)
-_api_key_set = any(os.environ.get(v) for v in _PROVIDER_ENV_VARS)
+from cliff.evals.models import eval_runnable
 
+# Gate live-LLM tests on whether a model actually resolves (CLIFF_EVAL_MODEL
+# override or a configured provider) — derived from the SAME policy the runner
+# uses, so the gate can't say "runnable" while eval_model picks a model with no
+# key (e.g. an Ollama-only host that would otherwise hard-error, not skip).
 _skip_no_key = pytest.mark.skipif(
-    not _api_key_set,
-    reason=f"No LLM provider configured (one of: {', '.join(_PROVIDER_ENV_VARS)})",
+    not eval_runnable(),
+    reason="No runnable eval model (set a provider key or CLIFF_EVAL_MODEL)",
 )
 
 # Files whose every test hits a real LLM (the live evals). Everything else

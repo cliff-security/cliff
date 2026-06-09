@@ -29,9 +29,14 @@ _JARGON_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bGHSA-[a-z0-9]{4}-", re.IGNORECASE),
     re.compile(r"^\s*\[[^\]]+\]"),  # leading "[semgrep] ..." style tag
     # Dotted scanner rule paths (e.g. javascript.lang.security.detect-eval).
-    # Require a letter in every segment so plain semantic versions like
-    # "2.17.1" are NOT flagged as jargon.
-    re.compile(r"\b[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*){2,}\b", re.IGNORECASE),
+    # The leading lookahead requires a hyphen/underscore somewhere in the run,
+    # so semantic versions ("2.17.1") and plain dotted words/domains
+    # ("www.example.com", "asp.net.core.mvc") are NOT flagged — real scanner
+    # rule ids almost always carry a hyphen/underscore in a segment.
+    re.compile(
+        r"\b(?=[a-z0-9._-]*[_-])[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*){2,}\b",
+        re.IGNORECASE,
+    ),
 )
 
 

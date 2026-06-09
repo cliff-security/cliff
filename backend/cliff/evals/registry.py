@@ -1,8 +1,11 @@
 """Per-agent eval registry (ADR-0050 §1).
 
 One ``AgentEvalSpec`` per eval target — the single source of truth for what
-each agent supports, its budget, and how to build it. The runner validates a
-dataset's declared assertions against ``supported_assertions``.
+each agent supports, its budget, and how to build it. ``supported_assertions``
+documents which assertion families are meaningful for the agent; per-case
+datasets don't yet declare assertions (the per-agent runner applies a fixed
+set), so it is descriptive, not yet runner-enforced — that validation lands
+when cases carry explicit per-case assertions.
 
 Only ``finding_enricher`` is wired today (ADR-0050 rollout §7: highest-risk
 first). Add entries as each agent's eval lands.
@@ -50,8 +53,6 @@ class AgentEvalSpec(BaseModel):
     supported_assertions: frozenset[str]
     budget: BudgetSpec
     default_model: str | None = None
-    live_only: bool = False
-    eval_frozen: bool = False  # deprecated agents (owner_resolver): keep, don't maintain
 
 
 _REGISTRY: dict[str, AgentEvalSpec] = {

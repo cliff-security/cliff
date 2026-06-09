@@ -28,7 +28,7 @@ Finding = dict[str, object]
 
 
 @dataclass
-class AgentRun:
+class MeasuredRun:
     """A measured single run — the output plus what it cost (ADR-0050 §4)."""
 
     output: BaseModel
@@ -107,7 +107,7 @@ async def run_agent_measured(
     model_id: str | None = None,
     model: Model | None = None,
     prior_context: dict[str, dict[str, object]] | None = None,
-) -> AgentRun:
+) -> MeasuredRun:
     """Like :func:`run_agent`, but also returns token usage + wall-clock time so
     the runner can enforce a per-case / per-run budget."""
     start = time.monotonic()
@@ -116,7 +116,7 @@ async def run_agent_measured(
     )
     duration = time.monotonic() - start
     usage = result.usage
-    return AgentRun(
+    return MeasuredRun(
         output=_validated_output(spec, result),
         input_tokens=usage.input_tokens or 0,
         output_tokens=usage.output_tokens or 0,
@@ -125,4 +125,4 @@ async def run_agent_measured(
     )
 
 
-__all__ = ["AgentRun", "run_agent", "run_agent_measured"]
+__all__ = ["MeasuredRun", "run_agent", "run_agent_measured"]

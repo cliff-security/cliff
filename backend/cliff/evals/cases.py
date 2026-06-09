@@ -70,7 +70,16 @@ def load_cases(agent: str, *, tier: Tier | None = None) -> list[EvalCase]:
     """Load ``<agent>.jsonl`` from the active dataset dir into typed cases."""
     path = dataset_dir() / f"{agent}.jsonl"
     if not path.is_file():
-        raise FileNotFoundError(f"No eval dataset for {agent!r} at {path}")
+        hint = ""
+        if not os.environ.get("CLIFF_EVAL_DATASET_DIR"):
+            # The in-repo synthetic sample isn't packaged in the wheel (tests/
+            # is excluded), so a wheel-installed consumer must point at its own
+            # dataset dir rather than rely on the default.
+            hint = (
+                " — set CLIFF_EVAL_DATASET_DIR (the sample dataset ships only"
+                " in a source checkout, not the installed package)"
+            )
+        raise FileNotFoundError(f"No eval dataset for {agent!r} at {path}{hint}")
     cases: list[EvalCase] = []
     for line_no, raw in enumerate(path.read_text().splitlines(), start=1):
         line = raw.strip()

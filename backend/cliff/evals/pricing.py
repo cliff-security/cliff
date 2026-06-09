@@ -22,8 +22,11 @@ _PRICE_USD_PER_MTOK: dict[str, tuple[float, float]] = {
 
 
 def _match(model_id: str | None) -> str | None:
-    """Longest matching key wins, so a more specific id (e.g. ``gpt-4o-mini``)
-    isn't mispriced against a shorter prefix (``gpt-4o``)."""
+    """Longest matching key wins, so a model with its OWN key isn't mispriced
+    against a shorter prefix. A sub-model NOT in the table still falls back to
+    its nearest priced sibling (e.g. ``gpt-5-mini`` → ``gpt-5``) — an
+    over-estimate, which is the safe direction for a best-effort budget guard.
+    Add the sub-model's own key when an exact price matters."""
     m = (model_id or "").lower()
     candidates = [k for k in _PRICE_USD_PER_MTOK if k in m]
     return max(candidates, key=len) if candidates else None
