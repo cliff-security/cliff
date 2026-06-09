@@ -656,26 +656,26 @@ const VERDICT_VISUAL: Record<TriageVerdict, VerdictVisual> = {
   real: {
     label: 'Real risk',
     icon: 'warning',
-    color: 'var(--cd-red, #ef6464)',
-    tint: 'var(--cd-red-dim, rgba(239,100,100,0.12))',
+    color: 'var(--cd-red)',
+    tint: 'var(--cd-red-soft)',
   },
   unexploitable: {
     label: 'Not exploitable',
     icon: 'shield',
     color: 'var(--cd-green)',
-    tint: 'var(--cd-green-dim, rgba(122,200,160,0.12))',
+    tint: 'var(--cd-green-soft)',
   },
   false_positive: {
     label: 'False positive',
     icon: 'report',
     color: 'var(--cd-green)',
-    tint: 'var(--cd-green-dim, rgba(122,200,160,0.12))',
+    tint: 'var(--cd-green-soft)',
   },
   needs_review: {
     label: 'Needs your review',
     icon: 'help',
-    color: 'var(--cd-amber, #f5b54a)',
-    tint: 'var(--cd-amber-dim, rgba(245,181,74,0.12))',
+    color: 'var(--cd-amber)',
+    tint: 'var(--cd-amber-soft)',
   },
 }
 
@@ -688,8 +688,8 @@ const CHECK_ICON: Record<string, string> = {
 
 const CHECK_COLOR: Record<string, string> = {
   pass: 'var(--cd-green)',
-  fail: 'var(--cd-red, #ef6464)',
-  warn: 'var(--cd-amber, #f5b54a)',
+  fail: 'var(--cd-red)',
+  warn: 'var(--cd-amber)',
   info: 'var(--cd-fg-3)',
 }
 
