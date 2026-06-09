@@ -271,6 +271,15 @@
   outline: 2px solid var(--cd-green);
   outline-offset: 2px;
 }
+/* Native disclosure summaries (the triage proof / reachability / claim-vs-code
+ * sections use <details>/<summary>) get the same Cyberdeck green ring as
+ * .cd-btn / .cd-chip, so keyboard focus reads consistently across the app
+ * instead of falling back to the browser default. */
+summary:focus-visible {
+  outline: 2px solid var(--cd-green);
+  outline-offset: 2px;
+  border-radius: var(--cd-r-1);
+}
 .cd-chip--green   { color: var(--cd-green);   border-color: var(--cd-green-line); }
 .cd-chip--cyan    { color: var(--cd-cyan);    border-color: var(--cd-cyan-line); }
 .cd-chip--amber   { color: var(--cd-amber);   border-color: rgba(240, 191, 126, 0.35); }

@@ -1053,7 +1053,8 @@ function SPTriage({
         <TriageProgress />
       ) : (
         <p className="text-[12.5px]" style={{ color: 'var(--cd-fg-3)' }}>
-          No triage verdict yet.
+          No triage verdict yet. Run triage to see Cliff&rsquo;s read on this
+          finding.
         </p>
       )}
     </section>
