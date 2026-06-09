@@ -51,3 +51,36 @@ def test_scanner_source_type_preserved() -> None:
     assert _resolve_source_type("snyk", "snyk") == "snyk"
     assert _resolve_source_type("snyk", None) == "snyk"
     assert _resolve_source_type("trivy", "trivy-secret") == "trivy-secret"
+
+
+async def test_run_report_triager_returns_validated_triage_output(tmp_path) -> None:
+    """The executor's report path runs ``run_report_triager``; drive it with a
+    TestModel (no real LLM) to confirm the read-only agent runs end-to-end and
+    returns a coherent TriageOutput dict (the verdict↔recommended_close pairing
+    is filled by the schema)."""
+    from pydantic_ai.models.test import TestModel
+
+    from cliff.agents.runtime.deps import WorkspaceDeps
+    from cliff.agents.runtime.report_triager import run_report_triager
+
+    deps = WorkspaceDeps(
+        workspace_id="ws-1",
+        workspace_dir=str(tmp_path),
+        finding={
+            "source_type": "report",
+            "source_id": "R-1",
+            "title": "Reported SQLi",
+            "description": "get_user builds the query with an f-string.",
+        },
+        prior_context={},
+        env_vars={},
+        user_note=None,
+    )
+    # custom_output_args pins a coherent verdict so the TriageOutput validator
+    # (which would reject TestModel's arbitrary auto-generated pairing) passes.
+    model = TestModel(custom_output_args={"verdict": "needs_review", "confidence": 0.5})
+    out = await run_report_triager(deps, model)
+
+    assert out["verdict"] == "needs_review"
+    # needs_review → recommended_close is the coherent None (filled by schema).
+    assert out["recommended_close"] is None
