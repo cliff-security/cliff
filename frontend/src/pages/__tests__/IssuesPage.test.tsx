@@ -127,31 +127,32 @@ describe('IssuesPage', () => {
     expect(sessionStorage.getItem('cliff.issues.inProgressOpen')).toBe('1')
   })
 
-  it('clicking a Todo row creates a workspace and opens the side panel via ?open', async () => {
+  it('clicking Run triage on an untriaged Todo row runs triage and opens the panel (ADR-0051)', async () => {
+    // The Plan gate: an untriaged (`new`) finding offers Run triage — NOT
+    // Start — and clicking it runs triage (POST /findings/:id/triage), not a
+    // remediation workspace.
+    let triageCount = 0
     let createCount = 0
     server.use(
+      http.post('/api/findings/:id/triage', () => {
+        triageCount += 1
+        return HttpResponse.json(
+          { workspace_id: 'w-new', status: 'running' },
+          { status: 202 },
+        )
+      }),
       http.post('/api/workspaces', () => {
         createCount += 1
-        return HttpResponse.json({
-          id: 'w-new',
-          finding_id: 't1',
-          state: 'open',
-          current_focus: null,
-          active_plan_version: null,
-          linked_ticket_id: null,
-          validation_state: null,
-          created_at: '',
-          updated_at: '',
-        })
+        return HttpResponse.json({})
       }),
     )
     const findings = [makeFinding({ id: 't1', stage: 'todo' })]
     renderPage(findings)
     await screen.findByText(/grade B/)
-    const startBtn = await screen.findByRole('button', { name: /^Start$/i })
-    fireEvent.click(startBtn)
-    await waitFor(() => expect(createCount).toBe(1))
-    // Side panel mounts with the issue's title visible.
+    const triageBtn = await screen.findByRole('button', { name: /run triage/i })
+    fireEvent.click(triageBtn)
+    await waitFor(() => expect(triageCount).toBe(1))
+    expect(createCount).toBe(0)
     await waitFor(() =>
       expect(screen.getByRole('dialog', { name: /Issue details/i })).toBeInTheDocument(),
     )
@@ -263,7 +264,10 @@ describe('IssuesPage', () => {
     await screen.findByText('Issue a')
     expect(screen.getByText('Issue a')).toBeInTheDocument()
     expect(screen.getByText('Issue b')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /^Critical/i }))
+    // The severity filter is a custom listbox dropdown (IssueFilterSelect):
+    // open it, then pick the Critical option.
+    fireEvent.click(screen.getByRole('button', { name: /Severity/i }))
+    fireEvent.click(screen.getByRole('option', { name: /Crit/i }))
     await waitFor(() => {
       expect(screen.getByText('Issue a')).toBeInTheDocument()
       expect(screen.queryByText('Issue b')).toBeNull()

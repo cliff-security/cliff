@@ -25,7 +25,15 @@ const TYPE_ICON: Record<string, string> = {
   posture: 'verified_user',
 }
 
-type ActionKind = 'review_plan' | 'review_pr' | 'start' | 'view'
+type ActionKind =
+  | 'review_plan'
+  | 'review_pr'
+  // ADR-0051 / PRD-0008 — run triage on an untriaged finding; review a
+  // produced verdict awaiting confirmation.
+  | 'run_triage'
+  | 'review_verdict'
+  | 'start'
+  | 'view'
 
 interface RowMeta {
   cvss: number | null
@@ -49,10 +57,16 @@ function readRowMeta(payload: Finding['raw_payload']): RowMeta {
   }
 }
 
-function actionForStage(stage: IssueStage): ActionKind {
+function actionForStage(stage: IssueStage, status: string): ActionKind {
   if (stage === 'plan_ready') return 'review_plan'
   if (stage === 'pr_ready' || stage === 'pr_awaiting_val') return 'review_pr'
-  if (stage === 'todo') return 'start'
+  // ADR-0051 / PRD-0008 — a produced verdict awaiting the human gate.
+  if (stage === 'triage_verdict') return 'review_verdict'
+  if (stage === 'todo') {
+    // The gate: an untriaged finding (`new`) is triaged first; only a
+    // confirmed-real finding (`triaged`) can Start remediation.
+    return status === 'triaged' ? 'start' : 'run_triage'
+  }
   return 'view'
 }
 
@@ -92,7 +106,7 @@ function IssueRowImpl({
   const [hover, setHover] = useState(false)
 
   const stage: IssueStage = finding.derived?.stage ?? 'todo'
-  const action = actionForStage(stage)
+  const action = actionForStage(stage, finding.status)
   // Posture rows lack file/cwe/cvss/found metadata even though they now have
   // severity. Keep the meta-row + structural details vuln-only so the row
   // doesn't render an awkward set of "—" placeholders for posture.
@@ -245,6 +259,40 @@ function IssueRowImpl({
               merge_type
             </span>
             Review PR
+          </button>
+        )}
+        {action === 'review_verdict' && (
+          // Opens the side panel where the verdict + confirm footer live —
+          // a read action, so it routes through ``inspect`` (panel), not the
+          // gated activate flow.
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              inspect()
+            }}
+            className="cd-btn cd-btn--primary cd-btn--sm"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 13 }} aria-hidden>
+              fact_check
+            </span>
+            Review verdict
+          </button>
+        )}
+        {action === 'run_triage' && (
+          <button
+            onClick={activate}
+            disabled={starting}
+            aria-busy={starting || undefined}
+            className="cd-btn cd-btn--outline cd-btn--sm disabled:opacity-60 disabled:cursor-wait"
+          >
+            <span
+              className="material-symbols-outlined"
+              style={{ fontSize: 13 }}
+              aria-hidden
+            >
+              {starting ? 'autorenew' : 'fact_check'}
+            </span>
+            {starting ? 'Triaging…' : 'Run triage'}
           </button>
         )}
         {action === 'start' && (

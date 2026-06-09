@@ -51,9 +51,14 @@ import { IssueStageChip } from './IssueStageChip'
 interface IssueSidePanelProps {
   finding: Finding
   onClose: () => void
-  /** Invoked when the user clicks Start from the footer at stage='todo'. */
+  /** Invoked when the user starts remediation — the Start footer for a
+   *  confirmed-real (`triaged`) finding, and the "Open workspace to remediate"
+   *  action after confirming a `real` verdict. */
   onStart?: () => void
-  /** True while the parent's POST /api/workspaces is in flight. */
+  /** ADR-0051 — invoked when the user runs triage on an untriaged finding
+   *  (the Run-triage footer at stage='todo' when status='new'). */
+  onRunTriage?: () => void
+  /** True while the parent's POST is in flight (workspace create / triage). */
   starting?: boolean
 }
 
@@ -150,6 +155,7 @@ export function IssueSidePanel({
   finding,
   onClose,
   onStart,
+  onRunTriage,
   starting,
 }: IssueSidePanelProps) {
   const serverStage: IssueStage = finding.derived?.stage ?? 'todo'
@@ -274,6 +280,7 @@ export function IssueSidePanel({
         onRejectCancel={() => setRejecting(false)}
         onRejected={closePanel}
         onStart={onStart}
+        onRunTriage={onRunTriage}
         starting={starting}
       />
     </aside>
@@ -1407,6 +1414,7 @@ function SidePanelFooter({
   onRejectCancel,
   onRejected,
   onStart,
+  onRunTriage,
   starting,
 }: {
   finding: Finding
@@ -1417,6 +1425,7 @@ function SidePanelFooter({
   onRejectCancel: () => void
   onRejected: () => void
   onStart?: () => void
+  onRunTriage?: () => void
   starting?: boolean
 }) {
   // ``minHeight: 72`` — the single-row footer stages (todo, planning,
@@ -1467,6 +1476,7 @@ function SidePanelFooter({
           onRefine={onRefine}
           onRejectStart={onRejectStart}
           onStart={onStart}
+          onRunTriage={onRunTriage}
           starting={starting}
         />
       )}
@@ -1554,6 +1564,7 @@ function DefaultFooter({
   onRefine,
   onRejectStart,
   onStart,
+  onRunTriage,
   starting,
 }: {
   finding: Finding
@@ -1561,6 +1572,7 @@ function DefaultFooter({
   onRefine: () => void
   onRejectStart: () => void
   onStart?: () => void
+  onRunTriage?: () => void
   starting?: boolean
 }) {
   const workspaceId = finding.derived?.workspace_id ?? null
@@ -1625,6 +1637,21 @@ function DefaultFooter({
   }
 
   if (stage === 'todo') {
+    // The gate (ADR-0051 §6): an untriaged finding (`new`) is triaged first;
+    // only a confirmed-real (`triaged`) finding starts remediation.
+    if (finding.status === 'new') {
+      return (
+        <div className="flex items-center gap-2 w-full">
+          <PrimaryButton
+            icon="fact_check"
+            onClick={onRunTriage}
+            disabled={!onRunTriage || starting}
+          >
+            {starting ? 'Triaging…' : 'Run triage'}
+          </PrimaryButton>
+        </div>
+      )
+    }
     return (
       <div className="flex items-center gap-2 w-full">
         <PrimaryButton

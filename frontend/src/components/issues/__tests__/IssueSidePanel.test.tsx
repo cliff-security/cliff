@@ -91,8 +91,16 @@ describe('IssueSidePanel — sticky footer (F4)', () => {
     },
   )
 
-  it('todo footer shows the Start primary action', () => {
-    renderPanel(findingForStage('todo'))
+  it('todo footer shows Run triage for an untriaged (new) finding (ADR-0051 gate)', () => {
+    renderPanel(findingForStage('todo', { status: 'new' }))
+    expect(
+      screen.getByRole('button', { name: /run triage/i }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Start/i })).toBeNull()
+  })
+
+  it('todo footer shows Start for a confirmed-real (triaged) finding', () => {
+    renderPanel(findingForStage('todo', { status: 'triaged' }))
     expect(screen.getByRole('button', { name: /^Start/i })).toBeInTheDocument()
   })
 

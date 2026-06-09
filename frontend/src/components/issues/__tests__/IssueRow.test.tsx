@@ -1,16 +1,17 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import type { IssueStage } from '../../../api/client'
+import type { FindingStatus, IssueStage } from '../../../api/client'
 import { makeFinding as baseMakeFinding } from '../../../test/fixtures/finding'
 import { IssueRow } from '../IssueRow'
 
-function makeFinding(opts: { stage: IssueStage }) {
+function makeFinding(opts: { stage: IssueStage; status?: FindingStatus }) {
   // IssueRow tests render a CVE-flavoured finding so the metadata row
   // assertions have something to look for.
   return {
     ...baseMakeFinding({
       id: 'CVE-2024-1234',
       stage: opts.stage,
+      status: opts.status,
       severity: 'critical',
       workspaceId: 'w-1',
     }),
@@ -55,9 +56,24 @@ describe('IssueRow', () => {
     expect(screen.getByRole('button', { name: /review pr/i })).toBeInTheDocument()
   })
 
-  it('renders Start action for todo stage', () => {
-    render(<IssueRow finding={makeFinding({ stage: 'todo' })} />)
-    expect(screen.getByRole('button', { name: /start/i })).toBeInTheDocument()
+  it('renders Run triage action for an untriaged (new) todo finding', () => {
+    render(<IssueRow finding={makeFinding({ stage: 'todo', status: 'new' })} />)
+    expect(
+      screen.getByRole('button', { name: /run triage/i }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^start/i })).toBeNull()
+  })
+
+  it('renders Start action for a confirmed-real (triaged) todo finding', () => {
+    render(<IssueRow finding={makeFinding({ stage: 'todo', status: 'triaged' })} />)
+    expect(screen.getByRole('button', { name: /^start/i })).toBeInTheDocument()
+  })
+
+  it('renders Review verdict action for the triage_verdict stage', () => {
+    render(<IssueRow finding={makeFinding({ stage: 'triage_verdict' })} />)
+    expect(
+      screen.getByRole('button', { name: /review verdict/i }),
+    ).toBeInTheDocument()
   })
 
   it('renders chevron-only action (no button) for in-flight stages', () => {
@@ -101,10 +117,12 @@ describe('IssueRow', () => {
     expect(onActivate).toHaveBeenCalledTimes(1)
   })
 
-  it('applies the focus-visible ring style when focused prop is set', () => {
+  it('applies the focus-visible ring class when focused prop is set', () => {
     render(<IssueRow finding={makeFinding({ stage: 'todo' })} focused />)
     const row = screen.getByRole('row')
-    expect(row.style.boxShadow).toContain('inset')
+    // The focus ring is the Cyberdeck `cd-row--focus` class (CSS), not an
+    // inline box-shadow.
+    expect(row.className).toContain('cd-row--focus')
   })
 
   it('renders the severity hairline + badge + stage chip in the row', () => {

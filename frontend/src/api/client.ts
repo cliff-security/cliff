@@ -789,6 +789,15 @@ export const api = {
       { method: 'POST' },
     ),
 
+  // ADR-0051 / PRD-0008 — run triage on a finding. Ensures a
+  // non-status-advancing workspace and runs enricher→exposure→synthesis
+  // (scanner) or report_triager (report). Returns the workspace to poll.
+  runTriage: (findingId: string) =>
+    request<{ workspace_id: string; status: string }>(
+      `/api/findings/${findingId}/triage`,
+      { method: 'POST' },
+    ),
+
   // Approve the planner's output and release the run-all loop's gate
   // so the executor can run (PRD-0006 Story 3).
   approvePlan: (workspaceId: string) =>
