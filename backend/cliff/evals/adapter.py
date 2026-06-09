@@ -11,23 +11,27 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from cliff.agents.runtime._prompts import build_user_prompt
 from cliff.agents.runtime.deps import WorkspaceDeps
 from cliff.agents.runtime.provider import build_model
 
 if TYPE_CHECKING:
+    from pydantic import BaseModel
     from pydantic_ai.models import Model
 
     from cliff.evals.registry import AgentEvalSpec
+
+# A finding is a raw scanner dict (string keys); values are heterogeneous.
+Finding = dict[str, object]
 
 
 @dataclass
 class AgentRun:
     """A measured single run — the output plus what it cost (ADR-0050 §4)."""
 
-    output: Any
+    output: BaseModel
     input_tokens: int
     output_tokens: int
     total_tokens: int
@@ -36,34 +40,52 @@ class AgentRun:
 
 async def _run(
     spec: AgentEvalSpec,
-    finding: dict[str, Any],
+    finding: Finding,
     *,
     env: dict[str, str] | None,
     model_id: str | None,
     model: Model | None,
-    prior_context: dict[str, dict[str, Any]] | None,
+    prior_context: dict[str, dict[str, object]] | None,
 ):
-    resolved_model = model if model is not None else build_model(env or {}, model_id)
+    # CI lane injects ``model``; live lane builds from env + the case/spec model
+    # (falling back to the spec's ``default_model`` when no id is supplied).
+    resolved_model = (
+        model
+        if model is not None
+        else build_model(env or {}, model_id or spec.default_model)
+    )
     agent = spec.build_agent(resolved_model)
     deps = WorkspaceDeps(
         workspace_id="eval",
         workspace_dir="/tmp/cliff-eval",
-        finding=finding,
+        finding=dict(finding),
         prior_context=prior_context or {},
         env_vars=env or {},
     )
     return await agent.run(build_user_prompt(deps), deps=deps)
 
 
+def _validated_output(spec: AgentEvalSpec, result) -> BaseModel:
+    """PA already validates against the agent's ``output_type``; assert it so a
+    misconfigured registry entry fails loudly rather than scoring garbage."""
+    output = result.output
+    if not isinstance(output, spec.output_type):
+        raise TypeError(
+            f"{spec.name}: expected {spec.output_type.__name__}, got "
+            f"{type(output).__name__}"
+        )
+    return output
+
+
 async def run_agent(
     spec: AgentEvalSpec,
-    finding: dict[str, Any],
+    finding: Finding,
     *,
     env: dict[str, str] | None = None,
     model_id: str | None = None,
     model: Model | None = None,
-    prior_context: dict[str, dict[str, Any]] | None = None,
-) -> Any:
+    prior_context: dict[str, dict[str, object]] | None = None,
+) -> BaseModel:
     """Run *spec*'s agent over a single eval case and return its output object.
 
     Provide ``model`` directly (CI lane: a ``FunctionModel``/``TestModel``) or
@@ -74,17 +96,17 @@ async def run_agent(
     result = await _run(
         spec, finding, env=env, model_id=model_id, model=model, prior_context=prior_context
     )
-    return result.output
+    return _validated_output(spec, result)
 
 
 async def run_agent_measured(
     spec: AgentEvalSpec,
-    finding: dict[str, Any],
+    finding: Finding,
     *,
     env: dict[str, str] | None = None,
     model_id: str | None = None,
     model: Model | None = None,
-    prior_context: dict[str, dict[str, Any]] | None = None,
+    prior_context: dict[str, dict[str, object]] | None = None,
 ) -> AgentRun:
     """Like :func:`run_agent`, but also returns token usage + wall-clock time so
     the runner can enforce a per-case / per-run budget."""
@@ -95,7 +117,7 @@ async def run_agent_measured(
     duration = time.monotonic() - start
     usage = result.usage
     return AgentRun(
-        output=result.output,
+        output=_validated_output(spec, result),
         input_tokens=usage.input_tokens or 0,
         output_tokens=usage.output_tokens or 0,
         total_tokens=usage.total_tokens or 0,

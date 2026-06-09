@@ -8,27 +8,26 @@ Only ``finding_enricher`` is wired today (ADR-0050 rollout §7: highest-risk
 first). Add entries as each agent's eval lands.
 """
 
-from __future__ import annotations
+# No ``from __future__ import annotations`` here: Pydantic resolves these field
+# annotations eagerly at class definition, so ``Callable`` / ``Model`` / ``Agent``
+# are genuinely runtime imports (and ruff TC-flags them only under future
+# annotations).
+from collections.abc import Callable
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from pydantic import BaseModel, ConfigDict
+from pydantic_ai import Agent
+from pydantic_ai.models import Model
 
 from cliff.agents.runtime.finding_enricher import build_agent as _build_enricher
 from cliff.agents.schemas import EnrichmentOutput
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
 
-    from pydantic import BaseModel
-    from pydantic_ai import Agent
-    from pydantic_ai.models import Model
-
-
-@dataclass(frozen=True)
-class BudgetSpec:
+class BudgetSpec(BaseModel):
     """Budget ceilings, enforced by the runner (ADR-0050 §4). The token + time
     caps are reliable hard limits; ``*_usd`` is best-effort (skipped when the
     model isn't in the pricing table). A breach fails the eval run."""
+
+    model_config = ConfigDict(frozen=True)
 
     # Per case.
     max_usd: float | None = None
@@ -39,8 +38,11 @@ class BudgetSpec:
     max_run_tokens: int | None = None
 
 
-@dataclass(frozen=True)
-class AgentEvalSpec:
+class AgentEvalSpec(BaseModel):
+    # ``build_agent`` (a callable) and ``output_type`` (a class) aren't Pydantic
+    # types, so allow arbitrary types; frozen for an immutable registry.
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
     name: str
     build_agent: Callable[[Model], Agent]
     output_type: type[BaseModel]

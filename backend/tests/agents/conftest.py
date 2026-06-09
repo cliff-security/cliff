@@ -12,12 +12,20 @@ import os
 
 import pytest
 
-_api_key_set = bool(
-    os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+# Any provider build_model() can use — so a runnable non-OpenAI/Anthropic setup
+# (e.g. OPENROUTER_API_KEY + CLIFF_EVAL_MODEL=openrouter/...) doesn't get skipped.
+_PROVIDER_ENV_VARS = (
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "OPENROUTER_API_KEY",
+    "GEMINI_API_KEY",
+    "OLLAMA_BASE_URL",  # Ollama authenticates with no key
 )
+_api_key_set = any(os.environ.get(v) for v in _PROVIDER_ENV_VARS)
 
 _skip_no_key = pytest.mark.skipif(
-    not _api_key_set, reason="No LLM API key set (OPENAI_API_KEY or ANTHROPIC_API_KEY)"
+    not _api_key_set,
+    reason=f"No LLM provider configured (one of: {', '.join(_PROVIDER_ENV_VARS)})",
 )
 
 # Files whose every test hits a real LLM (the live evals). Everything else

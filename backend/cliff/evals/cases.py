@@ -17,6 +17,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+Tier = Literal["ci", "live"]
+
 # Public synthetic sample lives in-repo; backend/ root is parents[2].
 _SAMPLE_DIR = Path(__file__).resolve().parents[2] / "tests" / "agents" / "eval"
 
@@ -25,9 +27,30 @@ def dataset_dir() -> Path:
     """Where datasets are read from (ADR-0050 hybrid: harness public, data
     private). Defaults to the public synthetic sample; the private eval project
     (``cliff-os/eval``) overrides it via ``CLIFF_EVAL_DATASET_DIR`` to point at
-    the real/confidential golden sets — which never enter this public repo."""
+    the real/confidential golden sets — which never enter this public repo.
+
+    A relative override is anchored to an absolute path (``.resolve()``) so the
+    same value resolves identically regardless of the process cwd."""
     override = os.environ.get("CLIFF_EVAL_DATASET_DIR")
-    return Path(override) if override else _SAMPLE_DIR
+    return Path(override).expanduser().resolve() if override else _SAMPLE_DIR
+
+
+class Expected(BaseModel):
+    """Golden labels for a case. A typed contract (not a free-form dict) so a
+    malformed JSONL row fails in ``load_cases`` instead of silently slipping a
+    bad shape past ``check_cve_ids`` / ``check_cvss_within``. Only declared
+    keys are graded — an omitted field means "no expectation"."""
+
+    model_config = {"extra": "forbid"}
+
+    cve_ids: list[str] | None = None
+    cvss_score: float | None = None
+    cvss_min: float | None = None
+    cvss_max: float | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        """The declared-only mapping the deterministic evaluators consume."""
+        return self.model_dump(exclude_unset=True)
 
 
 class EvalCase(BaseModel):
@@ -36,14 +59,14 @@ class EvalCase(BaseModel):
     case where the agent MUST decline (no CVE / post-cutoff)."""
 
     id: str
-    tier: Literal["ci", "live"] = "live"
+    tier: Tier = "live"
     edge_case: str | None = None
     abstain: bool = False
     finding: dict[str, Any]
-    expected: dict[str, Any] = Field(default_factory=dict)
+    expected: Expected = Field(default_factory=Expected)
 
 
-def load_cases(agent: str, *, tier: str | None = None) -> list[EvalCase]:
+def load_cases(agent: str, *, tier: Tier | None = None) -> list[EvalCase]:
     """Load ``<agent>.jsonl`` from the active dataset dir into typed cases."""
     path = dataset_dir() / f"{agent}.jsonl"
     if not path.is_file():

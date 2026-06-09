@@ -28,7 +28,10 @@ _JARGON_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bSNYK-[A-Z0-9-]+", re.IGNORECASE),
     re.compile(r"\bGHSA-[a-z0-9]{4}-", re.IGNORECASE),
     re.compile(r"^\s*\[[^\]]+\]"),  # leading "[semgrep] ..." style tag
-    re.compile(r"\b[a-z0-9_-]+\.[a-z0-9_-]+\.[a-z0-9_.-]+\b"),  # dotted rule path
+    # Dotted scanner rule paths (e.g. javascript.lang.security.detect-eval).
+    # Require a letter in every segment so plain semantic versions like
+    # "2.17.1" are NOT flagged as jargon.
+    re.compile(r"\b[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*){2,}\b", re.IGNORECASE),
 )
 
 
@@ -61,11 +64,7 @@ async def assess_references(output: Any, *, http: Any = None) -> ReferenceAssess
     the network pass deterministically; the live lane leaves it ``None``.
     """
     refs = getattr(output, "references", None)
-    check = (
-        await clean_references(refs, http=http)
-        if http is not None
-        else await clean_references(refs)
-    )
+    check = await clean_references(refs, http=http)  # http=None → real HEADs
     structural = [(u, r) for u, r in check.dropped if not r.startswith("http_")]
     network = [(u, r) for u, r in check.dropped if r.startswith("http_")]
     return ReferenceAssessment(structural, network, check.kept)

@@ -132,10 +132,10 @@ def test_dataset_loads_and_assertions_are_supported():
     cases = load_cases("finding_enricher")
     assert len(cases) >= 5
     assert {c.id for c in cases} >= {"log4shell", "semgrep-no-cve-eval"}
-    # every abstain case declares no expected cve_ids (the abstention contract)
+    # every abstain case declares an empty expected cve_ids (abstention contract)
     for c in cases:
         if c.abstain:
-            assert c.expected.get("cve_ids", []) == []
+            assert c.expected.cve_ids == []
     # registry advertises exactly the assertion families this agent's evaluators
     # implement (ADR-0050 §1: dataset assertions ⊆ supported_assertions)
     assert spec.supported_assertions == frozenset(

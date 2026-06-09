@@ -22,8 +22,11 @@ _PRICE_USD_PER_MTOK: dict[str, tuple[float, float]] = {
 
 
 def _match(model_id: str | None) -> str | None:
+    """Longest matching key wins, so a more specific id (e.g. ``gpt-4o-mini``)
+    isn't mispriced against a shorter prefix (``gpt-4o``)."""
     m = (model_id or "").lower()
-    return next((k for k in _PRICE_USD_PER_MTOK if k in m), None)
+    candidates = [k for k in _PRICE_USD_PER_MTOK if k in m]
+    return max(candidates, key=len) if candidates else None
 
 
 def estimate_cost_usd(

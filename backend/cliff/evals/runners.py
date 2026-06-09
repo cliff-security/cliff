@@ -90,6 +90,12 @@ async def run_enricher_eval(
     Graded metrics (dataset-wide pass rate vs ``graded_floor``): cve_ids,
     cvss_within, no_jargon_title, reference_liveness.
     """
+    if not cases:
+        raise ValueError(
+            "run_enricher_eval got 0 cases — an empty dataset must fail, not "
+            "silently report PASS. Check the dataset path / tier filter."
+        )
+
     spec = get_spec("finding_enricher")
     budget = spec.budget
     result = EvalRunResult(
@@ -143,8 +149,9 @@ async def run_enricher_eval(
             if not ok:
                 result.hard_failures.append(f"{case.id}: abstention — {reason}")
 
-        graded["cve_ids"].append(check_cve_ids(out, case.expected)[0])
-        graded["cvss_within"].append(check_cvss_within(out, case.expected)[0])
+        expected = case.expected.as_dict()
+        graded["cve_ids"].append(check_cve_ids(out, expected)[0])
+        graded["cvss_within"].append(check_cvss_within(out, expected)[0])
         graded["no_jargon_title"].append(check_no_jargon_title(out)[0])
         graded["reference_liveness"].append(not refs.network)
 
