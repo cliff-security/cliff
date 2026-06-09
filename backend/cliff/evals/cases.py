@@ -11,13 +11,23 @@ test/prod-line blur tracked as ADR-0050 Open question #7.)
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-# backend/ root → backend/cliff/evals/cases.py is parents[2]
-_EVAL_DIR = Path(__file__).resolve().parents[2] / "tests" / "agents" / "eval"
+# Public synthetic sample lives in-repo; backend/ root is parents[2].
+_SAMPLE_DIR = Path(__file__).resolve().parents[2] / "tests" / "agents" / "eval"
+
+
+def dataset_dir() -> Path:
+    """Where datasets are read from (ADR-0050 hybrid: harness public, data
+    private). Defaults to the public synthetic sample; the private eval project
+    (``cliff-os/eval``) overrides it via ``CLIFF_EVAL_DATASET_DIR`` to point at
+    the real/confidential golden sets — which never enter this public repo."""
+    override = os.environ.get("CLIFF_EVAL_DATASET_DIR")
+    return Path(override) if override else _SAMPLE_DIR
 
 
 class EvalCase(BaseModel):
@@ -34,8 +44,8 @@ class EvalCase(BaseModel):
 
 
 def load_cases(agent: str, *, tier: str | None = None) -> list[EvalCase]:
-    """Load ``<agent>.jsonl`` into typed cases, optionally filtered by tier."""
-    path = _EVAL_DIR / f"{agent}.jsonl"
+    """Load ``<agent>.jsonl`` from the active dataset dir into typed cases."""
+    path = dataset_dir() / f"{agent}.jsonl"
     if not path.is_file():
         raise FileNotFoundError(f"No eval dataset for {agent!r} at {path}")
     cases: list[EvalCase] = []
