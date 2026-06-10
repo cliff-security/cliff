@@ -9,7 +9,6 @@ for gather/rule_out, strong for trace/plan, judge for challenge) come from
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -34,6 +33,7 @@ from cliff.agents.triage_deep.agents import (
 from cliff.agents.triage_deep.challenge import run_challenge_panel
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
     from pathlib import Path
 
     from pydantic_ai.models import Model
@@ -98,8 +98,7 @@ def build_tier_models(env: dict[str, str], model_full_id: str) -> dict[str, Mode
     from cliff.agents.runtime.provider import build_model
 
     return {
-        tier: build_model(env, mid)
-        for tier, mid in resolve_tier_model_ids(model_full_id).items()
+        tier: build_model(env, mid) for tier, mid in resolve_tier_model_ids(model_full_id).items()
     }
 
 
@@ -182,7 +181,9 @@ class DeepDiveRunner:
                     reached=False,
                     summary=disproof.get("explanation") or "A specific guard blocks this path.",
                 ),
-                exploitability=TriageExploitability(exploitable="no", reason=disproof.get("explanation")),
+                exploitability=TriageExploitability(
+                    exploitable="no", reason=disproof.get("explanation")
+                ),
                 checks=[
                     TriageCheck(
                         eyebrow="Disproof",
@@ -232,7 +233,9 @@ class DeepDiveRunner:
         )
         steps.append("challenge")
 
-        verdict = "real" if challenge.verdict_holds else (challenge.downgraded_verdict or "needs_review")
+        verdict = (
+            "real" if challenge.verdict_holds else (challenge.downgraded_verdict or "needs_review")
+        )
         confidence = _clamp(_CONF_REAL + challenge.confidence_adjustment)
         return TriageOutput(
             verdict=verdict,

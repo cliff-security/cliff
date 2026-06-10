@@ -6,8 +6,6 @@ model (ADR-0052 §2).
 
 from __future__ import annotations
 
-import pytest
-
 from cliff.agents.schemas import Challenge, ChallengeReviewer
 from cliff.agents.triage_deep.runner import DeepDiveRunner, DeepDiveStages
 
@@ -40,8 +38,12 @@ async def test_exit_at_rule_out_kill():
     stages = DeepDiveStages(
         gather=_stage({"vuln_class": "rce"}),
         rule_out=_stage(
-            {"killed": True, "kill_class": "root_cause_in_nonship_code",
-             "recommended_verdict_on_kill": "false_positive", "kill_evidence": "tests/x.py:1"}
+            {
+                "killed": True,
+                "kill_class": "root_cause_in_nonship_code",
+                "recommended_verdict_on_kill": "false_positive",
+                "kill_evidence": "tests/x.py:1",
+            }
         ),
     )
     out = await _run(stages)
@@ -54,7 +56,12 @@ async def test_exit_at_trace_disproof():
     stages = DeepDiveStages(
         gather=_stage({}),
         rule_out=_stage({"killed": False}),
-        trace=_stage({"reached": "no", "disproof": {"guard_location": "auth.py:10", "explanation": "checked"}}),
+        trace=_stage(
+            {
+                "reached": "no",
+                "disproof": {"guard_location": "auth.py:10", "explanation": "checked"},
+            }
+        ),
     )
     out = await _run(stages)
     assert out.verdict == "unexploitable"
@@ -93,10 +100,23 @@ async def test_full_real_verdict_when_challenge_holds():
     stages = DeepDiveStages(
         gather=_stage({}),
         rule_out=_stage({"killed": False}),
-        trace=_stage({"reached": "yes", "path": [{"file": "a.py", "line": 3, "symbol": "sink", "role": "sink"}]}),
-        plan=_stage({"hypotheses": [{"id": "h1", "trigger_condition": "POST"}], "primary_hypothesis_id": "h1"}),
+        trace=_stage(
+            {
+                "reached": "yes",
+                "path": [{"file": "a.py", "line": 3, "symbol": "sink", "role": "sink"}],
+            }
+        ),
+        plan=_stage(
+            {
+                "hypotheses": [{"id": "h1", "trigger_condition": "POST"}],
+                "primary_hypothesis_id": "h1",
+            }
+        ),
         challenge=_challenge(
-            Challenge(verdict_holds=True, reviewers=[ChallengeReviewer(lens="reachability", verdict="holds")])
+            Challenge(
+                verdict_holds=True,
+                reviewers=[ChallengeReviewer(lens="reachability", verdict="holds")],
+            )
         ),
     )
     out = await _run(stages)
@@ -104,7 +124,13 @@ async def test_full_real_verdict_when_challenge_holds():
     assert out.exploit_plan.primary_hypothesis_id == "h1"
     assert out.challenge.verdict_holds is True
     assert out.reachability.path[0].detail == "a.py:3"
-    assert out.provenance.steps_run == ["gather_facts", "rule_out", "trace_path", "plan_exploit", "challenge"]
+    assert out.provenance.steps_run == [
+        "gather_facts",
+        "rule_out",
+        "trace_path",
+        "plan_exploit",
+        "challenge",
+    ]
     assert out.provenance.model_tiers["challenge"] == "judge"
 
 
