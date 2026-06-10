@@ -35,6 +35,7 @@ import IssueGradeHero, {
   type GradeLetter,
 } from '@/components/dashboard/IssueGradeHero'
 import LastAssessmentPanel from '@/components/dashboard/LastAssessmentPanel'
+import ProjectProfileCard from '@/components/dashboard/ProjectProfileCard'
 import type { ScannerRowData } from '@/components/dashboard/ScannerRow'
 import LevelUpPanel from '@/components/dashboard/LevelUpPanel'
 import ShareReportPanel from '@/components/dashboard/ShareReportPanel'
@@ -632,6 +633,10 @@ function ReportCard({ data }: { data: DashboardPayload }) {
             />
           </div>
         ) : null}
+
+        <div className="cliff-fade-in cd-stagger-3">
+          <ProjectProfileCard />
+        </div>
       </div>
     </PageShell>
   )
