@@ -1,0 +1,117 @@
+"""Deep dive agents — read-only boundary, shape, deterministic challenge.
+
+Keyless: TestModel drives the agents (no real LLM); quality is the key-gated
+eval. These assert the trust boundary, that each stage returns its validated
+artifact, and the deterministic challenge resolution.
+"""
+
+from __future__ import annotations
+
+import pytest
+from pydantic_ai.models.test import TestModel
+
+from cliff.agents.runtime.deps import WorkspaceDeps
+from cliff.agents.runtime.tools import bash, edit, gh, grep, read, webfetch
+from cliff.agents.schemas import (
+    Challenge,
+    ChallengeReviewer,
+    DeepReachability,
+    ExploitPlan,
+    FindingFacts,
+    RuleOutResult,
+)
+from cliff.agents.triage_deep.agents import (
+    DEEP_DIVE_TOOLS,
+    run_gather_facts,
+    run_plan_exploit,
+    run_rule_out,
+    run_trace_path,
+)
+from cliff.agents.triage_deep.challenge import (
+    CHALLENGE_LENSES,
+    resolve_challenge,
+    run_challenge_panel,
+)
+
+
+def test_deep_dive_is_read_only():
+    assert DEEP_DIVE_TOOLS == (read, grep)
+    for forbidden in (bash, edit, gh, webfetch):
+        assert forbidden not in DEEP_DIVE_TOOLS
+
+
+@pytest.fixture
+def deps(tmp_path):
+    clone = tmp_path / "repo"
+    clone.mkdir()
+    (clone / "app.py").write_text("def handler(req):\n    eval(req.body)\n")
+    return WorkspaceDeps(
+        workspace_id="dd",
+        workspace_dir=str(clone),
+        finding={"source_type": "code", "title": "eval on request body"},
+        prior_context={"profile": {"kind": "service"}, "code_map": {"ships_roots": ["**"]}},
+    )
+
+
+async def test_gather_facts_returns_findingfacts(deps):
+    out = await run_gather_facts(deps, TestModel(custom_output_args={"vuln_class": "rce"}))
+    assert FindingFacts.model_validate(out).vuln_class == "rce"
+
+
+async def test_rule_out_returns_result(deps):
+    out = await run_rule_out(deps, TestModel(custom_output_args={"killed": False}))
+    assert RuleOutResult.model_validate(out).killed is False
+
+
+async def test_trace_path_returns_reachability(deps):
+    out = await run_trace_path(deps, TestModel(custom_output_args={"reached": "yes"}))
+    assert DeepReachability.model_validate(out).reached == "yes"
+
+
+async def test_plan_exploit_returns_plan(deps):
+    out = await run_plan_exploit(deps, TestModel(custom_output_args={"no_credible_exploit": True}))
+    assert ExploitPlan.model_validate(out).no_credible_exploit is True
+
+
+# ── deterministic challenge resolution ──────────────────────────────────────
+
+
+def _rev(verdict):
+    return ChallengeReviewer(lens="reachability", verdict=verdict)
+
+
+def test_resolve_all_hold():
+    c = resolve_challenge([_rev("holds"), _rev("holds"), _rev("holds")], "real")
+    assert c.verdict_holds is True
+    assert c.downgraded_verdict is None
+    assert c.confidence_adjustment == 0.0
+
+
+def test_resolve_majority_refuted_downgrades():
+    c = resolve_challenge([_rev("refuted"), _rev("refuted"), _rev("holds")], "real")
+    assert c.verdict_holds is False
+    assert c.downgraded_verdict == "needs_review"
+    assert c.confidence_adjustment < 0
+
+
+def test_resolve_tie_holds_but_caps_confidence():
+    c = resolve_challenge([_rev("refuted"), _rev("holds")], "real")
+    assert c.verdict_holds is True
+    assert c.downgraded_verdict is None
+    assert c.confidence_adjustment < 0
+
+
+def test_resolve_empty_holds():
+    c = resolve_challenge([], "real")
+    assert c.verdict_holds is True
+
+
+async def test_challenge_panel_runs_all_lenses(deps):
+    c = await run_challenge_panel(
+        deps, TestModel(custom_output_args={"lens": "x", "verdict": "holds"}), "real"
+    )
+    assert isinstance(c, Challenge)
+    assert c.verdict_holds is True
+    assert len(c.reviewers) == len(CHALLENGE_LENSES)
+    # The lens is pinned by construction, not the model's choice.
+    assert {r.lens for r in c.reviewers} == set(CHALLENGE_LENSES)
