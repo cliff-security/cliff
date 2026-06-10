@@ -390,11 +390,18 @@ async def run_deep_dive_eval(
     for case in cases:
         with tempfile.TemporaryDirectory() as tmp:
             repo_dir = Path(tmp) / "repo"
-            repo_dir.mkdir()
-            for rel, text in (case.files or {}).items():
-                fp = repo_dir / rel
-                fp.parent.mkdir(parents=True, exist_ok=True)
-                fp.write_text(text)
+            if case.repo and case.sha:
+                # Live lane: walk the REAL repo at the pinned commit.
+                from cliff.evals.repo_fetch import checkout_at_sha
+
+                await checkout_at_sha(case.repo, case.sha, repo_dir)
+            else:
+                # CI / synthetic: stage the inline micro-repo.
+                repo_dir.mkdir()
+                for rel, text in (case.files or {}).items():
+                    fp = repo_dir / rel
+                    fp.parent.mkdir(parents=True, exist_ok=True)
+                    fp.write_text(text)
 
             triage = await run_pipeline(case, repo_dir)
             golden = case.expected.as_dict().get("verdict")

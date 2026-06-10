@@ -77,6 +77,12 @@ class EvalCase(BaseModel):
     # into a temp workspace so the read-only agent can do the claim-vs-code
     # check. Omitted (None) for every other agent.
     files: dict[str, str] | None = None
+    # ADR-0052 Deep dive live lane — a REAL repo at a pinned commit. The harness
+    # checks it out into the temp dir and the agent walks the actual code (the
+    # vulnerable/patched SHA-pair test). Mutually exclusive with ``files`` (the
+    # synthetic micro-repo for fast CI gate checks). Public repos only.
+    repo: str | None = None
+    sha: str | None = None
 
 
 def load_cases(agent: str, *, tier: Tier | None = None) -> list[EvalCase]:
