@@ -20,11 +20,14 @@ type CSSVar = CSSProperties & Record<`--${string}`, string | undefined>
 
 export type IssueStage =
   | 'todo'
+  // ADR-0051 / PRD-0008 — triage stages.
+  | 'triaging'
   | 'planning'
   | 'generating'
   | 'pushing'
   | 'opening_pr'
   | 'validating'
+  | 'triage_verdict'
   | 'plan_ready'
   | 'pr_ready'
   | 'pr_awaiting_val'
@@ -33,6 +36,7 @@ export type IssueStage =
   | 'executor_failed'
   | 'fixed'
   | 'false_positive'
+  | 'unexploitable'
   | 'wont_fix'
   | 'accepted'
   | 'deferred'
@@ -49,10 +53,15 @@ type Tone =
 interface StageVisual {
   label: string
   tone: Tone
-  icon?: 'check' | 'block' | 'schedule'
+  icon?: 'check' | 'block' | 'schedule' | 'shield' | 'report'
 }
 
 const STAGE_VISUALS: Record<IssueStage, StageVisual> = {
+  // ADR-0051 / PRD-0008 — triage in-flight + verdict-awaiting stages. They
+  // reuse the existing in_flight (cyan pulse, like planning) and awaiting
+  // (cyan pulse, like pr_awaiting_val) treatments — no new visual language.
+  triaging:        { label: 'Triaging',            tone: 'in_flight' },
+  triage_verdict:  { label: 'Review verdict',      tone: 'awaiting' },
   planning:        { label: 'Planning',            tone: 'in_flight' },
   generating:      { label: 'Generating fix',      tone: 'in_flight' },
   pushing:         { label: 'Pushing branch',      tone: 'in_flight' },
@@ -72,7 +81,11 @@ const STAGE_VISUALS: Record<IssueStage, StageVisual> = {
   // that reports error_details — not push-specific.
   executor_failed: { label: 'Needs attention',     tone: 'warning',  icon: 'block' },
   fixed:           { label: 'Fixed',               tone: 'positive', icon: 'check' },
-  false_positive:  { label: 'False positive',      tone: 'positive', icon: 'check' },
+  // ADR-0051 §7 / UX-0008 §States — false_positive and unexploitable are both
+  // green closes but MUST read apart: distinct icons (report vs shield) so the
+  // verdict is color + icon + label, never colour alone.
+  false_positive:  { label: 'False positive',      tone: 'positive', icon: 'report' },
+  unexploitable:   { label: 'Not exploitable',     tone: 'positive', icon: 'shield' },
   accepted:        { label: 'Accepted',            tone: 'neutral',  icon: 'check' },
   wont_fix:        { label: "Won't fix",           tone: 'neutral',  icon: 'block' },
   deferred:        { label: 'Deferred',            tone: 'neutral',  icon: 'schedule' },

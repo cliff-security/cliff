@@ -76,6 +76,33 @@ def _pull_request(sidebar: SidebarState | None) -> dict:
     return sidebar.pull_request
 
 
+# ADR-0051 / PRD-0008 — agents that produce a triage verdict. A run of any of
+# these while the finding is still ``new`` is a triage run: the remediation
+# flow only runs them after Start (status is already ``in_progress`` by then),
+# so on a ``new`` finding they unambiguously mean "triage is in flight."
+_TRIAGE_AGENT_TYPES: tuple[str, ...] = (
+    "finding_enricher",
+    "exposure_analyzer",
+    "report_triager",
+)
+
+
+def _triage_running(latest_runs_by_type: Mapping[str, AgentRun]) -> bool:
+    return any(_is_running(latest_runs_by_type.get(t)) for t in _TRIAGE_AGENT_TYPES)
+
+
+def _triage_failed(latest_runs_by_type: Mapping[str, AgentRun]) -> bool:
+    return any(_is_failed(latest_runs_by_type.get(t)) for t in _TRIAGE_AGENT_TYPES)
+
+
+def _has_triage_verdict(sidebar: SidebarState | None) -> bool:
+    return (
+        sidebar is not None
+        and isinstance(sidebar.triage, dict)
+        and bool(sidebar.triage.get("verdict"))
+    )
+
+
 def derive(
     finding: Finding,
     *,
@@ -112,6 +139,8 @@ def derive(
         )
         stage_by_reason = {
             "false_positive": "false_positive",
+            # ADR-0051 §7 — distinct Done chip from false_positive.
+            "unexploitable": "unexploitable",
             "wont_fix": "wont_fix",
             "accepted_risk": "accepted",
             "deferred": "deferred",
@@ -190,4 +219,32 @@ def derive(
         # row visibly leaves the Todo section on click.
         return out("in_progress", "planning")
 
+    # ---------- Triage (untriaged finding, ADR-0051 / PRD-0008) -------------
+    # Triage runs on a ``new`` finding WITHOUT advancing its status — status
+    # only moves to ``triaged`` on human confirmation of a ``real`` verdict
+    # (ADR-0051 §6, which removed the enricher's new→triaged auto-advance). So
+    # an untriaged finding routes here, never into the remediation flow above:
+    # Plan is unreachable without a recorded ``real`` verdict (PRD-0008 Story 4).
+    if finding.status == "new":
+        # Triage reasoning in flight wins over everything else — a re-triage
+        # after an earlier failure (one type's latest run failed while another
+        # is now running) must show `triaging`, not the stale failure. Mirrors
+        # the running-planner-beats-existing-plan rule above.
+        if _triage_running(latest_runs_by_type):
+            return out("in_progress", "triaging")
+        # A failed triage run with no verdict yet → Retry affordance in Review
+        # (never a silent stick in Todo).
+        if _triage_failed(latest_runs_by_type) and not _has_triage_verdict(sidebar):
+            return out("review", "failed")
+        # Verdict produced, awaiting the human gate (real → accept,
+        # needs_review → decide, unexploitable/false_positive → confirm close).
+        # Lands in the existing "Needs you" section.
+        if _has_triage_verdict(sidebar):
+            return out("review", "triage_verdict")
+        # Untriaged + idle → Todo with a Run-triage action.
+        return out("todo", "todo")
+
+    # ``triaged`` (verdict confirmed real, remediation not yet started) and any
+    # other unhandled status fall through to Todo — the user opens the
+    # workspace to remediate from here.
     return out("todo", "todo")

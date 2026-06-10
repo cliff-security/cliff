@@ -128,6 +128,33 @@ class TestMapToSidebarUpdate:
         assert update.evidence is None
         assert update.owner is None
 
+    def test_report_triager_maps_triage_section_only(self):
+        """ADR-0051 §5 — triage lands in its own section, disjoint from the
+        ``evidence`` section the enricher/exposure/evidence agents share."""
+        out = {
+            "verdict": "unexploitable",
+            "confidence": 0.88,
+            "recommended_close": "unexploitable",
+            "reachability": {"reached": False, "path": [], "summary": "No path found."},
+            "checks": [{"eyebrow": "REACHABILITY", "result": "No path", "kind": "pass"}],
+        }
+        update = map_to_sidebar_update("report_triager", out)
+        assert update.triage is not None
+        assert update.triage["verdict"] == "unexploitable"
+        # Disjoint from every other section.
+        assert update.evidence is None
+        assert update.summary is None
+        assert update.validation is None
+
+    def test_triage_synthesizer_key_also_maps_triage(self):
+        """The scanner path persists synthesis output under the
+        ``triage_synthesizer`` key (it is not a registered agent run)."""
+        out = {"verdict": "real", "confidence": 0.9}
+        update = map_to_sidebar_update("triage_synthesizer", out)
+        assert update.triage is not None
+        assert update.triage["verdict"] == "real"
+        assert update.evidence is None
+
 
 # ---------------------------------------------------------------------------
 # map_and_upsert (async with mocked DB)
@@ -180,6 +207,63 @@ class TestMapAndUpsert:
             assert update.evidence is not None
             assert update.evidence["known_exploits"] is True  # from enricher
             assert update.evidence["recommended_urgency"] == "immediate"  # from exposure
+
+    @pytest.mark.asyncio
+    async def test_triage_write_preserves_existing_evidence(self):
+        """Writing the triage section must not clobber the evidence the
+        enricher/exposure already wrote (ADR-0051 §5: disjoint sections)."""
+        existing = SidebarState(
+            workspace_id="ws-1",
+            summary={"title": "CVE-2026-1234"},
+            evidence={"reachable": "likely", "internet_facing": True},
+            updated_at=datetime.now(UTC),
+        )
+        mock_db = AsyncMock()
+        triage_out = {"verdict": "real", "confidence": 0.9, "recommended_close": None}
+
+        with (
+            patch("cliff.db.repo_sidebar.get_sidebar", return_value=existing),
+            patch("cliff.db.repo_sidebar.upsert_sidebar") as mock_upsert,
+        ):
+            await map_and_upsert(mock_db, "ws-1", "report_triager", triage_out)
+            update: SidebarStateUpdate = mock_upsert.call_args[0][2]
+            assert update.triage is not None
+            assert update.triage["verdict"] == "real"
+            # Evidence + summary preserved untouched.
+            assert update.evidence == {"reachable": "likely", "internet_facing": True}
+            assert update.summary == {"title": "CVE-2026-1234"}
+
+    @pytest.mark.asyncio
+    async def test_triage_replaces_wholesale_on_rerun(self):
+        """A re-triage replaces sidebar.triage wholesale (single-producer
+        section) — a stale key from a prior run (e.g. a `report` block from an
+        earlier report triage) must not survive a later scanner re-triage.
+        Sibling multi-producer sections (evidence) are untouched."""
+        existing = SidebarState(
+            workspace_id="ws-1",
+            evidence={"reachable": "likely"},
+            triage={
+                "verdict": "false_positive",
+                "report": {"claim": "old report"},
+                "stale_extra": 1,
+            },
+            updated_at=datetime.now(UTC),
+        )
+        mock_db = AsyncMock()
+        new_triage = {"verdict": "real", "confidence": 0.9, "recommended_close": None}
+
+        with (
+            patch("cliff.db.repo_sidebar.get_sidebar", return_value=existing),
+            patch("cliff.db.repo_sidebar.upsert_sidebar") as mock_upsert,
+        ):
+            await map_and_upsert(mock_db, "ws-1", "triage_synthesizer", new_triage)
+            update: SidebarStateUpdate = mock_upsert.call_args[0][2]
+            # Fully replaced — no stale `report`/`stale_extra` from the prior run.
+            assert update.triage == new_triage
+            assert "report" not in update.triage
+            assert "stale_extra" not in update.triage
+            # Sibling section preserved.
+            assert update.evidence == {"reachable": "likely"}
 
     @pytest.mark.asyncio
     async def test_first_agent_creates_sidebar(self):

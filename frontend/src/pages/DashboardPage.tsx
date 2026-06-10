@@ -24,6 +24,7 @@ import {
   useOpenAIProvider,
 } from '@/components/ai-provider'
 import { useAIRequired } from '@/api/aiProvider'
+import { useFindings } from '@/api/hooks'
 import { onboardingApi } from '@/api/onboarding'
 import AssessmentFailedCard, {
   type AssessmentFailedStep as FailedStepLabel,
@@ -557,6 +558,8 @@ function ReportCard({ data }: { data: DashboardPayload }) {
           />
         </div>
 
+        <TriagePayoffLine />
+
         <div className="grid gap-4 md:grid-cols-[380px_1fr] cliff-fade-in cd-stagger-2">
           <OpenBySeverityCard
             rows={openBySeverity}
@@ -631,6 +634,55 @@ function ReportCard({ data }: { data: DashboardPayload }) {
         ) : null}
       </div>
     </PageShell>
+  )
+}
+
+// ADR-0051 / PRD-0008 — the triage payoff: how much of the flood Cliff cleared
+// without a fix ("1-in-30 real" made visible). Renders only once triage has
+// produced outcomes, and reads from the same findings query the Issues page
+// uses so the counts can't disagree.
+function TriagePayoffLine() {
+  const { data: findings } = useFindings({ scope: 'current' })
+  const rows = findings ?? []
+  const notExploitable = rows.filter((f) => f.derived?.stage === 'unexploitable').length
+  const falsePositive = rows.filter((f) => f.derived?.stage === 'false_positive').length
+  const cleared = notExploitable + falsePositive
+  const real = rows.filter(
+    (f) =>
+      f.derived?.stage !== 'unexploitable' &&
+      f.derived?.stage !== 'false_positive' &&
+      (['triaged', 'in_progress', 'remediated', 'validated', 'closed'].includes(
+        f.status,
+      ) ||
+        f.derived?.stage === 'fixed'),
+  ).length
+
+  if (cleared === 0 && real === 0) return null
+
+  const clearedParts: string[] = []
+  if (notExploitable) clearedParts.push(`${notExploitable} not exploitable`)
+  if (falsePositive) clearedParts.push(`${falsePositive} false positive`)
+  const text =
+    cleared > 0
+      ? `Cliff cleared ${cleared} issue${cleared === 1 ? '' : 's'} without a fix` +
+        ` — ${clearedParts.join(' · ')}${real ? ` · ${real} real` : ''}.`
+      : `Cliff confirmed ${real} issue${real === 1 ? '' : 's'} as real.`
+
+  return (
+    <div
+      data-testid="triage-payoff"
+      className="cliff-fade-in cd-stagger-1 flex items-center gap-2"
+      style={{ fontSize: 13, color: 'var(--cd-fg-3)' }}
+    >
+      <span
+        className="material-symbols-outlined"
+        style={{ fontSize: 16, color: 'var(--cd-green)' }}
+        aria-hidden
+      >
+        shield
+      </span>
+      <span>{text}</span>
+    </div>
   )
 }
 

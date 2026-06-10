@@ -274,7 +274,49 @@ function IssuesPageContent() {
     [openPanel, queryClient],
   )
 
-  const handleActivate = useCallback(
+  // ADR-0051 / PRD-0008 — run triage on an untriaged finding. Unlike the
+  // remediation Start, triage does NOT create a status-advancing workspace
+  // (the finding stays `new` until a `real` verdict is confirmed) and needs
+  // no GitHub-push guard — scanner triage doesn't push and report triage is
+  // read-only.
+  const triageFinding = useCallback(
+    async (finding: Finding) => {
+      setSolving(finding.id)
+      try {
+        const res = await api.runTriage(finding.id)
+        openPanel(finding.id)
+        // Optimistically move the row into the In-progress section's
+        // ``triaging`` stage so it visibly leaves Todo on click.
+        queryClient.setQueriesData<Finding[]>(
+          { queryKey: ['findings'] },
+          (rows) =>
+            rows?.map((r) =>
+              r.id === finding.id
+                ? {
+                    ...r,
+                    derived: {
+                      section: 'in_progress',
+                      stage: 'triaging',
+                      workspace_id: res.workspace_id,
+                      pr_url: r.derived?.pr_url ?? null,
+                    },
+                  }
+                : r,
+            ) ?? rows,
+        )
+      } catch (err) {
+        console.error('Failed to run triage:', err)
+      } finally {
+        setSolving(null)
+      }
+    },
+    [openPanel, queryClient],
+  )
+
+  // The remediation Start (gated on the GitHub integration because the
+  // executor pushes). Used by the panel's "Open workspace to remediate" and by
+  // a confirmed-real (`triaged`) row's Start action.
+  const remediateFinding = useCallback(
     (finding: Finding) => {
       // The GitHub-integration guard only matters when we'd actually have
       // to create the workspace (and therefore call GitHub). If a workspace
@@ -293,6 +335,31 @@ function IssuesPageContent() {
       void startWorkspaceAndOpen(finding)
     },
     [repoConfigured, startWorkspaceAndOpen],
+  )
+
+  const handleActivate = useCallback(
+    (finding: Finding) => {
+      // The Plan gate (ADR-0051 §6): an UNTRIAGED finding (Todo + status
+      // `new`) is triaged first; everything else — a confirmed-real
+      // (`triaged`) Todo finding, or any in-flight/review row — routes to the
+      // remediation path. (Keying on stage+status, not status alone, because
+      // a review/in-progress row can still carry status `new` in fixtures.)
+      const stage = finding.derived?.stage ?? 'todo'
+      if (stage === 'todo' && finding.status === 'new') {
+        void triageFinding(finding)
+        return
+      }
+      // A produced verdict awaiting confirmation must NOT auto-remediate —
+      // open the panel so the user reviews + confirms the verdict (the gate).
+      // The row's Review-verdict button already routes here via onInspect;
+      // this guards any other caller too (defense in depth).
+      if (stage === 'triage_verdict') {
+        openPanel(finding.id)
+        return
+      }
+      remediateFinding(finding)
+    },
+    [triageFinding, remediateFinding, openPanel],
   )
 
   /** Read-only inspection — opens the side panel for any finding without
@@ -920,7 +987,8 @@ function IssuesPageContent() {
         <IssueSidePanel
           finding={openFinding}
           onClose={closePanel}
-          onStart={() => handleActivate(openFinding)}
+          onStart={() => remediateFinding(openFinding)}
+          onRunTriage={() => triageFinding(openFinding)}
           starting={solving === openFinding.id}
         />
       )}

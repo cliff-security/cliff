@@ -28,7 +28,10 @@ export type ExceptionReason =
   | 'false_positive'
   | 'accepted_risk'
   | 'wont_fix'
-  | 'deferred';
+  | 'deferred'
+  // ADR-0051 §7 / PRD-0008 — a real advisory that isn't reachable/exploitable
+  // here. Distinct from false_positive ("not a real issue").
+  | 'unexploitable';
 
 // PRD-0006 / IMPL-0006 — server-derived UI section + stage. Computed in
 // repo_finding from workspace + sidebar + agent-run state. Never persisted.
@@ -36,7 +39,15 @@ export type IssueSection = 'review' | 'in_progress' | 'todo' | 'done';
 
 export type IssueStage =
   | 'todo'
+  // ADR-0051 / PRD-0008 — triage reasoning is running on an untriaged finding
+  // (enricher → exposure → synthesis, or report_triager). Same in-flight
+  // treatment as 'planning' (cyan pulse).
+  | 'triaging'
   | 'planning' | 'generating' | 'pushing' | 'opening_pr' | 'validating'
+  // ADR-0051 / PRD-0008 — triage produced a verdict awaiting the user's
+  // confirmation. Lands in the existing "Needs you" section; the verdict
+  // value in sidebar.triage drives the chip copy.
+  | 'triage_verdict'
   | 'plan_ready' | 'pr_ready' | 'pr_awaiting_val'
   // Remediation executor parked on an ask-tier tool request — surfaces in
   // the Review section's "Needs you" bucket. Backend-side this is driven
@@ -53,7 +64,11 @@ export type IssueStage =
   // pill, top widget, and footer all show a terminal-error treatment
   // instead of an indefinite "Pushing branch / Thinking…" spinner.
   | 'executor_failed'
-  | 'fixed' | 'false_positive' | 'wont_fix' | 'accepted' | 'deferred';
+  | 'fixed' | 'false_positive'
+  // ADR-0051 §7 — closed as a real advisory that isn't reachable/exploitable
+  // here. Distinct Done chip + icon from 'false_positive'.
+  | 'unexploitable'
+  | 'wont_fix' | 'accepted' | 'deferred';
 
 export interface IssueDerived {
   section: IssueSection;
@@ -248,6 +263,71 @@ export interface SuggestedNext {
   action_type: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// Triage (ADR-0051 / PRD-0008 — the V1↔V2 contract). TriageOutput is the
+// single shape both producers emit (scanner synthesizer + report triager);
+// the `report` block is populated only for source=report findings.
+// ---------------------------------------------------------------------------
+
+export type TriageVerdict =
+  | 'real'
+  | 'unexploitable'
+  | 'false_positive'
+  | 'needs_review';
+
+export type TriageClose = 'false_positive' | 'unexploitable';
+
+export interface TriageReachabilityNode {
+  label: string;
+  detail?: string | null;
+  kind?: string | null;
+}
+
+export interface TriageReachability {
+  reached: boolean;
+  path: TriageReachabilityNode[];
+  summary?: string | null;
+}
+
+export interface TriageExploitability {
+  exploitable: 'yes' | 'no' | 'unknown';
+  reason?: string | null;
+}
+
+export interface TriageClaimVsCode {
+  file?: string | null;
+  claimed?: string | null;
+  actual?: string | null;
+  assessment?: string | null;
+}
+
+export interface TriageReport {
+  claim?: string | null;
+  claim_vs_code?: TriageClaimVsCode | null;
+  duplicate?: boolean | null;
+  poc_present?: boolean | null;
+  ai_slop_signals: string[];
+  drafted_reply?: string | null;
+}
+
+export interface TriageCheck {
+  eyebrow: string;
+  result: string;
+  kind: string;
+  detail?: string | null;
+}
+
+export interface TriageOutput {
+  verdict: TriageVerdict;
+  /** 0.0–1.0; render as word + % (e.g. "High · 92%"), never bare. */
+  confidence: number;
+  recommended_close: TriageClose | null;
+  reachability?: TriageReachability | null;
+  exploitability?: TriageExploitability | null;
+  report?: TriageReport | null;
+  checks: TriageCheck[];
+}
+
 export interface SidebarState {
   workspace_id: string;
   summary: Record<string, unknown> | null;
@@ -259,6 +339,8 @@ export interface SidebarState {
   validation: Record<string, unknown> | null;
   similar_cases: Record<string, unknown> | null;
   pull_request: Record<string, unknown> | null;
+  // ADR-0051 §5 — the triage verdict (TriageOutput). Disjoint from `evidence`.
+  triage: TriageOutput | null;
   updated_at: string;
 }
 
@@ -704,6 +786,15 @@ export const api = {
   runAllPipeline: (workspaceId: string) =>
     request<{ status: string; message: string }>(
       `/api/workspaces/${workspaceId}/pipeline/run-all`,
+      { method: 'POST' },
+    ),
+
+  // ADR-0051 / PRD-0008 — run triage on a finding. Ensures a
+  // non-status-advancing workspace and runs enricher→exposure→synthesis
+  // (scanner) or report_triager (report). Returns the workspace to poll.
+  runTriage: (findingId: string) =>
+    request<{ workspace_id: string; status: string }>(
+      `/api/findings/${findingId}/triage`,
       { method: 'POST' },
     ),
 

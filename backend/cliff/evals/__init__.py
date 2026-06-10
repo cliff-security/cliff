@@ -18,7 +18,12 @@ from cliff.evals.adapter import run_agent
 from cliff.evals.cases import EvalCase, dataset_dir, load_cases
 from cliff.evals.models import eval_runnable, harvest_env, select_eval_model
 from cliff.evals.registry import AgentEvalSpec, get_spec
-from cliff.evals.runners import EvalRunResult, run_enricher_eval
+from cliff.evals.runners import (
+    EvalRunResult,
+    run_enricher_eval,
+    run_report_triager_eval,
+    run_triage_synthesis_eval,
+)
 
 __all__ = [
     "AgentEvalSpec",
@@ -31,5 +36,7 @@ __all__ = [
     "load_cases",
     "run_agent",
     "run_enricher_eval",
+    "run_report_triager_eval",
+    "run_triage_synthesis_eval",
     "select_eval_model",
 ]

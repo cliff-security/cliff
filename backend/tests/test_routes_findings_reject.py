@@ -56,6 +56,25 @@ async def test_reject_without_note(db_client, finding_payload) -> None:
     assert body["derived"]["stage"] == "wont_fix"
 
 
+async def test_reject_unexploitable_maps_to_distinct_done_stage(
+    db_client, finding_payload
+) -> None:
+    """ADR-0051 §7 — ``unexploitable`` ("real advisory, not reachable here") is
+    a distinct close from ``false_positive`` ("not a real issue"), with its own
+    Done chip."""
+    finding = await _create(db_client, finding_payload)
+    resp = await db_client.post(
+        f"/api/findings/{finding['id']}/reject",
+        json={"reason": "unexploitable", "note": "air-gapped; sink unreachable"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "exception"
+    assert body["exception_reason"] == "unexploitable"
+    assert body["derived"]["section"] == "done"
+    assert body["derived"]["stage"] == "unexploitable"
+
+
 async def test_reject_missing_reason_returns_422(db_client, finding_payload) -> None:
     finding = await _create(db_client, finding_payload)
     resp = await db_client.post(

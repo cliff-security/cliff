@@ -173,10 +173,18 @@ export default function ImportDialog({ onComplete, onClose }: ImportDialogProps)
   const handleImport = useCallback(async () => {
     setError(null)
 
+    const isReport = source.trim().toLowerCase() === 'report'
+
     let data: Record<string, unknown>[]
     if (tab === 'upload') {
       if (!parsedData) { setError('Select a file first.'); return }
       data = parsedData
+    } else if (isReport) {
+      // ADR-0051 / PRD-0008 — a vulnerability report is free-text prose, not
+      // a scanner JSON array. Wrap the pasted text as a single ingest item so
+      // the report-aware normalizer (source=report) can parse the claim.
+      if (!rawJson.trim()) { setError('Paste the vulnerability report.'); return }
+      data = [{ report: rawJson.trim() }]
     } else {
       try {
         const parsed = JSON.parse(rawJson)
@@ -186,12 +194,15 @@ export default function ImportDialog({ onComplete, onClose }: ImportDialogProps)
         }
         data = parsed
       } catch {
-        setError('Invalid JSON. Paste a JSON array of findings from your scanner.')
+        setError(
+          'Invalid JSON. Paste a JSON array of findings from your scanner — ' +
+            'or set the source to "report" to paste a vulnerability report.',
+        )
         return
       }
     }
 
-    if (!source.trim()) { setError('Enter a source name (e.g. snyk, wiz).'); return }
+    if (!source.trim()) { setError('Enter a source name (e.g. snyk, wiz, report).'); return }
 
     try {
       const req = {

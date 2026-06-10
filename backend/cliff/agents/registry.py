@@ -24,6 +24,9 @@ class AgentChip:
 AGENT_CHIPS: list[AgentChip] = [
     AgentChip("finding_enricher", "Enrich finding", "search", "enrichment"),
     AgentChip("exposure_analyzer", "Check exposure", "shield", "exposure"),
+    # ADR-0051 / PRD-0008 — the report triager (read-only repo) writes the
+    # triage section for inbound vulnerability reports.
+    AgentChip("report_triager", "Triage report", "fact_check", "triage"),
     AgentChip("evidence_collector", "Collect evidence", "biotech", "evidence"),
     AgentChip("remediation_planner", "Build remediation plan", "checklist", "plan"),
     AgentChip("remediation_executor", "Remediate", "build", "remediation"),

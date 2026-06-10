@@ -42,7 +42,11 @@ def _make_workspace(finding_id: str = "f-1") -> Workspace:
 
 class TestAdvanceFindingStatus:
     @pytest.mark.asyncio
-    async def test_enricher_advances_new_to_triaged(self):
+    async def test_enricher_does_not_auto_advance_new_to_triaged(self):
+        """ADR-0051 §6 amends ADR-0040 §9 / BACKLOG WP6: the enricher no longer
+        auto-advances `new → triaged`. ``triaged`` now means "triage confirmed
+        the finding is real," set only on human confirmation of a `real`
+        verdict — enrichment is an input to triage, not a verdict."""
         db = AsyncMock()
         with (
             patch("cliff.agents.executor.get_workspace", return_value=_make_workspace()),
@@ -52,11 +56,8 @@ class TestAdvanceFindingStatus:
             result = await _advance_finding_status(
                 db, "ws-1", "finding_enricher", {}
             )
-            assert result == "triaged"
-            mock_upd.assert_called_once()
-            call_args = mock_upd.call_args
-            assert call_args[0][1] == "f-1"  # finding_id
-            assert call_args[0][2].status == "triaged"
+            assert result is None
+            mock_upd.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_enricher_does_not_regress_in_progress(self):

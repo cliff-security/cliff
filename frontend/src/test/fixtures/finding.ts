@@ -7,9 +7,11 @@
  * `backend/cliff/models/issue_derivation.py` so fixtures match what the
  * server would actually return.
  */
-import type { Finding, IssueSection, IssueStage } from '../../api/client'
+import type { FindingStatus, Finding, IssueSection, IssueStage } from '../../api/client'
 
 const REVIEW_STAGES: ReadonlySet<IssueStage> = new Set([
+  // ADR-0051 — a triage verdict awaiting confirmation lands in "Needs you".
+  'triage_verdict',
   'plan_ready',
   'pr_ready',
   'pr_awaiting_val',
@@ -18,6 +20,8 @@ const REVIEW_STAGES: ReadonlySet<IssueStage> = new Set([
 const DONE_STAGES: ReadonlySet<IssueStage> = new Set([
   'fixed',
   'false_positive',
+  // ADR-0051 §7 — a distinct triage close.
+  'unexploitable',
   'wont_fix',
   'accepted',
   'deferred',
@@ -33,6 +37,9 @@ function sectionForStage(stage: IssueStage): IssueSection {
 export interface MakeFindingOptions {
   id?: string
   stage?: IssueStage
+  /** Finding.status — defaults to 'new'. Pass 'triaged' to model a
+   *  confirmed-real finding ready to Start remediation (ADR-0051). */
+  status?: FindingStatus
   severity?: 'critical' | 'high' | 'medium' | 'low'
   workspaceId?: string | null
   prUrl?: string | null
@@ -57,7 +64,7 @@ export function makeFinding(opts: MakeFindingOptions = {}): Finding {
     normalized_priority: opts.severity ?? 'high',
     asset_id: null,
     asset_label: null,
-    status: 'new',
+    status: opts.status ?? 'new',
     likely_owner: null,
     why_this_matters: null,
     raw_payload: null,
