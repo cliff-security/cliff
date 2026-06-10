@@ -23,7 +23,7 @@ from cliff.repos.schemas import CodeMap, RepoProfile, ThreatHistory
 
 def test_profile_builders_are_read_only():
     """The whole profiling tier touches nothing — the only tool is read."""
-    assert PROFILE_BUILDER_TOOLS == (read,)
+    assert (read,) == PROFILE_BUILDER_TOOLS
     for forbidden in (bash, edit, gh, webfetch):
         assert forbidden not in PROFILE_BUILDER_TOOLS
 
