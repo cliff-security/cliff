@@ -53,6 +53,10 @@ from cliff.models.posture_check import (
     PostureCheckName,
     PostureCheckStatus,
 )
+from cliff.models.repo import (
+    Repo,
+    RepoProfileStatus,
+)
 
 # ---------------------------------------------------------------------------
 # Workspace
@@ -540,6 +544,9 @@ __all__ = [
     "PostureCheckCategory",
     "PostureCheckName",
     "PostureCheckStatus",
+    # Repo (ADR-0053)
+    "Repo",
+    "RepoProfileStatus",
     # Completion
     "Completion",
     "CompletionCreate",
