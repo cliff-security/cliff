@@ -30,6 +30,7 @@ from cliff.api.routes import (
     messages,
     onboarding,
     posture,
+    repos,
     seed,
     sidebar,
     version,
@@ -414,6 +415,7 @@ app.include_router(onboarding.router, prefix="/api")
 app.include_router(assessment.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(posture.router, prefix="/api")
+app.include_router(repos.router, prefix="/api")
 app.include_router(completion.router, prefix="/api")
 app.include_router(config_routes.router, prefix="/api")
 
