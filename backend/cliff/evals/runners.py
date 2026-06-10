@@ -12,10 +12,18 @@ registry-driven loop when the second agent lands.
 
 from __future__ import annotations
 
+import tempfile
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from cliff.evals.adapter import run_agent_measured
+from cliff.evals.deep_dive_evaluators import (
+    check_citation_grounding,
+    check_false_clear,
+    check_tool_boundary,
+    check_verdict_match,
+)
 from cliff.evals.evaluators import (
     assess_references,
     check_abstention,
@@ -27,6 +35,8 @@ from cliff.evals.pricing import estimate_cost_usd
 from cliff.evals.registry import get_spec
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from cliff.evals.cases import EvalCase
 
 
@@ -133,9 +143,7 @@ async def run_enricher_eval(
             result.budget_failures.append(
                 f"{case.id}: {run.duration_s:.0f}s > {budget.max_duration_s:.0f}s cap"
             )
-        case_cost = estimate_cost_usd(
-            pricing_model_id, run.input_tokens, run.output_tokens
-        )
+        case_cost = estimate_cost_usd(pricing_model_id, run.input_tokens, run.output_tokens)
         if case_cost is None:
             run_cost_known = False
         else:
@@ -169,13 +177,10 @@ async def run_enricher_eval(
     if run_cost_known:
         result.est_cost_usd = run_cost
         if budget.max_run_usd is not None and run_cost > budget.max_run_usd:
-            result.budget_failures.append(
-                f"run: ~${run_cost:.4f} > ${budget.max_run_usd:.4f} cap"
-            )
+            result.budget_failures.append(f"run: ~${run_cost:.4f} > ${budget.max_run_usd:.4f} cap")
 
     result.graded_rates = {
-        metric: (sum(vals) / len(vals) if vals else 1.0)
-        for metric, vals in graded.items()
+        metric: (sum(vals) / len(vals) if vals else 1.0) for metric, vals in graded.items()
     }
     return result
 
@@ -298,9 +303,7 @@ async def run_report_triager_eval(
     from cliff.agents.runtime.tools import bash, edit, gh, webfetch
     from cliff.agents.schemas import TriageOutput
 
-    result = EvalRunResult(
-        agent="report_triager", n_cases=len(cases), graded_floor=graded_floor
-    )
+    result = EvalRunResult(agent="report_triager", n_cases=len(cases), graded_floor=graded_floor)
 
     # tool_trace HARD gate (static, but the whole safety story): the report
     # triager must carry no tool that can mutate the repo, push, or reply.
@@ -335,9 +338,7 @@ async def run_report_triager_eval(
                 run = await build_agent(model).run(
                     build_user_prompt(deps),
                     deps=deps,
-                    usage_limits=UsageLimits(
-                        request_limit=REPORT_TRIAGER_REQUEST_LIMIT
-                    ),
+                    usage_limits=UsageLimits(request_limit=REPORT_TRIAGER_REQUEST_LIMIT),
                 )
                 out = run.output
                 usage = run.usage
@@ -367,8 +368,85 @@ async def run_report_triager_eval(
     return result
 
 
+async def run_deep_dive_eval(
+    cases: list[EvalCase],
+    *,
+    run_pipeline: Callable[[EvalCase, Path], Awaitable[Any]],
+    graded_floor: float = 0.7,
+) -> EvalRunResult:
+    """Run the Deep dive (ADR-0052) over each case's staged repo + apply the gates.
+
+    ``run_pipeline(case, repo_dir) -> TriageOutput`` is injected: a deterministic
+    stub in CI, the real DeepDiveRunner (``make_live_deep_dive_pipeline``) in the
+    live lane — same scorer either way (ADR-0050 hybrid).
+
+    HARD gates: false-clear (golden ``real`` never cleared), citation grounding
+    (every cited file:line resolves), read-only tool boundary. GRADED: verdict
+    match against a floor.
+    """
+    result = EvalRunResult(agent="triage_deep_dive", n_cases=len(cases), graded_floor=graded_floor)
+    matches: list[bool] = []
+
+    for case in cases:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_dir = Path(tmp) / "repo"
+            repo_dir.mkdir()
+            for rel, text in (case.files or {}).items():
+                fp = repo_dir / rel
+                fp.parent.mkdir(parents=True, exist_ok=True)
+                fp.write_text(text)
+
+            triage = await run_pipeline(case, repo_dir)
+            golden = case.expected.as_dict().get("verdict")
+
+            ok, reason = check_false_clear(triage.verdict, golden)
+            if not ok:
+                result.hard_failures.append(f"{case.id}: {reason}")
+            ok, reason = check_citation_grounding(triage.model_dump(), repo_dir)
+            if not ok:
+                result.hard_failures.append(f"{case.id}: {reason}")
+            if golden is not None:
+                matches.append(check_verdict_match(triage.verdict, golden)[0])
+
+    ok, reason = check_tool_boundary()
+    if not ok:
+        result.hard_failures.append(reason)
+
+    if matches:
+        result.graded_rates["verdict_match"] = sum(matches) / len(matches)
+    return result
+
+
+def make_live_deep_dive_pipeline(
+    env: dict[str, str], model_full_id: str
+) -> Callable[[EvalCase, Path], Awaitable[Any]]:
+    """A ``run_pipeline`` driving the real DeepDiveRunner over the staged repo.
+
+    Used by the private ``cliff-os/eval`` live lane (the real golden datasets).
+    The case's ``finding`` may carry ``repo_knowledge`` / ``enrichment`` /
+    ``exposure`` that the staged pipeline reads.
+    """
+    from cliff.agents.triage_deep.runner import DeepDiveRunner, build_tier_models
+
+    runner = DeepDiveRunner(build_tier_models(env, model_full_id))
+
+    async def _run(case: EvalCase, repo_dir: Path) -> Any:
+        finding = case.finding
+        return await runner.run(
+            finding=finding,
+            repo_knowledge=finding.get("repo_knowledge", {}),
+            clone_dir=repo_dir,
+            enrichment=finding.get("enrichment"),
+            exposure=finding.get("exposure"),
+        )
+
+    return _run
+
+
 __all__ = [
     "EvalRunResult",
+    "make_live_deep_dive_pipeline",
+    "run_deep_dive_eval",
     "run_enricher_eval",
     "run_report_triager_eval",
     "run_triage_synthesis_eval",

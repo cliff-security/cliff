@@ -1,0 +1,8 @@
+// Public SYNTHETIC sample for the Deep dive eval (ADR-0052 §Evaluation).
+// Exercises the harness + the deterministic gates in CI. The real, valuable
+// golden datasets (vulnerable/patched SHA pairs, the research-vertical moat
+// corpus) live in the PRIVATE cliff-os/eval project and NEVER enter this repo
+// (ADR-0050 hybrid: harness public, data private). Point CLIFF_EVAL_DATASET_DIR
+// at that project to run against the real set.
+{"id": "dd-reachable-eval", "tier": "ci", "edge_case": "reachable_untrusted_input", "finding": {"source_type": "code", "title": "request body passed to eval", "description": "the handler evaluates the raw request body"}, "files": {"app/handler.py": "def handle(req):\n    # evaluates attacker-controlled input\n    return eval(req.body)\n"}, "expected": {"verdict": "real"}}
+{"id": "dd-test-only-dep", "tier": "ci", "edge_case": "root_cause_in_nonship_code", "finding": {"source_type": "dependency", "title": "CVE in a dependency used only by the test suite"}, "files": {"tests/conftest.py": "import vulnerable_lib  # only imported under tests/, never shipped\n"}, "expected": {"verdict": "unexploitable"}}
