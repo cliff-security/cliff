@@ -35,7 +35,7 @@ from cliff.agents.triage_deep.challenge import (
 
 
 def test_deep_dive_is_read_only():
-    assert DEEP_DIVE_TOOLS == (read, grep)
+    assert (read, grep) == DEEP_DIVE_TOOLS
     for forbidden in (bash, edit, gh, webfetch):
         assert forbidden not in DEEP_DIVE_TOOLS
 
