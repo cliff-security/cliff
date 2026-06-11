@@ -156,9 +156,12 @@ _TRANSIENT_STATUS = frozenset({429, 503})
 
 
 async def run_agent_with_retry(
-    agent: Agent, prompt: str, deps: WorkspaceDeps, *, attempts: int = 4
+    agent: Agent, prompt: str, deps: WorkspaceDeps, *, attempts: int = 6
 ):
-    """Run *agent*, retrying transient provider errors (429/503) with backoff."""
+    """Run *agent*, retrying transient provider errors (429/503) with backoff.
+
+    Gemini in particular returns 503 "high demand" under load, so the backoff is
+    generous (capped at 10s/attempt): 1, 2, 4, 8, 10s across the retries."""
     for i in range(attempts):
         try:
             return await agent.run(
@@ -168,7 +171,7 @@ async def run_agent_with_retry(
             )
         except ModelHTTPError as exc:
             if exc.status_code in _TRANSIENT_STATUS and i < attempts - 1:
-                await asyncio.sleep(2**i)  # 1s, 2s, 4s
+                await asyncio.sleep(min(2**i, 10))
                 continue
             raise
     raise RuntimeError("unreachable")  # pragma: no cover
