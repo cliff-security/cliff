@@ -33,7 +33,7 @@ from cliff.agents.triage_deep.agents import (
     run_rule_out,
     run_trace_path,
 )
-from cliff.agents.triage_deep.challenge import run_challenge_panel
+from cliff.agents.triage_deep.challenge import run_challenge_panel, run_disproof_challenge
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -46,6 +46,7 @@ _STEP_TIER = {
     "rule_out": "cheap",
     "trace_path": "strong",
     "plan_exploit": "strong",
+    "disproof_challenge": "judge",
     "challenge": "judge",
 }
 
@@ -113,6 +114,9 @@ class DeepDiveStages:
     trace: Callable[[WorkspaceDeps, Any], Awaitable[dict]] = run_trace_path
     plan: Callable[[WorkspaceDeps, Any], Awaitable[dict]] = run_plan_exploit
     challenge: Callable[[WorkspaceDeps, Any, str], Awaitable[Challenge]] = run_challenge_panel
+    disproof_challenge: Callable[[WorkspaceDeps, Any], Awaitable[Challenge]] = (
+        run_disproof_challenge
+    )
 
 
 def build_tier_models(env: dict[str, str], model_full_id: str) -> dict[str, Model]:
@@ -246,6 +250,33 @@ class DeepDiveRunner:
         reached = reach.get("reached")
         if reached == "no":
             disproof = reach.get("disproof") or {}
+            # A disproof CLEARS the finding — the highest-stakes verdict. Symmetry
+            # with the 'real' path: adversarially stress the guard before honoring
+            # it, so a phantom / bypassable guard can't false-clear a real vuln.
+            # (This is what the rule_out comment above already promised.)
+            dchallenge = await self._stages.disproof_challenge(
+                _deps(clone_dir, finding, {**base, "facts": facts, "reachability": reach}),
+                self._models["judge"],
+            )
+            steps.append("disproof_challenge")
+            if not dchallenge.verdict_holds:
+                # The guard did not survive — a concrete bypass / gap was found.
+                # Do NOT clear; route to a human (never silently false-clear).
+                return TriageOutput(
+                    verdict="needs_review",
+                    confidence=_CONF_UNKNOWN,
+                    reachability=_map_reach(reach),
+                    challenge=dchallenge,
+                    checks=[
+                        TriageCheck(
+                            eyebrow="Disproof refuted",
+                            result="Guard did not hold under challenge",
+                            kind="warn",
+                            detail=f"{len(dchallenge.reviewers)} adversarial reviewers found a gap",
+                        )
+                    ],
+                    provenance=prov("disproof_challenge"),
+                )
             return TriageOutput(
                 verdict="unexploitable",
                 confidence=_CONF_DISPROOF,
@@ -256,15 +287,16 @@ class DeepDiveRunner:
                 exploitability=TriageExploitability(
                     exploitable="no", reason=disproof.get("explanation")
                 ),
+                challenge=dchallenge,
                 checks=[
                     TriageCheck(
                         eyebrow="Disproof",
-                        result="Not reachable",
+                        result="Not reachable (challenge upheld)",
                         kind="pass",
                         detail=disproof.get("guard_location"),
                     )
                 ],
-                provenance=prov("trace_path"),
+                provenance=prov("disproof_challenge"),
             )
         if reached == "unknown":
             return TriageOutput(

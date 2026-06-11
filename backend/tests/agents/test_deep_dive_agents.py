@@ -29,8 +29,11 @@ from cliff.agents.triage_deep.agents import (
 )
 from cliff.agents.triage_deep.challenge import (
     CHALLENGE_LENSES,
+    DISPROOF_LENSES,
     resolve_challenge,
+    resolve_disproof,
     run_challenge_panel,
+    run_disproof_challenge,
 )
 
 
@@ -115,3 +118,33 @@ async def test_challenge_panel_runs_all_lenses(deps):
     assert len(c.reviewers) == len(CHALLENGE_LENSES)
     # The lens is pinned by construction, not the model's choice.
     assert {r.lens for r in c.reviewers} == set(CHALLENGE_LENSES)
+
+
+# ── disproof challenge: the symmetric gate that can't false-clear ────────────
+
+
+def test_resolve_disproof_unanimous_holds_clears():
+    c = resolve_disproof([_rev("holds"), _rev("holds"), _rev("holds")])
+    assert c.verdict_holds is True
+    assert c.downgraded_verdict is None
+
+
+def test_resolve_disproof_any_refute_blocks_clear():
+    # ONE concrete bypass is enough — a disproof must be unanimous to clear.
+    c = resolve_disproof([_rev("holds"), _rev("holds"), _rev("refuted")])
+    assert c.verdict_holds is False
+    assert c.downgraded_verdict == "needs_review"
+
+
+def test_resolve_disproof_empty_does_not_clear():
+    c = resolve_disproof([])
+    assert c.verdict_holds is False
+
+
+async def test_disproof_panel_runs_all_lenses(deps):
+    c = await run_disproof_challenge(
+        deps, TestModel(custom_output_args={"lens": "x", "verdict": "holds"})
+    )
+    assert isinstance(c, Challenge)
+    assert c.verdict_holds is True  # all hold → guard upheld
+    assert {r.lens for r in c.reviewers} == set(DISPROOF_LENSES)

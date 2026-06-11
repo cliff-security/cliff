@@ -18,6 +18,7 @@ import json
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+import httpx
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.usage import UsageLimits
@@ -184,6 +185,13 @@ async def run_agent_with_retry(
             )
         except ModelHTTPError as exc:
             if exc.status_code in _TRANSIENT_STATUS and i < attempts - 1:
+                await asyncio.sleep(min(2**i, 4))
+                continue
+            raise
+        except httpx.TransportError:  # ReadTimeout/ConnectError/etc. — a hung or
+            # dropped connection is transient like a 503; retry rather than
+            # collapsing the whole case to needs_review on one stalled request.
+            if i < attempts - 1:
                 await asyncio.sleep(min(2**i, 4))
                 continue
             raise

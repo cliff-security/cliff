@@ -27,6 +27,13 @@ def _challenge(result: Challenge):
     return _f
 
 
+def _disproof(result: Challenge):
+    async def _f(deps, model):
+        return result
+
+    return _f
+
+
 async def _run(stages, rk=RK):
     runner = DeepDiveRunner(MODELS, stages=stages)
     return await runner.run(
@@ -75,7 +82,9 @@ async def test_uncorroborated_kill_falls_through_to_trace():
     assert "rule_out" in out.provenance.steps_run
 
 
-async def test_exit_at_trace_disproof():
+async def test_disproof_upheld_is_unexploitable():
+    # A disproof CLEARS the finding, so it is adversarially challenged first; an
+    # upheld guard → unexploitable.
     stages = DeepDiveStages(
         gather=_stage({}),
         rule_out=_stage({"killed": False}),
@@ -85,13 +94,47 @@ async def test_exit_at_trace_disproof():
                 "disproof": {"guard_location": "auth.py:10", "explanation": "checked"},
             }
         ),
+        disproof_challenge=_disproof(
+            Challenge(
+                verdict_holds=True,
+                reviewers=[ChallengeReviewer(lens="bypass", verdict="holds")],
+            )
+        ),
     )
     out = await _run(stages)
     assert out.verdict == "unexploitable"
     assert out.exploitability.exploitable == "no"
-    assert out.provenance.exit_stage == "trace_path"
+    assert out.provenance.exit_stage == "disproof_challenge"
+    assert "disproof_challenge" in out.provenance.steps_run
     # The disproof is surfaced as a proof check.
     assert any(c.detail == "auth.py:10" for c in out.checks)
+
+
+async def test_disproof_refuted_is_needs_review():
+    # The guard did not survive the challenge (phantom / bypassable) — the finding
+    # must route to a human, never silently false-clear a real vuln.
+    stages = DeepDiveStages(
+        gather=_stage({}),
+        rule_out=_stage({"killed": False}),
+        trace=_stage(
+            {
+                "reached": "no",
+                "disproof": {"guard_location": "auth.py:10", "explanation": "phantom"},
+            }
+        ),
+        disproof_challenge=_disproof(
+            Challenge(
+                verdict_holds=False,
+                downgraded_verdict="needs_review",
+                reviewers=[
+                    ChallengeReviewer(lens="bypass", verdict="refuted", refutation="../ slips past")
+                ],
+            )
+        ),
+    )
+    out = await _run(stages)
+    assert out.verdict == "needs_review"
+    assert out.provenance.exit_stage == "disproof_challenge"
 
 
 async def test_unknown_reachability_needs_review():
