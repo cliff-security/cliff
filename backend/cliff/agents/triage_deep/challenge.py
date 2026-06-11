@@ -97,12 +97,17 @@ async def run_challenge_panel(
 
     async def _one(lens: str) -> ChallengeReviewer:
         agent = build_reviewer_agent(model, lens)
-        result = await agent.run(
-            prompt, deps=deps, usage_limits=UsageLimits(request_limit=DEEP_DIVE_REQUEST_LIMIT)
-        )
-        out = result.output
+        try:
+            result = await agent.run(
+                prompt, deps=deps, usage_limits=UsageLimits(request_limit=DEEP_DIVE_REQUEST_LIMIT)
+            )
+        except Exception:  # noqa: BLE001 — a reviewer that can't finish must not
+            # crash the panel or wrongly downgrade: an incomplete challenge holds.
+            return ChallengeReviewer(
+                lens=lens, verdict="holds", refutation="reviewer did not complete"
+            )
         # Pin the lens — the reviewer's job is fixed by construction, not its choice.
-        return out.model_copy(update={"lens": lens})
+        return result.output.model_copy(update={"lens": lens})
 
     reviewers = await asyncio.gather(*(_one(lens) for lens in CHALLENGE_LENSES))
     return resolve_challenge(list(reviewers), current_verdict)

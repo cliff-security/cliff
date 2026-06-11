@@ -38,7 +38,10 @@ def search_workspace(workspace_dir: str, pattern: str, path: str = ".") -> str:
     except re.error as exc:
         return f"[invalid regex: {exc}]"
 
-    root = Path(workspace_dir)
+    # Resolve the root too: on macOS a temp dir like /var/folders/... canonicalizes
+    # to /private/var/folders/..., and base.resolve() below follows that symlink —
+    # so an unresolved root would break relative_to() on every match.
+    root = Path(workspace_dir).resolve()
     base = (root / path).resolve()
     if not base.exists():
         return f"[path not found: {path}]"

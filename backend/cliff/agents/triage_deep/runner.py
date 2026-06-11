@@ -12,6 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from pydantic_ai.exceptions import UsageLimitExceeded
+
 from cliff.agents.runtime.deps import WorkspaceDeps
 from cliff.agents.runtime.model_tiers import resolve_tier_model_ids
 from cliff.agents.schemas import (
@@ -113,6 +115,41 @@ class DeepDiveRunner:
         self._stages = stages or DeepDiveStages()
 
     async def run(
+        self,
+        *,
+        finding: dict,
+        repo_knowledge: dict,
+        clone_dir: Path | str,
+        enrichment: dict | None = None,
+        exposure: dict | None = None,
+        traced_sha: str | None = None,
+    ) -> TriageOutput:
+        """Run the Deep dive, degrading to ``needs_review`` if a stage exhausts
+        its request budget — never crash, never a false clear."""
+        try:
+            return await self._run(
+                finding=finding,
+                repo_knowledge=repo_knowledge,
+                clone_dir=clone_dir,
+                enrichment=enrichment,
+                exposure=exposure,
+                traced_sha=traced_sha,
+            )
+        except UsageLimitExceeded:
+            return TriageOutput(
+                verdict="needs_review",
+                confidence=0.3,
+                provenance=TriageProvenance(exit_stage="incomplete", escalated=True),
+                checks=[
+                    TriageCheck(
+                        eyebrow="Incomplete",
+                        result="Analysis hit the request budget",
+                        kind="info",
+                    )
+                ],
+            )
+
+    async def _run(
         self,
         *,
         finding: dict,

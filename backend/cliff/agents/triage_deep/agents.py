@@ -36,8 +36,10 @@ if TYPE_CHECKING:
 #: the trust-boundary test asserts on.
 DEEP_DIVE_TOOLS = (read, grep)
 
-#: trace_path / challenge can read several files; cap so a weak model can't loop.
-DEEP_DIVE_REQUEST_LIMIT = 25
+#: trace_path / challenge can read several files on a real repo; cap so a weak
+#: model can't loop forever. A breach degrades the stage (the runner routes it to
+#: needs_review), it never crashes the pipeline.
+DEEP_DIVE_REQUEST_LIMIT = 40
 
 GATHER_PROMPT = """\
 You are pinning down a vulnerability finding in THIS repository. Using `read` \
