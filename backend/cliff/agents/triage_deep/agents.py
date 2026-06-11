@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 import httpx
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import ModelHTTPError
+from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
 
 from cliff.agents.runtime.deps import ReadBudget, WorkspaceDeps
@@ -49,6 +50,12 @@ DEEP_DIVE_REQUEST_LIMIT = 40
 #: large real repo can't overflow the model window — ~120KB ≈ 30K tokens of file
 #: content, plenty for the cited file + its callers, far under the 200K limit.
 DEEP_DIVE_READ_BUDGET = 120 * 1024
+
+#: Deterministic decoding for every deep-dive agent. Security triage must be
+#: REPRODUCIBLE — the same finding + code should yield the same verdict, not a
+#: dice roll that flips real/needs_review between runs. Perspective diversity in
+#: the challenge panel comes from the LENSES, not from sampling temperature.
+DEEP_DIVE_MODEL_SETTINGS = ModelSettings(temperature=0.0)
 
 GATHER_PROMPT = """\
 You are pinning down a vulnerability finding in THIS repository. Using `read` \
@@ -102,7 +109,20 @@ check that strips the attacker's control before the sink. A guard tucked inside 
 helper (e.g. an `is_safe_path(...)`, `validate(...)`, `normalize(...)`, or an \
 allow-list check whose failure aborts the request) STILL counts: a sink is only \
 reachable if the attacker's input survives every such check on the way to it. \
-Apply and record which disciplines you used:
+A switch to a SAFE API also counts as a guard — if the dangerous operation has \
+been REPLACED by a safe equivalent on the path, the original sink is no longer \
+reachable: e.g. a safe loader (`yaml.safe_load`), a sandboxed evaluator \
+(`SandboxedEnvironment`), an extraction call with security flags (libarchive \
+`EXTRACT_SECURE_*`, a `safe_join`/`tar_xf`-style wrapper), a parameterized query, \
+an escaping helper (`escape_filter_chars`), or a redirect/return that branches \
+away before the sink. INLINE sanitization right before the sink ALSO counts — a \
+loop or block that validates/rewrites the attacker data before it reaches the \
+sink (e.g. rejecting or stripping `../` from archive member names, or checking \
+each `realpath` stays within a base dir, before `extractall`) confines it: read \
+the lines IMMEDIATELY ABOVE the sink, not just the sink call. When several \
+similar sinks exist, assess the one on the path the FINDING names (follow its \
+entry point), not an unrelated lookalike elsewhere. Apply and record which \
+disciplines you used:
 - walk-the-catch-frame (a surrounding catch neutralizes it)
 - walk-the-parallel-guard (a sibling site / the entry function holds the guard)
 - walk-the-downstream-gate (a consumer downstream validates the input)
@@ -132,6 +152,7 @@ def _agent(model: Model, output_type: type, system_prompt: str) -> Agent:
         deps_type=WorkspaceDeps,
         system_prompt=system_prompt,
         tools=list(DEEP_DIVE_TOOLS),
+        model_settings=DEEP_DIVE_MODEL_SETTINGS,
     )
 
 

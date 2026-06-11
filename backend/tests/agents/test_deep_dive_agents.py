@@ -123,15 +123,20 @@ async def test_challenge_panel_runs_all_lenses(deps):
 # ── disproof challenge: the symmetric gate that can't false-clear ────────────
 
 
-def test_resolve_disproof_unanimous_holds_clears():
+def test_resolve_disproof_all_hold_clears():
     c = resolve_disproof([_rev("holds"), _rev("holds"), _rev("holds")])
     assert c.verdict_holds is True
     assert c.downgraded_verdict is None
 
 
-def test_resolve_disproof_any_refute_blocks_clear():
-    # ONE concrete bypass is enough — a disproof must be unanimous to clear.
+def test_resolve_disproof_lone_refute_still_clears():
+    # MAJORITY: one over-refuter no longer vetoes a clear the other two back.
     c = resolve_disproof([_rev("holds"), _rev("holds"), _rev("refuted")])
+    assert c.verdict_holds is True
+
+
+def test_resolve_disproof_majority_refute_blocks_clear():
+    c = resolve_disproof([_rev("holds"), _rev("refuted"), _rev("refuted")])
     assert c.verdict_holds is False
     assert c.downgraded_verdict == "needs_review"
 
