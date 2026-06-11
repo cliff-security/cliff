@@ -9,6 +9,7 @@ for gather/rule_out, strong for trace/plan, judge for challenge) come from
 
 from __future__ import annotations
 
+import fnmatch
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -84,6 +85,25 @@ def _map_reach(reach: dict) -> TriageReachability:
             )
         )
     return TriageReachability(reached=reach.get("reached") == "yes", path=nodes)
+
+
+def _kill_corroborated(ro: dict, facts: dict, repo_knowledge: dict) -> bool:
+    """Whether a rule_out kill is backed by a structural signal (ADR-0052).
+
+    Only ``duplicate_of_known`` (a matching prior issue in the threat history)
+    and ``root_cause_in_nonship_code`` (a root-cause file matching an excluded
+    code-map glob) can terminally clear at the cheap gate. Every other kill class
+    requires a code-safety *judgement* — which must come from trace_path's
+    disproof, not the cheap gate — so it is not honored here.
+    """
+    kill_class = ro.get("kill_class")
+    if kill_class == "duplicate_of_known":
+        return bool((repo_knowledge.get("threat") or {}).get("prior_issues"))
+    if kill_class == "root_cause_in_nonship_code":
+        excluded = (repo_knowledge.get("code_map") or {}).get("excluded_roots") or []
+        files = [c.get("file", "") for c in (facts.get("root_cause_candidates") or [])]
+        return any(fnmatch.fnmatch(f, pat) for f in files for pat in excluded)
+    return False
 
 
 @dataclass(frozen=True)
@@ -191,7 +211,12 @@ class DeepDiveRunner:
             _deps(clone_dir, finding, {**base, "facts": facts}), self._models["cheap"]
         )
         steps.append("rule_out")
-        if ro.get("killed"):
+        # Only honor a kill that is STRUCTURALLY corroborated (ADR-0052): the
+        # code map confirms non-ship code, or the threat history confirms a
+        # duplicate. A model's "looks safe" hunch is NOT allowed to terminally
+        # clear — it falls through to trace_path, which must produce a real
+        # disproof the challenge panel checks. Guarantees no rule-out false-clear.
+        if ro.get("killed") and _kill_corroborated(ro, facts, repo_knowledge):
             verdict = ro.get("recommended_verdict_on_kill") or "false_positive"
             return TriageOutput(
                 verdict=verdict,

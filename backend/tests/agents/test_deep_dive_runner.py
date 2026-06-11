@@ -27,29 +27,52 @@ def _challenge(result: Challenge):
     return _f
 
 
-async def _run(stages):
+async def _run(stages, rk=RK):
     runner = DeepDiveRunner(MODELS, stages=stages)
     return await runner.run(
-        finding={"title": "x"}, repo_knowledge=RK, clone_dir="/tmp/x", traced_sha="sha1"
+        finding={"title": "x"}, repo_knowledge=rk, clone_dir="/tmp/x", traced_sha="sha1"
     )
 
 
-async def test_exit_at_rule_out_kill():
+async def test_corroborated_kill_exits_at_rule_out():
+    # duplicate_of_known is corroborated by a prior issue in the threat history.
+    rk = {"threat": {"prior_issues": [{"id": "GHSA-x"}]}}
     stages = DeepDiveStages(
         gather=_stage({"vuln_class": "rce"}),
         rule_out=_stage(
             {
                 "killed": True,
-                "kill_class": "root_cause_in_nonship_code",
+                "kill_class": "duplicate_of_known",
                 "recommended_verdict_on_kill": "false_positive",
-                "kill_evidence": "tests/x.py:1",
             }
         ),
     )
-    out = await _run(stages)
+    out = await _run(stages, rk)
     assert out.verdict == "false_positive"
     assert out.provenance.exit_stage == "rule_out"
     assert out.provenance.steps_run == ["gather_facts", "rule_out"]
+
+
+async def test_uncorroborated_kill_falls_through_to_trace():
+    # A "looks safe" kill with no structural backing must NOT clear at the cheap
+    # gate — it falls through to trace_path (the false-clear guarantee).
+    stages = DeepDiveStages(
+        gather=_stage({"vuln_class": "rce", "root_cause_candidates": [{"file": "app/views.py"}]}),
+        rule_out=_stage({"killed": True, "kill_class": "downstream_filter"}),
+        trace=_stage(
+            {"reached": "yes", "path": [{"file": "app/views.py", "line": 2, "role": "sink"}]}
+        ),
+        plan=_stage({"hypotheses": [{"id": "h1", "trigger_condition": "x"}]}),
+        challenge=_challenge(
+            Challenge(
+                verdict_holds=True, reviewers=[ChallengeReviewer(lens="exploit", verdict="holds")]
+            )
+        ),
+    )
+    out = await _run(stages)  # RK has empty code_map/threat → kill not corroborated
+    assert out.verdict == "real"  # proceeded past the uncorroborated kill
+    assert out.provenance.exit_stage == "challenge"
+    assert "rule_out" in out.provenance.steps_run
 
 
 async def test_exit_at_trace_disproof():

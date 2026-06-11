@@ -73,12 +73,19 @@ and recommend `false_positive` (not a real issue) or `unexploitable` (real \
 advisory, not reachable here). Otherwise killed=false and list the surviving \
 concerns.
 
-A kill is a STRONG claim that the finding is not real, and falsely killing a \
-real vulnerability is the worst possible outcome. Only kill with POSITIVE \
-evidence for one of the classes above (the code is confirmed test-only via the \
-code map; a guard is confirmed present at a file:line you read). Code that \
-plausibly reaches a dangerous sink is NEVER a kill — let reachability analysis \
-decide it. When in any doubt, killed=false."""
+A kill is a STRONG claim that the finding is not real, it ENDS the analysis \
+before reachability and the adversarial review ever run, and falsely killing a \
+real vulnerability is the worst possible outcome. So you may ONLY kill on a \
+STRUCTURAL false-positive that needs no judgement about whether the code is \
+"safe":
+  (a) the root cause lives only in non-shipping code (confirmed via the code map),
+  (b) it is a confirmed duplicate of an already-fixed issue (threat history),
+  (c) it is gated behind a production-default-off flag you can see is off,
+  (d) the sink has no caller anywhere (dead code).
+Anything that turns on judging whether a guard, validation, or sanitizer makes \
+the code safe is NOT a rule_out kill — that is a reachability DISPROOF. In that \
+case set killed=false and let Trace the path establish the specific guard at a \
+file:line (which the challenge panel then checks). When in any doubt, killed=false."""
 
 TRACE_PROMPT = """\
 Determine whether an attacker can actually REACH the vulnerable code. Walk from \
