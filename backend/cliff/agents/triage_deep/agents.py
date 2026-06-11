@@ -14,12 +14,13 @@ knowledge threaded through ``prior_context`` + the rendered prompt.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from pydantic_ai import Agent
 from pydantic_ai.usage import UsageLimits
 
-from cliff.agents.runtime.deps import WorkspaceDeps
+from cliff.agents.runtime.deps import ReadBudget, WorkspaceDeps
 from cliff.agents.runtime.tools.grep import grep
 from cliff.agents.runtime.tools.read import read
 from cliff.agents.schemas import (
@@ -41,13 +42,19 @@ DEEP_DIVE_TOOLS = (read, grep)
 #: needs_review), it never crashes the pipeline.
 DEEP_DIVE_REQUEST_LIMIT = 40
 
+#: Cumulative read/grep byte cap per stage run (ADR-0052). Bounds context so a
+#: large real repo can't overflow the model window — ~120KB ≈ 30K tokens of file
+#: content, plenty for the cited file + its callers, far under the 200K limit.
+DEEP_DIVE_READ_BUDGET = 120 * 1024
+
 GATHER_PROMPT = """\
 You are pinning down a vulnerability finding in THIS repository. Using `read` \
 and `grep`, locate the root cause in this repo's actual code (file:line \
 candidates), identify the vulnerability class, and state the entry-point \
 hypothesis. Collect the static evidence later stages will reuse so they don't \
 re-locate it. For an inbound report, also extract the reporter's claim. Read \
-sparingly — you do not need every file."""
+sparingly: open only the specific file(s) the finding names and `grep` for \
+symbols, not the whole repo — you have a limited read budget for this analysis."""
 
 RULE_OUT_PROMPT = """\
 Decide whether this finding can be ruled out cheaply, BEFORE any expensive \
@@ -64,7 +71,14 @@ catch frame (walk-the-catch-frame)
 If a kill applies, set killed=true with the kill_class and file:line evidence, \
 and recommend `false_positive` (not a real issue) or `unexploitable` (real \
 advisory, not reachable here). Otherwise killed=false and list the surviving \
-concerns. When unsure, do NOT kill."""
+concerns.
+
+A kill is a STRONG claim that the finding is not real, and falsely killing a \
+real vulnerability is the worst possible outcome. Only kill with POSITIVE \
+evidence for one of the classes above (the code is confirmed test-only via the \
+code map; a guard is confirmed present at a file:line you read). Code that \
+plausibly reaches a dangerous sink is NEVER a kill — let reachability analysis \
+decide it. When in any doubt, killed=false."""
 
 TRACE_PROMPT = """\
 Determine whether an attacker can actually REACH the vulnerable code. Walk from \
@@ -128,6 +142,9 @@ def render_context(deps: WorkspaceDeps) -> str:
 
 
 async def _run(agent: Agent, deps: WorkspaceDeps) -> dict:
+    # Fresh per-stage read budget so cumulative tool output can't overflow the
+    # context window on a large real repo (ADR-0052).
+    deps = replace(deps, read_budget=ReadBudget(DEEP_DIVE_READ_BUDGET))
     result = await agent.run(
         render_context(deps),
         deps=deps,

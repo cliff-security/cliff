@@ -10,16 +10,21 @@ reviewers downgrades the verdict; a tie holds but caps confidence.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from pydantic_ai import Agent
 from pydantic_ai.usage import UsageLimits
 
-from cliff.agents.runtime.deps import WorkspaceDeps
+from cliff.agents.runtime.deps import ReadBudget, WorkspaceDeps
 from cliff.agents.runtime.tools.grep import grep
 from cliff.agents.runtime.tools.read import read
 from cliff.agents.schemas import Challenge, ChallengeReviewer
-from cliff.agents.triage_deep.agents import DEEP_DIVE_REQUEST_LIMIT, render_context
+from cliff.agents.triage_deep.agents import (
+    DEEP_DIVE_READ_BUDGET,
+    DEEP_DIVE_REQUEST_LIMIT,
+    render_context,
+)
 
 if TYPE_CHECKING:
     from pydantic_ai.models import Model
@@ -97,9 +102,11 @@ async def run_challenge_panel(
 
     async def _one(lens: str) -> ChallengeReviewer:
         agent = build_reviewer_agent(model, lens)
+        # Fresh per-reviewer read budget so the panel can't overflow context.
+        rdeps = replace(deps, read_budget=ReadBudget(DEEP_DIVE_READ_BUDGET))
         try:
             result = await agent.run(
-                prompt, deps=deps, usage_limits=UsageLimits(request_limit=DEEP_DIVE_REQUEST_LIMIT)
+                prompt, deps=rdeps, usage_limits=UsageLimits(request_limit=DEEP_DIVE_REQUEST_LIMIT)
             )
         except Exception:  # noqa: BLE001 — a reviewer that can't finish must not
             # crash the panel or wrongly downgrade: an incomplete challenge holds.

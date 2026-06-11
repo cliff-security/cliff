@@ -76,9 +76,13 @@ def search_workspace(workspace_dir: str, pattern: str, path: str = ".") -> str:
 
 async def grep(ctx: RunContext[WorkspaceDeps], pattern: str, path: str = ".") -> str:
     """Search the workspace for *pattern* (regex), under *path* (default: root)."""
-    return await asyncio.to_thread(
+    out = await asyncio.to_thread(
         search_workspace, ctx.deps.workspace_dir, pattern, path
     )
+    budget = ctx.deps.read_budget
+    if budget is not None and not budget.take(len(out.encode("utf-8", errors="ignore"))):
+        return "[grep budget exhausted for this analysis]"
+    return out
 
 
 __all__ = ["grep", "search_workspace"]

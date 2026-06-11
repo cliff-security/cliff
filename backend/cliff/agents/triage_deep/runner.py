@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from pydantic_ai.exceptions import UsageLimitExceeded
+from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
 
 from cliff.agents.runtime.deps import WorkspaceDeps
 from cliff.agents.runtime.model_tiers import resolve_tier_model_ids
@@ -126,6 +126,14 @@ class DeepDiveRunner:
     ) -> TriageOutput:
         """Run the Deep dive, degrading to ``needs_review`` if a stage exhausts
         its request budget — never crash, never a false clear."""
+        def incomplete(reason: str) -> TriageOutput:
+            return TriageOutput(
+                verdict="needs_review",
+                confidence=0.3,
+                provenance=TriageProvenance(exit_stage="incomplete", escalated=True),
+                checks=[TriageCheck(eyebrow="Incomplete", result=reason, kind="info")],
+            )
+
         try:
             return await self._run(
                 finding=finding,
@@ -136,18 +144,14 @@ class DeepDiveRunner:
                 traced_sha=traced_sha,
             )
         except UsageLimitExceeded:
-            return TriageOutput(
-                verdict="needs_review",
-                confidence=0.3,
-                provenance=TriageProvenance(exit_stage="incomplete", escalated=True),
-                checks=[
-                    TriageCheck(
-                        eyebrow="Incomplete",
-                        result="Analysis hit the request budget",
-                        kind="info",
-                    )
-                ],
-            )
+            return incomplete("Analysis hit the request budget")
+        except ModelHTTPError as exc:
+            # Context-window overflow on a large repo (the agent accumulated too
+            # much tool output). Degrade rather than crash; other HTTP errors
+            # (auth, billing) still surface.
+            if "too long" in str(exc).lower() or "context" in str(exc).lower():
+                return incomplete("Analysis exceeded the model context window")
+            raise
 
     async def _run(
         self,
