@@ -166,11 +166,17 @@ class DeepDiveRunner:
         except UsageLimitExceeded:
             return incomplete("Analysis hit the request budget")
         except ModelHTTPError as exc:
-            # Context-window overflow on a large repo (the agent accumulated too
-            # much tool output). Degrade rather than crash; other HTTP errors
-            # (auth, billing) still surface.
-            if "too long" in str(exc).lower() or "context" in str(exc).lower():
-                return incomplete("Analysis exceeded the model context window")
+            # Degrade rather than crash on two recoverable conditions: a
+            # context-window overflow on a large repo, or a sustained transient
+            # provider outage (429/503) that survived the per-agent retries.
+            # Other HTTP errors (auth, billing) still surface.
+            msg = str(exc).lower()
+            if (
+                exc.status_code in (429, 503)
+                or "too long" in msg
+                or "context" in msg
+            ):
+                return incomplete("Analysis could not complete (provider/context)")
             raise
 
     async def _run(

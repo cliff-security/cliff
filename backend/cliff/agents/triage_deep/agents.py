@@ -13,11 +13,13 @@ knowledge threaded through ``prior_context`` + the rendered prompt.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from pydantic_ai import Agent
+from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.usage import UsageLimits
 
 from cliff.agents.runtime.deps import ReadBudget, WorkspaceDeps
@@ -148,15 +150,35 @@ def render_context(deps: WorkspaceDeps) -> str:
     return "\n\n".join(parts)
 
 
+#: Provider statuses worth retrying — rate limit / transient overload (e.g.
+#: Gemini's 503 "high demand"). Anything else surfaces.
+_TRANSIENT_STATUS = frozenset({429, 503})
+
+
+async def run_agent_with_retry(
+    agent: Agent, prompt: str, deps: WorkspaceDeps, *, attempts: int = 4
+):
+    """Run *agent*, retrying transient provider errors (429/503) with backoff."""
+    for i in range(attempts):
+        try:
+            return await agent.run(
+                prompt,
+                deps=deps,
+                usage_limits=UsageLimits(request_limit=DEEP_DIVE_REQUEST_LIMIT),
+            )
+        except ModelHTTPError as exc:
+            if exc.status_code in _TRANSIENT_STATUS and i < attempts - 1:
+                await asyncio.sleep(2**i)  # 1s, 2s, 4s
+                continue
+            raise
+    raise RuntimeError("unreachable")  # pragma: no cover
+
+
 async def _run(agent: Agent, deps: WorkspaceDeps) -> dict:
     # Fresh per-stage read budget so cumulative tool output can't overflow the
     # context window on a large real repo (ADR-0052).
     deps = replace(deps, read_budget=ReadBudget(DEEP_DIVE_READ_BUDGET))
-    result = await agent.run(
-        render_context(deps),
-        deps=deps,
-        usage_limits=UsageLimits(request_limit=DEEP_DIVE_REQUEST_LIMIT),
-    )
+    result = await run_agent_with_retry(agent, render_context(deps), deps)
     return result.output.model_dump()
 
 
