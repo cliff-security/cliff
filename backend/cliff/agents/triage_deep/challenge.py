@@ -9,7 +9,6 @@ reviewers downgrades the verdict; a tie holds but caps confidence.
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -96,7 +95,7 @@ def resolve_challenge(
 async def run_challenge_panel(
     deps: WorkspaceDeps, model: Model, current_verdict: str
 ) -> Challenge:
-    """Run every lens reviewer in parallel and resolve deterministically."""
+    """Run every lens reviewer (sequentially) and resolve deterministically."""
     prompt = render_context(deps)
 
     async def _one(lens: str) -> ChallengeReviewer:
@@ -113,8 +112,11 @@ async def run_challenge_panel(
         # Pin the lens — the reviewer's job is fixed by construction, not its choice.
         return result.output.model_copy(update={"lens": lens})
 
-    reviewers = await asyncio.gather(*(_one(lens) for lens in CHALLENGE_LENSES))
-    return resolve_challenge(list(reviewers), current_verdict)
+    # Sequential, not gathered: 3 simultaneous calls burst into the rate/
+    # capacity ceiling (Gemini AI Studio 503s under load). One at a time trades
+    # a little latency for far fewer transient failures.
+    reviewers = [await _one(lens) for lens in CHALLENGE_LENSES]
+    return resolve_challenge(reviewers, current_verdict)
 
 
 __all__ = [
