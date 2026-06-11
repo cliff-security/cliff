@@ -51,10 +51,12 @@ CHALLENGE_LENSES: dict[str, str] = {
 DISPROOF_LENSES: dict[str, str] = {
     "bypass": (
         "The tracer CLEARED this finding by claiming a guard blocks the attack. "
-        "Try to BYPASS that guard: can the attacker URL-/double-encode, normalize, "
-        "use an absolute path, a symlink, a null byte, or an alias to slip past it "
-        "and still reach the sink? Read the guard's ACTUAL code at its file:line; "
-        "refute only with a concrete bypass."
+        "Read the guard's ACTUAL code at its file:line and test whether a SPECIFIC "
+        "input defeats it (URL-/double-encoding, path normalization, an absolute "
+        "path, a symlink, a null byte, an alias). Refute ONLY if you can name a "
+        "concrete input that provably slips past THIS guard and reaches the sink. "
+        "If the guard correctly validates / normalizes / confines the input, it "
+        "HOLDS — do not refute on a hypothetical the code already handles."
     ),
     "scope": (
         "The tracer CLEARED this finding via a guard. Check the guard is on THIS "
