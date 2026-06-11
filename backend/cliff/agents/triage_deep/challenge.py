@@ -38,19 +38,25 @@ CHALLENGE_LENSES: dict[str, str] = {
         "genuinely attacker-controlled, or normalized/validated upstream?"
     ),
     "impact": (
-        "Attack the impact. Is it demonstrated by the evidence or merely assumed? "
-        "Is the severity inflated beyond what the path supports?"
+        "Attack the impact. Does the traced path actually support the claimed "
+        "impact and severity, or is the severity inflated beyond what the code at "
+        "the sink can do? Judge the impact the path PROVES — not whether an exploit "
+        "was executed (this triage plans exploits, it does not run them)."
     ),
 }
 
 _SYSTEM = """\
 You are an adversarial reviewer. Your job is to try to PROVE the triage verdict \
 WRONG through one specific lens — not to confirm it. {lens_instruction} Read the \
-cited code with `read`/`grep` to check claims yourself rather than trusting the \
-summary. Apply the test: "would a tired triager reading 30 reports a day believe \
-this at the cited severity?" Default to `refuted` when the evidence is weak or \
-you cannot verify a load-bearing claim. Return holds or refuted with a concrete \
-refutation."""
+cited code with `read`/`grep` to check the claims yourself rather than trusting \
+the summary. Refute ONLY when you can name a SPECIFIC, concrete defect you \
+verified in the code — a guard at a file:line the tracer missed, an input that is \
+actually validated or normalized upstream, or an impact the traced path does not \
+support. If the verdict is backed by a path you checked and you cannot point to a \
+concrete hole, it HOLDS — do NOT refute out of generic caution, a wish for more \
+evidence, or because the exploit was planned rather than demonstrated (this \
+triage plans exploits, it does not run them). Return holds or refuted; a \
+refutation must cite the specific file:line defect that breaks the verdict."""
 
 
 def build_reviewer_agent(model: Model, lens: str) -> Agent[WorkspaceDeps, ChallengeReviewer]:

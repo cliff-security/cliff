@@ -90,19 +90,29 @@ case set killed=false and let Trace the path establish the specific guard at a \
 file:line (which the challenge panel then checks). When in any doubt, killed=false."""
 
 TRACE_PROMPT = """\
-Determine whether an attacker can actually REACH the vulnerable code. Walk from \
-a user-controlled entry point to the sink with file:line at EVERY hop, using \
-`read` and `grep`. Apply these disciplines and record which you used:
+Determine whether an attacker can actually REACH the vulnerable code AND control \
+the dangerous behaviour. Walk from a user-controlled entry point to the sink with \
+file:line at EVERY hop, using `read` and `grep`.
+
+CRITICAL — hunt for a neutralizing guard BEFORE you conclude reached=yes. Open \
+EVERY function on the path, INCLUDING the helpers it calls (follow them with \
+`read`), and look for a validation / sanitization / confinement / authorization \
+check that strips the attacker's control before the sink. A guard tucked inside a \
+helper (e.g. an `is_safe_path(...)`, `validate(...)`, `normalize(...)`, or an \
+allow-list check whose failure aborts the request) STILL counts: a sink is only \
+reachable if the attacker's input survives every such check on the way to it. \
+Apply and record which disciplines you used:
 - walk-the-catch-frame (a surrounding catch neutralizes it)
 - walk-the-parallel-guard (a sibling site / the entry function holds the guard)
 - walk-the-downstream-gate (a consumer downstream validates the input)
-- runtime-overrides-summarized-source (verify the code is reachable in the real \
-build, not behind a disabled flag)
+- runtime-overrides-summarized-source (reachable in the real build, not behind a \
+disabled flag)
 - tail-call-vs-post-call
-If reachable, return reached=yes with the path (source -> hops -> sink). If a \
-SPECIFIC guard blocks it, return reached=no with the disproof (the guard's \
-file:line and why). If undeterminable, reached=unknown. AI confidence is not a \
-vulnerability — no hop without a file:line you actually read."""
+If a guard neutralizes the attack and you cannot demonstrate a concrete bypass, \
+return reached=no with the disproof (the guard's file:line and why it blocks the \
+attack). If the path is clear of any such guard, return reached=yes with the path \
+(source -> hops -> sink). If undeterminable, reached=unknown. AI confidence is not \
+a vulnerability — no hop, and no guard, without a file:line you actually read."""
 
 PLAN_PROMPT = """\
 The vulnerability is reachable. Lay out how it could be exploited: ranked \
@@ -156,12 +166,15 @@ _TRANSIENT_STATUS = frozenset({429, 503})
 
 
 async def run_agent_with_retry(
-    agent: Agent, prompt: str, deps: WorkspaceDeps, *, attempts: int = 6
+    agent: Agent, prompt: str, deps: WorkspaceDeps, *, attempts: int = 12
 ):
     """Run *agent*, retrying transient provider errors (429/503) with backoff.
 
-    Gemini in particular returns 503 "high demand" under load, so the backoff is
-    generous (capped at 10s/attempt): 1, 2, 4, 8, 10s across the retries."""
+    Gemini's AI-Studio tier returns intermittent 503 "high demand" that typically
+    clears within ~2s, so MANY SHORT retries beat a few long ones: a capped
+    exponential backoff (1, 2, 4, 4, … up to 4s) across enough attempts that a
+    multi-call pipeline can push through a saturated window instead of one
+    unlucky call collapsing the whole Deep dive to needs_review."""
     for i in range(attempts):
         try:
             return await agent.run(
@@ -171,7 +184,7 @@ async def run_agent_with_retry(
             )
         except ModelHTTPError as exc:
             if exc.status_code in _TRANSIENT_STATUS and i < attempts - 1:
-                await asyncio.sleep(min(2**i, 10))
+                await asyncio.sleep(min(2**i, 4))
                 continue
             raise
     raise RuntimeError("unreachable")  # pragma: no cover
