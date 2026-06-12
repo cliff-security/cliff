@@ -137,16 +137,18 @@ def resolve_challenge(
 
 
 def resolve_disproof(reviewers: list[ChallengeReviewer]) -> Challenge:
-    """Resolve a DISPROOF challenge by MAJORITY (matches ``resolve_challenge``).
+    """Resolve a DISPROOF challenge: BYPASS-veto + majority.
 
-    A disproof CLEARS a finding, so a MAJORITY of reviewers must back the guard: if
-    as many reviewers refute as hold (a tie) or more, the clear drops to
-    ``needs_review``. Unanimous-to-clear proved too strict — one reviewer nitpicking
-    a complex-but-correct patch (e.g. the file branch of a fixed SSRF route) vetoed
-    every legitimate clear. The panel's majority view is the right balance; the
-    refute-on-concrete discipline in ``_SYSTEM`` keeps refutals honest, and the
-    eval's zero-false-clear gate validates that real vulns never slip through (they
-    reach ``real`` via trace's reached=yes path, not this panel).
+    A disproof CLEARS a finding, so getting it wrong false-clears a real vuln — the
+    worst outcome. The three lenses are NOT equal: the ``bypass`` lens is the direct
+    "can the attacker defeat the guard and reach the sink?" probe, so a refute there
+    is a CONCRETE bypass = the finding is real. It therefore VETOES the clear — a
+    found bypass must never be outvoted (plain majority once did exactly that and
+    false-cleared mlflow-pathtrav-vulnerable: bypass:refuted, scope/phantom:holds).
+    The ``scope``/``phantom`` lenses (guard completeness / existence) resolve by
+    majority, so a lone nitpick on a complex-but-correct patch no longer blocks a
+    legitimate clear. Clearing requires: bypass HOLDS and a majority of reviewers
+    hold. Validated by the eval's zero-false-clear gate.
     """
     if not reviewers:
         return Challenge(
@@ -155,9 +157,10 @@ def resolve_disproof(reviewers: list[ChallengeReviewer]) -> Challenge:
             downgraded_verdict="needs_review",
             confidence_adjustment=-0.25,
         )
+    bypass_refuted = any(r.lens == "bypass" and r.verdict == "refuted" for r in reviewers)
     refuted = sum(1 for r in reviewers if r.verdict == "refuted")
     holds = len(reviewers) - refuted
-    if refuted >= holds:  # tie or majority refute → do not clear (conservative)
+    if bypass_refuted or refuted >= holds:  # concrete bypass, or majority refute
         return Challenge(
             verdict_holds=False,
             reviewers=reviewers,

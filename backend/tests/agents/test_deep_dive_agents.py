@@ -79,8 +79,8 @@ async def test_plan_exploit_returns_plan(deps):
 # ── deterministic challenge resolution ──────────────────────────────────────
 
 
-def _rev(verdict):
-    return ChallengeReviewer(lens="reachability", verdict=verdict)
+def _rev(verdict, lens="reachability"):
+    return ChallengeReviewer(lens=lens, verdict=verdict)
 
 
 def test_resolve_all_hold():
@@ -124,19 +124,35 @@ async def test_challenge_panel_runs_all_lenses(deps):
 
 
 def test_resolve_disproof_all_hold_clears():
-    c = resolve_disproof([_rev("holds"), _rev("holds"), _rev("holds")])
+    c = resolve_disproof(
+        [_rev("holds", "bypass"), _rev("holds", "scope"), _rev("holds", "phantom")]
+    )
     assert c.verdict_holds is True
     assert c.downgraded_verdict is None
 
 
-def test_resolve_disproof_lone_refute_still_clears():
-    # MAJORITY: one over-refuter no longer vetoes a clear the other two back.
-    c = resolve_disproof([_rev("holds"), _rev("holds"), _rev("refuted")])
+def test_resolve_disproof_bypass_refute_vetoes_clear():
+    # The bypass lens found a concrete bypass = the finding is REAL. It must NOT be
+    # outvoted (plain majority false-cleared mlflow-pathtrav-vulnerable this way).
+    c = resolve_disproof(
+        [_rev("refuted", "bypass"), _rev("holds", "scope"), _rev("holds", "phantom")]
+    )
+    assert c.verdict_holds is False
+    assert c.downgraded_verdict == "needs_review"
+
+
+def test_resolve_disproof_lone_scope_nitpick_still_clears():
+    # bypass holds (no bypass) + a single scope nitpick → majority clears.
+    c = resolve_disproof(
+        [_rev("holds", "bypass"), _rev("refuted", "scope"), _rev("holds", "phantom")]
+    )
     assert c.verdict_holds is True
 
 
 def test_resolve_disproof_majority_refute_blocks_clear():
-    c = resolve_disproof([_rev("holds"), _rev("refuted"), _rev("refuted")])
+    c = resolve_disproof(
+        [_rev("holds", "bypass"), _rev("refuted", "scope"), _rev("refuted", "phantom")]
+    )
     assert c.verdict_holds is False
     assert c.downgraded_verdict == "needs_review"
 

@@ -119,10 +119,17 @@ away before the sink. INLINE sanitization right before the sink ALSO counts — 
 loop or block that validates/rewrites the attacker data before it reaches the \
 sink (e.g. rejecting or stripping `../` from archive member names, or checking \
 each `realpath` stays within a base dir, before `extractall`) confines it: read \
-the lines IMMEDIATELY ABOVE the sink, not just the sink call. When several \
-similar sinks exist, assess the one on the path the FINDING names (follow its \
-entry point), not an unrelated lookalike elsewhere. Apply and record which \
-disciplines you used:
+the lines IMMEDIATELY ABOVE the sink, not just the sink call. A check that \
+REJECTS the attacker's malicious input — raising/aborting/erroring when the value \
+is dangerous (an allow-list whose miss raises, `if not is_local_uri(...): raise`, \
+a stricter validator that now rejects the documented payload) — likewise confines \
+the sink: the attacker can't drive the DANGEROUS behaviour even though the sink \
+line still runs for legitimate input. Ask: is there a check on the path that \
+rejects the SPECIFIC malicious input this finding describes? But do NOT invent \
+one — if no such check exists (the genuinely-vulnerable case) the sink IS \
+reachable, reached=yes. When several similar sinks exist, assess the one on the \
+path the FINDING names (follow its entry point), not an unrelated lookalike \
+elsewhere. Apply and record which disciplines you used:
 - walk-the-catch-frame (a surrounding catch neutralizes it)
 - walk-the-parallel-guard (a sibling site / the entry function holds the guard)
 - walk-the-downstream-gate (a consumer downstream validates the input)
