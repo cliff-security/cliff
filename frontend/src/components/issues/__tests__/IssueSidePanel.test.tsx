@@ -1076,3 +1076,103 @@ describe('IssueSidePanel — triage verdict', () => {
     ).toBeInTheDocument()
   })
 })
+
+// --- Deep dive (ADR-0052 / Phase 4): exploit plan, challenge trail, provenance ---
+
+const DEEP_DIVE_TRIAGE = {
+  verdict: 'real',
+  confidence: 0.9,
+  recommended_close: null,
+  reachability: { reached: true, path: [{ label: 'entry', detail: 'app.py:1' }], summary: null },
+  exploitability: { exploitable: 'yes', reason: 'reachable with a credible path' },
+  report: null,
+  checks: [],
+  exploit_plan: {
+    hypotheses: [
+      {
+        id: 'h1',
+        trigger_condition: 'GET /file= with a URL-like value',
+        attacker_input: 'http://169.254.169.254/latest/meta-data/',
+        reached_sink: 'gradio/routes.py:438',
+        expected_impact: 'SSRF to the cloud metadata endpoint',
+        impact_class: 'SSRF',
+        confidence: 0.8,
+        repro_recipe: {
+          setup: ['pip install gradio'],
+          docker_compose: null,
+          image: 'gradio:vuln',
+          ports: [7860],
+          trigger: ['curl "http://target/file=http://169.254.169.254/"'],
+          expected_observation: 'metadata document returned',
+        },
+      },
+    ],
+    primary_hypothesis_id: 'h1',
+    no_credible_exploit: false,
+  },
+  challenge: {
+    verdict_holds: true,
+    reviewers: [
+      { lens: 'reachability', verdict: 'holds', refutation: null },
+      { lens: 'exploit', verdict: 'refuted', refutation: 'input is normalized upstream' },
+    ],
+    downgraded_verdict: null,
+    confidence_adjustment: 0,
+  },
+  provenance: {
+    steps_run: ['gather_facts', 'rule_out', 'trace_path', 'plan_exploit', 'challenge'],
+    traced_sha: 'dc131b64f05062447643217819ca630e483a11df',
+    model_tiers: {},
+    exit_stage: 'challenge',
+    escalated: true,
+  },
+}
+
+function mockSidebarWithDeepDive() {
+  server.use(
+    http.get('/api/workspaces/:wsId/sidebar', () =>
+      HttpResponse.json({
+        workspace_id: 'ws-1',
+        summary: null,
+        evidence: null,
+        owner: null,
+        plan: null,
+        definition_of_done: null,
+        linked_ticket: null,
+        validation: null,
+        similar_cases: null,
+        pull_request: null,
+        triage: DEEP_DIVE_TRIAGE,
+        updated_at: '2026-06-13T00:00:00Z',
+      }),
+    ),
+  )
+}
+
+describe('IssueSidePanel — Deep dive UI (Phase 4)', () => {
+  it('renders the exploit plan with its hypothesis + repro recipe', async () => {
+    mockSidebarWithDeepDive()
+    renderPanel(findingForStage('triage_verdict'))
+    expect(await screen.findByText(/Exploit plan/)).toBeInTheDocument()
+    expect(screen.getByText('SSRF')).toBeInTheDocument()
+    expect(screen.getByText(/GET \/file= with a URL-like value/)).toBeInTheDocument()
+    expect(screen.getByText('gradio/routes.py:438')).toBeInTheDocument()
+    expect(screen.getByText(/Reproduction recipe \(plan\)/)).toBeInTheDocument()
+  })
+
+  it('renders the challenge panel with reviewer verdicts', async () => {
+    mockSidebarWithDeepDive()
+    renderPanel(findingForStage('triage_verdict'))
+    expect(await screen.findByText(/adversarial reviewer/)).toBeInTheDocument()
+    expect(screen.getByText('Verdict held')).toBeInTheDocument()
+    expect(screen.getByText('input is normalized upstream')).toBeInTheDocument()
+  })
+
+  it('renders the provenance trail with friendly stage names + traced sha', async () => {
+    mockSidebarWithDeepDive()
+    renderPanel(findingForStage('triage_verdict'))
+    expect(await screen.findByText('How Cliff dug in')).toBeInTheDocument()
+    expect(screen.getByText('Trace the path')).toBeInTheDocument()
+    expect(screen.getByText('dc131b64f0')).toBeInTheDocument()
+  })
+})

@@ -317,6 +317,62 @@ export interface TriageCheck {
   detail?: string | null;
 }
 
+// --- Deep dive (ADR-0052) — additive, all optional ---
+
+export interface TriageReproRecipe {
+  setup: string[];
+  docker_compose?: string | null;
+  image?: string | null;
+  ports: number[];
+  trigger: string[];
+  expected_observation?: string | null;
+}
+
+export interface TriageExploitHypothesis {
+  id: string;
+  trigger_condition: string;
+  attacker_input?: string | null;
+  /** file:line of the reached sink */
+  reached_sink?: string | null;
+  expected_impact?: string | null;
+  /** RCE | SSRF | SQLi | … */
+  impact_class?: string | null;
+  repro_recipe?: TriageReproRecipe | null;
+  confidence: number;
+}
+
+export interface TriageExploitPlan {
+  hypotheses: TriageExploitHypothesis[];
+  primary_hypothesis_id?: string | null;
+  /** reachable-but-not-exploitable (hardening) signal */
+  no_credible_exploit: boolean;
+}
+
+export interface TriageChallengeReviewer {
+  /** reachability | exploit | impact | bypass | scope | phantom */
+  lens: string;
+  verdict: 'holds' | 'refuted';
+  refutation?: string | null;
+}
+
+export interface TriageChallenge {
+  verdict_holds: boolean;
+  reviewers: TriageChallengeReviewer[];
+  downgraded_verdict?: TriageVerdict | null;
+  confidence_adjustment: number;
+}
+
+export interface TriageProvenance {
+  /** stage narration: gather_facts, rule_out, trace_path, plan_exploit, … */
+  steps_run: string[];
+  /** the commit SHA the verdict is valid for */
+  traced_sha?: string | null;
+  /** step -> tier (cheap | strong | judge) */
+  model_tiers: Record<string, string>;
+  exit_stage?: string | null;
+  escalated: boolean;
+}
+
 export interface TriageOutput {
   verdict: TriageVerdict;
   /** 0.0–1.0; render as word + % (e.g. "High · 92%"), never bare. */
@@ -326,6 +382,10 @@ export interface TriageOutput {
   exploitability?: TriageExploitability | null;
   report?: TriageReport | null;
   checks: TriageCheck[];
+  // Deep dive (ADR-0052) — additive, all optional.
+  exploit_plan?: TriageExploitPlan | null;
+  challenge?: TriageChallenge | null;
+  provenance?: TriageProvenance | null;
 }
 
 export interface SidebarState {
