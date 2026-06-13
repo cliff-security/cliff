@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from cliff.agents.runtime.model_tiers import clearing_is_trusted
 from cliff.agents.triage_deep.escalation import (
     DEFAULT_DEEP_DIVE_BUDGET,
     decide_escalation,
@@ -76,7 +77,10 @@ async def maybe_deep_dive(
         name: mgr.read_artifact(repo.id, name)
         for name in ("profile", "code_map", "threat")
     }
-    active_runner = runner or DeepDiveRunner(build_tier_models(ai_env, model_full_id))
+    active_runner = runner or DeepDiveRunner(
+        build_tier_models(ai_env, model_full_id),
+        can_clear=clearing_is_trusted(model_full_id),
+    )
     return await active_runner.run(
         finding=finding,
         repo_knowledge=knowledge,

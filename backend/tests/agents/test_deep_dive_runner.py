@@ -34,8 +34,8 @@ def _disproof(result: Challenge):
     return _f
 
 
-async def _run(stages, rk=RK):
-    runner = DeepDiveRunner(MODELS, stages=stages)
+async def _run(stages, rk=RK, *, can_clear=True):
+    runner = DeepDiveRunner(MODELS, stages=stages, can_clear=can_clear)
     return await runner.run(
         finding={"title": "x"}, repo_knowledge=rk, clone_dir="/tmp/x", traced_sha="sha1"
     )
@@ -218,3 +218,61 @@ async def test_challenge_downgrade_lowers_verdict():
     out = await _run(stages)
     assert out.verdict == "needs_review"
     assert out.challenge.verdict_holds is False
+
+
+# ── safety net: a weak/thin-lineup judge tier may detect + flag, never clear ──
+
+
+async def test_weak_tier_disproof_clear_downgraded_to_needs_review():
+    # can_clear=False: a would-be `unexploitable` (disproof upheld) -> needs_review.
+    stages = DeepDiveStages(
+        gather=_stage({}),
+        rule_out=_stage({"killed": False}),
+        trace=_stage(
+            {"reached": "no", "disproof": {"guard_location": "a.py:1", "explanation": "ok"}}
+        ),
+        disproof_challenge=_disproof(
+            Challenge(
+                verdict_holds=True,
+                reviewers=[ChallengeReviewer(lens="bypass", verdict="holds")],
+            )
+        ),
+    )
+    out = await _run(stages, can_clear=False)
+    assert out.verdict == "needs_review"
+    assert any(c.eyebrow == "Tier gate" for c in out.checks)
+
+
+async def test_weak_tier_rule_out_kill_downgraded_to_needs_review():
+    # can_clear=False: even a corroborated false_positive kill -> needs_review.
+    rk = {"threat": {"prior_issues": [{"id": "GHSA-x"}]}}
+    stages = DeepDiveStages(
+        gather=_stage({"vuln_class": "rce"}),
+        rule_out=_stage(
+            {
+                "killed": True,
+                "kill_class": "duplicate_of_known",
+                "recommended_verdict_on_kill": "false_positive",
+            }
+        ),
+    )
+    out = await _run(stages, rk, can_clear=False)
+    assert out.verdict == "needs_review"
+
+
+async def test_weak_tier_still_reports_real():
+    # Detection is unaffected — a `real` verdict stays real on a weak tier.
+    stages = DeepDiveStages(
+        gather=_stage({}),
+        rule_out=_stage({"killed": False}),
+        trace=_stage({"reached": "yes", "path": [{"file": "a.py", "line": 1, "role": "sink"}]}),
+        plan=_stage({"hypotheses": [{"id": "h1", "trigger_condition": "x"}]}),
+        challenge=_challenge(
+            Challenge(
+                verdict_holds=True,
+                reviewers=[ChallengeReviewer(lens="exploit", verdict="holds")],
+            )
+        ),
+    )
+    out = await _run(stages, can_clear=False)
+    assert out.verdict == "real"

@@ -433,9 +433,13 @@ def make_live_deep_dive_pipeline(
     The case's ``finding`` may carry ``repo_knowledge`` / ``enrichment`` /
     ``exposure`` that the staged pipeline reads.
     """
+    from cliff.agents.runtime.model_tiers import clearing_is_trusted
     from cliff.agents.triage_deep.runner import DeepDiveRunner, build_tier_models
 
-    runner = DeepDiveRunner(build_tier_models(env, model_full_id))
+    runner = DeepDiveRunner(
+        build_tier_models(env, model_full_id),
+        can_clear=clearing_is_trusted(model_full_id),
+    )
 
     async def _run(case: EvalCase, repo_dir: Path) -> Any:
         finding = case.finding

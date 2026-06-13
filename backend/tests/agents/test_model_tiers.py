@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from cliff.agents.runtime.model_tiers import (
+    clearing_is_trusted,
     judge_is_independent,
     resolve_tier_model_ids,
 )
@@ -37,3 +38,17 @@ def test_no_slash_falls_back():
 def test_judge_independence_signal():
     assert judge_is_independent("anthropic/claude-haiku-4-5") is True
     assert judge_is_independent("ollama/llama3") is False
+
+
+def test_clearing_trusted_for_known_lineups_only():
+    # Known providers derive a capable judge → auto-dismiss trusted.
+    for mid in (
+        "anthropic/claude-haiku-4-5",
+        "openai/gpt-5-mini",
+        "google/gemini-2.5-flash",
+        "openrouter/anthropic/claude-haiku-4.5",
+    ):
+        assert clearing_is_trusted(mid) is True
+    # Thin-lineup / unknown → weak judge possible → must NOT auto-dismiss.
+    for mid in ("ollama/llama3", "custom/my-model", "weird-id"):
+        assert clearing_is_trusted(mid) is False

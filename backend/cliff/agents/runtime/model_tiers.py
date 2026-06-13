@@ -51,4 +51,18 @@ def judge_is_independent(model_full_id: str) -> bool:
     return ids["judge"] != ids["strong"]
 
 
-__all__ = ["TIERS", "judge_is_independent", "resolve_tier_model_ids"]
+def clearing_is_trusted(model_full_id: str) -> bool:
+    """True when the config has a known strong-judge lineup, so the Deep dive may
+    emit a DISMISSAL verdict (``unexploitable`` / ``false_positive``).
+
+    Clearing is the only verdict that can HIDE a real vuln, so it requires a
+    capable judge tier. A thin-lineup config (ollama / custom / unrecognized id)
+    collapses every tier to one possibly-weak model — there the deep dive may
+    DETECT (``real``) and FLAG (``needs_review``) on any tier, but must never
+    auto-dismiss (the flash-judge false-clears were exactly this weak-judge
+    failure). Known-lineup providers always derive a strong judge (opus / gpt-5 /
+    pro), so dismissal is trusted."""
+    return model_full_id.partition("/")[0] in _LINEUP
+
+
+__all__ = ["TIERS", "clearing_is_trusted", "judge_is_independent", "resolve_tier_model_ids"]

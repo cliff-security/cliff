@@ -134,9 +134,37 @@ class DeepDiveRunner:
         models: dict[str, Any],
         *,
         stages: DeepDiveStages | None = None,
+        can_clear: bool = True,
     ) -> None:
         self._models = models
         self._stages = stages or DeepDiveStages()
+        # Safety net: when the configured judge tier isn't a known-capable model
+        # (thin-lineup ollama/custom), the Deep dive may detect + flag but must
+        # never auto-dismiss — every clear verdict is routed to needs_review.
+        self._can_clear = can_clear
+
+    _CLEAR_VERDICTS = ("unexploitable", "false_positive")
+
+    def _gate_clear(self, output: TriageOutput) -> TriageOutput:
+        """Downgrade a DISMISSAL to needs_review on a config whose judge tier can't
+        be trusted to clear (structural no-false-clear guarantee for weak tiers)."""
+        if self._can_clear or output.verdict not in self._CLEAR_VERDICTS:
+            return output
+        return output.model_copy(
+            update={
+                "verdict": "needs_review",
+                "checks": [
+                    *(output.checks or []),
+                    TriageCheck(
+                        eyebrow="Tier gate",
+                        result="Analysis cleared this finding, but the configured "
+                        "model tier is below the auto-dismiss threshold — routed to "
+                        "review rather than dismissed.",
+                        kind="warn",
+                    ),
+                ],
+            }
+        )
 
     async def run(
         self,
@@ -159,13 +187,15 @@ class DeepDiveRunner:
             )
 
         try:
-            return await self._run(
-                finding=finding,
-                repo_knowledge=repo_knowledge,
-                clone_dir=clone_dir,
-                enrichment=enrichment,
-                exposure=exposure,
-                traced_sha=traced_sha,
+            return self._gate_clear(
+                await self._run(
+                    finding=finding,
+                    repo_knowledge=repo_knowledge,
+                    clone_dir=clone_dir,
+                    enrichment=enrichment,
+                    exposure=exposure,
+                    traced_sha=traced_sha,
+                )
             )
         except UsageLimitExceeded:
             return incomplete("Analysis hit the request budget")
