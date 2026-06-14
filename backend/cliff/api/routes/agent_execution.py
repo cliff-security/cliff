@@ -495,10 +495,21 @@ async def run_triage_endpoint(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     env_vars = await _resolve_repo_env_vars(request, db, workspace=workspace)
+    # Canonical AI state (ADR-0037) — enables the agentic Deep dive on
+    # escalation (ADR-0052); absent it, triage stays the cheap Quick read.
+    ai_env = dict(getattr(request.app.state, "ai_env_cache", {}) or {})
+    ai_model = getattr(request.app.state, "ai_model_cache", None)
 
     async def _run_in_background() -> None:
         try:
-            await run_triage(executor, db, workspace, env_vars=env_vars)
+            await run_triage(
+                executor,
+                db,
+                workspace,
+                env_vars=env_vars,
+                ai_env=ai_env,
+                model_full_id=ai_model,
+            )
         except (AgentBusyError, AgentProcessError):
             logger.exception("Triage failed for workspace %s", workspace.id)
         except Exception:

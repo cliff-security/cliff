@@ -262,6 +262,12 @@ async def run_assessment(
     schedule_assessment_run(
         http_request.app, db, engine, assessment.id, request.repo_url
     )
+    # Eager Project-profile build (ADR-0053 / PRD-0009): kicks off alongside the
+    # scan so triage is grounded later. Best-effort — never blocks the scan, and
+    # no-ops when no AI provider is configured.
+    from cliff.repos.service import schedule_profile_build
+
+    schedule_profile_build(http_request.app, db, request.repo_url)
     return AssessmentRunResponse(assessment_id=assessment.id, status="pending")
 
 

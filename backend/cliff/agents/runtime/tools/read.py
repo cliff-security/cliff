@@ -50,6 +50,9 @@ async def read(ctx: RunContext[WorkspaceDeps], path: str) -> str:
         return (text, truncated)
 
     body, truncated = await asyncio.to_thread(_read)
+    budget = ctx.deps.read_budget
+    if budget is not None and not budget.take(len(body.encode("utf-8", errors="ignore"))):
+        return "[read budget exhausted for this analysis — reason from what you've already read]"
     if truncated:
         return body + f"\n[... truncated at {_MAX_READ_BYTES} bytes ...]"
     return body

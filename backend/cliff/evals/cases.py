@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # Pydantic resolves ``Expected.verdict``'s annotation at model-build time, so
 # this is a genuine runtime import (not type-only) despite ``from __future__
@@ -77,6 +77,23 @@ class EvalCase(BaseModel):
     # into a temp workspace so the read-only agent can do the claim-vs-code
     # check. Omitted (None) for every other agent.
     files: dict[str, str] | None = None
+    # ADR-0052 Deep dive live lane — a REAL repo at a pinned commit. The harness
+    # checks it out into the temp dir and the agent walks the actual code (the
+    # vulnerable/patched SHA-pair test). Mutually exclusive with ``files`` (the
+    # synthetic micro-repo for fast CI gate checks). Public repos only.
+    repo: str | None = None
+    sha: str | None = None
+
+    @model_validator(mode="after")
+    def _dataset_mode_invariant(self) -> EvalCase:
+        """``repo``+``sha`` (live lane) and ``files`` (synthetic) are mutually
+        exclusive, and ``repo``/``sha`` must come as a pair — otherwise the runner
+        silently falls back to synthetic staging and the result is meaningless."""
+        if (self.repo is None) != (self.sha is None):
+            raise ValueError("repo and sha must be provided together")
+        if self.repo is not None and self.files is not None:
+            raise ValueError("a case is real (repo+sha) or synthetic (files), not both")
+        return self
 
 
 def load_cases(agent: str, *, tier: Tier | None = None) -> list[EvalCase]:

@@ -20,6 +20,8 @@ from cliff.evals.models import eval_runnable, harvest_env, select_eval_model
 from cliff.evals.registry import AgentEvalSpec, get_spec
 from cliff.evals.runners import (
     EvalRunResult,
+    make_live_deep_dive_pipeline,
+    run_deep_dive_eval,
     run_enricher_eval,
     run_report_triager_eval,
     run_triage_synthesis_eval,
@@ -34,7 +36,9 @@ __all__ = [
     "get_spec",
     "harvest_env",
     "load_cases",
+    "make_live_deep_dive_pipeline",
     "run_agent",
+    "run_deep_dive_eval",
     "run_enricher_eval",
     "run_report_triager_eval",
     "run_triage_synthesis_eval",

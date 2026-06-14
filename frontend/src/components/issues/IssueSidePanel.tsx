@@ -25,7 +25,9 @@ import type {
   Finding,
   IssueStage,
   TriageCheck,
+  TriageExploitHypothesis,
   TriageOutput,
+  TriageReproRecipe,
   TriageVerdict,
 } from '../../api/client'
 import {
@@ -1023,6 +1025,328 @@ function DraftedReply({ triage }: { triage: TriageOutput }) {
   )
 }
 
+// --- Deep dive (ADR-0052): exploit plan, challenge trail, provenance ---
+
+const DEEP_DIVE_STAGE_LABEL: Record<string, string> = {
+  gather_facts: 'Gather the facts',
+  rule_out: 'Rule out false alarms',
+  trace_path: 'Trace the path',
+  plan_exploit: 'Plan the exploit',
+  challenge: 'Challenge the verdict',
+  disproof_challenge: 'Challenge the verdict',
+}
+
+function verdictWord(v?: TriageVerdict | null): string {
+  if (v === 'real') return 'real'
+  if (v === 'unexploitable') return 'unexploitable'
+  if (v === 'false_positive') return 'false positive'
+  return 'needs review'
+}
+
+function RecipeSteps({ label, steps }: { label: string; steps: string[] }) {
+  return (
+    <div>
+      <span className="cd-section-label cd-section-label--quiet">{label}</span>
+      <ol className="mt-1 flex flex-col gap-1" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+        {steps.map((s, i) => (
+          <li key={i} className="font-mono text-[11px]" style={{ color: 'var(--cd-fg-3)' }}>
+            <span style={{ color: 'var(--cd-fg-4)' }}>{i + 1}. </span>
+            {s}
+          </li>
+        ))}
+      </ol>
+    </div>
+  )
+}
+
+function ReproRecipe({ recipe }: { recipe?: TriageReproRecipe | null }) {
+  if (!recipe) return null
+  const has =
+    recipe.setup?.length ||
+    recipe.trigger?.length ||
+    recipe.expected_observation ||
+    recipe.image ||
+    recipe.docker_compose
+  if (!has) return null
+  return (
+    <details className="mt-2">
+      <summary
+        className="cursor-pointer text-[11px] font-semibold select-none"
+        style={{ color: 'var(--cd-fg-3)' }}
+      >
+        Reproduction recipe (plan)
+      </summary>
+      <div className="mt-2 flex flex-col gap-2">
+        {recipe.image && (
+          <div className="font-mono text-[11px]" style={{ color: 'var(--cd-fg-4)' }}>
+            image: {recipe.image}
+            {recipe.ports?.length ? ` · ports ${recipe.ports.join(', ')}` : ''}
+          </div>
+        )}
+        {recipe.docker_compose && (
+          <div>
+            <span className="cd-section-label cd-section-label--quiet">docker-compose</span>
+            <pre
+              className="font-mono text-[11px] cd-frame whitespace-pre-wrap break-words mt-1"
+              style={{ padding: 8, color: 'var(--cd-fg-3)', background: 'var(--cd-bg)' }}
+            >
+              {recipe.docker_compose}
+            </pre>
+          </div>
+        )}
+        {recipe.setup?.length > 0 && <RecipeSteps label="Setup" steps={recipe.setup} />}
+        {recipe.trigger?.length > 0 && <RecipeSteps label="Trigger" steps={recipe.trigger} />}
+        {recipe.expected_observation && (
+          <div>
+            <span className="cd-section-label cd-section-label--quiet">Expected</span>
+            <p className="text-[11.5px] mt-1" style={{ color: 'var(--cd-fg-3)' }}>
+              {recipe.expected_observation}
+            </p>
+          </div>
+        )}
+      </div>
+    </details>
+  )
+}
+
+function ExploitHypothesisCard({
+  h,
+  primary,
+}: {
+  h: TriageExploitHypothesis
+  primary: boolean
+}) {
+  const conf = Math.round((h.confidence ?? 0) * 100)
+  return (
+    <div className="cd-frame" style={{ padding: '12px 14px' }}>
+      <div className="flex items-baseline gap-2 flex-wrap">
+        {primary && (
+          // Neutral, not green: green is the "safe / status-good" accent, and the
+          // primary attack path on a real finding is the opposite of safe. fg-2 +
+          // first position carry the emphasis calmly.
+          <span className="cd-section-label" style={{ color: 'var(--cd-fg-2)' }}>
+            Primary
+          </span>
+        )}
+        {h.impact_class && (
+          <span className="cd-section-label cd-section-label--quiet">{h.impact_class}</span>
+        )}
+        {conf > 0 && (
+          <span className="text-[10.5px] font-mono" style={{ color: 'var(--cd-fg-4)' }}>
+            {conf}% conf
+          </span>
+        )}
+      </div>
+      <div className="text-[12.5px] mt-1.5" style={{ color: 'var(--cd-fg-2)' }}>
+        {h.trigger_condition}
+      </div>
+      {h.attacker_input && (
+        <div className="mt-1.5">
+          <span className="text-[11px]" style={{ color: 'var(--cd-fg-4)' }}>
+            Attacker input:{' '}
+          </span>
+          <span className="font-mono text-[11px]" style={{ color: 'var(--cd-fg-3)' }}>
+            {h.attacker_input}
+          </span>
+        </div>
+      )}
+      {h.reached_sink && (
+        <div className="mt-1">
+          <span className="text-[11px]" style={{ color: 'var(--cd-fg-4)' }}>
+            Reaches:{' '}
+          </span>
+          <span className="font-mono text-[11px]" style={{ color: 'var(--cd-fg-3)' }}>
+            {h.reached_sink}
+          </span>
+        </div>
+      )}
+      {h.expected_impact && (
+        <p className="text-[11.5px] mt-1.5" style={{ color: 'var(--cd-fg-3)' }}>
+          {h.expected_impact}
+        </p>
+      )}
+      <ReproRecipe recipe={h.repro_recipe} />
+    </div>
+  )
+}
+
+function ExploitPlanPanel({ triage }: { triage: TriageOutput }) {
+  const plan = triage.exploit_plan
+  if (!plan) return null
+  // Reachable but no credible exploit — a calm, positive hardening note.
+  if (plan.no_credible_exploit) {
+    return (
+      <div className="cd-frame mt-3 flex items-center gap-2" style={{ padding: '12px 14px' }}>
+        <span
+          className="material-symbols-outlined"
+          style={{ fontSize: 18, color: 'var(--cd-green)', fontVariationSettings: "'FILL' 1" }}
+          aria-hidden
+        >
+          shield
+        </span>
+        <span className="text-[12.5px]" style={{ color: 'var(--cd-fg-2)' }}>
+          Reachable, but no credible exploit — hardening, not a vulnerability.
+        </span>
+      </div>
+    )
+  }
+  if (plan.hypotheses.length === 0) return null
+  // "Primary" only earns its label when there's more than one hypothesis to rank;
+  // on a single hypothesis it's redundant noise.
+  const markPrimary = plan.hypotheses.length > 1
+  const ordered = [...plan.hypotheses].sort(
+    (a, b) =>
+      Number(b.id === plan.primary_hypothesis_id) - Number(a.id === plan.primary_hypothesis_id),
+  )
+  return (
+    <details className="mt-3" open>
+      <summary
+        className="cursor-pointer text-[12.5px] font-semibold select-none"
+        style={{ color: 'var(--cd-fg-2)' }}
+      >
+        Exploit plan
+        {plan.hypotheses.length > 1 ? ` — ${plan.hypotheses.length} hypotheses` : ''}
+      </summary>
+      <p className="text-[11px] mt-1" style={{ color: 'var(--cd-fg-4)' }}>
+        A plan, not a demonstrated exploit — Cliff reasons about it, it never runs it.
+      </p>
+      <div className="flex flex-col gap-3 mt-3">
+        {ordered.map((h) => (
+          <ExploitHypothesisCard
+            key={h.id}
+            h={h}
+            primary={markPrimary && h.id === plan.primary_hypothesis_id}
+          />
+        ))}
+      </div>
+    </details>
+  )
+}
+
+function ChallengePanel({ triage }: { triage: TriageOutput }) {
+  const ch = triage.challenge
+  if (!ch || ch.reviewers.length === 0) return null
+  const refuted = ch.reviewers.filter((r) => r.verdict === 'refuted').length
+  return (
+    <details className="mt-3" open={!ch.verdict_holds}>
+      <summary
+        className="cursor-pointer text-[12.5px] font-semibold select-none"
+        style={{ color: 'var(--cd-fg-2)' }}
+      >
+        Challenge the verdict — {ch.reviewers.length} adversarial reviewer
+        {ch.reviewers.length === 1 ? '' : 's'}
+      </summary>
+      <div className="flex items-center gap-2 mt-2">
+        <span
+          className="material-symbols-outlined"
+          style={{
+            // "Held" is confirmatory, not status-good — keep it neutral so green
+            // stays reserved for genuinely-safe outcomes. Amber flags the change.
+            fontSize: 16,
+            color: ch.verdict_holds ? 'var(--cd-fg-3)' : 'var(--cd-amber)',
+            fontVariationSettings: "'FILL' 1",
+          }}
+          aria-hidden
+        >
+          {ch.verdict_holds ? 'verified' : 'change_circle'}
+        </span>
+        <span className="text-[12px] font-semibold" style={{ color: 'var(--cd-fg-2)' }}>
+          {ch.verdict_holds
+            ? 'Verdict held'
+            : `Downgraded to ${verdictWord(ch.downgraded_verdict)}`}
+        </span>
+        {refuted > 0 && (
+          <span className="text-[11px]" style={{ color: 'var(--cd-fg-4)' }}>
+            {refuted} of {ch.reviewers.length} refuted
+          </span>
+        )}
+      </div>
+      <ul
+        className="flex flex-col gap-2 mt-3"
+        style={{ listStyle: 'none', margin: 0, padding: 0 }}
+      >
+        {ch.reviewers.map((r, i) => {
+          const kind = r.verdict === 'holds' ? 'pass' : 'warn'
+          return (
+            <li key={`${r.lens}-${i}`} className="flex items-start gap-2">
+              <span
+                className="material-symbols-outlined"
+                style={{ fontSize: 16, color: CHECK_COLOR[kind], fontVariationSettings: "'FILL' 1" }}
+                aria-hidden
+              >
+                {CHECK_ICON[kind]}
+              </span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-baseline gap-2">
+                  <span className="cd-section-label cd-section-label--quiet">{r.lens}</span>
+                  <span className="text-[12px] font-semibold" style={{ color: 'var(--cd-fg-2)' }}>
+                    {r.verdict === 'holds' ? 'Holds' : 'Refuted'}
+                  </span>
+                </div>
+                {r.refutation && (
+                  <p className="text-[11.5px] mt-0.5" style={{ color: 'var(--cd-fg-3)' }}>
+                    {r.refutation}
+                  </p>
+                )}
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </details>
+  )
+}
+
+function DeepDiveProvenance({ triage }: { triage: TriageOutput }) {
+  const p = triage.provenance
+  if (!p || !p.escalated) return null // only for findings that went through the Deep dive
+  const steps = p.steps_run.filter((s) => s !== 'incomplete')
+  // The incomplete-degrade path sets escalated=true but has no steps + no SHA —
+  // don't render an empty "How Cliff dug in" disclosure.
+  if (steps.length === 0 && !p.traced_sha) return null
+  return (
+    <details className="mt-3">
+      <summary
+        className="cursor-pointer text-[12.5px] font-semibold select-none"
+        style={{ color: 'var(--cd-fg-2)' }}
+      >
+        How Cliff dug in
+      </summary>
+      {steps.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mt-3">
+          {steps.map((s, i) => (
+            <span key={`${s}-${i}`} className="flex items-center gap-1.5">
+              <span className="text-[11.5px]" style={{ color: 'var(--cd-fg-2)' }}>
+                {DEEP_DIVE_STAGE_LABEL[s] ?? s}
+              </span>
+              {i < steps.length - 1 && (
+                <span
+                  className="material-symbols-outlined"
+                  style={{ fontSize: 14, color: 'var(--cd-fg-4)' }}
+                  aria-hidden
+                >
+                  chevron_right
+                </span>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
+      {p.traced_sha && (
+        <div className="mt-2.5 flex items-baseline gap-1.5 flex-wrap">
+          <span className="cd-section-label cd-section-label--quiet">Valid for</span>
+          <span className="font-mono text-[11px]" style={{ color: 'var(--cd-fg-3)' }}>
+            {p.traced_sha.slice(0, 10)}
+          </span>
+          <span className="text-[10.5px]" style={{ color: 'var(--cd-fg-4)' }}>
+            — re-triage if the code changes
+          </span>
+        </div>
+      )}
+    </details>
+  )
+}
+
 function SPTriage({
   workspaceId,
   stage,
@@ -1045,9 +1369,12 @@ function SPTriage({
           <VerdictBanner triage={triage} />
           <ProofChecks checks={triage.checks ?? []} />
           <ReachabilityGraph triage={triage} />
+          <ExploitPlanPanel triage={triage} />
+          <ChallengePanel triage={triage} />
           <ClaimCompare triage={triage} />
           <ReportSignals triage={triage} />
           <DraftedReply triage={triage} />
+          <DeepDiveProvenance triage={triage} />
         </>
       ) : stage === 'triaging' ? (
         <TriageProgress />

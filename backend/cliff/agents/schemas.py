@@ -218,10 +218,91 @@ class TriageCheck(BaseModel):
     model_config = {"extra": "allow"}
 
 
+# ---------------------------------------------------------------------------
+# Deep dive (ADR-0052) — the agentic triage blocks added to TriageOutput.
+# Additive: every field defaults, so a pre-deep-dive TriageOutput still loads.
+# ---------------------------------------------------------------------------
+
+
+class ReproRecipe(BaseModel):
+    """How V2 would reproduce the exploit. Authored in V1, executed in V2 —
+    the frozen sandbox seam (ADR-0052 §3)."""
+
+    setup: list[str] = Field(default_factory=list)
+    docker_compose: str | None = None
+    image: str | None = None
+    ports: list[int] = Field(default_factory=list)
+    trigger: list[str] = Field(default_factory=list)
+    expected_observation: str | None = None
+
+    model_config = {"extra": "allow"}
+
+
+class ExploitHypothesis(BaseModel):
+    id: str
+    trigger_condition: str
+    attacker_input: str | None = None
+    reached_sink: str | None = None  # file:line
+    expected_impact: str | None = None
+    impact_class: str | None = None  # RCE | SSRF | SQLi | ...
+    repro_recipe: ReproRecipe | None = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    model_config = {"extra": "allow"}
+
+
+class ExploitPlan(BaseModel):
+    """Ranked exploit hypotheses + repro recipes. ``no_credible_exploit`` is the
+    reachable-but-not-exploitable (hardening) signal (ADR-0052 §2)."""
+
+    hypotheses: list[ExploitHypothesis] = Field(default_factory=list)
+    primary_hypothesis_id: str | None = None
+    no_credible_exploit: bool = False
+
+    model_config = {"extra": "allow"}
+
+
+class ChallengeReviewer(BaseModel):
+    lens: str  # reachability | exploit | impact
+    verdict: Literal["holds", "refuted"]
+    refutation: str | None = None
+
+    model_config = {"extra": "allow"}
+
+
+class Challenge(BaseModel):
+    """The adversarial disprove panel's verdict (ADR-0052 §2). Resolution is
+    deterministic: a majority of ``refuted`` reviewers downgrades the verdict."""
+
+    verdict_holds: bool
+    reviewers: list[ChallengeReviewer] = Field(default_factory=list)
+    downgraded_verdict: TriageVerdict | None = None
+    confidence_adjustment: float = 0.0
+
+    model_config = {"extra": "allow"}
+
+
+class TriageProvenance(BaseModel):
+    """What the Deep dive actually did — transparency + the SHA a verdict is
+    valid for (ADR-0052 §2/§6)."""
+
+    steps_run: list[str] = Field(default_factory=list)
+    traced_sha: str | None = None
+    model_tiers: dict[str, str] = Field(default_factory=dict)  # step -> tier
+    exit_stage: str | None = None
+    escalated: bool = False
+
+    model_config = {"extra": "allow"}
+
+
 class TriageOutput(BaseModel):
     """The triage verdict (ADR-0051 §2). Emitted by both the deterministic
     scanner ``triage_synthesizer`` and the LLM ``report_triager``; the
     ``report`` block is populated only for reports.
+
+    The Deep dive (ADR-0052) additionally fills ``exploit_plan`` / ``challenge``
+    / ``provenance`` — all optional, so the shipped UI and any pre-deep-dive
+    output keep working unchanged.
 
     ``recommended_close`` is a coherent projection of ``verdict``: it is
     filled from the verdict when omitted and rejected when it contradicts the
@@ -235,6 +316,10 @@ class TriageOutput(BaseModel):
     exploitability: TriageExploitability | None = None
     report: TriageReport | None = None
     checks: list[TriageCheck] = Field(default_factory=list)
+    # Deep dive (ADR-0052) — additive, all optional.
+    exploit_plan: ExploitPlan | None = None
+    challenge: Challenge | None = None
+    provenance: TriageProvenance | None = None
 
     model_config = {"extra": "allow"}
 
@@ -250,6 +335,96 @@ class TriageOutput(BaseModel):
                 f"verdict={self.verdict!r} (expected {canonical!r})"
             )
         return self
+
+
+# ---------------------------------------------------------------------------
+# Deep dive stage artifacts (ADR-0052 §2) — the per-finding triage trail.
+# These persist to the workspace (context/triage/*.json) and feed later stages.
+# ---------------------------------------------------------------------------
+
+
+class RootCauseCandidate(BaseModel):
+    file: str
+    line: int | None = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    why: str | None = None
+
+    model_config = {"extra": "allow"}
+
+
+class FindingFacts(BaseModel):
+    """``gather_facts`` output — the root cause pinned in *this* repo, collected
+    once so later stages don't re-locate it (ADR-0052 §2)."""
+
+    vuln_class: str | None = None
+    root_cause_candidates: list[RootCauseCandidate] = Field(default_factory=list)
+    entry_point_hypothesis: str | None = None
+    provided_poc: str | None = None
+    claim: str | None = None  # reports: the extracted claim
+    static_evidence: list[str] = Field(default_factory=list)
+
+    model_config = {"extra": "allow"}
+
+
+#: Why a finding was ruled out (ADR-0052 §2 / ADR-0049 FP-class catalog).
+KillClass = Literal[
+    "root_cause_in_nonship_code",
+    "dispatcher_gate",
+    "downstream_filter",
+    "production_default_off",
+    "duplicate_of_known",
+    "walk_parallel_guard",
+    "walk_catch_frame",
+    "not_reachable_by_design",
+    "other",
+]
+
+
+class RuleOutResult(BaseModel):
+    """``rule_out`` output. ``killed`` short-circuits the pipeline to the
+    recommended close (ADR-0052 §2 fail-cheap exit)."""
+
+    killed: bool
+    kill_class: KillClass | None = None
+    kill_evidence: str | None = None  # file:line / reference
+    dedup_match: str | None = None  # prior issue id
+    surviving_concerns: list[str] = Field(default_factory=list)
+    recommended_verdict_on_kill: TriageClose | None = None
+
+    model_config = {"extra": "allow"}
+
+
+class ReachNode(BaseModel):
+    file: str
+    line: int | None = None
+    symbol: str | None = None
+    role: Literal["source", "hop", "sink"] = "hop"
+    note: str | None = None
+
+    model_config = {"extra": "allow"}
+
+
+class Disproof(BaseModel):
+    """The specific reason a finding is unreachable — a guard at file:line, not
+    an absence of evidence (ADR-0052 §2: ``unexploitable`` means *this*)."""
+
+    guard_location: str  # file:line
+    guard_kind: str | None = None
+    explanation: str | None = None
+
+    model_config = {"extra": "allow"}
+
+
+class DeepReachability(BaseModel):
+    """``trace_path`` output — the proven path, or the specific disproof."""
+
+    reached: Literal["yes", "no", "unknown"]
+    path: list[ReachNode] = Field(default_factory=list)
+    disproof: Disproof | None = None
+    trust_boundary_crossed: bool | None = None
+    disciplines_applied: list[str] = Field(default_factory=list)
+
+    model_config = {"extra": "allow"}
 
 
 # Maps agent_type -> the Pydantic model for its structured_output.

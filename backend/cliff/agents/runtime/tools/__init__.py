@@ -14,6 +14,7 @@ from __future__ import annotations
 from cliff.agents.runtime.tools.bash import bash
 from cliff.agents.runtime.tools.edit import edit
 from cliff.agents.runtime.tools.gh import gh
+from cliff.agents.runtime.tools.grep import grep
 from cliff.agents.runtime.tools.permissions import (
     classify_tool_request,
     gate_tool_call,
@@ -32,6 +33,7 @@ __all__ = [
     "edit",
     "gate_tool_call",
     "gh",
+    "grep",
     "read",
     "webfetch",
 ]
