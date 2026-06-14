@@ -1121,7 +1121,10 @@ function ExploitHypothesisCard({
     <div className="cd-frame" style={{ padding: '12px 14px' }}>
       <div className="flex items-baseline gap-2 flex-wrap">
         {primary && (
-          <span className="cd-section-label" style={{ color: 'var(--cd-green)' }}>
+          // Neutral, not green: green is the "safe / status-good" accent, and the
+          // primary attack path on a real finding is the opposite of safe. fg-2 +
+          // first position carry the emphasis calmly.
+          <span className="cd-section-label" style={{ color: 'var(--cd-fg-2)' }}>
             Primary
           </span>
         )}
@@ -1188,6 +1191,9 @@ function ExploitPlanPanel({ triage }: { triage: TriageOutput }) {
     )
   }
   if (plan.hypotheses.length === 0) return null
+  // "Primary" only earns its label when there's more than one hypothesis to rank;
+  // on a single hypothesis it's redundant noise.
+  const markPrimary = plan.hypotheses.length > 1
   const ordered = [...plan.hypotheses].sort(
     (a, b) =>
       Number(b.id === plan.primary_hypothesis_id) - Number(a.id === plan.primary_hypothesis_id),
@@ -1206,7 +1212,11 @@ function ExploitPlanPanel({ triage }: { triage: TriageOutput }) {
       </p>
       <div className="flex flex-col gap-3 mt-3">
         {ordered.map((h) => (
-          <ExploitHypothesisCard key={h.id} h={h} primary={h.id === plan.primary_hypothesis_id} />
+          <ExploitHypothesisCard
+            key={h.id}
+            h={h}
+            primary={markPrimary && h.id === plan.primary_hypothesis_id}
+          />
         ))}
       </div>
     </details>
@@ -1230,8 +1240,10 @@ function ChallengePanel({ triage }: { triage: TriageOutput }) {
         <span
           className="material-symbols-outlined"
           style={{
+            // "Held" is confirmatory, not status-good — keep it neutral so green
+            // stays reserved for genuinely-safe outcomes. Amber flags the change.
             fontSize: 16,
-            color: ch.verdict_holds ? 'var(--cd-green)' : 'var(--cd-amber)',
+            color: ch.verdict_holds ? 'var(--cd-fg-3)' : 'var(--cd-amber)',
             fontVariationSettings: "'FILL' 1",
           }}
           aria-hidden
