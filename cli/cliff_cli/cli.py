@@ -286,40 +286,108 @@ def issues(client: Client, severity: str, status_filter: str, limit: int) -> Non
 # ---- 4. fix ---------------------------------------------------------------
 
 
+def _triage_reason(triage: dict[str, Any]) -> str | None:
+    """One-line reasoning behind a triage verdict (mirrors the chat-card line).
+
+    Prefers the exploitability reason, then the reachability summary, then the
+    first proof-check detail — whichever the synthesizer/Deep dive populated.
+    """
+    exploit = triage.get("exploitability") or {}
+    if exploit.get("reason"):
+        return exploit["reason"]
+    reach = triage.get("reachability") or {}
+    if reach.get("summary"):
+        return reach["summary"]
+    checks = triage.get("checks") or []
+    if checks and isinstance(checks[0], dict) and checks[0].get("detail"):
+        return checks[0]["detail"]
+    return None
+
+
 @main.command()
 @click.argument("issue_id")
-@click.option("--timeout", default=900.0, help="Max seconds to wait for the planner.")
+@click.option("--timeout", default=900.0, help="Max seconds to wait for triage + planner.")
 @_with_client
 def fix(client: Client, issue_id: str, timeout: float) -> None:
-    """Open a workspace, run the pipeline through the planner, stop at the plan gate.
+    """Triage a finding (resolve reachability), then plan only if it's real.
 
-    Exits 2 (awaiting human) when the plan is ready for review. Run
-    ``cliffsec approve <workspace_id>`` after the user confirms.
+    Runs the agentic triage Deep dive to decide whether the flagged code is
+    actually reachable in your repo, then gates on the verdict (ADR-0051 §6 —
+    the Plan gate; the planner never fires until reachability is established):
+
+    \b
+      * real           -> builds a remediation plan, exits 2 (awaiting approval).
+      * unexploitable /
+        false_positive -> cleared as noise with the reasoning on record, exits 0.
+      * needs_review   -> flagged for your judgment, exits 2.
+
+    After a `real` plan is ready, run ``cliffsec approve <workspace_id>``.
     """
     client.version_handshake()
 
-    finding = client.get(f"/api/findings/{issue_id}")
+    # 1. Triage first. The endpoint creates/reuses a workspace WITHOUT advancing
+    #    the finding's status (it stays ``new`` until a `real` verdict is
+    #    confirmed — ADR-0051 §6) and runs the agentic triage in the background.
+    started = client.post(f"/api/findings/{issue_id}/triage")
+    workspace_id = started["workspace_id"]
 
-    existing_ws = (finding.get("derived") or {}).get("workspace_id")
-    if existing_ws:
-        workspace_id = existing_ws
-    else:
-        ws = client.post(
-            "/api/workspaces",
-            json={"finding_id": issue_id, "current_focus": "remediation"},
+    # 2. Poll for the triage verdict. Tolerate 404: the sidebar row is created
+    #    lazily by the first triage write.
+    sidebar = poll(
+        client,
+        f"/api/workspaces/{workspace_id}/sidebar",
+        is_done=lambda s: bool(s.get("triage")),
+        interval=2.0,
+        timeout=timeout,
+        tolerate_status=(404,),
+    )
+    triage = sidebar.get("triage") or {}
+    verdict = (triage.get("verdict") or "").lower()
+    reason = _triage_reason(triage)
+    confidence = triage.get("confidence")
+
+    # 3a. Cleared as noise — the dismiss-with-reasoning verdict IS the output.
+    #     No remediation plan is produced (the report-tour bright line).
+    if verdict in ("unexploitable", "false_positive"):
+        emit(
+            {
+                "workspace_id": workspace_id,
+                "finding_id": issue_id,
+                "verdict": verdict,
+                "cleared": True,
+                "reason": reason,
+                "confidence": confidence,
+                "awaiting": None,
+                "next": f"close {workspace_id}",
+            }
         )
-        workspace_id = ws["id"]
+        return
 
-    # The pipeline runs its agents in-process via Pydantic AI — no OpenCode
-    # session to pre-create (the old POST /sessions step was a no-op since
-    # the substrate migration; ADR-0047).
+    # 3b. Low-signal — flag for human judgment. Never an alarmist plan.
+    if verdict != "real":
+        emit(
+            {
+                "workspace_id": workspace_id,
+                "finding_id": issue_id,
+                "verdict": verdict or "needs_review",
+                "cleared": False,
+                "reason": reason,
+                "confidence": confidence,
+                "awaiting": "human_review",
+                "next": None,
+            },
+            exit_code=EXIT_AWAITING_HUMAN,
+        )
+        return
+
+    # 4. Real — build the remediation plan, stop at the approval gate. The
+    #    pipeline runs its agents in-process via Pydantic AI (ADR-0047); the
+    #    triaged workspace already has enricher + exposure, so run-all advances
+    #    straight to evidence + planner.
     client.post(f"/api/workspaces/{workspace_id}/pipeline/run-all")
 
-    # Poll the sidebar until either:
-    #   * a plan exists (awaiting approval),
-    #   * or a validation result already exists (auto-resolved short-circuit).
-    # Tolerate 404: the sidebar row is created lazily by the first agent
-    # write, so a 404 right after run-all is normal.
+    # Poll until a plan exists (awaiting approval) or a validation result is
+    # already present (auto-resolved short-circuit).
     def _done(s: dict[str, Any]) -> bool:
         plan = s.get("plan") or {}
         validation = s.get("validation") or {}
@@ -338,12 +406,13 @@ def fix(client: Client, issue_id: str, timeout: float) -> None:
     dod = sidebar.get("definition_of_done") or {}
     validation = sidebar.get("validation") or {}
 
-    if validation:
+    if validation and not plan.get("plan_steps"):
         # Pipeline ran end-to-end without a plan gate (e.g. the planner
         # decided no work was needed). Treat as auto-resolved.
         emit(
             {
                 "workspace_id": workspace_id,
+                "verdict": "real",
                 "plan": plan,
                 "validation": validation,
                 "awaiting": None,
@@ -356,6 +425,7 @@ def fix(client: Client, issue_id: str, timeout: float) -> None:
         {
             "workspace_id": workspace_id,
             "finding_id": issue_id,
+            "verdict": "real",
             "plan": {
                 "steps": plan.get("plan_steps") or [],
                 "interim_mitigation": plan.get("interim_mitigation"),

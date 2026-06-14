@@ -334,6 +334,34 @@ async def run_all_pipeline(
     executor = request.app.state.agent_executor
     context_builder = request.app.state.context_builder
 
+    # The Plan gate (ADR-0051 §6 / ADR-0054): a finding triaged as *not real*
+    # never gets a remediation plan — clearing noise with reasoning is the
+    # product's value, and an alarmist plan on a non-reachable finding is a
+    # false-positive-shaped result. The CLI (`cliffsec fix`) gates on the
+    # verdict before it ever calls run-all; this is the server-side backstop so
+    # NO caller (web, API) can drive the planner on noise. Defence-in-depth, so
+    # it is intentionally narrow: it engages only when triage has run AND
+    # returned a non-real verdict AND there is no human-approved plan overriding
+    # it. A finding that was never triaged behaves exactly as before.
+    sidebar = await get_sidebar(db, workspace_id)
+    triage = sidebar.triage if sidebar else None
+    if triage is not None:
+        verdict = (triage.get("verdict") or "").lower()
+        plan_approved = bool((sidebar.plan or {}).get("approved")) if sidebar else False
+        if verdict != "real" and not plan_approved:
+            logger.info(
+                "run-all gated for workspace %s: triaged %r (not real) — no plan",
+                workspace_id,
+                verdict or "unknown",
+            )
+            return RunAllResponse(
+                status="gated",
+                message=(
+                    f"Triaged as {verdict or 'unknown'} — no remediation plan "
+                    f"needed. Confirm it's real to plan a fix."
+                ),
+            )
+
     try:
         await executor.check_not_busy(db, workspace_id)
     except AgentBusyError as exc:
