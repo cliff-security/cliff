@@ -50,6 +50,7 @@ async def test_corroborated_kill_exits_at_rule_out():
             {
                 "killed": True,
                 "kill_class": "duplicate_of_known",
+                "dedup_match": "GHSA-x",  # names the specific prior issue
                 "recommended_verdict_on_kill": "false_positive",
             }
         ),
@@ -58,6 +59,39 @@ async def test_corroborated_kill_exits_at_rule_out():
     assert out.verdict == "false_positive"
     assert out.provenance.exit_stage == "rule_out"
     assert out.provenance.steps_run == ["gather_facts", "rule_out"]
+
+
+async def test_duplicate_kill_without_matching_id_falls_through():
+    # A duplicate_of_known kill that doesn't name a prior issue present in the
+    # threat history is NOT corroborated — it must fall through to trace, never
+    # clear on "the repo has some history".
+    rk = {"threat": {"prior_issues": [{"id": "GHSA-x"}]}}
+    stages = DeepDiveStages(
+        gather=_stage({"vuln_class": "rce"}),
+        rule_out=_stage(
+            {"killed": True, "kill_class": "duplicate_of_known", "dedup_match": "GHSA-unrelated"}
+        ),
+        trace=_stage({"reached": "unknown"}),
+    )
+    out = await _run(stages, rk)
+    assert out.verdict == "needs_review"  # fell through, did not clear at rule_out
+    assert "trace_path" in out.provenance.steps_run
+
+
+async def test_nonship_kill_needs_all_candidates_nonship():
+    # root_cause_in_nonship_code must hold for EVERY candidate; one ship-code
+    # candidate alongside a test file must NOT clear at the cheap gate.
+    rk = {"code_map": {"excluded_roots": ["tests/*"]}}
+    stages = DeepDiveStages(
+        gather=_stage(
+            {"root_cause_candidates": [{"file": "tests/test_x.py"}, {"file": "app/views.py"}]}
+        ),
+        rule_out=_stage({"killed": True, "kill_class": "root_cause_in_nonship_code"}),
+        trace=_stage({"reached": "unknown"}),
+    )
+    out = await _run(stages, rk)
+    assert out.verdict == "needs_review"  # fell through (app/views.py is ship code)
+    assert "trace_path" in out.provenance.steps_run
 
 
 async def test_uncorroborated_kill_falls_through_to_trace():
@@ -252,12 +286,15 @@ async def test_weak_tier_rule_out_kill_downgraded_to_needs_review():
             {
                 "killed": True,
                 "kill_class": "duplicate_of_known",
+                "dedup_match": "GHSA-x",
                 "recommended_verdict_on_kill": "false_positive",
             }
         ),
     )
     out = await _run(stages, rk, can_clear=False)
     assert out.verdict == "needs_review"
+    # the gate must also clear the stale recommended_close, not leave 'false_positive'
+    assert out.recommended_close is None
 
 
 async def test_weak_tier_still_reports_real():

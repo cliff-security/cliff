@@ -1083,6 +1083,17 @@ function ReproRecipe({ recipe }: { recipe?: TriageReproRecipe | null }) {
             {recipe.ports?.length ? ` · ports ${recipe.ports.join(', ')}` : ''}
           </div>
         )}
+        {recipe.docker_compose && (
+          <div>
+            <span className="cd-section-label cd-section-label--quiet">docker-compose</span>
+            <pre
+              className="font-mono text-[11px] cd-frame whitespace-pre-wrap break-words mt-1"
+              style={{ padding: 8, color: 'var(--cd-fg-3)', background: 'var(--cd-bg)' }}
+            >
+              {recipe.docker_compose}
+            </pre>
+          </div>
+        )}
         {recipe.setup?.length > 0 && <RecipeSteps label="Setup" steps={recipe.setup} />}
         {recipe.trigger?.length > 0 && <RecipeSteps label="Trigger" steps={recipe.trigger} />}
         {recipe.expected_observation && (
@@ -1278,6 +1289,9 @@ function DeepDiveProvenance({ triage }: { triage: TriageOutput }) {
   const p = triage.provenance
   if (!p || !p.escalated) return null // only for findings that went through the Deep dive
   const steps = p.steps_run.filter((s) => s !== 'incomplete')
+  // The incomplete-degrade path sets escalated=true but has no steps + no SHA —
+  // don't render an empty "How Cliff dug in" disclosure.
+  if (steps.length === 0 && !p.traced_sha) return null
   return (
     <details className="mt-3">
       <summary

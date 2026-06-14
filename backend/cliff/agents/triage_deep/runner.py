@@ -13,6 +13,7 @@ import fnmatch
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+import httpx
 from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
 
 from cliff.agents.runtime.deps import WorkspaceDeps
@@ -99,11 +100,23 @@ def _kill_corroborated(ro: dict, facts: dict, repo_knowledge: dict) -> bool:
     """
     kill_class = ro.get("kill_class")
     if kill_class == "duplicate_of_known":
-        return bool((repo_knowledge.get("threat") or {}).get("prior_issues"))
+        # The kill must name a SPECIFIC prior issue (dedup_match) that exists in
+        # the threat history — not merely "the repo has some history". Otherwise a
+        # hallucinated duplicate clears on any repo with any unrelated prior CVE.
+        prior_ids = {
+            pi.get("id") for pi in ((repo_knowledge.get("threat") or {}).get("prior_issues") or [])
+        }
+        dedup = ro.get("dedup_match")
+        return bool(dedup and dedup in prior_ids)
     if kill_class == "root_cause_in_nonship_code":
         excluded = (repo_knowledge.get("code_map") or {}).get("excluded_roots") or []
         files = [c.get("file", "") for c in (facts.get("root_cause_candidates") or [])]
-        return any(fnmatch.fnmatch(f, pat) for f in files for pat in excluded)
+        # EVERY candidate must be non-ship (the intent is "root cause lives ONLY in
+        # non-shipping code"). One stray test file alongside real ship-code must NOT
+        # clear the finding. Empty candidate list is not corroboration.
+        return bool(files) and all(
+            any(fnmatch.fnmatch(f, pat) for pat in excluded) for f in files
+        )
     return False
 
 
@@ -150,11 +163,23 @@ class DeepDiveRunner:
         be trusted to clear (structural no-false-clear guarantee for weak tiers)."""
         if self._can_clear or output.verdict not in self._CLEAR_VERDICTS:
             return output
+        # Re-tone surviving "pass" checks (e.g. "Not reachable (challenge upheld)")
+        # to neutral info — they backed a dismissal we no longer trust, so a green
+        # pass row under a needs_review verdict would mislead.
+        retoned = [
+            c.model_copy(update={"kind": "info"}) if c.kind == "pass" else c
+            for c in (output.checks or [])
+        ]
         return output.model_copy(
             update={
                 "verdict": "needs_review",
+                # `recommended_close` is a coherent projection of `verdict`
+                # (schema invariant); model_copy skips the validator, so set the
+                # needs_review-coherent value (None) explicitly — never leave the
+                # stale "unexploitable"/"false_positive" the gate just refused.
+                "recommended_close": None,
                 "checks": [
-                    *(output.checks or []),
+                    *retoned,
                     TriageCheck(
                         eyebrow="Tier gate",
                         result="Analysis cleared this finding, but the configured "
@@ -212,6 +237,11 @@ class DeepDiveRunner:
             ):
                 return incomplete("Analysis could not complete (provider/context)")
             raise
+        except httpx.TransportError:
+            # A hung/dropped connection that survived the per-agent retries — same
+            # degrade contract as a transient provider outage (never crash, never a
+            # false clear). Auth/billing/other errors still surface above.
+            return incomplete("Analysis could not complete (provider/context)")
 
     async def _run(
         self,

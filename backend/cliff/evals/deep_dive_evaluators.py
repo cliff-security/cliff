@@ -45,9 +45,12 @@ def _iter_citations(triage: dict[str, Any]) -> list[str]:
         if hyp.get("reached_sink"):
             cites.append(str(hyp["reached_sink"]))
     for check in triage.get("checks") or []:
-        detail = check.get("detail")
-        if detail and "/" in str(detail):  # likely a file path (disproof guard, etc.)
-            cites.append(str(detail))
+        # The disproof guard_location / rule_out kill_evidence (a CLEAR verdict's
+        # load-bearing citation) lands here as a bare ``file:line`` — often with no
+        # ``/`` (e.g. ``auth.py:10``). Extract every detail and let the file:line
+        # regex in check_citation_grounding decide; prose simply won't match.
+        if check.get("detail"):
+            cites.append(str(check["detail"]))
     return cites
 
 
@@ -74,8 +77,8 @@ def check_citation_grounding(triage: dict[str, Any], repo_dir: Path) -> tuple[bo
                 n_lines = len(target.read_text(errors="replace").splitlines())
             except OSError:
                 continue
-            if int(line) > n_lines:
-                bad.append(f"{raw} (line {line} > {n_lines})")
+            if int(line) < 1 or int(line) > n_lines:
+                bad.append(f"{raw} (line {line} out of range 1..{n_lines})")
     if bad:
         return False, "fabricated citation(s): " + "; ".join(bad)
     return True, "all cited file:line resolve"

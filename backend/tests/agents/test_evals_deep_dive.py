@@ -57,6 +57,24 @@ def test_citation_grounding_skips_prose(tmp_path):
     assert check_citation_grounding(prose, tmp_path)[0] is True
 
 
+def test_citation_grounding_catches_fabricated_disproof_guard(tmp_path):
+    # A CLEAR verdict's load-bearing citation (the disproof guard / rule_out
+    # evidence) lands in checks[].detail as a bare file:line with no '/'. The gate
+    # must still ground it — a fabricated guard at a nonexistent file fails.
+    (tmp_path / "app.py").write_text("line1\nline2\n")
+    upheld = {"verdict": "unexploitable", "checks": [{"eyebrow": "Disproof", "detail": "app.py:1"}]}
+    assert check_citation_grounding(upheld, tmp_path)[0] is True
+    fabricated = {
+        "verdict": "unexploitable",
+        "checks": [{"eyebrow": "Disproof", "detail": "ghost.py:99"}],
+    }
+    assert check_citation_grounding(fabricated, tmp_path)[0] is False
+    # line 0 doesn't resolve either
+    assert check_citation_grounding(
+        {"checks": [{"detail": "app.py:0"}]}, tmp_path
+    )[0] is False
+
+
 def test_tool_boundary_is_read_only():
     ok, reason = check_tool_boundary()
     assert ok is True

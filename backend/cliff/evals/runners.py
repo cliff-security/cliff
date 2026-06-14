@@ -384,36 +384,46 @@ async def run_deep_dive_eval(
     (every cited file:line resolves), read-only tool boundary. GRADED: verdict
     match against a floor.
     """
+    if not cases:
+        raise ValueError(
+            "run_deep_dive_eval got 0 cases — check the dataset path / tier filter "
+            "(a silent empty run would falsely report PASS)."
+        )
     result = EvalRunResult(agent="triage_deep_dive", n_cases=len(cases), graded_floor=graded_floor)
     matches: list[bool] = []
 
     for case in cases:
-        with tempfile.TemporaryDirectory() as tmp:
-            repo_dir = Path(tmp) / "repo"
-            if case.repo and case.sha:
-                # Live lane: walk the REAL repo at the pinned commit.
-                from cliff.evals.repo_fetch import checkout_at_sha
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                repo_dir = Path(tmp) / "repo"
+                if case.repo and case.sha:
+                    # Live lane: walk the REAL repo at the pinned commit.
+                    from cliff.evals.repo_fetch import checkout_at_sha
 
-                await checkout_at_sha(case.repo, case.sha, repo_dir)
-            else:
-                # CI / synthetic: stage the inline micro-repo.
-                repo_dir.mkdir()
-                for rel, text in (case.files or {}).items():
-                    fp = repo_dir / rel
-                    fp.parent.mkdir(parents=True, exist_ok=True)
-                    fp.write_text(text)
+                    await checkout_at_sha(case.repo, case.sha, repo_dir)
+                else:
+                    # CI / synthetic: stage the inline micro-repo.
+                    repo_dir.mkdir()
+                    for rel, text in (case.files or {}).items():
+                        fp = repo_dir / rel
+                        fp.parent.mkdir(parents=True, exist_ok=True)
+                        fp.write_text(text)
 
-            triage = await run_pipeline(case, repo_dir)
-            golden = case.expected.as_dict().get("verdict")
+                triage = await run_pipeline(case, repo_dir)
+                golden = case.expected.as_dict().get("verdict")
 
-            ok, reason = check_false_clear(triage.verdict, golden)
-            if not ok:
-                result.hard_failures.append(f"{case.id}: {reason}")
-            ok, reason = check_citation_grounding(triage.model_dump(), repo_dir)
-            if not ok:
-                result.hard_failures.append(f"{case.id}: {reason}")
-            if golden is not None:
-                matches.append(check_verdict_match(triage.verdict, golden)[0])
+                ok, reason = check_false_clear(triage.verdict, golden)
+                if not ok:
+                    result.hard_failures.append(f"{case.id}: {reason}")
+                ok, reason = check_citation_grounding(triage.model_dump(), repo_dir)
+                if not ok:
+                    result.hard_failures.append(f"{case.id}: {reason}")
+                if golden is not None:
+                    matches.append(check_verdict_match(triage.verdict, golden)[0])
+        except Exception as exc:  # noqa: BLE001 — one case's infra failure (e.g. a
+            # checkout error / network blip) must not abort the whole ship gate;
+            # record it and continue scoring the rest.
+            result.hard_failures.append(f"{case.id}: infra error — {type(exc).__name__}: {exc}")
 
     ok, reason = check_tool_boundary()
     if not ok:
@@ -449,6 +459,7 @@ def make_live_deep_dive_pipeline(
             clone_dir=repo_dir,
             enrichment=finding.get("enrichment"),
             exposure=finding.get("exposure"),
+            traced_sha=case.sha,  # provenance: the commit this verdict is valid for
         )
 
     return _run
