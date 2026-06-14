@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from cliff.db.connection import get_db
 from cliff.repos.dao import get_repo_by_url
+from cliff.repos.identity import InvalidRepoUrlError
 from cliff.repos.service import schedule_profile_build
 
 router = APIRouter(prefix="/repos", tags=["repos"])
@@ -71,7 +72,11 @@ async def get_profile(
     if url is None:
         return RepoProfileStatus()
 
-    repo = await get_repo_by_url(db, url)
+    try:
+        repo = await get_repo_by_url(db, url)
+    except InvalidRepoUrlError as exc:
+        # A malformed repo_url is a client error, not a 500.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if repo is None:
         return RepoProfileStatus(repo_url=url, status="none")
 

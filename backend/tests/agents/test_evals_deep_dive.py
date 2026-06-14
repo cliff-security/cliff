@@ -8,6 +8,8 @@ lane live in the private cliff-os/eval project.
 
 from __future__ import annotations
 
+import pytest
+
 from cliff.agents.schemas import (
     ExploitHypothesis,
     ExploitPlan,
@@ -73,6 +75,28 @@ def test_citation_grounding_catches_fabricated_disproof_guard(tmp_path):
     assert check_citation_grounding(
         {"checks": [{"detail": "app.py:0"}]}, tmp_path
     )[0] is False
+
+
+def test_citation_grounding_rejects_repo_escape(tmp_path):
+    # A `..`/absolute citation that escapes the staged repo is a fabrication —
+    # it must not pass the gate by matching a file on the host.
+    (tmp_path / "app.py").write_text("line1\n")
+    escape = {"reachability": {"path": [{"detail": "../../../outside.py:1"}]}}
+    assert check_citation_grounding(escape, tmp_path)[0] is False
+
+
+def test_eval_case_dataset_mode_invariant():
+    # synthetic (files) and live (repo+sha) are both valid on their own.
+    EvalCase(id="syn", finding={}, files={"a.py": "x"})
+    EvalCase(id="live", finding={}, repo="https://github.com/o/r", sha="abc123")
+    # repo without sha (or vice versa) → silent synthetic fallback; reject it.
+    with pytest.raises(ValueError):
+        EvalCase(id="partial", finding={}, repo="https://github.com/o/r")
+    # both modes at once is ambiguous → reject.
+    with pytest.raises(ValueError):
+        EvalCase(
+            id="both", finding={}, files={"a.py": "x"}, repo="https://github.com/o/r", sha="abc"
+        )
 
 
 def test_tool_boundary_is_read_only():

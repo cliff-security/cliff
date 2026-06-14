@@ -14,9 +14,11 @@ def test_read_budget_take():
     b = ReadBudget(10)
     assert b.take(7) is True
     assert b.remaining == 3
-    assert b.take(5) is True  # allowed (was > 0), may overshoot
-    assert b.remaining == -2
-    assert b.take(1) is False  # now exhausted
+    assert b.take(5) is False  # would exceed the cap → refused, budget unchanged
+    assert b.remaining == 3
+    assert b.take(3) is True  # exact fit
+    assert b.remaining == 0
+    assert b.take(1) is False  # exhausted
 
 
 def _ctx(tmp_path, budget):
@@ -28,11 +30,20 @@ def _ctx(tmp_path, budget):
 
 async def test_read_stops_once_budget_spent(tmp_path):
     (tmp_path / "f.txt").write_text("x" * 100)
-    ctx = _ctx(tmp_path, ReadBudget(50))
+    ctx = _ctx(tmp_path, ReadBudget(100))  # fits exactly one read
     first = await read(ctx, "f.txt")
-    assert first.startswith("x")  # first read goes through (budget was > 0)
+    assert first.startswith("x")  # first read fits the budget
     second = await read(ctx, "f.txt")
     assert "budget exhausted" in second  # budget now spent → refused
+
+
+async def test_read_refuses_a_single_over_budget_file(tmp_path):
+    # The fix: a file larger than the remaining budget is refused outright, not
+    # returned once — returning it would overflow the context (the original bug).
+    (tmp_path / "big.txt").write_text("x" * 100)
+    ctx = _ctx(tmp_path, ReadBudget(50))  # smaller than the file
+    out = await read(ctx, "big.txt")
+    assert "budget exhausted" in out
 
 
 async def test_no_budget_is_unlimited(tmp_path):
@@ -45,7 +56,7 @@ async def test_no_budget_is_unlimited(tmp_path):
 
 async def test_grep_respects_budget(tmp_path):
     (tmp_path / "a.py").write_text("needle here\n")
-    ctx = _ctx(tmp_path, ReadBudget(5))
+    ctx = _ctx(tmp_path, ReadBudget(30))  # fits one match line (~19 bytes), not two
     first = await grep(ctx, "needle")
     assert "a.py" in first  # first grep returns matches
     second = await grep(ctx, "needle")

@@ -33,7 +33,7 @@ from cliff.models import AgentRunCreate, AgentRunUpdate
 if TYPE_CHECKING:
     import aiosqlite
 
-    from cliff.models import Workspace
+    from cliff.models import Finding, Workspace
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +126,15 @@ async def run_triage(
         raise ValueError(f"workspace {workspace.id} has no finding")
 
     if finding.source_type == REPORT_SOURCE_TYPE:
-        return await _run_report_triage(executor, db, workspace, env_vars=env_vars)
+        return await _run_report_triage(
+            executor,
+            db,
+            workspace,
+            finding=finding,
+            env_vars=env_vars,
+            ai_env=ai_env,
+            model_full_id=model_full_id,
+        )
     return await _run_scanner_triage(
         executor,
         db,
@@ -143,7 +151,7 @@ async def _run_scanner_triage(
     db: aiosqlite.Connection,
     workspace: Workspace,
     *,
-    finding: Any,
+    finding: Finding,
     env_vars: dict[str, str],
     ai_env: dict[str, str] | None = None,
     model_full_id: str | None = None,
@@ -206,7 +214,10 @@ async def _run_report_triage(
     db: aiosqlite.Connection,
     workspace: Workspace,
     *,
+    finding: Finding,
     env_vars: dict[str, str],
+    ai_env: dict[str, str] | None = None,
+    model_full_id: str | None = None,
 ) -> TriageOutput | None:
     """Run the report triager (read-only repo access). It persists its own
     chat card + ``sidebar.triage`` via the executor's standard path; we read
@@ -228,7 +239,33 @@ async def _run_report_triage(
     sidebar = await get_sidebar(db, workspace.id)
     if sidebar is None or not sidebar.triage:
         return None
-    return TriageOutput.model_validate(sidebar.triage)
+    quick = TriageOutput.model_validate(sidebar.triage)
+
+    # Escalate to the agentic Deep dive when warranted (ADR-0052 — the report
+    # variant starts at gather_facts). Best-effort: any failure keeps the report
+    # triager's verdict — triage never breaks.
+    final = quick
+    try:
+        deep = await maybe_deep_dive(
+            db,
+            finding={**finding.model_dump(mode="json")},
+            quick=quick,
+            repo_url=workspace.repo_url,
+            enrichment=None,
+            exposure=None,
+            ai_env=ai_env,
+            model_full_id=model_full_id,
+            source="report",
+        )
+        if deep is not None:
+            final = deep
+            await _persist_synthesis(db, workspace.id, final)
+    except Exception:
+        logger.exception(
+            "deep dive failed for report workspace %s — keeping the quick verdict",
+            workspace.id,
+        )
+    return final
 
 
 __all__ = ["REPORT_SOURCE_TYPE", "SYNTHESIZER_AGENT_TYPE", "run_triage"]

@@ -62,7 +62,10 @@ def clearing_is_trusted(model_full_id: str) -> bool:
     auto-dismiss (the flash-judge false-clears were exactly this weak-judge
     failure). Known-lineup providers always derive a strong judge (opus / gpt-5 /
     pro), so dismissal is trusted."""
-    return model_full_id.partition("/")[0] in _LINEUP
+    provider, sep, model = model_full_id.partition("/")
+    # A malformed id (no '/', e.g. "openai") isn't a valid provider/model config —
+    # never trust dismissal on it.
+    return bool(sep and model) and provider in _LINEUP
 
 
 __all__ = ["TIERS", "clearing_is_trusted", "judge_is_independent", "resolve_tier_model_ids"]

@@ -25,9 +25,11 @@ class ReadBudget:
     remaining: int  # bytes
 
     def take(self, n: int) -> bool:
-        """Reserve *n* bytes. Returns False once the budget is spent (the caller
-        then returns a short 'budget exhausted' marker instead of more content)."""
-        if self.remaining <= 0:
+        """Reserve *n* bytes. Returns False when the request would exceed the cap
+        (the caller then returns a short 'budget exhausted' marker instead of more
+        content). Rejecting an over-budget request — rather than allowing the first
+        one to go negative — is what actually prevents the context-window overflow."""
+        if n > self.remaining:
             return False
         self.remaining -= n
         return True

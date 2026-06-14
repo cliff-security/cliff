@@ -69,6 +69,14 @@ def check_citation_grounding(triage: dict[str, Any], repo_dir: Path) -> tuple[bo
             continue
         rel, line = m.group(1), m.group(2)
         target = repo / rel
+        # A citation must point INSIDE the staged repo. An absolute path or `..`
+        # traversal that escapes repo_dir is a fabrication, not a resolving file —
+        # never let it pass the gate by matching something on the host.
+        try:
+            target.resolve().relative_to(repo.resolve())
+        except ValueError:
+            bad.append(f"{raw} (escapes repo)")
+            continue
         if not target.is_file():
             bad.append(f"{raw} (file not found)")
             continue
