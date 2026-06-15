@@ -390,48 +390,55 @@ def test_scan_counts_by_severity(cli, httpx_mock):
 
 
 # ---------------------------------------------------------------------------
-# fix — exits 2 awaiting plan approval
+# fix — triage-gated: real -> plan (exit 2); noise -> cleared (exit 0);
+#       needs_review -> human review (exit 2). ADR-0051 §6 Plan gate.
 # ---------------------------------------------------------------------------
 
 
-def test_fix_creates_workspace_and_pauses_at_plan(cli, httpx_mock):
-    _stub_version(httpx_mock)
+def _stub_triage_start(httpx_mock, workspace_id="ws-1"):
+    """``POST /api/findings/{id}/triage`` returns 202 with the workspace id."""
     httpx_mock.add_response(
-        url="http://test-server/api/findings/f1",
-        json={
-            "id": "f1",
-            "source_type": "scanner",
-            "source_id": "s1",
-            "title": "log4j",
-            "status": "new",
-            "type": "dependency",
-            "created_at": "2026-01-01T00:00:00Z",
-            "updated_at": "2026-01-01T00:00:00Z",
-            "derived": {"workspace_id": None},
-        },
-    )
-    httpx_mock.add_response(
-        url="http://test-server/api/workspaces",
+        url="http://test-server/api/findings/f1/triage",
         method="POST",
-        status_code=201,
+        status_code=202,
+        json={"workspace_id": workspace_id, "status": "running"},
+    )
+
+
+def test_fix_real_verdict_pauses_at_plan(cli, httpx_mock):
+    """A `real` triage verdict proceeds to a remediation plan and stops at the
+    approval gate (exit 2) — the existing CLI contract for a true positive."""
+    _stub_version(httpx_mock)
+    _stub_triage_start(httpx_mock)
+    # First poll: triage verdict = real (reachable).
+    httpx_mock.add_response(
+        url="http://test-server/api/workspaces/ws-1/sidebar",
         json={
-            "id": "ws-1",
-            "finding_id": "f1",
-            "state": "open",
-            "created_at": "x",
+            "workspace_id": "ws-1",
+            "triage": {
+                "verdict": "real",
+                "confidence": 0.82,
+                "exploitability": {
+                    "exploitable": "yes",
+                    "reason": "Reachable from an internet-facing entrypoint.",
+                },
+            },
             "updated_at": "x",
         },
     )
+    # The real branch runs the planner pipeline.
     httpx_mock.add_response(
         url="http://test-server/api/workspaces/ws-1/pipeline/run-all",
         method="POST",
         status_code=202,
         json={"status": "running", "message": "started"},
     )
+    # Second poll: plan ready.
     httpx_mock.add_response(
         url="http://test-server/api/workspaces/ws-1/sidebar",
         json={
             "workspace_id": "ws-1",
+            "triage": {"verdict": "real", "confidence": 0.82},
             "plan": {
                 "plan_steps": ["update pom.xml", "rebuild"],
                 "interim_mitigation": "Block log4j on WAF",
@@ -445,6 +452,7 @@ def test_fix_creates_workspace_and_pauses_at_plan(cli, httpx_mock):
     assert res.exit_code == 2, res.stderr
     payload = _last_json(res.stdout)
     assert payload["workspace_id"] == "ws-1"
+    assert payload["verdict"] == "real"
     assert payload["awaiting"] == "plan_approval"
     assert payload["plan"]["steps"] == ["update pom.xml", "rebuild"]
     assert payload["plan"]["interim_mitigation"] == "Block log4j on WAF"
@@ -456,33 +464,18 @@ def test_fix_creates_workspace_and_pauses_at_plan(cli, httpx_mock):
     assert payload["next"] == "approve ws-1"
 
 
-def test_fix_tolerates_initial_404(cli, httpx_mock):
-    """The sidebar row is created lazily by the first agent write — a 404
-    on the very first poll is normal and must not crash the CLI."""
+def test_fix_real_auto_resolves_when_validation_present(cli, httpx_mock):
+    """A `real` finding whose pipeline already reached a validation result (the
+    planner decided no work was needed, or a re-run of an already-shipped
+    finding) is auto-resolved — exit 0, awaiting None — NOT re-sent through the
+    plan-approval gate (regression guard for the validation branch)."""
     _stub_version(httpx_mock)
+    _stub_triage_start(httpx_mock)
     httpx_mock.add_response(
-        url="http://test-server/api/findings/f1",
+        url="http://test-server/api/workspaces/ws-1/sidebar",
         json={
-            "id": "f1",
-            "source_type": "scanner",
-            "source_id": "s1",
-            "title": "log4j",
-            "status": "new",
-            "type": "dependency",
-            "created_at": "2026-01-01T00:00:00Z",
-            "updated_at": "2026-01-01T00:00:00Z",
-            "derived": {"workspace_id": None},
-        },
-    )
-    httpx_mock.add_response(
-        url="http://test-server/api/workspaces",
-        method="POST",
-        status_code=201,
-        json={
-            "id": "ws-1",
-            "finding_id": "f1",
-            "state": "open",
-            "created_at": "x",
+            "workspace_id": "ws-1",
+            "triage": {"verdict": "real", "confidence": 0.82},
             "updated_at": "x",
         },
     )
@@ -492,52 +485,135 @@ def test_fix_tolerates_initial_404(cli, httpx_mock):
         status_code=202,
         json={"status": "running"},
     )
-    # First sidebar poll: 404 (worker hasn't seeded yet)
-    httpx_mock.add_response(
-        url="http://test-server/api/workspaces/ws-1/sidebar",
-        status_code=404,
-        json={"detail": "Sidebar state not found"},
-    )
-    # Second poll: plan ready
     httpx_mock.add_response(
         url="http://test-server/api/workspaces/ws-1/sidebar",
         json={
             "workspace_id": "ws-1",
-            "plan": {"plan_steps": ["bump"], "approved": False},
-            "definition_of_done": {"items": ["tests pass"]},
+            "triage": {"verdict": "real", "confidence": 0.82},
+            "validation": {"verdict": "fixed", "recommendation": "close"},
+            "updated_at": "x",
+        },
+    )
+    res = cli.invoke(main, ["fix", "f1"])
+    assert res.exit_code == 0, res.stderr
+    payload = _last_json(res.stdout)
+    assert payload["awaiting"] is None
+    assert payload["next"] == "close ws-1"
+
+
+@pytest.mark.parametrize("verdict", ["unexploitable", "false_positive"])
+def test_fix_clears_noise_with_reasoning(cli, httpx_mock, verdict):
+    """A non-real verdict clears the finding as noise WITH the reasoning on
+    record and NEVER produces a remediation plan (the report-tour bright line:
+    zero false-positive-shaped alarms). Exits 0 — nothing to fix."""
+    _stub_version(httpx_mock)
+    _stub_triage_start(httpx_mock)
+    httpx_mock.add_response(
+        url="http://test-server/api/workspaces/ws-1/sidebar",
+        json={
+            "workspace_id": "ws-1",
+            "triage": {
+                "verdict": verdict,
+                "confidence": 0.88,
+                "exploitability": {
+                    "exploitable": "no",
+                    "reason": (
+                        "shell-quote is a dev-only dependency, "
+                        "never imported by shipped code."
+                    ),
+                },
+                "reachability": {"reached": False, "path": [], "summary": "No path found."},
+            },
+            "updated_at": "x",
+        },
+    )
+    res = cli.invoke(main, ["fix", "f1"])
+    assert res.exit_code == 0, res.stderr
+    payload = _last_json(res.stdout)
+    assert payload["workspace_id"] == "ws-1"
+    assert payload["verdict"] == verdict
+    assert payload["cleared"] is True
+    assert "dev-only" in payload["reason"]
+    assert payload["confidence"] == 0.88
+    assert payload["next"] == "close ws-1"
+    assert "plan" not in payload
+    # The planner pipeline must never have been invoked for noise.
+    assert not any(
+        r.url.path.endswith("/pipeline/run-all")
+        for r in httpx_mock.get_requests()
+    )
+
+
+def test_fix_needs_review_flags_for_human(cli, httpx_mock):
+    """A `needs_review` verdict is flagged for human judgment (exit 2) — not an
+    alarmist plan, not a silent clear."""
+    _stub_version(httpx_mock)
+    _stub_triage_start(httpx_mock)
+    httpx_mock.add_response(
+        url="http://test-server/api/workspaces/ws-1/sidebar",
+        json={
+            "workspace_id": "ws-1",
+            "triage": {
+                "verdict": "needs_review",
+                "confidence": 0.55,
+                "exploitability": {
+                    "exploitable": "unknown",
+                    "reason": "A real advisory, but reachability of the sink is undetermined.",
+                },
+            },
             "updated_at": "x",
         },
     )
     res = cli.invoke(main, ["fix", "f1"])
     assert res.exit_code == 2, res.stderr
     payload = _last_json(res.stdout)
-    assert payload["plan"]["steps"] == ["bump"]
+    assert payload["verdict"] == "needs_review"
+    assert payload["cleared"] is False
+    assert payload["awaiting"] == "human_review"
+    assert payload["next"] is None
+    assert "undetermined" in payload["reason"]
+    assert not any(
+        r.url.path.endswith("/pipeline/run-all")
+        for r in httpx_mock.get_requests()
+    )
+
+
+def test_fix_tolerates_initial_404(cli, httpx_mock):
+    """The sidebar row is created lazily by the first triage write — a 404 on
+    the very first poll is normal and must not crash the CLI."""
+    _stub_version(httpx_mock)
+    _stub_triage_start(httpx_mock)
+    # First sidebar poll: 404 (worker hasn't seeded yet)
+    httpx_mock.add_response(
+        url="http://test-server/api/workspaces/ws-1/sidebar",
+        status_code=404,
+        json={"detail": "Sidebar state not found"},
+    )
+    # Second poll: verdict ready (cleared as noise).
+    httpx_mock.add_response(
+        url="http://test-server/api/workspaces/ws-1/sidebar",
+        json={
+            "workspace_id": "ws-1",
+            "triage": {
+                "verdict": "unexploitable",
+                "confidence": 0.88,
+                "exploitability": {"exploitable": "no", "reason": "Not reachable."},
+            },
+            "updated_at": "x",
+        },
+    )
+    res = cli.invoke(main, ["fix", "f1"])
+    assert res.exit_code == 0, res.stderr
+    payload = _last_json(res.stdout)
+    assert payload["verdict"] == "unexploitable"
+    assert payload["cleared"] is True
 
 
 def test_fix_timeout_emits_json_error(cli, httpx_mock):
     """A polling timeout must surface as a JSON error, not a Python traceback."""
     _stub_version(httpx_mock)
-    httpx_mock.add_response(
-        url="http://test-server/api/findings/f1",
-        json={
-            "id": "f1",
-            "source_type": "scanner",
-            "source_id": "s1",
-            "title": "x",
-            "status": "new",
-            "type": "dependency",
-            "created_at": "2026-01-01T00:00:00Z",
-            "updated_at": "2026-01-01T00:00:00Z",
-            "derived": {"workspace_id": "ws-1"},
-        },
-    )
-    httpx_mock.add_response(
-        url="http://test-server/api/workspaces/ws-1/pipeline/run-all",
-        method="POST",
-        status_code=202,
-        json={"status": "running"},
-    )
-    # Sidebar with no plan — _done() never returns true, poll() times out.
+    _stub_triage_start(httpx_mock)
+    # Sidebar never gets a triage verdict — is_done never true, poll() times out.
     httpx_mock.add_response(
         url="http://test-server/api/workspaces/ws-1/sidebar",
         is_reusable=True,

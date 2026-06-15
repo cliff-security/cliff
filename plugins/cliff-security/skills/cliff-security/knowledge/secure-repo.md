@@ -71,9 +71,13 @@ If `total > 5`, ask the user which issues to tackle this session (or "all"). Oth
 cliffsec fix <issue_id>
 ```
 
-Exit 2 means the planner is done and the plan is awaiting approval. The JSON contains `plan.steps`, `plan.interim_mitigation`, and `plan.definition_of_done`. Render that to the user as a **short bullet list** and ask for approval. Wait for an explicit "yes".
+`fix` **triages first** — it resolves whether the flagged code is actually reachable in the repo — then gates on the verdict (ADR-0051 §6: an issue cannot enter the plan without a `real` verdict). Read the `verdict` field and branch:
 
-Once approved:
+- **Exit 0, `cleared: true`** (`verdict: unexploitable` / `false_positive`) — triaged as **noise**: the vulnerable code isn't reachable here. Report the one-line `reason` to the user and move on — there is nothing to fix. (Optionally `cliffsec close <workspace_id>` to dismiss it.) **Do not** invent a fix for a cleared finding.
+- **Exit 2, `awaiting: "human_review"`** (`verdict: needs_review`) — reachability couldn't be settled automatically. Surface the `reason` and let the user decide whether it's real; do **not** auto-plan.
+- **Exit 2, `awaiting: "plan_approval"`** (`verdict: real`) — the planner ran. The JSON contains `plan.steps`, `plan.interim_mitigation`, and `plan.definition_of_done`. Render that to the user as a **short bullet list** and ask for approval. Wait for an explicit "yes".
+
+This is the core value: noise is cleared with reasoning, only a `real` finding gets a plan. Once a `real` plan is approved:
 
 ```bash
 cliffsec approve <workspace_id>

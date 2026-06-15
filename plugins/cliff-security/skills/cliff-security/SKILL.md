@@ -52,8 +52,8 @@ Every `cliffsec` command emits one JSON object on stdout (or stderr on error) an
 
 | Code | Meaning | What you do |
 |---|---|---|
-| 0 | Success, no human gate needed | Read `next` field, continue |
-| 2 | Awaiting human gate (plan / validation) | Surface details, wait for user |
+| 0 | Success, no human gate needed (incl. `fix` clearing a finding as **noise** — `cleared: true`) | Read `next` (+ `verdict`/`reason` for `fix`), continue |
+| 2 | Awaiting human gate (plan to approve, `needs_review` triage verdict, or validation) | Surface details, wait for user |
 | 3 | Daemon unreachable | Run `knowledge/install.md` |
 | 4 | Version mismatch | Stop, ask user to upgrade |
 | 5 | Scan completed with zero findings | Tell user the repo is clean, stop |

@@ -334,6 +334,48 @@ async def run_all_pipeline(
     executor = request.app.state.agent_executor
     context_builder = request.app.state.context_builder
 
+    # The Plan gate (ADR-0051 §6 / ADR-0054): a finding triaged as *not real*
+    # never gets a remediation plan — clearing noise with reasoning is the
+    # product's value, and an alarmist plan on a non-reachable finding is a
+    # false-positive-shaped result. The CLI (`cliffsec fix`) gates on the
+    # verdict before it ever calls run-all; this is the server-side backstop so
+    # NO caller (web, API) can drive the planner on noise. Defence-in-depth, so
+    # it is intentionally narrow: it engages only when triage has run AND
+    # returned a non-real verdict AND there is no human-approved plan overriding
+    # it. A finding that was never triaged behaves exactly as before.
+    sidebar = await get_sidebar(db, workspace_id)
+    triage = sidebar.triage if sidebar and isinstance(sidebar.triage, dict) else None
+    # Gate only on a CONCRETE non-real verdict. A missing/partial triage write
+    # ({} or no ``verdict``) leaves ``verdict`` empty and falls through to the
+    # normal pipeline — only a real dismissal/needs_review verdict blocks the
+    # planner, so an in-flight or never-triaged finding behaves as before.
+    verdict = (triage.get("verdict") or "").lower() if triage else ""
+    if verdict and verdict != "real":
+        # ...but a HUMAN can override a non-real verdict. The web "Looks real —
+        # remediate" action confirms the finding by advancing its status to
+        # ``triaged`` (ADR-0051 §6 — ``triaged`` means "confirmed real") BEFORE
+        # firing run-all; an already-approved plan is the same signal. Only an
+        # unconfirmed finding still sitting at ``new`` with a non-real verdict is
+        # blocked, so the gate stops auto-planning on noise without breaking the
+        # human confirm-real path. (The CLI `real` path passes the verdict check
+        # above and never reaches here.)
+        finding = await get_finding(db, workspace.finding_id)
+        human_confirmed = finding is not None and finding.status != "new"
+        plan_approved = bool((sidebar.plan or {}).get("approved")) if sidebar else False
+        if not human_confirmed and not plan_approved:
+            logger.info(
+                "run-all gated for workspace %s: triaged %r, finding still new — no plan",
+                workspace_id,
+                verdict,
+            )
+            return RunAllResponse(
+                status="gated",
+                message=(
+                    f"Triaged as {verdict} — no remediation plan needed. "
+                    f"Confirm it's real to plan a fix."
+                ),
+            )
+
     try:
         await executor.check_not_busy(db, workspace_id)
     except AgentBusyError as exc:
