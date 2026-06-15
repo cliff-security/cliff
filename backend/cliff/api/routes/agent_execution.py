@@ -351,10 +351,20 @@ async def run_all_pipeline(
     # planner, so an in-flight or never-triaged finding behaves as before.
     verdict = (triage.get("verdict") or "").lower() if triage else ""
     if verdict and verdict != "real":
+        # ...but a HUMAN can override a non-real verdict. The web "Looks real —
+        # remediate" action confirms the finding by advancing its status to
+        # ``triaged`` (ADR-0051 §6 — ``triaged`` means "confirmed real") BEFORE
+        # firing run-all; an already-approved plan is the same signal. Only an
+        # unconfirmed finding still sitting at ``new`` with a non-real verdict is
+        # blocked, so the gate stops auto-planning on noise without breaking the
+        # human confirm-real path. (The CLI `real` path passes the verdict check
+        # above and never reaches here.)
+        finding = await get_finding(db, workspace.finding_id)
+        human_confirmed = finding is not None and finding.status != "new"
         plan_approved = bool((sidebar.plan or {}).get("approved")) if sidebar else False
-        if not plan_approved:
+        if not human_confirmed and not plan_approved:
             logger.info(
-                "run-all gated for workspace %s: triaged %r (not real) — no plan",
+                "run-all gated for workspace %s: triaged %r, finding still new — no plan",
                 workspace_id,
                 verdict,
             )

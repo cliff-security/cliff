@@ -464,6 +464,43 @@ def test_fix_real_verdict_pauses_at_plan(cli, httpx_mock):
     assert payload["next"] == "approve ws-1"
 
 
+def test_fix_real_auto_resolves_when_validation_present(cli, httpx_mock):
+    """A `real` finding whose pipeline already reached a validation result (the
+    planner decided no work was needed, or a re-run of an already-shipped
+    finding) is auto-resolved — exit 0, awaiting None — NOT re-sent through the
+    plan-approval gate (regression guard for the validation branch)."""
+    _stub_version(httpx_mock)
+    _stub_triage_start(httpx_mock)
+    httpx_mock.add_response(
+        url="http://test-server/api/workspaces/ws-1/sidebar",
+        json={
+            "workspace_id": "ws-1",
+            "triage": {"verdict": "real", "confidence": 0.82},
+            "updated_at": "x",
+        },
+    )
+    httpx_mock.add_response(
+        url="http://test-server/api/workspaces/ws-1/pipeline/run-all",
+        method="POST",
+        status_code=202,
+        json={"status": "running"},
+    )
+    httpx_mock.add_response(
+        url="http://test-server/api/workspaces/ws-1/sidebar",
+        json={
+            "workspace_id": "ws-1",
+            "triage": {"verdict": "real", "confidence": 0.82},
+            "validation": {"verdict": "fixed", "recommendation": "close"},
+            "updated_at": "x",
+        },
+    )
+    res = cli.invoke(main, ["fix", "f1"])
+    assert res.exit_code == 0, res.stderr
+    payload = _last_json(res.stdout)
+    assert payload["awaiting"] is None
+    assert payload["next"] == "close ws-1"
+
+
 @pytest.mark.parametrize("verdict", ["unexploitable", "false_positive"])
 def test_fix_clears_noise_with_reasoning(cli, httpx_mock, verdict):
     """A non-real verdict clears the finding as noise WITH the reasoning on

@@ -409,9 +409,11 @@ def fix(client: Client, issue_id: str, timeout: float) -> None:
     dod = sidebar.get("definition_of_done") or {}
     validation = sidebar.get("validation") or {}
 
-    if validation and not plan.get("plan_steps"):
-        # Pipeline ran end-to-end without a plan gate (e.g. the planner
-        # decided no work was needed). Treat as auto-resolved.
+    if validation:
+        # A validation result is present (the planner decided no work was
+        # needed, or — on a re-run of an already-shipped finding — the pipeline
+        # already ran end to end). Either way it's resolved, not awaiting a
+        # plan-approval gate.
         emit(
             {
                 "workspace_id": workspace_id,
