@@ -89,6 +89,13 @@ def _map_reach(reach: dict) -> TriageReachability:
     return TriageReachability(reached=reach.get("reached") == "yes", path=nodes)
 
 
+def _has_grounded_path(reach: dict) -> bool:
+    """Whether a ``reached=yes`` trace is GROUNDED — cites at least one hop with a
+    real ``file``. An empty (or file-less) path is a speculative "yes", not
+    confirmed reachability, and must not project to a confident ``real``."""
+    return any(n.get("file") for n in (reach.get("path") or []))
+
+
 def _kill_corroborated(ro: dict, facts: dict, repo_knowledge: dict) -> bool:
     """Whether a rule_out kill is backed by a structural signal (ADR-0052).
 
@@ -363,6 +370,30 @@ class DeepDiveRunner:
                 verdict="needs_review",
                 confidence=_CONF_UNKNOWN,
                 reachability=_map_reach(reach),
+                provenance=prov("trace_path"),
+            )
+
+        # A "yes" with no grounded path (no file:line hop) is a SPECULATIVE
+        # reachable, not a confirmed one — the trace prompt's "no hop, and no
+        # guard, without a file:line you actually read". Honor that in code:
+        # route to needs_review instead of proceeding to a confident `real`, so
+        # an ungrounded "yes" can't false-flag (the symmetric guard to the
+        # disproof challenge on the clearing side). Plan/challenge would have
+        # nothing concrete to work from anyway.
+        if not _has_grounded_path(reach):
+            return TriageOutput(
+                verdict="needs_review",
+                confidence=_CONF_UNKNOWN,
+                reachability=_map_reach(reach),
+                checks=[
+                    TriageCheck(
+                        eyebrow="Reachability",
+                        result="Claimed reachable without a traced path",
+                        kind="warn",
+                        detail="No file:line hop was recorded — routed to review "
+                        "rather than confirmed as reachable.",
+                    )
+                ],
                 provenance=prov("trace_path"),
             )
 

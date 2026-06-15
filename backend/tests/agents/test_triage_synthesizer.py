@@ -187,3 +187,92 @@ def test_output_always_has_proof_checks() -> None:
         out = synthesize_triage(enrichment, exposure)
         assert out.checks, f"{_label}: synthesis must emit at least one proof row"
         assert all(c.kind in {"pass", "warn", "fail", "info"} for c in out.checks)
+
+
+# ---------------------------------------------------------------------------
+# Speculative reachability must never become a confident verdict (the Plan-gate
+# bright line). The exposure analyzer reasons about code findings from the file
+# PATH, not the file's code — so a hedged "likely reachable … needs verification"
+# is speculation, not a confirmed reachable, and must not project to `real`.
+# ---------------------------------------------------------------------------
+
+# The real-world false positive: SAST SQLi the analyzer never read, hedged.
+_EXPOSURE_HEDGED_REACHABLE = {
+    "reachable": "Likely reachable - this is likely part of the search/query "
+    "functionality, but the exact call chain needs verification to confirm "
+    "user-controlled data reaches this code path.",
+    "internet_facing": True,
+    "reachability_evidence": "The file path suggests dynamic query construction; "
+    "need to trace whether user input flows into the text() parameters.",
+}
+
+
+def test_hedged_reachability_is_not_promoted_to_real() -> None:
+    """A dependency finding whose reachability is only *speculated* ("likely …
+    needs verification to confirm") must not be classified as a confident
+    reachable — it routes to needs_review, never a confident `real`."""
+    out = synthesize_triage(_WITH_CVE, _EXPOSURE_HEDGED_REACHABLE)
+    assert out.verdict == "needs_review"
+    assert out.verdict != "real"
+
+
+@pytest.mark.parametrize(
+    "reachable",
+    [
+        "Likely reachable - needs verification to confirm",
+        "The file path suggests this may be reachable",
+        "This appears reachable but the call chain needs analysis",
+        "Could be reachable; would need to trace the entry point",
+    ],
+    ids=["likely-needs-verify", "suggests-may", "appears-needs-analysis", "could-would"],
+)
+def test_speculative_phrasings_classify_as_uncertain(reachable: str) -> None:
+    """Hedge language never yields a confident `real`, regardless of facing."""
+    out = synthesize_triage(_WITH_CVE, {"reachable": reachable, "internet_facing": True})
+    assert out.verdict != "real"
+
+
+# ---------------------------------------------------------------------------
+# Code/SAST findings: the quick read can't open the flagged file:line, so it
+# DEFERS (needs_review → auto-escalates to the file-reading Deep dive). It never
+# emits a confident verdict for a code finding from path-level speculation —
+# neither a `real` nor a `false_positive`/`unexploitable` clear.
+# ---------------------------------------------------------------------------
+
+
+def test_code_finding_speculative_reachable_defers_not_real() -> None:
+    """The recipe.py false positive: a code finding the analyzer flagged as
+    reachable+internet-facing must NOT ship as a confident `real` — it defers."""
+    out = synthesize_triage(
+        _WITH_CVE,
+        {"reachable": "Reachable from the public search API", "internet_facing": True},
+        finding_type="code",
+    )
+    assert out.verdict == "needs_review"
+    assert out.exploitability is not None
+    assert out.exploitability.exploitable == "unknown"
+
+
+def test_code_finding_abstained_unknown_defers_not_false_positive() -> None:
+    """A code finding with no advisory (always true for SAST) + undetermined
+    reachability must NOT be cleared as `false_positive` from the quick read —
+    clearing requires a file read (the Deep dive). It defers to needs_review."""
+    out = synthesize_triage(
+        _ABSTAINED,
+        {"reachable": "unclear", "internet_facing": None},
+        finding_type="code",
+    )
+    assert out.verdict == "needs_review"
+
+
+def test_dependency_finding_still_clears_and_confirms() -> None:
+    """The code-finding deferral must not regress dependency triage: a dependency
+    finding still projects to its terminal verdicts (default type='dependency')."""
+    real = synthesize_triage(
+        _WITH_CVE,
+        {"reachable": "Reachable from the public upload API", "internet_facing": True},
+        finding_type="dependency",
+    )
+    assert real.verdict == "real"
+    fp = synthesize_triage(_ABSTAINED, {"reachable": "unclear", "internet_facing": None})
+    assert fp.verdict == "false_positive"  # default finding_type is 'dependency'

@@ -115,8 +115,12 @@ async def run_triage(
     ai_env: dict[str, str] | None = None,
     model_full_id: str | None = None,
 ) -> TriageOutput | None:
-    """Run triage for *workspace*'s finding. Returns the verdict, or ``None``
-    when a prerequisite run failed (the derivation surfaces a Retry CTA).
+    """Run triage for *workspace*'s finding.
+
+    Scanner triage always lands a verdict: a failed prerequisite degrades to
+    ``needs_review`` rather than crashing (so the CLI never strands on a
+    poll-timeout). The report path may still return ``None`` if the report
+    triager produced no verdict.
 
     ``ai_env`` + ``model_full_id`` (the canonical AI state) enable the agentic
     Deep dive on escalation; without them triage stays the Quick read (ADR-0052).
@@ -156,6 +160,7 @@ async def _run_scanner_triage(
     ai_env: dict[str, str] | None = None,
     model_full_id: str | None = None,
 ) -> TriageOutput | None:
+    prereq_failed = False
     for agent_type in ("finding_enricher", "exposure_analyzer"):
         result = await executor.execute(
             workspace.id,
@@ -166,18 +171,34 @@ async def _run_scanner_triage(
         )
         status = getattr(result, "status", None)
         if result is None or status in _TERMINAL_FAILURE_STATUSES:
+            # A failed prerequisite (e.g. the exposure agent timing out on a
+            # deploy-time SQL file) must NOT abort with no verdict — that strands
+            # the CLI on a poll-timeout (exit 1) and leaves the UI without a
+            # result. Degrade to a verdict synthesized from whatever DID run: a
+            # failed run leaves no structured_output, so the synthesizer's
+            # undetermined path yields needs_review. Triage always lands a
+            # verdict; never a silent clear, never a crash.
             logger.warning(
-                "Triage aborted: %s ended status=%s for workspace %s",
+                "Triage prerequisite %s ended status=%s for workspace %s — "
+                "degrading to needs_review",
                 agent_type, status, workspace.id,
             )
-            return None
+            prereq_failed = True
+            break
 
     latest = await list_latest_runs_by_workspace_ids(db, [workspace.id])
     runs = latest.get(workspace.id, {})
     enrichment = _structured_output(runs, "finding_enricher")
     exposure = _structured_output(runs, "exposure_analyzer")
 
-    quick = synthesize_triage(enrichment, exposure)
+    quick = synthesize_triage(enrichment, exposure, finding_type=finding.type)
+
+    # Partial inputs from a failed prerequisite → land the degraded needs_review
+    # and stop. Never escalate a partial quick read to the Deep dive (the same
+    # provider trouble that just failed a prerequisite would likely stall it too).
+    if prereq_failed:
+        await _persist_synthesis(db, workspace.id, quick)
+        return quick
 
     # Escalate to the agentic Deep dive when warranted (ADR-0052). Best-effort:
     # any failure keeps the cheap Quick-read verdict — triage never breaks.

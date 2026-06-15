@@ -21,6 +21,24 @@ load-bearing failure (ADR-0051 §10):
 ``NEEDS_REVIEW_CONFIDENCE`` threshold or exploitability is ``unknown``
 (ADR-0051 §9). The threshold is a tunable constant, not a magic number frozen
 in the branches.
+
+Two fail-safes guard against shipping a confident verdict the quick read hasn't
+earned (the Plan-gate bright line — a report must never carry a false positive):
+
+1. **Speculative reachability never confirms.** The exposure analyzer's
+   free-text ``reachable`` is classified hedge-aware: phrasing like "likely …
+   needs verification to confirm" is *speculation*, not a confirmed reachable,
+   so it maps to ``unknown`` (→ needs_review), never a confident ``real``.
+
+2. **Code/SAST findings defer.** For a ``code`` finding the exposure analyzer
+   reasons from the file PATH, never the file's code — so the quick read can't
+   responsibly clear OR confirm it. It defers to ``needs_review``, which
+   auto-escalates to the file-reading Deep dive (ADR-0052), where the flagged
+   ``file:line`` is actually opened before any verdict. The dependency-shaped
+   projection above (abstention → false_positive, reachable+facing → real)
+   assumes a CVE/advisory model that does not hold for code findings, where the
+   enricher always abstains (there is no CVE) — applying it to code is what
+   shipped fake CRITICAL SQL-injection verdicts.
 """
 
 from __future__ import annotations
@@ -64,12 +82,43 @@ _REACH_UNCERTAIN = (
     "indeterminate",
     "uncertain",
 )
+#: Hedge / speculation markers. The exposure analyzer flagging a sink "likely
+#: reachable … needs verification to confirm" has NOT confirmed reachability —
+#: it has guessed. Treat such phrasing as ``unknown`` (→ needs_review), never a
+#: confident reachable. ``likely`` lives here, NOT in affirmatives: "likely
+#: reachable" is a probability, not a confirmation, and promoting it to a
+#: confident ``real`` is exactly the false positive this guards against.
+_REACH_HEDGE = (
+    "likely",
+    "probabl",  # probable / probably
+    "suggest",  # suggests / suggesting
+    "appears",
+    "seems",
+    "may ",  # "may be reachable" — trailing space avoids matching e.g. "mayhem"
+    "might",
+    "could",
+    "would ",  # "would need to trace"
+    "potential",
+    "presum",  # presumably
+    "assume",
+    "needs verification",
+    "need to verify",
+    "needs confirmation",
+    "to confirm",
+    "not confirmed",
+    "unverified",
+    "needs analysis",
+    "need to trace",
+    "needs further",
+    "requires verification",
+    "cannot confirm",
+    "unable to confirm",
+)
 _REACH_AFFIRMATIVE = (
     "reachable",
     "yes",
     "true",
     "confirmed",
-    "likely",
     "direct",
     "exploitable",
 )
@@ -79,13 +128,18 @@ def _classify_reachable(reachable: str | None) -> str:
     """Map the analyzer's free-text ``reachable`` to ``yes`` / ``no`` /
     ``unknown``. An empty value means the analyzer ran but couldn't determine
     reachability → ``unknown`` (the *missing exposure* case is handled by the
-    caller before this is reached)."""
+    caller before this is reached).
+
+    Hedge-aware: speculation ("likely … needs verification to confirm") is
+    classified ``unknown``, BEFORE the affirmative keywords are tried, so a
+    sink the analyzer merely *guessed* is reachable never projects to a
+    confident ``real`` (the Plan-gate bright line)."""
     if not reachable:
         return "unknown"
     s = reachable.strip().lower()
     if any(k in s for k in _REACH_NEGATIVE) or s in ("no", "false", "none"):
         return "no"
-    if any(k in s for k in _REACH_UNCERTAIN):
+    if any(k in s for k in _REACH_UNCERTAIN) or any(k in s for k in _REACH_HEDGE):
         return "unknown"
     if any(k in s for k in _REACH_AFFIRMATIVE):
         return "yes"
@@ -103,8 +157,14 @@ def _enricher_abstained(enrichment: dict[str, Any] | None) -> bool:
 def synthesize_triage(
     enrichment: dict[str, Any] | None,
     exposure: dict[str, Any] | None,
+    finding_type: str = "dependency",
 ) -> TriageOutput:
-    """Project a triage verdict from recorded enricher + exposure output."""
+    """Project a triage verdict from recorded enricher + exposure output.
+
+    ``finding_type`` is the scanner finding's class (``dependency`` / ``code`` /
+    ``posture``). A ``code`` finding defers to the Deep dive — see
+    ``_code_finding_deferral`` — because the quick read can't open its
+    ``file:line``; every other type uses the dependency-shaped projection."""
     known_exploits = bool((enrichment or {}).get("known_exploits"))
 
     # Missing exposure entirely → never a confident clear (ADR-0051 §10).
@@ -125,6 +185,13 @@ def synthesize_triage(
                 }
             ],
         )
+
+    # Code/SAST findings: the quick read reasons from the file PATH, not the
+    # file's code, so its reachability is speculation — a confident verdict needs
+    # the flagged file:line opened (the Deep dive's job). Defer to needs_review,
+    # which auto-escalates. Never a confident `real`/clear from a code finding.
+    if finding_type == "code":
+        return _code_finding_deferral(exposure)
 
     reachable_raw = exposure.get("reachable")
     reached = _classify_reachable(reachable_raw if isinstance(reachable_raw, str) else None)
@@ -197,6 +264,42 @@ def synthesize_triage(
         reachability=reachability,
         exploitability=exploitability,
         checks=checks,
+    )
+
+
+def _code_finding_deferral(exposure: dict[str, Any]) -> TriageOutput:
+    """Verdict for a ``code``/SAST finding: defer to the Deep dive.
+
+    The quick read's reachability for a code finding is speculation — the
+    exposure analyzer reasons from the file path, never opening the flagged line
+    — so it can neither confirm a ``real`` nor responsibly clear a
+    ``false_positive``. It returns ``needs_review``, which auto-escalates to the
+    file-reading Deep dive (ADR-0052 / ``decide_escalation``); when no Deep dive
+    can run, the honest "needs your review" stands rather than a fabricated
+    verdict. The analyzer's hunch is preserved as context, never promoted.
+    """
+    evidence = exposure.get("reachability_evidence")
+    reachable_raw = exposure.get("reachable")
+    hint = evidence or (reachable_raw if isinstance(reachable_raw, str) else None)
+    return TriageOutput(
+        verdict="needs_review",
+        confidence=_CONF_NEEDS_REVIEW,
+        exploitability={
+            "exploitable": "unknown",
+            "reason": "Confirming whether untrusted input reaches this code requires "
+            "reading the flagged line — deferred to deep analysis (the quick read "
+            "reasons from the file path, not the code).",
+        },
+        checks=[
+            {
+                "eyebrow": "REACHABILITY",
+                "result": "Needs a code read",
+                "kind": "warn",
+                "detail": hint
+                or "The flagged line wasn't opened — escalated for a file-level "
+                "trace before any verdict.",
+            }
+        ],
     )
 
 

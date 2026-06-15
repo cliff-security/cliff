@@ -7,8 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-06-15
+
+Triage hardening for SAST/code findings — the Plan-gate bright line ("a
+report must never carry a false positive") now holds for code findings the
+way it already did for dependencies. Plus the `cliffsec` CLI release that
+carries the triage-first `fix` flow to users.
+
 ### Fixed
 
+- **Code/SAST triage no longer ships fake `real` verdicts.** The Quick-read
+  synthesizer projected a confident `real` for code findings whenever the
+  exposure analyzer's free-text reachability *looked* affirmative — including
+  pure speculation like "likely reachable … needs verification to confirm"
+  (the analyzer reasons from the file path, never opening the flagged line).
+  On a SAST-heavy repo that shipped fake CRITICAL SQL-injection findings. Two
+  fail-safes now guard the verdict: (1) reachability classification is
+  hedge-aware — "likely / suggests / appears / needs verification" is treated
+  as *undetermined*, never a confident reachable; (2) a `code` finding can't
+  be confidently cleared OR confirmed from the Quick read at all — it defers
+  to `needs_review`, which auto-escalates to the file-reading Deep dive
+  (ADR-0052), where the `file:line` is actually opened before any verdict.
+- **Triage never strands on a failed prerequisite.** When the enricher or
+  exposure agent failed (e.g. a 150s timeout on a deploy-time migration file),
+  triage aborted with no verdict — leaving the CLI to time out and exit 1. It
+  now degrades to a `needs_review` verdict landed in the sidebar and chat
+  card. Triage always produces a verdict; never a silent clear, never a crash.
+- **Deep dive won't confirm an ungrounded path.** A `trace_path` result that
+  claims `reached=yes` but cites no `file:line` hop is now routed to
+  `needs_review` instead of proceeding to a confident `real` — the symmetric
+  guard to the disproof challenge on the clearing side.
 - **OpenAI BYOK save now works.** The validator probe was hardcoded to
   `gpt-5`, which is in OpenAI's reasoning-model family and rejects
   `max_tokens` with a 400. The non-classified-4xx catch-all rendered

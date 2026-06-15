@@ -57,13 +57,16 @@ class _StubExecutor:
         )
 
 
-async def _make_workspace(db, *, source_type: str = "trivy") -> object:
+async def _make_workspace(
+    db, *, source_type: str = "trivy", finding_type: str = "dependency"
+) -> object:
     finding = await create_finding(
         db,
         FindingCreate(
             source_type=source_type,
             source_id="vuln-001",
             title="CVE-2026-0001 in libfoo",
+            type=finding_type,
         ),
     )
     ws = await create_workspace(db, WorkspaceCreate(finding_id=finding.id))
@@ -154,14 +157,31 @@ async def test_triage_does_not_advance_finding_status(db) -> None:
     assert refreshed.status == "new"
 
 
-async def test_failed_exposure_aborts_without_clearing(db) -> None:
-    """A failed exposure run produces no verdict (the derivation surfaces a
-    Retry affordance) — never a silent clear."""
+async def test_failed_exposure_degrades_to_needs_review(db) -> None:
+    """A failed prerequisite (e.g. the exposure agent timing out) must NOT abort
+    triage with no verdict — that strands the CLI on a poll-timeout (exit 1) and
+    leaves a dead UI. It degrades to a `needs_review` verdict, landed in both the
+    sidebar and the chat card. Never a silent clear; never a crash."""
     _finding, ws = await _make_workspace(db)
     executor = _StubExecutor(
         {"finding_enricher": _ENRICH_REAL}, fail={"exposure_analyzer"}
     )
     triage = await run_triage(executor, db, ws, env_vars={})
-    assert triage is None
+    assert triage is not None
+    assert triage.verdict == "needs_review"  # never a clear, never None
     sidebar = await get_sidebar(db, ws.id)
-    assert sidebar is None or sidebar.triage is None
+    assert sidebar is not None and sidebar.triage is not None
+    assert sidebar.triage["verdict"] == "needs_review"
+
+
+async def test_code_finding_defers_to_needs_review(db) -> None:
+    """A code/SAST finding the exposure analyzer flagged as reachable+facing must
+    NOT ship as a confident `real` from the quick read — `run_triage` threads
+    `finding.type` so the synthesizer defers it to needs_review (→ Deep dive)."""
+    _finding, ws = await _make_workspace(db, source_type="semgrep", finding_type="code")
+    executor = _StubExecutor(
+        {"finding_enricher": _ENRICH_REAL, "exposure_analyzer": _EXPOSURE_REAL}
+    )
+    triage = await run_triage(executor, db, ws, env_vars={})
+    assert triage is not None
+    assert triage.verdict == "needs_review"  # deferred, not the dependency `real`
