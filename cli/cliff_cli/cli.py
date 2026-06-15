@@ -336,7 +336,10 @@ def fix(client: Client, issue_id: str, timeout: float) -> None:
     sidebar = poll(
         client,
         f"/api/workspaces/{workspace_id}/sidebar",
-        is_done=lambda s: bool(s.get("triage")),
+        # Wait for the verdict itself, not just a (possibly partial) triage
+        # object — otherwise an in-flight write could route us to the non-real
+        # branch before the verdict lands.
+        is_done=lambda s: bool(((s.get("triage") or {}).get("verdict") or "").strip()),
         interval=2.0,
         timeout=timeout,
         tolerate_status=(404,),

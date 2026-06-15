@@ -480,7 +480,10 @@ def test_fix_clears_noise_with_reasoning(cli, httpx_mock, verdict):
                 "confidence": 0.88,
                 "exploitability": {
                     "exploitable": "no",
-                    "reason": "shell-quote is a dev-only dependency, never imported by shipped code.",
+                    "reason": (
+                        "shell-quote is a dev-only dependency, "
+                        "never imported by shipped code."
+                    ),
                 },
                 "reachability": {"reached": False, "path": [], "summary": "No path found."},
             },

@@ -344,21 +344,25 @@ async def run_all_pipeline(
     # returned a non-real verdict AND there is no human-approved plan overriding
     # it. A finding that was never triaged behaves exactly as before.
     sidebar = await get_sidebar(db, workspace_id)
-    triage = sidebar.triage if sidebar else None
-    if triage is not None:
-        verdict = (triage.get("verdict") or "").lower()
+    triage = sidebar.triage if sidebar and isinstance(sidebar.triage, dict) else None
+    # Gate only on a CONCRETE non-real verdict. A missing/partial triage write
+    # ({} or no ``verdict``) leaves ``verdict`` empty and falls through to the
+    # normal pipeline — only a real dismissal/needs_review verdict blocks the
+    # planner, so an in-flight or never-triaged finding behaves as before.
+    verdict = (triage.get("verdict") or "").lower() if triage else ""
+    if verdict and verdict != "real":
         plan_approved = bool((sidebar.plan or {}).get("approved")) if sidebar else False
-        if verdict != "real" and not plan_approved:
+        if not plan_approved:
             logger.info(
                 "run-all gated for workspace %s: triaged %r (not real) — no plan",
                 workspace_id,
-                verdict or "unknown",
+                verdict,
             )
             return RunAllResponse(
                 status="gated",
                 message=(
-                    f"Triaged as {verdict or 'unknown'} — no remediation plan "
-                    f"needed. Confirm it's real to plan a fix."
+                    f"Triaged as {verdict} — no remediation plan needed. "
+                    f"Confirm it's real to plan a fix."
                 ),
             )
 

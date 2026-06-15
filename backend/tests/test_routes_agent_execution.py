@@ -319,6 +319,19 @@ class TestRunAllPipeline:
         executor.check_not_busy = AsyncMock()
         executor.execute = AsyncMock(return_value=_make_execution_result())
 
+        # Capture create_task so we can assert the gated branch schedules NO
+        # background pipeline at all (a regression could create the task and
+        # fail before execute() — checking execute alone would miss it).
+        captured_tasks: list[asyncio.Task[Any]] = []
+        real_create_task = asyncio.create_task
+
+        def _capturing_create_task(
+            coro: Coroutine[Any, Any, Any],
+        ) -> asyncio.Task[Any]:
+            task = real_create_task(coro)
+            captured_tasks.append(task)
+            return task
+
         sidebar = SimpleNamespace(
             triage={"verdict": "unexploitable", "confidence": 0.88},
             plan=None,
@@ -332,14 +345,79 @@ class TestRunAllPipeline:
                 "cliff.api.routes.agent_execution.get_sidebar",
                 AsyncMock(return_value=sidebar),
             ),
+            patch(
+                "cliff.api.routes.agent_execution.asyncio.create_task",
+                _capturing_create_task,
+            ),
         ):
             resp = await client.post("/api/workspaces/ws-1/pipeline/run-all")
 
         assert resp.status_code == 202
         assert resp.json()["status"] == "gated"
+        assert not captured_tasks, "the gated branch must schedule no background pipeline"
         assert executor.execute.await_count == 0, (
             "the planner pipeline must never run for a non-real triage verdict"
         )
+
+    @pytest.mark.asyncio
+    async def test_run_all_not_gated_on_empty_triage_verdict(
+        self, app: FastAPI, client: AsyncClient
+    ) -> None:
+        """A partial/empty triage write ({} or no verdict) must NOT gate — only
+        a concrete non-real verdict blocks the planner. An in-flight or
+        never-triaged finding behaves exactly as before (proceeds)."""
+        executor = app.state.agent_executor
+        executor.check_not_busy = AsyncMock()
+        executor.execute = AsyncMock(return_value=_make_execution_result())
+        executor.push_permission_event = lambda ws_id, evt: None
+
+        app.state.context_builder.get_context_snapshot = AsyncMock(
+            return_value={
+                "finding": {"id": "f-1"},
+                "enrichment": {"normalized_title": "x"},
+                "ownership": None,
+                "exposure": {"recommended_urgency": "high"},
+                "evidence": {"affected_files": [], "fix_safety": "safe_bump"},
+                "plan": {"plan_steps": ["s"], "approved": True},
+                "remediation": {"status": "pr_created"},
+                "agent_run_history": [],
+            }
+        )
+
+        sidebar = SimpleNamespace(triage={}, plan=None)  # partial write, no verdict
+        captured_tasks: list[asyncio.Task[Any]] = []
+        real_create_task = asyncio.create_task
+
+        def _capturing_create_task(
+            coro: Coroutine[Any, Any, Any],
+        ) -> asyncio.Task[Any]:
+            task = real_create_task(coro)
+            captured_tasks.append(task)
+            return task
+
+        with (
+            patch(
+                "cliff.api.routes.agent_execution.get_workspace",
+                return_value=_make_workspace(),
+            ),
+            patch(
+                "cliff.api.routes.agent_execution.get_sidebar",
+                AsyncMock(return_value=sidebar),
+            ),
+            patch(
+                "cliff.api.routes.agent_execution._resolve_repo_env_vars",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "cliff.api.routes.agent_execution.asyncio.create_task",
+                _capturing_create_task,
+            ),
+        ):
+            resp = await client.post("/api/workspaces/ws-1/pipeline/run-all")
+            assert resp.status_code == 202
+            assert resp.json()["status"] == "running"
+            assert captured_tasks, "an empty triage verdict must not gate the pipeline"
+            await captured_tasks[0]
 
     @pytest.mark.asyncio
     async def test_run_all_proceeds_when_triaged_real(
