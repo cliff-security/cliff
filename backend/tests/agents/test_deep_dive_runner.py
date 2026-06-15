@@ -234,11 +234,45 @@ async def test_full_real_verdict_when_challenge_holds():
     assert out.provenance.model_tiers["challenge"] == "judge"
 
 
-async def test_challenge_downgrade_lowers_verdict():
+async def test_reached_yes_without_grounded_path_is_needs_review():
+    """A trace that claims reached=yes but records NO file:line hop has not
+    CONFIRMED reachability — it's a speculative "yes" (the prompt's "no hop
+    without a file:line you actually read"). Route to needs_review rather than
+    proceed to a confident `real` (the Plan-gate bright line) — and stop before
+    plan/challenge, since there's no grounded path to plan against or challenge."""
     stages = DeepDiveStages(
         gather=_stage({}),
         rule_out=_stage({"killed": False}),
         trace=_stage({"reached": "yes", "path": []}),
+    )
+    out = await _run(stages)
+    assert out.verdict == "needs_review"
+    assert out.provenance.exit_stage == "trace_path"
+    assert "plan_exploit" not in out.provenance.steps_run
+    assert "challenge" not in out.provenance.steps_run
+
+
+async def test_reached_yes_with_file_but_no_line_is_needs_review():
+    """A hop citing a `file` but no `line` is not a grounded `file:line` — the
+    trace prompt demands the line you actually read. Still speculative → route to
+    needs_review, never a confident `real`."""
+    stages = DeepDiveStages(
+        gather=_stage({}),
+        rule_out=_stage({"killed": False}),
+        trace=_stage({"reached": "yes", "path": [{"file": "a.py", "line": None, "role": "sink"}]}),
+    )
+    out = await _run(stages)
+    assert out.verdict == "needs_review"
+    assert out.provenance.exit_stage == "trace_path"
+
+
+async def test_challenge_downgrade_lowers_verdict():
+    stages = DeepDiveStages(
+        gather=_stage({}),
+        rule_out=_stage({"killed": False}),
+        # Grounded path (a real file:line hop) so this exercises the challenge
+        # downgrade, not the ungrounded-reachability guard above.
+        trace=_stage({"reached": "yes", "path": [{"file": "a.py", "line": 9, "role": "sink"}]}),
         plan=_stage({"hypotheses": [], "no_credible_exploit": False}),
         challenge=_challenge(
             Challenge(
