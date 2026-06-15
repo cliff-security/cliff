@@ -252,6 +252,20 @@ async def test_reached_yes_without_grounded_path_is_needs_review():
     assert "challenge" not in out.provenance.steps_run
 
 
+async def test_reached_yes_with_file_but_no_line_is_needs_review():
+    """A hop citing a `file` but no `line` is not a grounded `file:line` — the
+    trace prompt demands the line you actually read. Still speculative → route to
+    needs_review, never a confident `real`."""
+    stages = DeepDiveStages(
+        gather=_stage({}),
+        rule_out=_stage({"killed": False}),
+        trace=_stage({"reached": "yes", "path": [{"file": "a.py", "line": None, "role": "sink"}]}),
+    )
+    out = await _run(stages)
+    assert out.verdict == "needs_review"
+    assert out.provenance.exit_stage == "trace_path"
+
+
 async def test_challenge_downgrade_lowers_verdict():
     stages = DeepDiveStages(
         gather=_stage({}),

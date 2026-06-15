@@ -240,6 +240,54 @@ def test_speculative_phrasings_classify_as_uncertain(reachable: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    "reachable",
+    [
+        "cannot confirm it is not reachable",
+        "probably unreachable but needs verification",
+        "appears to have no path, though unverified",
+        "likely not reachable, but the call chain is unclear",
+    ],
+    ids=["cannot-confirm-not", "probably-unreachable", "appears-nopath", "likely-not"],
+)
+def test_hedged_negative_is_not_confidently_cleared(reachable: str) -> None:
+    """A HEDGED negative ("cannot confirm it is not reachable", "appears
+    unreachable but unverified") is uncertainty, not a clear no-path — it must
+    NOT be confidently cleared as `unexploitable`. Hedging dominates a negative
+    substring, so the verdict routes to needs_review."""
+    out = synthesize_triage(_WITH_CVE, {"reachable": reachable, "internet_facing": True})
+    assert out.verdict != "unexploitable"
+    assert out.verdict == "needs_review"
+
+
+def test_clean_no_path_still_clears_unexploitable() -> None:
+    """The fix must not over-trigger: a confident, un-hedged no-path still clears."""
+    out = synthesize_triage(
+        _WITH_CVE, {"reachable": "No path found from any entrypoint", "internet_facing": False}
+    )
+    assert out.verdict == "unexploitable"
+
+
+def test_secret_finding_abstained_defers_not_false_positive() -> None:
+    """A `secret` finding has no advisory (the enricher always abstains), so the
+    dependency projection would clear it as `false_positive` — false-clearing a
+    real leaked secret. Like code, a secret defers to needs_review (the same
+    no-advisory-model class)."""
+    out = synthesize_triage(
+        _ABSTAINED, {"reachable": "unclear", "internet_facing": None}, finding_type="secret"
+    )
+    assert out.verdict == "needs_review"
+
+
+def test_secret_finding_speculative_reachable_defers_not_real() -> None:
+    out = synthesize_triage(
+        _WITH_CVE,
+        {"reachable": "Reachable from the public API", "internet_facing": True},
+        finding_type="secret",
+    )
+    assert out.verdict == "needs_review"
+
+
 def test_code_finding_speculative_reachable_defers_not_real() -> None:
     """The recipe.py false positive: a code finding the analyzer flagged as
     reachable+internet-facing must NOT ship as a confident `real` — it defers."""

@@ -45,8 +45,6 @@ REPORT_SOURCE_TYPE = "report"
 #: real agent run — the chat card + sidebar are written here directly.
 SYNTHESIZER_AGENT_TYPE = "triage_synthesizer"
 
-_TERMINAL_FAILURE_STATUSES = ("failed", "rate_limited")
-
 _VERDICT_LABEL = {
     "real": "Real risk",
     "unexploitable": "Not exploitable",
@@ -161,6 +159,7 @@ async def _run_scanner_triage(
     model_full_id: str | None = None,
 ) -> TriageOutput | None:
     prereq_failed = False
+    failed_agent: str | None = None
     for agent_type in ("finding_enricher", "exposure_analyzer"):
         result = await executor.execute(
             workspace.id,
@@ -170,7 +169,10 @@ async def _run_scanner_triage(
             env_vars=env_vars,
         )
         status = getattr(result, "status", None)
-        if result is None or status in _TERMINAL_FAILURE_STATUSES:
+        # Proceed ONLY on a completed prerequisite. Any other result status —
+        # failed, rate_limited, awaiting_permission, or a future addition — is a
+        # non-completion and must degrade, not be mistaken for success.
+        if result is None or status != "completed":
             # A failed prerequisite (e.g. the exposure agent timing out on a
             # deploy-time SQL file) must NOT abort with no verdict — that strands
             # the CLI on a poll-timeout (exit 1) and leaves the UI without a
@@ -184,12 +186,25 @@ async def _run_scanner_triage(
                 agent_type, status, workspace.id,
             )
             prereq_failed = True
+            failed_agent = agent_type
             break
 
     latest = await list_latest_runs_by_workspace_ids(db, [workspace.id])
     runs = latest.get(workspace.id, {})
     enrichment = _structured_output(runs, "finding_enricher")
     exposure = _structured_output(runs, "exposure_analyzer")
+
+    if prereq_failed:
+        # Don't synthesize from a PRIOR attempt's stale output: the failed agent
+        # produced no fresh output this run, and an enricher failure breaks the
+        # loop before exposure runs at all — so ``list_latest_runs`` could hand
+        # back a confident exposure from an earlier triage and project a false
+        # ``real``. Drop the failed agent's input (and everything downstream of
+        # it) so the synthesizer lands on its missing-input needs_review.
+        if failed_agent == "finding_enricher":
+            enrichment = exposure = None
+        else:  # exposure_analyzer
+            exposure = None
 
     quick = synthesize_triage(enrichment, exposure, finding_type=finding.type)
 
@@ -251,7 +266,7 @@ async def _run_report_triage(
         env_vars=env_vars,
     )
     status = getattr(result, "status", None)
-    if result is None or status in _TERMINAL_FAILURE_STATUSES:
+    if result is None or status != "completed":  # proceed only on completion
         logger.warning(
             "Report triage aborted: status=%s for workspace %s", status, workspace.id
         )

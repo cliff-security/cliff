@@ -91,9 +91,16 @@ def _map_reach(reach: dict) -> TriageReachability:
 
 def _has_grounded_path(reach: dict) -> bool:
     """Whether a ``reached=yes`` trace is GROUNDED — cites at least one hop with a
-    real ``file``. An empty (or file-less) path is a speculative "yes", not
-    confirmed reachability, and must not project to a confident ``real``."""
-    return any(n.get("file") for n in (reach.get("path") or []))
+    real ``file:line`` (the trace prompt's "no hop … without a file:line you
+    actually read"). An empty path, or hops with no concrete ``file:line``, is a
+    speculative "yes", not confirmed reachability, and must not project to a
+    confident ``real``."""
+    for hop in reach.get("path") or []:
+        file = hop.get("file")
+        line = hop.get("line")
+        if isinstance(file, str) and file.strip() and isinstance(line, int) and line > 0:
+            return True
+    return False
 
 
 def _kill_corroborated(ro: dict, facts: dict, repo_knowledge: dict) -> bool:
