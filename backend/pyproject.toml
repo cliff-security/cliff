@@ -5,7 +5,7 @@ description = "Cliff - Self-hosted cybersecurity remediation copilot"
 requires-python = ">=3.11"
 license = "AGPL-3.0-only"
 dependencies = [
-    "fastapi>=0.115.0",
+    "fastapi>=0.138.1",
     "uvicorn[standard]>=0.34.0",
     "httpx>=0.28.0",
     "urllib3>=2.5.0",
