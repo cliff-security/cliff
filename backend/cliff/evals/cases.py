@@ -83,6 +83,12 @@ class EvalCase(BaseModel):
     # synthetic micro-repo for fast CI gate checks). Public repos only.
     repo: str | None = None
     sha: str | None = None
+    # ADR-0050 triage corpus — 3-way human ground truth (distinct from
+    # ``expected.verdict``, which is Cliff's 4-verdict space). Optional so every
+    # other agent's cases are unaffected.
+    corpus_verdict: Literal["noise", "your-call", "real"] | None = None
+    fp_class: str | None = None
+    scanner: str | None = None
 
     @model_validator(mode="after")
     def _dataset_mode_invariant(self) -> EvalCase:
