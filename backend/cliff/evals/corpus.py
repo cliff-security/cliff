@@ -18,8 +18,16 @@ Wrong is split into ``false_alarms`` (a non-issue called real) and
 
 from __future__ import annotations
 
+import tempfile
 from dataclasses import dataclass
-from typing import Literal
+from pathlib import Path
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from cliff.agents.schemas import TriageOutput
+    from cliff.evals.cases import EvalCase
 
 Disposition = Literal["flag", "clear", "unsure"]
 Bucket = Literal["right", "wrong", "not_sure"]
@@ -123,4 +131,71 @@ def score_corpus(pairs: list[tuple[str, str]]) -> Scorecard:
     )
 
 
-__all__ = ["Scorecard", "classify", "disposition", "score_corpus"]
+@dataclass(frozen=True)
+class CorpusCaseResult:
+    id: str
+    cliff_verdict: str
+    ground_truth: str
+    bucket: str
+    fp_class: str | None = None
+    scanner: str | None = None
+
+
+async def run_triage_corpus_eval(
+    cases: list[EvalCase],
+    *,
+    run_pipeline: Callable[[EvalCase, Path], Awaitable[TriageOutput]],
+) -> tuple[Scorecard, list[CorpusCaseResult]]:
+    """Run *run_pipeline* over each case's staged repo, score the verdicts.
+
+    ``run_pipeline(case, repo_dir) -> TriageOutput`` is injected (a stub in CI;
+    ``make_live_deep_dive_pipeline`` in the live baseline). A per-case infra
+    failure (checkout/network) is recorded as ``needs_review`` (Not-sure) and
+    the run continues — never a silent drop, never a crash.
+    """
+    if not cases:
+        raise ValueError("run_triage_corpus_eval got 0 cases — check the dataset / sample.")
+    records: list[CorpusCaseResult] = []
+    for case in cases:
+        truth = case.corpus_verdict
+        if truth is None:
+            raise ValueError(f"{case.id}: corpus case has no corpus_verdict")
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                repo_dir = Path(tmp) / "repo"
+                if case.repo and case.sha:
+                    from cliff.evals.repo_fetch import checkout_at_sha
+
+                    await checkout_at_sha(case.repo, case.sha, repo_dir)
+                else:
+                    repo_dir.mkdir()
+                    for rel, text in (case.files or {}).items():
+                        fp = repo_dir / rel
+                        fp.parent.mkdir(parents=True, exist_ok=True)
+                        fp.write_text(text)
+                triage = await run_pipeline(case, repo_dir)
+                cliff_verdict = triage.verdict
+        except Exception:  # noqa: BLE001 — one case's infra blip must not abort the run
+            cliff_verdict = "needs_review"
+        records.append(
+            CorpusCaseResult(
+                id=case.id,
+                cliff_verdict=cliff_verdict,
+                ground_truth=truth,
+                bucket=classify(cliff_verdict, truth),
+                fp_class=case.fp_class,
+                scanner=case.scanner,
+            )
+        )
+    scorecard = score_corpus([(r.cliff_verdict, r.ground_truth) for r in records])
+    return scorecard, records
+
+
+__all__ = [
+    "CorpusCaseResult",
+    "Scorecard",
+    "classify",
+    "disposition",
+    "run_triage_corpus_eval",
+    "score_corpus",
+]
