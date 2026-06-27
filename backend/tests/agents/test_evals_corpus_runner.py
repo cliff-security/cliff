@@ -1,4 +1,6 @@
 """run_triage_corpus_eval drives a pipeline over staged cases + scores it."""
+import pytest
+
 from cliff.agents.schemas import TriageOutput
 from cliff.evals.cases import EvalCase
 from cliff.evals.corpus import run_triage_corpus_eval
@@ -39,3 +41,19 @@ async def test_runner_infra_error_counts_not_sure():
     sc, records = await run_triage_corpus_eval(cases, run_pipeline=_explode)
     assert sc.total == 1 and sc.not_sure == 1
     assert records[0].cliff_verdict == "needs_review"
+    assert records[0].bucket == "not_sure"
+
+
+async def test_runner_empty_cases_raises():
+    with pytest.raises(ValueError):
+        await run_triage_corpus_eval([], run_pipeline=_stub({}))
+
+
+async def test_runner_missing_corpus_verdict_raises():
+    # A case with no corpus_verdict is a data-contract violation — must raise,
+    # not be silently scored.
+    case = EvalCase.model_validate(
+        {"id": "x", "tier": "ci", "finding": {}, "files": {"a.py": "p\n"}}
+    )
+    with pytest.raises(ValueError):
+        await run_triage_corpus_eval([case], run_pipeline=_stub({}))
