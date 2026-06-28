@@ -290,6 +290,14 @@ async def test_codemap_gate_clears_and_skips_deep_dive(monkeypatch, db) -> None:
     assert triage is not None
     assert triage.verdict == "false_positive"
     assert called["deep"] is False
+    # The cleared verdict must be dual-persisted (chat card + sidebar), not just
+    # returned — the CLAUDE.md agent-output rule applies to the gate's verdict too.
+    sidebar = await get_sidebar(db, ws.id)
+    assert sidebar is not None and sidebar.triage is not None
+    assert sidebar.triage["verdict"] == "false_positive"
+    runs = await list_agent_runs(db, ws.id)
+    synth = [r for r in runs if r.agent_type == "triage_synthesizer"]
+    assert len(synth) == 1 and synth[0].structured_output["verdict"] == "false_positive"
 
 
 async def test_codemap_gate_no_match_runs_deep_dive(monkeypatch, db) -> None:
@@ -338,6 +346,11 @@ async def test_codemap_gate_no_match_runs_deep_dive(monkeypatch, db) -> None:
 
     assert triage is not None
     assert triage is _deep_sentinel
+    # The deep-dive verdict must also be dual-persisted, so a dropped
+    # _persist_synthesis on this branch can't pass the return-value check alone.
+    sidebar = await get_sidebar(db, ws.id)
+    assert sidebar is not None and sidebar.triage is not None
+    assert sidebar.triage["verdict"] == "real"
 
 
 # ---------------------------------------------------------------------------
@@ -349,14 +362,14 @@ async def test_load_code_map_returns_none_when_read_artifact_raises(monkeypatch,
     """If read_artifact raises (e.g. corrupt/unreadable JSON), _load_code_map
     returns None — the gate falls through to the Deep dive; triage never crashes."""
     import cliff.agents.triage_runner as tr
-    from cliff.repos import dao as repos_dao
 
-    # Stub a "ready" repo so the status check passes.
-    from types import SimpleNamespace as SN
+    # Patch the name bound in triage_runner's namespace (imported via
+    # `from cliff.repos.dao import get_repo_by_url`); patching repos_dao directly
+    # would leave the triage_runner binding untouched and skip the early-return.
+    async def _fake_get_repo(db, url):  # noqa: ANN001
+        return SimpleNamespace(id="repo-1", profile_status="ready")
 
-    monkeypatch.setattr(
-        repos_dao, "get_repo_by_url", lambda db, url: SN(id="repo-1", profile_status="ready")
-    )
+    monkeypatch.setattr(tr, "get_repo_by_url", _fake_get_repo)
 
     # Make the dir manager's read_artifact raise on any call.
     class _BrokenDirManager:
@@ -373,18 +386,20 @@ async def test_load_code_map_returns_none_for_non_dict_artifact(monkeypatch, db)
     """If read_artifact returns a non-dict JSON value (list, string, None),
     _load_code_map returns None so the gate falls through safely."""
     import cliff.agents.triage_runner as tr
-    from cliff.repos import dao as repos_dao
-    from types import SimpleNamespace as SN
 
-    monkeypatch.setattr(
-        repos_dao, "get_repo_by_url", lambda db, url: SN(id="repo-1", profile_status="ready")
-    )
+    # Patch the name bound in triage_runner's namespace so the repo-status guard
+    # is actually exercised and the read_artifact branch is reached.
+    async def _fake_get_repo(db, url):  # noqa: ANN001
+        return SimpleNamespace(id="repo-1", profile_status="ready")
+
+    monkeypatch.setattr(tr, "get_repo_by_url", _fake_get_repo)
 
     for bad_value in ([], "string", 42, None):
-
+        # Capture `bad_value` in the default arg to avoid the B023 late-binding
+        # pitfall: without the default, all iterations would see the last value.
         class _BadDirManager:
-            def read_artifact(self, repo_id, name):  # noqa: ANN001
-                return bad_value
+            def read_artifact(self, repo_id, name, _val=bad_value):  # noqa: ANN001
+                return _val
 
         monkeypatch.setattr(tr, "default_repo_dir_manager", lambda: _BadDirManager())
 

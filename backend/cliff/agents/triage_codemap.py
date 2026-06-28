@@ -131,6 +131,10 @@ def resolve_by_code_map(
         if not isinstance(entry, dict):
             continue
         category = entry.get("category")
+        if not isinstance(category, str):
+            # A non-str category can't match any NONSHIP_CATEGORIES member; a
+            # non-hashable value (list/dict) would raise TypeError on `in` — skip it.
+            continue
         glob = entry.get("glob")
         safe = (
             category in NONSHIP_CATEGORIES

@@ -134,3 +134,12 @@ def test_corrupt_classified_non_list_returns_none():
     for bad in (5, True, "x", {"glob": "tests/**"}):
         cm = {"ships_roots": [], "excluded_roots": [], "classified": bad}
         assert resolve_by_code_map({"location": "tests/test_x.py"}, cm) is None
+
+
+def test_non_hashable_category_does_not_crash():
+    """A corrupt entry whose `category` is a non-hashable (list/dict) must not raise
+    TypeError when tested against NONSHIP_CATEGORIES — the guard skips it cleanly."""
+    for bad_category in (["test"], {"key": "val"}):
+        cm = _cm([{"glob": "tests/**", "category": bad_category, "reason": "x"}])
+        result = resolve_by_code_map({"location": "tests/test_x.py"}, cm)
+        assert result is None, f"expected None for category={bad_category!r}, got {result!r}"
