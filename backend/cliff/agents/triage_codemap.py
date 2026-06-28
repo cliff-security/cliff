@@ -124,7 +124,10 @@ def resolve_by_code_map(
     path = (finding.get("location") or "").strip()
     if not path:
         return None
-    for entry in code_map.get("classified") or []:
+    classified = code_map.get("classified")
+    if not isinstance(classified, list):
+        return None
+    for entry in classified:
         if not isinstance(entry, dict):
             continue
         category = entry.get("category")

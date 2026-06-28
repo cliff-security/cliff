@@ -127,3 +127,10 @@ def test_repeated_doublestar_matches_same_as_single():
         assert (
             resolve_by_code_map({"location": loc}, cm_single) is not None
         ), f"single glob missed {loc!r}"
+
+
+def test_corrupt_classified_non_list_returns_none():
+    # A corrupt code_map whose `classified` is a non-list scalar must not crash — fall through.
+    for bad in (5, True, "x", {"glob": "tests/**"}):
+        cm = {"ships_roots": [], "excluded_roots": [], "classified": bad}
+        assert resolve_by_code_map({"location": "tests/test_x.py"}, cm) is None
