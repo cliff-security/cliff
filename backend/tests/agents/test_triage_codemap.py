@@ -84,3 +84,37 @@ def test_bare_dir_matches_nested_but_not_substring_segment():
     assert resolve_by_code_map({"location": "app/pkg/tests/test_x.py"}, cm) is not None
     # 'latest' is a different segment that merely contains the name → must NOT match
     assert resolve_by_code_map({"location": "app/latest/x.py"}, cm) is None
+
+
+def test_repeated_doublestar_matches_same_as_single():
+    """**/**/*_test.py must match exactly the same paths as **/*_test.py.
+
+    Verifies the consecutive-**/ collapse in _glob_to_regex — the dedup must
+    not change matching results for valid inputs.
+    """
+    from cliff.agents.triage_codemap import _glob_to_regex
+
+    doubled = _glob_to_regex("**/**/*_test.py")
+    single = _glob_to_regex("**/*_test.py")
+    paths = [
+        "foo_test.py",
+        "pkg/foo_test.py",
+        "pkg/sub/foo_test.py",
+        "a/b/c/foo_test.py",
+        # should NOT match (wrong suffix)
+        "pkg/foo_test_extra.py",
+        "pkg/nottest.py",
+    ]
+    for p in paths:
+        assert bool(doubled.match(p)) == bool(single.match(p)), f"mismatch on {p!r}"
+
+    # Also confirm via the public API that a doubled glob clears the same path
+    cm_doubled = _cm([{"glob": "**/**/*_test.py", "category": "test", "reason": "t"}])
+    cm_single = _cm([{"glob": "**/*_test.py", "category": "test", "reason": "t"}])
+    for loc in ("pkg/foo_test.py", "a/b/c/bar_test.py"):
+        assert (
+            resolve_by_code_map({"location": loc}, cm_doubled) is not None
+        ), f"doubled glob missed {loc!r}"
+        assert (
+            resolve_by_code_map({"location": loc}, cm_single) is not None
+        ), f"single glob missed {loc!r}"

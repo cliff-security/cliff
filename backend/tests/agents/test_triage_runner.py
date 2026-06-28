@@ -338,3 +338,97 @@ async def test_codemap_gate_no_match_runs_deep_dive(monkeypatch, db) -> None:
 
     assert triage is not None
     assert triage is _deep_sentinel
+
+
+# ---------------------------------------------------------------------------
+# _load_code_map robustness: corrupt / unreadable / non-dict code_map
+# ---------------------------------------------------------------------------
+
+
+async def test_load_code_map_returns_none_when_read_artifact_raises(monkeypatch, db) -> None:
+    """If read_artifact raises (e.g. corrupt/unreadable JSON), _load_code_map
+    returns None — the gate falls through to the Deep dive; triage never crashes."""
+    import cliff.agents.triage_runner as tr
+    from cliff.repos import dao as repos_dao
+
+    # Stub a "ready" repo so the status check passes.
+    from types import SimpleNamespace as SN
+
+    monkeypatch.setattr(
+        repos_dao, "get_repo_by_url", lambda db, url: SN(id="repo-1", profile_status="ready")
+    )
+
+    # Make the dir manager's read_artifact raise on any call.
+    class _BrokenDirManager:
+        def read_artifact(self, repo_id, name):  # noqa: ANN001
+            raise OSError("disk read error")
+
+    monkeypatch.setattr(tr, "default_repo_dir_manager", lambda: _BrokenDirManager())
+
+    result = await tr._load_code_map(db, "https://github.com/test/repo")
+    assert result is None
+
+
+async def test_load_code_map_returns_none_for_non_dict_artifact(monkeypatch, db) -> None:
+    """If read_artifact returns a non-dict JSON value (list, string, None),
+    _load_code_map returns None so the gate falls through safely."""
+    import cliff.agents.triage_runner as tr
+    from cliff.repos import dao as repos_dao
+    from types import SimpleNamespace as SN
+
+    monkeypatch.setattr(
+        repos_dao, "get_repo_by_url", lambda db, url: SN(id="repo-1", profile_status="ready")
+    )
+
+    for bad_value in ([], "string", 42, None):
+
+        class _BadDirManager:
+            def read_artifact(self, repo_id, name):  # noqa: ANN001
+                return bad_value
+
+        monkeypatch.setattr(tr, "default_repo_dir_manager", lambda: _BadDirManager())
+
+        result = await tr._load_code_map(db, "https://github.com/test/repo")
+        assert result is None, f"expected None for bad_value={bad_value!r}, got {result!r}"
+
+
+async def test_codemap_gate_falls_through_on_corrupt_code_map(monkeypatch, db) -> None:
+    """When _load_code_map returns None (corrupt/unreadable), run_triage must
+    NOT crash — it falls through to the Deep dive / quick verdict path."""
+    import cliff.agents.triage_runner as tr
+
+    async def _load_raises(db, repo_url):  # noqa: ANN001
+        return None  # simulates corrupt code_map already returning None
+
+    monkeypatch.setattr(tr, "_load_code_map", _load_raises)
+
+    finding = await create_finding(
+        db,
+        FindingCreate(
+            source_type="trivy",
+            source_id="vuln-corrupt-001",
+            title="CVE-2026-0001 in libfoo",
+            type="dependency",
+            raw_payload={"path": "tests/test_x.py"},
+        ),
+    )
+    ws = await create_workspace(
+        db, WorkspaceCreate(finding_id=finding.id, repo_url="https://github.com/test/repo")
+    )
+    now = datetime.now(UTC).isoformat()
+    await db.execute(
+        "UPDATE workspace SET workspace_dir = ?, updated_at = ? WHERE id = ?",
+        (f"/tmp/ws/{ws.id}", now, ws.id),
+    )
+    await db.commit()
+
+    executor = _StubExecutor(
+        {"finding_enricher": _ENRICH_REAL, "exposure_analyzer": _EXPOSURE_REAL}
+    )
+
+    # Must not raise — falls through to quick read / deep dive (no deep dive configured
+    # here, so lands the quick verdict).
+    triage = await run_triage(executor, db, ws, env_vars={})
+    assert triage is not None
+    # verdict is NOT false_positive (gate was skipped)
+    assert triage.verdict != "false_positive"

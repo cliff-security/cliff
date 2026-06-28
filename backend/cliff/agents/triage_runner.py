@@ -107,15 +107,29 @@ def _structured_output(runs: dict[str, Any], agent_type: str) -> dict[str, Any] 
     return run.structured_output if run is not None else None
 
 
-async def _load_code_map(db: aiosqlite.Connection, repo_url: str | None) -> dict | None:
+async def _load_code_map(db: aiosqlite.Connection, repo_url: str | None) -> dict[str, Any] | None:
     """The repo's cached code_map, or None when there's no ready profile — the
-    same resolution the Deep dive uses (cliff/agents/triage_deep/integration.py)."""
+    same resolution the Deep dive uses (cliff/agents/triage_deep/integration.py).
+
+    Returns None (falls through to Deep dive) on any read/parse failure, or
+    when the artifact is not a dict — triage must never crash on a corrupt
+    code_map.
+    """
     if not repo_url:
         return None
     repo = await get_repo_by_url(db, repo_url)
     if repo is None or repo.profile_status != "ready":
         return None
-    return default_repo_dir_manager().read_artifact(repo.id, "code_map")
+    try:
+        result = default_repo_dir_manager().read_artifact(repo.id, "code_map")
+    except Exception:
+        logger.debug(
+            "code_map unreadable for repo %s — falling through to Deep dive", repo_url
+        )
+        return None
+    if not isinstance(result, dict):
+        return None
+    return result
 
 
 async def run_triage(

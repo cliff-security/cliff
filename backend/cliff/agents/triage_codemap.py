@@ -61,8 +61,16 @@ def _glob_is_safe(glob: str) -> bool:
 @lru_cache(maxsize=1024)
 def _glob_to_regex(glob: str) -> re.Pattern[str]:
     """Anchored, segment-aware glob → regex. ``**`` spans directories, ``*`` stays
-    within a path segment, ``?`` is one non-separator char."""
+    within a path segment, ``?`` is one non-separator char.
+
+    Consecutive directory-spanning segments (``**/**/*.py``) are collapsed to a
+    single ``**/`` before compilation to avoid stacked ``(?:[^/]+/)*`` groups
+    that can backtrack catastrophically on deep non-matching paths.
+    """
     g = glob.strip("/")
+    # Collapse repeated **/ (e.g. **/**/ → **/) — safe because repeating
+    # "match any number of segments" has no extra effect; matching is unchanged.
+    g = re.sub(r"(?:\*\*/){2,}", "**/", g)
     out: list[str] = []
     i = 0
     while i < len(g):
@@ -109,9 +117,16 @@ def resolve_by_code_map(
     if not path:
         return None
     for entry in code_map.get("classified") or []:
+        if not isinstance(entry, dict):
+            continue
         category = entry.get("category")
         glob = entry.get("glob")
-        safe = category in NONSHIP_CATEGORIES and glob and _glob_is_safe(glob)
+        safe = (
+            category in NONSHIP_CATEGORIES
+            and isinstance(glob, str)
+            and glob
+            and _glob_is_safe(glob)
+        )
         if safe and _path_matches(path, glob):
             reason = entry.get("reason") or "non-shipping code"
             return TriageOutput(
