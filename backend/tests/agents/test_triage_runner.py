@@ -241,3 +241,100 @@ async def test_code_finding_defers_to_needs_review(db) -> None:
     triage = await run_triage(executor, db, ws, env_vars={})
     assert triage is not None
     assert triage.verdict == "needs_review"  # deferred, not the dependency `real`
+
+
+async def test_codemap_gate_clears_and_skips_deep_dive(monkeypatch, db) -> None:
+    """When the repo code_map marks the finding's path non-ship, run_triage returns
+    false_positive WITHOUT invoking the Deep dive."""
+    import cliff.agents.triage_runner as tr
+
+    async def _fake_load_code_map(db, repo_url):  # noqa: ANN001
+        return {"classified": [{"glob": "tests/**", "category": "test", "reason": "suite"}]}
+
+    called = {"deep": False}
+
+    async def _fake_deep(*a, **k):  # noqa: ANN002, ANN003
+        called["deep"] = True
+        return None
+
+    monkeypatch.setattr(tr, "_load_code_map", _fake_load_code_map)
+    monkeypatch.setattr(tr, "maybe_deep_dive", _fake_deep)
+
+    # Arrange: finding with path in tests/, workspace with repo_url.
+    finding = await create_finding(
+        db,
+        FindingCreate(
+            source_type="trivy",
+            source_id="vuln-gate-001",
+            title="CVE-2026-0001 in libfoo",
+            type="dependency",
+            raw_payload={"path": "tests/test_x.py"},
+        ),
+    )
+    ws = await create_workspace(
+        db, WorkspaceCreate(finding_id=finding.id, repo_url="https://github.com/test/repo")
+    )
+    now = datetime.now(UTC).isoformat()
+    await db.execute(
+        "UPDATE workspace SET workspace_dir = ?, updated_at = ? WHERE id = ?",
+        (f"/tmp/ws/{ws.id}", now, ws.id),
+    )
+    await db.commit()
+
+    executor = _StubExecutor(
+        {"finding_enricher": _ENRICH_REAL, "exposure_analyzer": _EXPOSURE_REAL}
+    )
+
+    triage = await run_triage(executor, db, ws, env_vars={})
+
+    assert triage is not None
+    assert triage.verdict == "false_positive"
+    assert called["deep"] is False
+
+
+async def test_codemap_gate_no_match_runs_deep_dive(monkeypatch, db) -> None:
+    """When nothing matches, the Deep dive still runs (gate is transparent)."""
+    import cliff.agents.triage_runner as tr
+    from cliff.agents.schemas import TriageOutput
+
+    async def _fake_load_code_map(db, repo_url):  # noqa: ANN001
+        return {"classified": [{"glob": "tests/**", "category": "test", "reason": "s"}]}
+
+    monkeypatch.setattr(tr, "_load_code_map", _fake_load_code_map)
+
+    _deep_sentinel = TriageOutput(verdict="real", confidence=0.99)
+
+    async def _fake_deep(*a, **k):  # noqa: ANN002, ANN003
+        return _deep_sentinel
+
+    monkeypatch.setattr(tr, "maybe_deep_dive", _fake_deep)
+
+    # Arrange: finding with path in src/ (no match for tests/**).
+    finding = await create_finding(
+        db,
+        FindingCreate(
+            source_type="trivy",
+            source_id="vuln-gate-002",
+            title="CVE-2026-0001 in libfoo",
+            type="dependency",
+            raw_payload={"path": "src/app.py"},
+        ),
+    )
+    ws = await create_workspace(
+        db, WorkspaceCreate(finding_id=finding.id, repo_url="https://github.com/test/repo")
+    )
+    now = datetime.now(UTC).isoformat()
+    await db.execute(
+        "UPDATE workspace SET workspace_dir = ?, updated_at = ? WHERE id = ?",
+        (f"/tmp/ws/{ws.id}", now, ws.id),
+    )
+    await db.commit()
+
+    executor = _StubExecutor(
+        {"finding_enricher": _ENRICH_REAL, "exposure_analyzer": _EXPOSURE_REAL}
+    )
+
+    triage = await run_triage(executor, db, ws, env_vars={})
+
+    assert triage is not None
+    assert triage is _deep_sentinel
