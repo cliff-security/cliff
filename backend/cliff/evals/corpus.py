@@ -163,16 +163,22 @@ async def run_triage_corpus_eval(
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 repo_dir = Path(tmp) / "repo"
-                if case.repo and case.sha:
+                if case.repo is not None and case.sha is not None:
                     from cliff.evals.repo_fetch import checkout_at_sha
 
                     await checkout_at_sha(case.repo, case.sha, repo_dir)
                 else:
                     repo_dir.mkdir()
+                    repo_dir = repo_dir.resolve()  # resolve symlinks once for traversal check
                     for rel, text in (case.files or {}).items():
-                        fp = repo_dir / rel
-                        fp.parent.mkdir(parents=True, exist_ok=True)
-                        fp.write_text(text)
+                        # Confine staged files to the temp workspace — a dataset
+                        # row with an absolute path or ``..`` segment must not
+                        # escape it (same guard as run_report_triager_eval).
+                        target = (repo_dir / rel).resolve()
+                        if not target.is_relative_to(repo_dir):
+                            raise ValueError(f"case file path escapes the workspace: {rel!r}")
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_text(text)
                 triage = await run_pipeline(case, repo_dir)
                 cliff_verdict = triage.verdict
         except Exception:  # noqa: BLE001 — one case's infra blip must not abort the run

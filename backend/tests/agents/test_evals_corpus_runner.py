@@ -14,6 +14,12 @@ def _case(cid, truth, files):
 
 def _stub(outputs):
     async def _run(case, repo_dir):
+        # Assert that the runner actually staged the declared files into repo_dir
+        # so the test catches a regression where staging is silently skipped.
+        for rel, expected_text in (case.files or {}).items():
+            staged = repo_dir / rel
+            assert staged.exists(), f"staged file {rel!r} missing under repo_dir"
+            assert staged.read_text() == expected_text, f"staged file {rel!r} has wrong content"
         return outputs[case.id]
 
     return _run
@@ -33,15 +39,25 @@ async def test_runner_scores_staged_cases():
 
 
 async def test_runner_infra_error_counts_not_sure():
-    cases = [_case("boom", "noise", {"x.py": "p\n"})]
+    """Infra error → not_sure, but the loop must continue past it to score the next case."""
+    cases = [
+        _case("boom", "noise", {"x.py": "p\n"}),
+        _case("ok", "real", {"x.py": "p\n"}),
+    ]
 
-    async def _explode(case, repo_dir):
-        raise RuntimeError("checkout blew up")
+    async def _explode_then_succeed(case, repo_dir):
+        if case.id == "boom":
+            raise RuntimeError("checkout blew up")
+        return TriageOutput(verdict="real", confidence=0.9)
 
-    sc, records = await run_triage_corpus_eval(cases, run_pipeline=_explode)
-    assert sc.total == 1 and sc.not_sure == 1
-    assert records[0].cliff_verdict == "needs_review"
-    assert records[0].bucket == "not_sure"
+    sc, records = await run_triage_corpus_eval(cases, run_pipeline=_explode_then_succeed)
+    assert sc.total == 2
+    assert sc.not_sure == 1 and sc.right == 1
+    by_id = {r.id: r for r in records}
+    assert by_id["boom"].cliff_verdict == "needs_review"
+    assert by_id["boom"].bucket == "not_sure"
+    assert by_id["ok"].cliff_verdict == "real"
+    assert by_id["ok"].bucket == "right"
 
 
 async def test_runner_empty_cases_raises():
