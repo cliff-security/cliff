@@ -49,9 +49,18 @@ def test_empty_or_missing_inputs_return_none():
 
 
 def test_nonship_categories_frozen():
-    assert frozenset(
-        {"test", "fixture", "example", "docs", "build", "vendored"}
-    ) == NONSHIP_CATEGORIES
+    assert frozenset({"test", "fixture", "example", "docs"}) == NONSHIP_CATEGORIES
+
+
+def test_build_and_vendored_categories_do_not_clear():
+    # CI/build is a security surface; vendored code can ship — neither is auto-cleared.
+    for cat, glob, path in [
+        ("build", ".github/**", ".github/workflows/locale-sync.yml"),
+        ("build", "scripts/**", "scripts/release.sh"),
+        ("vendored", "vendor/**", "vendor/lib/thing.go"),
+    ]:
+        cm = _cm([{"glob": glob, "category": cat, "reason": "x"}])
+        assert resolve_by_code_map({"location": path}, cm) is None, cat
 
 
 def test_loose_infix_wildcard_glob_is_rejected():

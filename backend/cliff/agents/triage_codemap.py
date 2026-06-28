@@ -10,6 +10,13 @@ per-finding LLM hope.
 Safety (never clear a real finding):
 * clears ONLY on a ``classified`` glob whose ``category`` is a conservative
   non-ship kind (``ships`` and ``dead`` never clear);
+* only categories **proven noise-only** against the 2,229-finding gold corpus
+  are auto-cleared — ``test``, ``fixture``, ``example``, ``docs``.  ``build``
+  and ``vendored`` are intentionally excluded: CI/CD workflow files
+  (``.github/workflows/``) are a real security surface (workflow injection,
+  secret theft) and the gold dataset labels them ``your-call``, not noise;
+  vendored third-party code often ships and a vulnerability there can be real.
+  Both categories are left to the LLM Deep dive;
 * matching is segment/boundary-anchored — loose globs (``*test*``) and
   match-everything globs (``**``, ``*``, ``**/*``) are SKIPPED, never cleared
   on; the finding falls through to the Deep dive (safe);
@@ -28,7 +35,8 @@ from typing import Any
 from cliff.agents.schemas import TriageCheck, TriageOutput, TriageProvenance
 
 #: Categories the resolver may clear on. ``ships``/``dead`` are deliberately excluded.
-NONSHIP_CATEGORIES = frozenset({"test", "fixture", "example", "docs", "build", "vendored"})
+#: ``build`` and ``vendored`` are also excluded — see module docstring for rationale.
+NONSHIP_CATEGORIES = frozenset({"test", "fixture", "example", "docs"})
 
 _CONF_CODEMAP_CLEAR = 0.9
 
