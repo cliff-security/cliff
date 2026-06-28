@@ -286,9 +286,6 @@ async def run_report_triager_eval(
             "not silently report PASS. Check the dataset path / tier filter."
         )
 
-    import tempfile
-    from pathlib import Path
-
     from pydantic_ai.exceptions import UsageLimitExceeded
     from pydantic_ai.usage import UsageLimits
 
@@ -404,10 +401,19 @@ async def run_deep_dive_eval(
                 else:
                     # CI / synthetic: stage the inline micro-repo.
                     repo_dir.mkdir()
+                    repo_dir_resolved = repo_dir.resolve()
                     for rel, text in (case.files or {}).items():
-                        fp = repo_dir / rel
-                        fp.parent.mkdir(parents=True, exist_ok=True)
-                        fp.write_text(text)
+                        # Confine staged files to the temp workspace — a dataset
+                        # row with an absolute path or ``..`` segment must not
+                        # escape it (matches the guard in run_report_triager_eval
+                        # and run_triage_corpus_eval).
+                        target = (repo_dir / rel).resolve()
+                        if not target.is_relative_to(repo_dir_resolved):
+                            raise ValueError(
+                                f"case file path escapes the workspace: {rel!r}"
+                            )
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_text(text)
 
                 triage = await run_pipeline(case, repo_dir)
                 golden = case.expected.as_dict().get("verdict")
