@@ -10,7 +10,12 @@ per-finding LLM hope.
 Safety (never clear a real finding):
 * clears ONLY on a ``classified`` glob whose ``category`` is a conservative
   non-ship kind (``ships`` and ``dead`` never clear);
-* anchored, segment-aware glob match (never substring);
+* matching is segment/boundary-anchored — loose globs (``*test*``) and
+  match-everything globs (``**``, ``*``, ``**/*``) are SKIPPED, never cleared
+  on; the finding falls through to the Deep dive (safe);
+* bare directory names (no separator, no wildcard) match that segment anywhere
+  in the path (``"tests"`` matches ``app/tests/x.py``), segment-anchored;
+  explicit globs are honored as written;
 * default = return ``None`` (the caller falls through to the Deep dive).
 """
 
@@ -26,6 +31,31 @@ from cliff.agents.schemas import TriageCheck, TriageOutput, TriageProvenance
 NONSHIP_CATEGORIES = frozenset({"test", "fixture", "example", "docs", "build", "vendored"})
 
 _CONF_CODEMAP_CLEAR = 0.9
+
+_BOUNDARY = set("/._-")
+
+
+def _glob_is_safe(glob: str) -> bool:
+    """Reject loose globs that could substring-match inside a path segment.
+
+    A single ``*``/``?`` directly against an alphanumeric char (e.g. ``*test*``)
+    lets the wildcard absorb part of a word, so ``*test*`` matches ``latest.py``.
+    We only honor wildcards bounded by a separator (``/ . _ -``), a segment edge,
+    or another wildcard. A glob with no literal alphanumeric token (``**``, ``*``)
+    is match-everything and is also rejected. An unsafe glob is skipped, never
+    cleared on — the finding falls through to the Deep dive (safe)."""
+    g = glob.strip("/")
+    if not any(c.isalnum() for c in g):
+        return False
+    for i, ch in enumerate(g):
+        if ch in "*?":
+            prev = g[i - 1] if i > 0 else ""
+            nxt = g[i + 1] if i + 1 < len(g) else ""
+            left_ok = prev == "" or prev in _BOUNDARY or prev in "*?"
+            right_ok = nxt == "" or nxt in _BOUNDARY or nxt in "*?"
+            if not (left_ok and right_ok):
+                return False
+    return True
 
 
 @lru_cache(maxsize=1024)
@@ -61,9 +91,11 @@ def _path_matches(path: str, glob: str) -> bool:
         return False
     if _glob_to_regex(g).match(p):
         return True
-    # Treat a bare directory glob ("tests", "examples/foo") as a prefix: match
-    # any file under it. (A finding path is always a file, never the dir itself.)
-    return bool(_glob_to_regex(g.rstrip("/") + "/**").match(p))
+    # A bare directory name (no separator, no wildcard) → match that segment
+    # anywhere in the path (so "tests" covers "app/tests/x.py"), segment-anchored.
+    if "/" not in g and "*" not in g and "?" not in g:
+        return bool(_glob_to_regex(f"**/{g}/**").match(p))
+    return False
 
 
 def resolve_by_code_map(
@@ -79,7 +111,8 @@ def resolve_by_code_map(
     for entry in code_map.get("classified") or []:
         category = entry.get("category")
         glob = entry.get("glob")
-        if category in NONSHIP_CATEGORIES and glob and _path_matches(path, glob):
+        safe = category in NONSHIP_CATEGORIES and glob and _glob_is_safe(glob)
+        if safe and _path_matches(path, glob):
             reason = entry.get("reason") or "non-shipping code"
             return TriageOutput(
                 verdict="false_positive",
@@ -101,4 +134,4 @@ def resolve_by_code_map(
     return None
 
 
-__all__ = ["NONSHIP_CATEGORIES", "resolve_by_code_map"]
+__all__ = ["NONSHIP_CATEGORIES", "_glob_is_safe", "resolve_by_code_map"]

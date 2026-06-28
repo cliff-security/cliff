@@ -52,3 +52,35 @@ def test_nonship_categories_frozen():
     assert frozenset(
         {"test", "fixture", "example", "docs", "build", "vendored"}
     ) == NONSHIP_CATEGORIES
+
+
+def test_loose_infix_wildcard_glob_is_rejected():
+    cm = _cm([{"glob": "*test*", "category": "test", "reason": "t"}])
+    # 'latest'/'attestation' embed 'test' — must NOT clear (false-clear guard).
+    assert resolve_by_code_map({"location": "latest_release.py"}, cm) is None
+    assert resolve_by_code_map({"location": "src/attestation.py"}, cm) is None
+
+
+def test_match_all_glob_never_clears():
+    for bad in ("**", "*", "**/*"):
+        cm = _cm([{"glob": bad, "category": "test", "reason": "t"}])
+        assert resolve_by_code_map({"location": "src/app.py"}, cm) is None
+
+
+def test_safe_forms_still_clear():
+    for glob, path in [
+        ("**/*_test.py", "pkg/foo_test.py"),
+        ("test_*.py", "test_login.py"),
+        ("*.spec.ts", "button.spec.ts"),
+        ("tests/**", "tests/x.py"),
+        ("examples", "examples/demo.py"),
+    ]:
+        cm = _cm([{"glob": glob, "category": "test", "reason": "t"}])
+        assert resolve_by_code_map({"location": path}, cm) is not None, glob
+
+
+def test_bare_dir_matches_nested_but_not_substring_segment():
+    cm = _cm([{"glob": "tests", "category": "test", "reason": "t"}])
+    assert resolve_by_code_map({"location": "app/pkg/tests/test_x.py"}, cm) is not None
+    # 'latest' is a different segment that merely contains the name → must NOT match
+    assert resolve_by_code_map({"location": "app/latest/x.py"}, cm) is None
