@@ -424,7 +424,9 @@ async def test_codemap_gate_falls_through_on_corrupt_code_map(monkeypatch, db) -
             source_id="vuln-corrupt-001",
             title="CVE-2026-0001 in libfoo",
             type="dependency",
-            raw_payload={"path": "tests/test_x.py"},
+            # Non-builtin path — src/ is not a universal non-ship dir, so the
+            # built-in layer won't clear it; only code_map could, but that's None.
+            raw_payload={"path": "src/lib/handler.py"},
         ),
     )
     ws = await create_workspace(
@@ -445,5 +447,5 @@ async def test_codemap_gate_falls_through_on_corrupt_code_map(monkeypatch, db) -
     # here, so lands the quick verdict).
     triage = await run_triage(executor, db, ws, env_vars={})
     assert triage is not None
-    # verdict is NOT false_positive (gate was skipped)
+    # verdict is NOT false_positive (neither built-in nor code_map cleared it)
     assert triage.verdict != "false_positive"

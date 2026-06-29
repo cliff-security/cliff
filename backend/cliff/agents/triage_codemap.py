@@ -1,11 +1,19 @@
-"""Deterministic code_map resolver (SP2 / ADR-0052 extension).
+"""Deterministic code_map resolver (SP2/SP3 / ADR-0052 extension).
 
-Clears a finding as ``false_positive`` BEFORE the LLM Deep dive when its file
-path matches a non-ship glob the repo profiler already classified in
-``code_map`` (``cliff/repos/schemas.py``). Pure — no LLM, no network, no
-filesystem — so it is keyless and CI-testable, and it makes the profile's
-repo-aware ship/no-ship knowledge a reliable deterministic check instead of a
-per-finding LLM hope.
+Clears a finding as ``false_positive`` BEFORE the LLM Deep dive via two layers:
+
+1. Universal built-in safe-path patterns (gold-validated; work without a
+   ``code_map``): non-ship directory segments (``tests/``, ``examples/``, …)
+   and non-ship file basenames (``*.test.ts``, ``*_test.py``, …).  A
+   ``ships`` classification in the repo profile vetoes a built-in clear (the
+   rare repo that packages ``examples/`` etc.).  Raises deterministic recall
+   from ~8 % to ~56 % at 100 % precision against the 2,229-finding gold
+   corpus (``eval/corpus/resolver_precision.py``).
+
+2. The repo profile's ``code_map.classified`` non-ship globs (SP2 behaviour).
+   Unchanged — handles repo-specific paths not covered by the universal layer.
+
+Pure — no LLM, no network, no filesystem — so it is keyless and CI-testable.
 
 Safety (never clear a real finding):
 * clears ONLY on a ``classified`` glob whose ``category`` is a conservative
@@ -91,7 +99,8 @@ def _code_map_says_ships(path: str, code_map: dict[str, Any] | None) -> bool:
     a corrupt code_map (non-list / non-dict / non-str)."""
     if not code_map:
         return False
-    for root in code_map.get("ships_roots") or []:
+    ships_roots = code_map.get("ships_roots")
+    for root in (ships_roots if isinstance(ships_roots, list) else []):
         if isinstance(root, str) and root and _path_matches(path, root):
             return True
     classified = code_map.get("classified")
@@ -176,15 +185,43 @@ def _path_matches(path: str, glob: str) -> bool:
     return False
 
 
+def _clear(*, eyebrow: str, result: str, detail: str) -> TriageOutput:
+    return TriageOutput(
+        verdict="false_positive",
+        confidence=_CONF_CODEMAP_CLEAR,
+        checks=[TriageCheck(eyebrow=eyebrow, result=result, kind="pass", detail=detail)],
+        provenance=TriageProvenance(
+            steps_run=["code_map_resolver"], exit_stage="code_map_resolver", escalated=False
+        ),
+    )
+
+
 def resolve_by_code_map(
     finding: dict[str, Any], code_map: dict[str, Any] | None
 ) -> TriageOutput | None:
-    """Return a ``false_positive`` verdict if *finding*'s path is in non-ship code
-    per *code_map*; else ``None`` (fall through to the Deep dive)."""
-    if not code_map:
+    """Clear *finding* as ``false_positive`` if its path is non-ship code; else
+    ``None`` (fall through to the Deep dive). Two layers:
+
+    1. Universal built-in safe-path patterns (work without a ``code_map``), unless
+       the repo profile classifies the path as SHIPPING (veto).
+    2. The repo ``code_map``'s ``classified`` non-ship globs (SP2 behavior).
+    """
+    raw = (finding.get("location") or "").strip()
+    if not raw:
         return None
-    path = (finding.get("location") or "").strip()
-    if not path:
+    path = _strip_line_suffix(raw)
+
+    # Layer 1 — universal non-ship paths (gold-validated; works with no code_map).
+    builtin = _match_builtin(path)
+    if builtin is not None and not _code_map_says_ships(path, code_map):
+        return _clear(
+            eyebrow="Non-ship path",
+            result="does not ship to production",
+            detail=f"path {path!r} is a built-in non-ship location ({builtin})",
+        )
+
+    # Layer 2 — the repo profile's classified non-ship globs.
+    if not code_map:
         return None
     classified = code_map.get("classified")
     if not isinstance(classified, list):
@@ -206,22 +243,10 @@ def resolve_by_code_map(
         )
         if safe and _path_matches(path, glob):
             reason = entry.get("reason") or "non-shipping code"
-            return TriageOutput(
-                verdict="false_positive",
-                confidence=_CONF_CODEMAP_CLEAR,
-                checks=[
-                    TriageCheck(
-                        eyebrow="Out of scope",
-                        result=f"{category} code — does not ship to production",
-                        kind="pass",
-                        detail=f"path {path!r} matches code_map glob {glob!r}: {reason}",
-                    )
-                ],
-                provenance=TriageProvenance(
-                    steps_run=["code_map_resolver"],
-                    exit_stage="code_map_resolver",
-                    escalated=False,
-                ),
+            return _clear(
+                eyebrow="Out of scope",
+                result=f"{category} code — does not ship to production",
+                detail=f"path {path!r} matches code_map glob {glob!r}: {reason}",
             )
     return None
 

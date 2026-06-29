@@ -15,12 +15,13 @@ def _cm(classified):
 
 
 def test_clears_test_file_with_reason():
-    cm = _cm([{"glob": "tests/**", "category": "test", "reason": "pytest suite"}])
-    out = resolve_by_code_map({"location": "tests/test_signup.py"}, cm)
+    # Use a non-builtin dir + non-builtin basename so Layer 2 (code_map) is exercised.
+    cm = _cm([{"glob": "my_suite/**", "category": "test", "reason": "pytest suite"}])
+    out = resolve_by_code_map({"location": "my_suite/signup_handler.py"}, cm)
     assert out is not None
     assert out.verdict == "false_positive"
     assert out.recommended_close == "false_positive"
-    assert out.checks and "tests/**" in (out.checks[0].detail or "")
+    assert out.checks and "my_suite/**" in (out.checks[0].detail or "")
     assert "pytest suite" in (out.checks[0].detail or "")
 
 
@@ -51,8 +52,11 @@ def test_filename_glob_matches_anywhere():
 
 
 def test_empty_or_missing_inputs_return_none():
-    assert resolve_by_code_map({"location": "tests/x.py"}, None) is None
-    assert resolve_by_code_map({"location": "tests/x.py"}, _cm([])) is None
+    # Non-builtin path + no code_map → None (no built-in match, no profile).
+    assert resolve_by_code_map({"location": "src/app.py"}, None) is None
+    # Non-builtin path + empty classified → None.
+    assert resolve_by_code_map({"location": "src/app.py"}, _cm([])) is None
+    # Empty location always → None.
     assert resolve_by_code_map({}, _cm([{"glob": "tests/**", "category": "test"}])) is None
 
 
@@ -139,17 +143,19 @@ def test_repeated_doublestar_matches_same_as_single():
 
 def test_corrupt_classified_non_list_returns_none():
     # A corrupt code_map whose `classified` is a non-list scalar must not crash — fall through.
-    for bad in (5, True, "x", {"glob": "tests/**"}):
+    # Use a non-builtin path so Layer 1 doesn't clear it; only Layer 2 is in play.
+    for bad in (5, True, "x", {"glob": "src/**"}):
         cm = {"ships_roots": [], "excluded_roots": [], "classified": bad}
-        assert resolve_by_code_map({"location": "tests/test_x.py"}, cm) is None
+        assert resolve_by_code_map({"location": "src/handler.py"}, cm) is None
 
 
 def test_non_hashable_category_does_not_crash():
     """A corrupt entry whose `category` is a non-hashable (list/dict) must not raise
-    TypeError when tested against NONSHIP_CATEGORIES — the guard skips it cleanly."""
+    TypeError when tested against NONSHIP_CATEGORIES — the guard skips it cleanly.
+    Uses a non-builtin path so Layer 1 doesn't fire; only Layer 2 is exercised."""
     for bad_category in (["test"], {"key": "val"}):
-        cm = _cm([{"glob": "tests/**", "category": bad_category, "reason": "x"}])
-        result = resolve_by_code_map({"location": "tests/test_x.py"}, cm)
+        cm = _cm([{"glob": "src/**", "category": bad_category, "reason": "x"}])
+        result = resolve_by_code_map({"location": "src/handler.py"}, cm)
         assert result is None, f"expected None for category={bad_category!r}, got {result!r}"
 
 
@@ -190,3 +196,44 @@ def test_code_map_says_ships_veto():
 def test_builtin_constants_shape():
     assert "tests" in _BUILTIN_DIR_SEGMENTS and "examples" in _BUILTIN_DIR_SEGMENTS
     assert "*.test.ts" in _BUILTIN_BASENAME_GLOBS and "test.py" in _BUILTIN_BASENAME_GLOBS
+
+
+# ---------------------------------------------------------------------------
+# Task 2 — integration tests for the two-layer resolve_by_code_map
+# ---------------------------------------------------------------------------
+
+def test_builtin_layer_clears_without_code_map():
+    out = resolve_by_code_map({"location": "app/tests/test_login.py:42"}, None)
+    assert out is not None and out.verdict == "false_positive"
+    assert "non-ship" in (out.checks[0].detail or "").lower()
+
+
+def test_builtin_layer_clears_test_basename_after_line_strip():
+    out = resolve_by_code_map({"location": "packages/trpc/routers/users.test.ts:671"}, None)
+    assert out is not None and out.verdict == "false_positive"
+
+
+def test_ships_veto_overrides_builtin_clear():
+    # The repo packages examples/ → profile marks it ships → built-in clear vetoed.
+    cm = {"classified": [{"glob": "examples/**", "category": "ships", "reason": "in wheel"}]}
+    assert resolve_by_code_map({"location": "examples/demo.py"}, cm) is None
+
+
+def test_shipping_path_with_no_builtin_match_still_none():
+    assert resolve_by_code_map({"location": "src/app/handler.py"}, None) is None
+
+
+def test_existing_code_map_layer_still_works():
+    cm = _cm([{"glob": "vendored_thing/**", "category": "test", "reason": "vendored test rig"}])
+    assert resolve_by_code_map({"location": "vendored_thing/x.py"}, cm) is not None
+
+
+def test_builtin_does_not_overmatch_shipping_lookalike():
+    assert resolve_by_code_map({"location": "src/latest_release.py:10"}, None) is None
+    assert resolve_by_code_map({"location": "src/contest.py"}, None) is None
+
+
+def test_ships_roots_non_list_does_not_crash():
+    # A corrupt code_map with ships_roots=int must not TypeError — treats it as no veto.
+    assert _code_map_says_ships("x", {"ships_roots": 5}) is False
+    assert _code_map_says_ships("x", {"ships_roots": "src"}) is False
