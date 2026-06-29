@@ -1,7 +1,8 @@
 """The deterministic code_map resolver (SP2) — pure, keyless."""
 from cliff.agents.triage_codemap import (
     _BUILTIN_BASENAME_GLOBS,
-    _BUILTIN_DIR_SEGMENTS,
+    _BUILTIN_TEST_SEGMENTS,
+    _BUILTIN_VETOABLE_SEGMENTS,
     NONSHIP_CATEGORIES,
     _code_map_says_ships,
     _match_builtin,
@@ -194,7 +195,11 @@ def test_code_map_says_ships_veto():
 
 
 def test_builtin_constants_shape():
-    assert "tests" in _BUILTIN_DIR_SEGMENTS and "examples" in _BUILTIN_DIR_SEGMENTS
+    assert "tests" in _BUILTIN_TEST_SEGMENTS and "fixtures" in _BUILTIN_TEST_SEGMENTS
+    assert "examples" in _BUILTIN_VETOABLE_SEGMENTS and "docs" in _BUILTIN_VETOABLE_SEGMENTS
+    # examples/docs are vetoable; tests/fixtures are never-veto — no cross-membership
+    assert "examples" not in _BUILTIN_TEST_SEGMENTS
+    assert "tests" not in _BUILTIN_VETOABLE_SEGMENTS
     assert "*.test.ts" in _BUILTIN_BASENAME_GLOBS and "test.py" in _BUILTIN_BASENAME_GLOBS
 
 
@@ -237,3 +242,62 @@ def test_ships_roots_non_list_does_not_crash():
     # A corrupt code_map with ships_roots=int must not TypeError — treats it as no veto.
     assert _code_map_says_ships("x", {"ships_roots": 5}) is False
     assert _code_map_says_ships("x", {"ships_roots": "src"}) is False
+
+
+# ---------------------------------------------------------------------------
+# Category-aware ships-veto (fix: test-class paths NEVER vetoed)
+# ---------------------------------------------------------------------------
+
+def test_test_segment_under_coarse_ships_prefix_still_clears():
+    """A coarse ships code_map (e.g. healthchecks ships_roots:['hc/'] + hc/**/*.py) must
+    NOT veto a tests/ directory — test code never ships even under a ships prefix."""
+    cm = {
+        "ships_roots": ["hc/"],
+        "classified": [{"glob": "hc/**/*.py", "category": "ships", "reason": "app"}],
+    }
+    out = resolve_by_code_map({"location": "hc/tests/test_x.py"}, cm)
+    assert out is not None, "test-class dir under coarse ships prefix must still clear"
+    assert out.verdict == "false_positive"
+
+
+def test_examples_with_ships_classification_is_vetoed():
+    """An examples/ path with an explicit ships classification is vetoed (can be packaged)."""
+    cm = {"classified": [{"glob": "examples/**", "category": "ships", "reason": "in wheel"}]}
+    assert resolve_by_code_map({"location": "examples/demo.py"}, cm) is None
+
+
+def test_match_builtin_test_segment_not_vetoable():
+    """_match_builtin returns vetoable=False for test-class dirs."""
+    result = _match_builtin("app/tests/x.py")
+    assert result is not None
+    label, vetoable = result
+    assert vetoable is False, "test-class dirs must never be vetoable"
+
+
+def test_match_builtin_vetoable_segment_is_vetoable():
+    """_match_builtin returns vetoable=True for examples/ (ambiguous/can ship)."""
+    result = _match_builtin("pkg/examples/x.py")
+    assert result is not None
+    label, vetoable = result
+    assert vetoable is True, "examples/ must be vetoable"
+
+
+def test_test_segment_deeper_under_examples_is_never_vetoed():
+    """examples/tests/x.py: tests/ segment (checked first) wins → never-veto."""
+    cm = {"classified": [{"glob": "examples/**", "category": "ships", "reason": "in wheel"}]}
+    out = resolve_by_code_map({"location": "examples/tests/test_x.py"}, cm)
+    assert out is not None, "test-class segment takes priority over vetoable segment"
+
+
+def test_examples_without_ships_classification_still_clears():
+    """examples/ without a ships veto still clears (no code_map, or non-ships classify)."""
+    out = resolve_by_code_map({"location": "examples/demo.py"}, None)
+    assert out is not None and out.verdict == "false_positive"
+
+
+def test_match_builtin_basename_not_vetoable():
+    """Test-file basenames (*_test.py etc.) return vetoable=False."""
+    result = _match_builtin("src/foo_test.py")
+    assert result is not None
+    label, vetoable = result
+    assert vetoable is False, "test basenames are never vetoable"

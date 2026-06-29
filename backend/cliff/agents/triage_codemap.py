@@ -50,14 +50,16 @@ _CONF_CODEMAP_CLEAR = 0.9
 
 _BOUNDARY = set("/._-")
 
-#: Universal non-ship DIRECTORY segments — gold-validated noise-only over the 2,229
-#: corpus (tests/=824, examples/=77, e2e/=11, fixtures/=9, docs/=4, benchmarks/=3 …).
-#: Matched as exact path segments (never substring): "tests" matches app/tests/x.py,
-#: not app/latest/x.py.
-_BUILTIN_DIR_SEGMENTS = frozenset({
-    "tests", "test", "__tests__", "spec", "specs", "e2e", "examples", "example",
-    "samples", "sample", "fixtures", "fixture", "testdata", "docs", "doc",
-    "benchmarks", "bench", "__mocks__", "mocks",
+#: Test-class non-ship dirs — code that NEVER ships, even under a coarse ships-prefix.
+#: NOT subject to the ships-veto.
+_BUILTIN_TEST_SEGMENTS = frozenset({
+    "tests", "test", "__tests__", "spec", "specs", "e2e",
+    "fixtures", "fixture", "testdata", "__mocks__", "mocks",
+})
+#: Ambiguous non-ship dirs — usually don't ship but CAN be packaged (examples in a
+#: wheel, served docs) — so a code_map `ships` classification vetoes a clear here.
+_BUILTIN_VETOABLE_SEGMENTS = frozenset({
+    "examples", "example", "samples", "sample", "docs", "doc", "benchmarks", "bench",
 })
 
 #: Universal non-ship BASENAME globs — matched on the :line-stripped basename. Each
@@ -78,18 +80,29 @@ def _strip_line_suffix(path: str) -> str:
     return _LINE_SUFFIX.sub("", path)
 
 
-def _match_builtin(path: str) -> str | None:
-    """If *path* (already :line-stripped) is a universal non-ship location, return a
-    short receipt label; else ``None``. Dir segments matched exactly; basenames via
-    the anchored glob matcher."""
-    parts = path.strip("/").split("/")
-    for seg in parts[:-1]:  # directory components only — never the file itself
-        if seg in _BUILTIN_DIR_SEGMENTS:
-            return f"{seg}/ (non-ship directory)"
-    base = parts[-1]
+def _match_builtin(path: str) -> tuple[str, bool] | None:
+    """Return ``(receipt_label, vetoable)`` if *path* (already :line-stripped) is a
+    universal non-ship location, else ``None``.
+
+    ``vetoable=False`` for test-class dirs and test-file basenames — code that never
+    ships regardless of a coarse ``ships`` classification.  ``vetoable=True`` for
+    examples/docs/etc. that can legitimately be packaged, so a ``ships`` code_map
+    classification may veto the clear.
+
+    Test-segments are checked across ALL directory segments before vetoable ones, so
+    ``examples/tests/x.py`` is treated as test/never-veto.
+    """
+    segs = path.strip("/").split("/")[:-1]  # directories only
+    for seg in segs:
+        if seg in _BUILTIN_TEST_SEGMENTS:
+            return (f"{seg}/ (non-ship test directory)", False)
+    for seg in segs:
+        if seg in _BUILTIN_VETOABLE_SEGMENTS:
+            return (f"{seg}/ (non-ship directory)", True)
+    base = path.strip("/").split("/")[-1]
     for glob in _BUILTIN_BASENAME_GLOBS:
         if _glob_to_regex(glob).match(base):
-            return f"{glob} (non-ship file)"
+            return (f"{glob} (non-ship test file)", False)
     return None
 
 
@@ -212,13 +225,15 @@ def resolve_by_code_map(
     path = _strip_line_suffix(raw)
 
     # Layer 1 — universal non-ship paths (gold-validated; works with no code_map).
-    builtin = _match_builtin(path)
-    if builtin is not None and not _code_map_says_ships(path, code_map):
-        return _clear(
-            eyebrow="Non-ship path",
-            result="does not ship to production",
-            detail=f"path {path!r} is a built-in non-ship location ({builtin})",
-        )
+    m = _match_builtin(path)
+    if m is not None:
+        label, vetoable = m
+        if not (vetoable and _code_map_says_ships(path, code_map)):
+            return _clear(
+                eyebrow="Non-ship path",
+                result="does not ship to production",
+                detail=f"path {path!r} is a built-in non-ship location ({label})",
+            )
 
     # Layer 2 — the repo profile's classified non-ship globs.
     if not code_map:
@@ -251,4 +266,10 @@ def resolve_by_code_map(
     return None
 
 
-__all__ = ["NONSHIP_CATEGORIES", "_glob_is_safe", "resolve_by_code_map"]
+__all__ = [
+    "NONSHIP_CATEGORIES",
+    "_BUILTIN_TEST_SEGMENTS",
+    "_BUILTIN_VETOABLE_SEGMENTS",
+    "_glob_is_safe",
+    "resolve_by_code_map",
+]
