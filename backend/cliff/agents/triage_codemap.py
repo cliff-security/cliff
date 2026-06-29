@@ -48,7 +48,7 @@ NONSHIP_CATEGORIES = frozenset({"test", "fixture", "example", "docs"})
 
 _CONF_CODEMAP_CLEAR = 0.9
 
-_BOUNDARY = set("/._-")
+_BOUNDARY = frozenset("/._-")
 
 #: Test-class non-ship dirs — code that NEVER ships, even under a coarse ships-prefix.
 #: NOT subject to the ships-veto.
@@ -92,14 +92,15 @@ def _match_builtin(path: str) -> tuple[str, bool] | None:
     Test-segments are checked across ALL directory segments before vetoable ones, so
     ``examples/tests/x.py`` is treated as test/never-veto.
     """
-    segs = path.strip("/").split("/")[:-1]  # directories only
+    parts = path.strip("/").split("/")
+    segs = parts[:-1]  # directories only
     for seg in segs:
         if seg in _BUILTIN_TEST_SEGMENTS:
             return (f"{seg}/ (non-ship test directory)", False)
     for seg in segs:
         if seg in _BUILTIN_VETOABLE_SEGMENTS:
             return (f"{seg}/ (non-ship directory)", True)
-    base = path.strip("/").split("/")[-1]
+    base = parts[-1]
     for glob in _BUILTIN_BASENAME_GLOBS:
         if _glob_to_regex(glob).match(base):
             return (f"{glob} (non-ship test file)", False)
@@ -219,7 +220,8 @@ def resolve_by_code_map(
        the repo profile classifies the path as SHIPPING (veto).
     2. The repo ``code_map``'s ``classified`` non-ship globs (SP2 behavior).
     """
-    raw = (finding.get("location") or "").strip()
+    loc = finding.get("location")
+    raw = loc.strip() if isinstance(loc, str) else ""
     if not raw:
         return None
     path = _strip_line_suffix(raw)
