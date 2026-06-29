@@ -1,5 +1,13 @@
 """The deterministic code_map resolver (SP2) — pure, keyless."""
-from cliff.agents.triage_codemap import NONSHIP_CATEGORIES, resolve_by_code_map
+from cliff.agents.triage_codemap import (
+    _BUILTIN_BASENAME_GLOBS,
+    _BUILTIN_DIR_SEGMENTS,
+    NONSHIP_CATEGORIES,
+    _code_map_says_ships,
+    _match_builtin,
+    _strip_line_suffix,
+    resolve_by_code_map,
+)
 
 
 def _cm(classified):
@@ -143,3 +151,42 @@ def test_non_hashable_category_does_not_crash():
         cm = _cm([{"glob": "tests/**", "category": bad_category, "reason": "x"}])
         result = resolve_by_code_map({"location": "tests/test_x.py"}, cm)
         assert result is None, f"expected None for category={bad_category!r}, got {result!r}"
+
+
+def test_strip_line_suffix():
+    assert _strip_line_suffix("pkg/users.test.ts:671") == "pkg/users.test.ts"
+    assert _strip_line_suffix("hc/test.py:31:5") == "hc/test.py"
+    assert _strip_line_suffix("hc/test.py") == "hc/test.py"
+    assert _strip_line_suffix("lodash@4.17.21") == "lodash@4.17.21"  # no trailing :digits
+
+
+def test_match_builtin_dir_segments():
+    assert _match_builtin("app/tests/test_x.py") is not None      # tests/ segment
+    assert _match_builtin("pkg/examples/demo.py") is not None      # examples/
+    assert _match_builtin("src/app/handler.py") is None           # ships
+    assert _match_builtin("app/latest/x.py") is None              # 'latest' != 'tests'
+
+
+def test_match_builtin_basenames():
+    assert _match_builtin("pkg/routers/users.test.ts") is not None  # *.test.ts
+    assert _match_builtin("hc/test.py") is not None                 # test.py
+    assert _match_builtin("a/b/foo_test.go") is not None            # *_test.go
+    assert _match_builtin("src/testimony.py") is None               # no over-match
+    assert _match_builtin("src/contest.py") is None
+
+
+def test_code_map_says_ships_veto():
+    cm = {
+        "ships_roots": [],
+        "classified": [{"glob": "examples/**", "category": "ships", "reason": "packaged"}],
+    }
+    assert _code_map_says_ships("examples/demo.py", cm) is True   # repo packages examples/
+    assert _code_map_says_ships("tests/test_x.py", cm) is False
+    assert _code_map_says_ships("examples/demo.py", None) is False
+    assert _code_map_says_ships("x", {"ships_roots": ["src"], "classified": []}) is False
+    assert _code_map_says_ships("src/app.py", {"ships_roots": ["src"], "classified": []}) is True
+
+
+def test_builtin_constants_shape():
+    assert "tests" in _BUILTIN_DIR_SEGMENTS and "examples" in _BUILTIN_DIR_SEGMENTS
+    assert "*.test.ts" in _BUILTIN_BASENAME_GLOBS and "test.py" in _BUILTIN_BASENAME_GLOBS

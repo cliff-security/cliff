@@ -42,6 +42,68 @@ _CONF_CODEMAP_CLEAR = 0.9
 
 _BOUNDARY = set("/._-")
 
+#: Universal non-ship DIRECTORY segments — gold-validated noise-only over the 2,229
+#: corpus (tests/=824, examples/=77, e2e/=11, fixtures/=9, docs/=4, benchmarks/=3 …).
+#: Matched as exact path segments (never substring): "tests" matches app/tests/x.py,
+#: not app/latest/x.py.
+_BUILTIN_DIR_SEGMENTS = frozenset({
+    "tests", "test", "__tests__", "spec", "specs", "e2e", "examples", "example",
+    "samples", "sample", "fixtures", "fixture", "testdata", "docs", "doc",
+    "benchmarks", "bench", "__mocks__", "mocks",
+})
+
+#: Universal non-ship BASENAME globs — matched on the :line-stripped basename. Each
+#: is boundary-anchored (no within-word substring match): test_*.py matches
+#: test_login.py, not testimony.py.
+_BUILTIN_BASENAME_GLOBS = (
+    "*.test.js", "*.test.ts", "*.test.jsx", "*.test.tsx", "*.spec.js", "*.spec.ts",
+    "*_test.py", "*_test.go", "*_test.js", "*_test.ts", "test_*.py", "conftest.py",
+    "*.stories.js", "*.stories.ts", "test.py",
+)
+
+_LINE_SUFFIX = re.compile(r":\d+(?::\d+)?$")
+
+
+def _strip_line_suffix(path: str) -> str:
+    """Strip a trailing scanner ``:line`` / ``:line:col`` (e.g. ``x.test.ts:671`` →
+    ``x.test.ts``) so basename matching works on Snyk/semgrep locations."""
+    return _LINE_SUFFIX.sub("", path)
+
+
+def _match_builtin(path: str) -> str | None:
+    """If *path* (already :line-stripped) is a universal non-ship location, return a
+    short receipt label; else ``None``. Dir segments matched exactly; basenames via
+    the anchored glob matcher."""
+    parts = path.strip("/").split("/")
+    for seg in parts[:-1]:  # directory components only — never the file itself
+        if seg in _BUILTIN_DIR_SEGMENTS:
+            return f"{seg}/ (non-ship directory)"
+    base = parts[-1]
+    for glob in _BUILTIN_BASENAME_GLOBS:
+        if _glob_to_regex(glob).match(base):
+            return f"{glob} (non-ship file)"
+    return None
+
+
+def _code_map_says_ships(path: str, code_map: dict[str, Any] | None) -> bool:
+    """Whether the repo profile classifies *path* as SHIPPING code — vetoes a
+    built-in clear (the rare repo that packages examples/ etc.). Defensive against
+    a corrupt code_map (non-list / non-dict / non-str)."""
+    if not code_map:
+        return False
+    for root in code_map.get("ships_roots") or []:
+        if isinstance(root, str) and root and _path_matches(path, root):
+            return True
+    classified = code_map.get("classified")
+    if isinstance(classified, list):
+        for entry in classified:
+            if not isinstance(entry, dict) or entry.get("category") != "ships":
+                continue
+            glob = entry.get("glob")
+            if isinstance(glob, str) and glob and _glob_is_safe(glob) and _path_matches(path, glob):
+                return True
+    return False
+
 
 def _glob_is_safe(glob: str) -> bool:
     """Reject loose globs that could substring-match inside a path segment.
