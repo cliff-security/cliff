@@ -6,6 +6,8 @@ model (ADR-0052 §2).
 
 from __future__ import annotations
 
+from pydantic_ai.exceptions import UsageLimitExceeded
+
 from cliff.agents.schemas import Challenge, ChallengeReviewer
 from cliff.agents.triage_deep.runner import DeepDiveRunner, DeepDiveStages
 
@@ -18,6 +20,24 @@ def _stage(value):
         return value
 
     return _f
+
+
+def _raise(exc):
+    async def _f(deps, model):
+        raise exc
+
+    return _f
+
+
+async def test_usage_budget_breach_degrades_to_incomplete():
+    # A stage that exhausts its usage budget — the request limit OR the per-stage
+    # total_tokens_limit that bounds the runaway tool-loop — must degrade to a
+    # needs_review/incomplete verdict, never crash and never a false clear. This
+    # is the contract the token cap relies on (UsageLimitExceeded -> incomplete).
+    stages = DeepDiveStages(gather=_raise(UsageLimitExceeded("exceeded the tokens_limit")))
+    out = await _run(stages)
+    assert out.verdict == "needs_review"
+    assert out.provenance.exit_stage == "incomplete"
 
 
 def _challenge(result: Challenge):

@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 from cliff.agents.runtime.triage_synthesizer import synthesize_triage
 from cliff.agents.schemas import TriageOutput
 from cliff.agents.sidebar_mapper import map_and_upsert
+from cliff.agents.triage_codemap import resolve_by_code_map
 from cliff.agents.triage_deep.integration import maybe_deep_dive
 from cliff.db.repo_agent_run import (
     create_agent_run,
@@ -29,6 +30,8 @@ from cliff.db.repo_agent_run import (
 from cliff.db.repo_finding import get_finding
 from cliff.db.repo_sidebar import get_sidebar
 from cliff.models import AgentRunCreate, AgentRunUpdate
+from cliff.repos.dao import get_repo_by_url
+from cliff.repos.service import default_repo_dir_manager
 
 if TYPE_CHECKING:
     import aiosqlite
@@ -102,6 +105,31 @@ async def _persist_synthesis(
 def _structured_output(runs: dict[str, Any], agent_type: str) -> dict[str, Any] | None:
     run = runs.get(agent_type)
     return run.structured_output if run is not None else None
+
+
+async def _load_code_map(db: aiosqlite.Connection, repo_url: str | None) -> dict[str, Any] | None:
+    """The repo's cached code_map, or None when there's no ready profile — the
+    same resolution the Deep dive uses (cliff/agents/triage_deep/integration.py).
+
+    Returns None (falls through to Deep dive) on any read/parse failure, or
+    when the artifact is not a dict — triage must never crash on a corrupt
+    code_map.
+    """
+    if not repo_url:
+        return None
+    repo = await get_repo_by_url(db, repo_url)
+    if repo is None or repo.profile_status != "ready":
+        return None
+    try:
+        result = default_repo_dir_manager().read_artifact(repo.id, "code_map")
+    except Exception:
+        logger.debug(
+            "code_map unreadable for repo %s — falling through to Deep dive", repo_url
+        )
+        return None
+    if not isinstance(result, dict):
+        return None
+    return result
 
 
 async def run_triage(
@@ -215,14 +243,29 @@ async def _run_scanner_triage(
         await _persist_synthesis(db, workspace.id, quick)
         return quick
 
+    # Build the finding context once (path comes from the scanner raw_payload —
+    # assessment/to_findings.py stores the flagged file under raw_payload["path"]).
+    # Normalize to str | None so resolve_by_code_map always receives a safe value.
+    raw_path = (finding.raw_payload or {}).get("path")
+    finding_ctx = {
+        **finding.model_dump(mode="json"),
+        "internet_facing": (exposure or {}).get("internet_facing"),
+        "location": raw_path if isinstance(raw_path, str) else None,
+    }
+
+    # Deterministic code_map gate (SP2): clear non-ship findings before the LLM
+    # Deep dive. A match is a structural fact (this code does not ship), gated on
+    # the repo profile; a miss falls through unchanged.
+    code_map = await _load_code_map(db, workspace.repo_url)
+    cleared = resolve_by_code_map(finding_ctx, code_map)
+    if cleared is not None:
+        await _persist_synthesis(db, workspace.id, cleared)
+        return cleared
+
     # Escalate to the agentic Deep dive when warranted (ADR-0052). Best-effort:
     # any failure keeps the cheap Quick-read verdict — triage never breaks.
     final = quick
     try:
-        finding_ctx = {
-            **finding.model_dump(mode="json"),
-            "internet_facing": (exposure or {}).get("internet_facing"),
-        }
         deep = await maybe_deep_dive(
             db,
             finding=finding_ctx,

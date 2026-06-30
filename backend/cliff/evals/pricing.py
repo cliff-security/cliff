@@ -15,6 +15,13 @@ _PRICE_USD_PER_MTOK: dict[str, tuple[float, float]] = {
     "claude-haiku-4-5": (1.0, 5.0),
     "claude-haiku-4.5": (1.0, 5.0),
     "claude-sonnet-4": (3.0, 15.0),
+    # The Deep dive's judge tier is opus (model_tiers._LINEUP). Without an opus
+    # entry, estimate_cost_usd returns None for any judge call, which makes the
+    # eval runner's _TokenAccumulator.total_usd() return None and silently
+    # disables its $ budget cap the moment a single challenge stage runs. Keep
+    # the opus family priced so the cap can never go blind.
+    "claude-opus-4": (5.0, 25.0),
+    "claude-opus-4.8": (5.0, 25.0),
     "gpt-4o-mini": (0.15, 0.60),
     "gpt-5": (1.25, 10.0),
     "gemini-2.5-flash": (0.30, 2.50),
