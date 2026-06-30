@@ -47,15 +47,37 @@ DEEP_DIVE_TOOLS = (read, grep)
 #: needs_review), it never crashes the pipeline.
 DEEP_DIVE_REQUEST_LIMIT = 40
 
-#: Per-stage cumulative token ceiling (input+output across the whole tool-loop of
+def _int_env(name: str, default: int) -> int:
+    """Positive-int env override, falling back to *default* on a missing or
+    malformed value. This module is imported by the LIVE triage path (not just
+    the eval), so a typo like ``CLIFF_DEEP_DIVE_TOKEN_LIMIT_CHEAP=200k`` must not
+    crash all triage with a ValueError at import time."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        val = int(raw)
+    except ValueError:
+        return default
+    return val if val > 0 else default
+
+
+#: Per-stage cumulative token ceilings (input+output across the whole tool-loop of
 #: one agent.run). Each tool call re-sends the GROWING conversation, so an N-call
 #: loop costs ~O(N²) input tokens — a single large-repo stage was measured at
-#: ~670K cheap-tier tokens before it overflowed the model window and 400'd
-#: ("prompt too long"), having billed every request on the way to the wall. The
-#: cheap tier is haiku (200K window); the strong/judge tiers are 1M. This ceiling
-#: turns that runaway into a clean ``UsageLimitExceeded`` (the runner degrades it
-#: to ``incomplete``) at a BOUNDED cost, instead of send-fail-bill. Env-tunable.
-DEEP_DIVE_TOTAL_TOKEN_LIMIT = int(os.environ.get("CLIFF_DEEP_DIVE_TOKEN_LIMIT", "200000"))
+#: ~670K cheap-tier tokens before it overflowed the window and 400'd ("prompt too
+#: long"), having billed every request on the way to the wall. A breach raises
+#: ``UsageLimitExceeded`` (the runner degrades it to ``incomplete``) at a BOUNDED
+#: cost instead of send-fail-bill.
+#:
+#: TIERED because the windows differ. The CHEAP tier is haiku (200K window) — cap
+#: below it to bound the runaway AND avoid the overflow-400. The STRONG/JUDGE tiers
+#: are sonnet/opus (1M window): a single flat 200K cap would clip a legitimately
+#: deep trace/plan/challenge into ``incomplete`` (a recall regression), so they get
+#: a higher ceiling that still bounds a true unbounded loop and opus cost while
+#: leaving room for real analysis. Both env-tunable.
+DEEP_DIVE_TOKEN_LIMIT_CHEAP = _int_env("CLIFF_DEEP_DIVE_TOKEN_LIMIT_CHEAP", 180_000)
+DEEP_DIVE_TOKEN_LIMIT_STRONG = _int_env("CLIFF_DEEP_DIVE_TOKEN_LIMIT_STRONG", 800_000)
 
 #: Cumulative read/grep byte cap per stage run (ADR-0052). Bounds context so a
 #: large real repo can't overflow the model window — ~120KB ≈ 30K tokens of file
@@ -206,7 +228,12 @@ _TRANSIENT_STATUS = frozenset({429, 503})
 
 
 async def run_agent_with_retry(
-    agent: Agent, prompt: str, deps: WorkspaceDeps, *, attempts: int = 12
+    agent: Agent,
+    prompt: str,
+    deps: WorkspaceDeps,
+    *,
+    attempts: int = 12,
+    total_tokens_limit: int = DEEP_DIVE_TOKEN_LIMIT_STRONG,
 ):
     """Run *agent*, retrying transient provider errors (429/503) with backoff.
 
@@ -222,12 +249,13 @@ async def run_agent_with_retry(
                 deps=deps,
                 usage_limits=UsageLimits(
                     request_limit=DEEP_DIVE_REQUEST_LIMIT,
-                    # Cumulative-token ceiling: stop a ballooning tool-loop BEFORE
-                    # it overflows the window and bills the doomed request. A
+                    # Per-tier cumulative-token ceiling: stop a ballooning tool-loop
+                    # BEFORE it overflows the window and bills the doomed request. A
                     # breach raises UsageLimitExceeded, which DeepDiveRunner.run
                     # catches and degrades to incomplete (never a crash, never a
-                    # false clear) — same outcome as an overflow, bounded cost.
-                    total_tokens_limit=DEEP_DIVE_TOTAL_TOKEN_LIMIT,
+                    # false clear) — bounded cost. The caller passes the cheap vs
+                    # strong/judge ceiling so a deep 1M-window stage isn't clipped.
+                    total_tokens_limit=total_tokens_limit,
                 ),
             )
         except ModelHTTPError as exc:
@@ -245,28 +273,42 @@ async def run_agent_with_retry(
     raise RuntimeError("unreachable")  # pragma: no cover
 
 
-async def _run(agent: Agent, deps: WorkspaceDeps) -> dict:
+async def _run(agent: Agent, deps: WorkspaceDeps, *, total_tokens_limit: int) -> dict:
     # Fresh per-stage read budget so cumulative tool output can't overflow the
     # context window on a large real repo (ADR-0052).
     deps = replace(deps, read_budget=ReadBudget(DEEP_DIVE_READ_BUDGET))
-    result = await run_agent_with_retry(agent, render_context(deps), deps)
+    result = await run_agent_with_retry(
+        agent, render_context(deps), deps, total_tokens_limit=total_tokens_limit
+    )
     return result.output.model_dump()
 
 
+# gather_facts + rule_out run on the CHEAP tier (haiku, 200K window); trace_path +
+# plan_exploit run on the STRONG tier (sonnet, 1M window). Each passes its tier's
+# token ceiling so the 1M-window stages aren't clipped by the cheap cap. (The judge
+# challenge panel calls run_agent_with_retry directly and gets the STRONG default.)
 async def run_gather_facts(deps: WorkspaceDeps, model: Model) -> dict:
-    return await _run(build_gather_facts_agent(model), deps)
+    return await _run(
+        build_gather_facts_agent(model), deps, total_tokens_limit=DEEP_DIVE_TOKEN_LIMIT_CHEAP
+    )
 
 
 async def run_rule_out(deps: WorkspaceDeps, model: Model) -> dict:
-    return await _run(build_rule_out_agent(model), deps)
+    return await _run(
+        build_rule_out_agent(model), deps, total_tokens_limit=DEEP_DIVE_TOKEN_LIMIT_CHEAP
+    )
 
 
 async def run_trace_path(deps: WorkspaceDeps, model: Model) -> dict:
-    return await _run(build_trace_path_agent(model), deps)
+    return await _run(
+        build_trace_path_agent(model), deps, total_tokens_limit=DEEP_DIVE_TOKEN_LIMIT_STRONG
+    )
 
 
 async def run_plan_exploit(deps: WorkspaceDeps, model: Model) -> dict:
-    return await _run(build_plan_exploit_agent(model), deps)
+    return await _run(
+        build_plan_exploit_agent(model), deps, total_tokens_limit=DEEP_DIVE_TOKEN_LIMIT_STRONG
+    )
 
 
 __all__ = [

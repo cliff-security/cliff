@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 from pydantic_ai.models.test import TestModel
 
+import cliff.agents.triage_deep.agents as dd_agents
 from cliff.agents.runtime.deps import WorkspaceDeps
 from cliff.agents.runtime.tools import bash, edit, gh, grep, read, webfetch
 from cliff.agents.schemas import (
@@ -21,6 +22,8 @@ from cliff.agents.schemas import (
     RuleOutResult,
 )
 from cliff.agents.triage_deep.agents import (
+    DEEP_DIVE_TOKEN_LIMIT_CHEAP,
+    DEEP_DIVE_TOKEN_LIMIT_STRONG,
     DEEP_DIVE_TOOLS,
     run_gather_facts,
     run_plan_exploit,
@@ -74,6 +77,63 @@ async def test_trace_path_returns_reachability(deps):
 async def test_plan_exploit_returns_plan(deps):
     out = await run_plan_exploit(deps, TestModel(custom_output_args={"no_credible_exploit": True}))
     assert ExploitPlan.model_validate(out).no_credible_exploit is True
+
+
+# ── per-tier token ceilings (the runaway-cost guard must not clip the 1M tiers) ──
+
+
+class _Out:
+    def model_dump(self):
+        return {}
+
+
+class _Result:
+    output = _Out()
+
+
+async def _capture_token_limit(monkeypatch, runner) -> int:
+    """Run *runner* with run_agent_with_retry stubbed, returning the
+    total_tokens_limit it was handed."""
+    captured: dict[str, int] = {}
+
+    async def _fake(agent, prompt, deps, *, attempts=12, total_tokens_limit=None):
+        captured["limit"] = total_tokens_limit
+        return _Result()
+
+    monkeypatch.setattr(dd_agents, "run_agent_with_retry", _fake)
+    deps = WorkspaceDeps(workspace_id="t", workspace_dir="/tmp", finding={}, prior_context={})
+    await runner(deps, TestModel())
+    return captured["limit"]
+
+
+async def test_cheap_stages_get_the_cheap_ceiling(monkeypatch):
+    # gather_facts / rule_out run on haiku (200K window) — capped below it.
+    for runner in (run_gather_facts, run_rule_out):
+        assert await _capture_token_limit(monkeypatch, runner) == DEEP_DIVE_TOKEN_LIMIT_CHEAP
+
+
+async def test_strong_stages_get_the_strong_ceiling(monkeypatch):
+    # trace_path / plan_exploit run on sonnet (1M window) — a higher cap so a deep
+    # stage isn't clipped into `incomplete` (the recall regression a flat cap caused).
+    for runner in (run_trace_path, run_plan_exploit):
+        assert await _capture_token_limit(monkeypatch, runner) == DEEP_DIVE_TOKEN_LIMIT_STRONG
+
+
+def test_token_ceilings_are_tiered_and_window_aware():
+    # The cheap cap must sit below haiku's 200K window (bounds runaway + avoids the
+    # overflow-400); the strong cap must exceed it (room for a deep 1M-window stage).
+    assert DEEP_DIVE_TOKEN_LIMIT_CHEAP < 200_000
+    assert DEEP_DIVE_TOKEN_LIMIT_STRONG > DEEP_DIVE_TOKEN_LIMIT_CHEAP
+
+
+def test_malformed_token_limit_env_does_not_crash(monkeypatch):
+    # A typo in the override must fall back to the default, not ValueError at import.
+    monkeypatch.setenv("X_BAD", "200k")
+    assert dd_agents._int_env("X_BAD", 123) == 123
+    monkeypatch.setenv("X_BAD", "-5")
+    assert dd_agents._int_env("X_BAD", 123) == 123
+    monkeypatch.setenv("X_BAD", "50000")
+    assert dd_agents._int_env("X_BAD", 123) == 50000
 
 
 # ── deterministic challenge resolution ──────────────────────────────────────
