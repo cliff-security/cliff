@@ -142,6 +142,20 @@ def test_repeated_doublestar_matches_same_as_single():
         ), f"single glob missed {loc!r}"
 
 
+def test_non_string_location_does_not_crash():
+    """A truthy non-string `location` (e.g. a list or int from a malformed scanner
+    payload) must not raise AttributeError on .strip() — the resolver falls through
+    to None cleanly, never crashing triage."""
+    for bad_loc in (123, [], {"path": "tests/x.py"}, True):
+        result = resolve_by_code_map({"location": bad_loc}, None)
+        assert result is None, f"expected None for location={bad_loc!r}, got {result!r}"
+    # Also with a code_map entry that would otherwise match — still must not crash.
+    cm = _cm([{"glob": "tests/**", "category": "test", "reason": "t"}])
+    for bad_loc in (123, [], True):
+        result = resolve_by_code_map({"location": bad_loc}, cm)
+        assert result is None, f"expected None for location={bad_loc!r} with code_map"
+
+
 def test_corrupt_classified_non_list_returns_none():
     # A corrupt code_map whose `classified` is a non-list scalar must not crash — fall through.
     # Use a non-builtin path so Layer 1 doesn't clear it; only Layer 2 is in play.

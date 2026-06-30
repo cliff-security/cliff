@@ -245,10 +245,12 @@ async def _run_scanner_triage(
 
     # Build the finding context once (path comes from the scanner raw_payload —
     # assessment/to_findings.py stores the flagged file under raw_payload["path"]).
+    # Normalize to str | None so resolve_by_code_map always receives a safe value.
+    raw_path = (finding.raw_payload or {}).get("path")
     finding_ctx = {
         **finding.model_dump(mode="json"),
         "internet_facing": (exposure or {}).get("internet_facing"),
-        "location": (finding.raw_payload or {}).get("path"),
+        "location": raw_path if isinstance(raw_path, str) else None,
     }
 
     # Deterministic code_map gate (SP2): clear non-ship findings before the LLM
