@@ -51,9 +51,22 @@ def select_eval_model(source: dict[str, str] | None = None) -> str | None:
 
 
 def eval_runnable(source: dict[str, str] | None = None) -> bool:
-    """True iff a live eval can actually run (a model resolves). The live-test
-    skip gate — kept identical to ``select_eval_model`` so they never diverge."""
+    """True iff a live eval can actually run (a model resolves). Kept identical
+    to ``select_eval_model`` so they never diverge."""
     return select_eval_model(source) is not None
 
 
-__all__ = ["eval_runnable", "harvest_env", "select_eval_model"]
+def live_eval_enabled(source: dict[str, str] | None = None) -> bool:
+    """True iff live-LLM evals may run *and spend real credit*.
+
+    Requires BOTH an explicit opt-in (``CLIFF_LIVE_EVAL=1``) AND a runnable
+    model. A provider key alone is deliberately NOT enough: a key exported in
+    the shell (for the eval runner, or sitting in the host profile) must never
+    silently turn a plain ``pytest`` run into a metered one. This is the gate
+    the live-LLM test files skip on — spend is opt-in, not opt-out."""
+    env = source if source is not None else os.environ
+    opt_in = env.get("CLIFF_LIVE_EVAL", "").strip() == "1"
+    return opt_in and eval_runnable(source)
+
+
+__all__ = ["eval_runnable", "harvest_env", "live_eval_enabled", "select_eval_model"]

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -45,6 +46,16 @@ DEEP_DIVE_TOOLS = (read, grep)
 #: model can't loop forever. A breach degrades the stage (the runner routes it to
 #: needs_review), it never crashes the pipeline.
 DEEP_DIVE_REQUEST_LIMIT = 40
+
+#: Per-stage cumulative token ceiling (input+output across the whole tool-loop of
+#: one agent.run). Each tool call re-sends the GROWING conversation, so an N-call
+#: loop costs ~O(N²) input tokens — a single large-repo stage was measured at
+#: ~670K cheap-tier tokens before it overflowed the model window and 400'd
+#: ("prompt too long"), having billed every request on the way to the wall. The
+#: cheap tier is haiku (200K window); the strong/judge tiers are 1M. This ceiling
+#: turns that runaway into a clean ``UsageLimitExceeded`` (the runner degrades it
+#: to ``incomplete``) at a BOUNDED cost, instead of send-fail-bill. Env-tunable.
+DEEP_DIVE_TOTAL_TOKEN_LIMIT = int(os.environ.get("CLIFF_DEEP_DIVE_TOKEN_LIMIT", "200000"))
 
 #: Cumulative read/grep byte cap per stage run (ADR-0052). Bounds context so a
 #: large real repo can't overflow the model window — ~120KB ≈ 30K tokens of file
@@ -209,7 +220,15 @@ async def run_agent_with_retry(
             return await agent.run(
                 prompt,
                 deps=deps,
-                usage_limits=UsageLimits(request_limit=DEEP_DIVE_REQUEST_LIMIT),
+                usage_limits=UsageLimits(
+                    request_limit=DEEP_DIVE_REQUEST_LIMIT,
+                    # Cumulative-token ceiling: stop a ballooning tool-loop BEFORE
+                    # it overflows the window and bills the doomed request. A
+                    # breach raises UsageLimitExceeded, which DeepDiveRunner.run
+                    # catches and degrades to incomplete (never a crash, never a
+                    # false clear) — same outcome as an overflow, bounded cost.
+                    total_tokens_limit=DEEP_DIVE_TOTAL_TOKEN_LIMIT,
+                ),
             )
         except ModelHTTPError as exc:
             if exc.status_code in _TRANSIENT_STATUS and i < attempts - 1:

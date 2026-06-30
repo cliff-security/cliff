@@ -2,23 +2,27 @@
 
 Most agent tests drive the Pydantic AI runtime with a ``FunctionModel`` /
 ``TestModel`` and need no network — those must run in keyless CI so a runtime
-regression isn't masked. Only the two files that call a *real* LLM are skipped
-when no API key is set.
+regression isn't masked. The handful of files that call a *real* LLM (and so
+SPEND credit) are skipped by default and only run under an explicit
+``CLIFF_LIVE_EVAL=1`` opt-in — a provider key alone is not enough to trigger
+spend (see ``_skip_live`` below).
 """
 
 from __future__ import annotations
 
 import pytest
 
-from cliff.evals.models import eval_runnable
+from cliff.evals.models import live_eval_enabled
 
-# Gate live-LLM tests on whether a model actually resolves (CLIFF_EVAL_MODEL
-# override or a configured provider) — derived from the SAME policy the runner
-# uses, so the gate can't say "runnable" while eval_model picks a model with no
-# key (e.g. an Ollama-only host that would otherwise hard-error, not skip).
-_skip_no_key = pytest.mark.skipif(
-    not eval_runnable(),
-    reason="No runnable eval model (set a provider key or CLIFF_EVAL_MODEL)",
+# Live-LLM tests SPEND real provider credit. They are skipped by default — even
+# when a provider key is present in the environment — and only run under an
+# explicit CLIFF_LIVE_EVAL=1 opt-in. The policy lives in cliff.evals.models
+# (`live_eval_enabled`) so the in-repo test gate and the private eval runner
+# share ONE definition of "may we spend?".
+_skip_live = pytest.mark.skipif(
+    not live_eval_enabled(),
+    reason="Live-LLM eval skipped (it spends real credit) — set CLIFF_LIVE_EVAL=1 "
+    "plus a provider key / CLIFF_EVAL_MODEL to opt in.",
 )
 
 # Files whose every test hits a real LLM (the live evals). Everything else
@@ -39,4 +43,4 @@ def pytest_collection_modifyitems(items):
             continue
         item.add_marker(pytest.mark.agent)
         if any(name in path for name in _LIVE_LLM_FILES):
-            item.add_marker(_skip_no_key)
+            item.add_marker(_skip_live)

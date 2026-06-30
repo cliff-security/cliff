@@ -237,7 +237,7 @@ class DeepDiveRunner:
                 )
             )
         except UsageLimitExceeded:
-            return incomplete("Analysis hit the request budget")
+            return incomplete("Analysis hit its usage budget (request or token cap)")
         except ModelHTTPError as exc:
             # Degrade rather than crash on two recoverable conditions: a
             # context-window overflow on a large repo, or a sustained transient
